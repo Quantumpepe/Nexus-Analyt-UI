@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
+
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 import "./App.css";

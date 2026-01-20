@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
+import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 import "./App.css";
@@ -3608,28 +3608,7 @@ async function runAi() {
 // App (provider wrapper)
 // ------------------------
 export default function App() {
-  const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
-
-  if (!privyAppId) {
-    return (
-      <div style={{ padding: 16, color: "#fff", fontFamily: "system-ui" }}>
-        Missing <b>VITE_PRIVY_APP_ID</b> in your environment.
-      </div>
-    );
-  }
-
-  return (
-    <PrivyProvider
-      appId={privyAppId}
-      config={{
-        loginMethods: ["email"],
-        embeddedWallets: {
-          createOnLogin: "users-without-wallets",
-        },
-        // Keep external wallets optional: we don't trigger them anywhere in this UI.
-      }}
-    >
-      <AppInner />
-    </PrivyProvider>
-  );
+  // PrivyProvider is expected to wrap <App /> in src/main.jsx
+  // (Keep a single PrivyProvider instance in the app.)
+  return <AppInner />;
 }

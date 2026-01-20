@@ -1,0 +1,527 @@
+/* ===============================
+   Nexus Analyt – App.css
+   Green + Silver trading UI
+   =============================== */
+
+:root{
+  --bg-main:#071816;
+  --bg-card:#0b2622;
+  --bg-card-2:#0e2f2a;
+  --border-soft:rgba(210,220,230,.12);
+  --txt-main:rgba(232,242,240,.92);
+  --txt-muted:rgba(232,242,240,.62);
+  --green:#2ecc71;
+  --yellow:#f1c40f;
+  --red:#e74c3c;
+  --silver:rgba(210,220,230,.65);
+}
+
+*{ box-sizing:border-box; }
+body{
+  margin:0;
+  background:radial-gradient(1200px 800px at 10% 0%, #0e3a31 0%, var(--bg-main) 55%);
+  color:var(--txt-main);
+  font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+.app{ min-height:100vh; }
+
+/* ===============================
+   Topbar
+   =============================== */
+.topbar{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  padding:18px 22px;
+}
+.brand{ display:flex; gap:14px; align-items:center; }
+.brandTitle{ font-size:22px; font-weight:900; }
+.brandSub{ font-size:13px; color:var(--txt-muted); }
+
+.logoBox{
+  width:44px;height:44px;border-radius:14px;
+  background:linear-gradient(180deg,#0f3b33,#0a2b26);
+  display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--border-soft);
+}
+.logoSvg{ width:30px;height:30px; }
+.logoHex{ fill:#1f7a63; }
+.logoInner{ fill:#0b2622; }
+.logoDot{ fill:#2ecc71; }
+
+.walletBox{ display:flex;flex-direction:column;gap:8px; }
+.walletRow{ display:flex;gap:8px;align-items:center; }
+
+/* ===============================
+   Buttons / Pills
+   =============================== */
+.btn,.btnGhost,.btnDanger{
+  padding:8px 14px;border-radius:14px;
+  font-weight:700;cursor:pointer;
+}
+.btn{
+  background:linear-gradient(180deg,#2ecc71,#25a25a);
+  border:none;color:#071816;
+}
+.btnGhost{
+  background:transparent;border:1px solid var(--border-soft);
+  color:var(--txt-main);
+}
+.btnDanger{
+  background:linear-gradient(180deg,#e74c3c,#c0392b);
+  border:none;color:#fff;
+}
+.btn:disabled,.btnGhost:disabled{ opacity:.45; cursor:not-allowed; }
+
+.pill{
+  padding:6px 10px;border-radius:999px;
+  background:rgba(0,0,0,.18);
+  border:1px solid var(--border-soft);
+  font-size:13px;font-weight:700;
+}
+.pill.silver{ color:var(--silver); }
+.pill.good{ color:var(--green); }
+.pill.bad{ color:var(--red); }
+
+/* ===============================
+   Cards / Layout
+   =============================== */
+.main{ padding:0 18px 40px; max-width:1400px; margin:0 auto; }
+.card{
+  background:linear-gradient(180deg,var(--bg-card-2),var(--bg-card));
+  border:1px solid var(--border-soft);
+  border-radius:22px;
+  padding:16px 18px 18px;
+  margin-bottom:22px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.38), inset 0 0 0 1px rgba(46,204,113,.06);
+}
+.cardHead{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:12px;
+}
+.cardTitle{ font-size:18px;font-weight:900; }
+.cardActions{ display:flex;gap:8px;align-items:center; }
+
+/* ===============================
+   Info button + modal
+   =============================== */
+.infoBtn{
+  width:28px;height:28px;border-radius:999px;
+  border:1px solid var(--border-soft);
+  background:rgba(0,0,0,.25);
+  color:var(--txt-main);
+  font-weight:900;cursor:pointer;
+}
+.modalBackdrop{
+  position:fixed;inset:0;
+  background:rgba(0,0,0,.65);
+  display:flex;align-items:center;justify-content:center;
+  z-index:999;
+}
+.modal{
+  width:min(520px,92%);
+  border-radius:20px;
+  border:1px solid var(--border-soft);
+  padding:16px 18px 18px;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);
+}
+.modalHead{
+  display:flex;justify-content:space-between;align-items:center;
+  margin-bottom:10px;
+}
+.helpLangTitle{
+  font-size:13px;font-weight:900;
+  color:var(--silver);margin-bottom:4px;
+}
+.helpText{ font-size:14px;line-height:1.45; }
+.iconBtn{
+  background:none;border:none;color:var(--txt-main);
+  font-size:22px;cursor:pointer;
+}
+
+/* ===============================
+   Compare section
+   =============================== */
+.compareGrid{
+  display:grid;
+  grid-template-columns:280px 1fr;
+  gap:18px;
+}
+.compareLive{
+  border:1px solid var(--border-soft);
+  border-radius:18px;
+  padding:12px;
+}
+.liveListBox{ margin-top:10px;max-height:320px;overflow-y:auto; }
+.liveRow{
+  display:flex;justify-content:space-between;
+  padding:8px 10px;border-radius:14px;
+  border:1px solid var(--border-soft);
+  margin-bottom:8px;
+}
+.liveLeft{ display:flex;gap:10px;align-items:center; }
+.liveRight{ text-align:right; }
+.livePx{ font-weight:900; }
+
+.compareChart{ width:100%; }
+
+/* ===============================
+   Chart
+   =============================== */
+.chartSvg{ width:100%; height:100%; }
+.chartAxis{ stroke:rgba(210,220,230,.25); stroke-width:2; }
+.chartGrid{ stroke:rgba(210,220,230,.12); stroke-width:2; }
+.chartLabel{ fill:rgba(232,242,240,.8); font-size:16px; font-weight:800; }
+
+.chartLine{ fill:none; }
+.line1{ stroke:#2ecc71; }
+.line2{ stroke:#d0d6db; }
+.line3{ stroke:#f1c40f; }
+.line4{ stroke:#9b59b6; }
+.line5{ stroke:#3498db; }
+.line6{ stroke:#e74c3c; }
+.line7{ stroke:#1abc9c; }
+.line8{ stroke:#e67e22; }
+.line9{ stroke:#00bcd4; }
+.line10{ stroke:#ff6bcb; }
+
+.chartLegend{
+  display:flex;gap:8px;flex-wrap:wrap;
+}
+.legendItem{
+  display:flex;gap:8px;align-items:center;
+  padding:6px 10px;border-radius:999px;
+  border:1px solid var(--border-soft);
+  background:rgba(0,0,0,.2);
+  cursor:pointer;
+}
+.legendDot{
+  width:10px;height:10px;border-radius:999px;
+}
+.legendDot.line1{ background:#2ecc71; }
+.legendDot.line2{ background:#d0d6db; }
+.legendDot.line3{ background:#f1c40f; }
+.legendDot.line4{ background:#9b59b6; }
+.legendDot.line5{ background:#3498db; }
+.legendDot.line6{ background:#e74c3c; }
+.legendDot.line7{ background:#1abc9c; }
+.legendDot.line8{ background:#e67e22; }
+.legendDot.line9{ background:#00bcd4; }
+.legendDot.line10{ background:#ff6bcb; }
+
+/* ===============================
+   Health / Pairs
+   =============================== */
+.healthChips{
+  display:flex;gap:10px;flex-wrap:wrap;
+}
+.coinChip{
+  display:flex;gap:10px;align-items:center;
+  padding:8px 12px;border-radius:999px;
+  border:1px solid var(--border-soft);
+}
+.coinLogo{
+  width:28px;height:28px;border-radius:999px;
+  background:#0f3b33;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:900;
+}
+.coinLogo.small{ width:22px;height:22px;font-size:12px; }
+
+.pairsScroll{ max-height:180px;overflow-y:auto; }
+
+/* ===============================
+   Grid
+   =============================== */
+.gridWrap{
+  display:grid;grid-template-columns:360px 1fr;
+  gap:18px;
+}
+.formRow{
+  display:flex;flex-direction:column;
+  margin-bottom:10px;
+}
+.formRow input,.formRow select{
+  padding:8px 10px;border-radius:12px;
+  border:1px solid var(--border-soft);
+  background:#071816;color:var(--txt-main);
+}
+.ordersList{ margin-top:10px; }
+.orderRow{
+  display:flex;gap:10px;align-items:center;
+  padding:8px;border-bottom:1px solid var(--border-soft);
+}
+
+/* ===============================
+   Watchlist
+   =============================== */
+.watchTable{ margin-top:10px; display:block; }
+.watchHead,.watchRow{
+  display:grid;
+  grid-template-columns:60px 1fr 120px 80px 160px 120px 40px;
+  gap:8px;align-items:center;
+}
+.watchHead{
+  font-weight:800;color:var(--silver);
+  margin-bottom:8px;
+}
+.watchScroll{
+  display:block;
+  height: 320px;          /* force scrollbar area */
+  overflow-y: scroll;     /* always show scrollbar */
+  overflow-x: hidden;
+  padding-right: 8px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.watchRow{
+  padding:8px;border-radius:14px;
+  border:1px solid var(--border-soft);
+  margin-bottom:6px;
+}
+.watchCoin{ display:flex;gap:10px;align-items:center; }
+
+/* ===============================
+   AI
+   =============================== */
+.aiWrap{ display:grid;grid-template-columns:380px 1fr;gap:18px; }
+.aiChips{ display:flex;gap:8px;flex-wrap:wrap; }
+.aiPanel{
+  border:1px solid var(--border-soft);
+  border-radius:16px;
+  padding:12px;
+  min-height:220px;
+  background:rgba(0,0,0,.25);
+}
+.aiText{ white-space:pre-wrap;font-size:14px; }
+
+/* ===============================
+   Misc
+   =============================== */
+.muted{ color:var(--txt-muted); }
+.mono{ font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+.txtGood{ color:var(--green); }
+.txtBad{ color:var(--red); }
+.divider{ height:1px;background:var(--border-soft);margin:10px 0; }
+
+@media(max-width:900px){
+  .compareGrid,.gridWrap,.aiWrap{ grid-template-columns:1fr; }
+}
+
+.coinLogo{ color:#ffffff; }
+.coinLogo.small{ color:#ffffff; }
+.iconBtn{
+  width:30px;height:30px;
+  border-radius:12px;
+  border:1px solid rgba(210,220,230,.14);
+  background:rgba(0,0,0,.20);
+  display:inline-flex;align-items:center;justify-content:center;
+  line-height:1;
+}
+.iconBtn:hover{ border-color: rgba(210,220,230,.28); }
+
+/* Best pairs – readable rows */
+.pairsScroll{
+  max-height:180px;
+  overflow-y:auto;
+  padding-right:6px;
+  margin-top:8px;
+}
+.pairRow{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:8px 10px;
+  border-radius:14px;
+  border:1px solid rgba(210,220,230,.10);
+  background:rgba(0,0,0,.14);
+  margin-bottom:8px;
+}
+.pairName{
+  font-weight:900;
+  letter-spacing:.2px;
+}
+
+/* Chips – closer to original style */
+.chip{
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(210,220,230,.12);
+  background:rgba(0,0,0,.16);
+  color:rgba(232,242,240,.88);
+  font-weight:800;
+  cursor:pointer;
+}
+.chip.active{
+  background:rgba(46,204,113,.14);
+  border-color:rgba(46,204,113,.28);
+}
+.chip:disabled{
+  opacity:.35;
+  cursor:not-allowed;
+}
+
+/* Watchlist – ensure remove column works */
+.watchHead,.watchRow{
+  grid-template-columns:60px 1fr 120px 80px 160px 120px 60px;
+}
+.right{ text-align:right; }
+
+.modal{ color: rgba(232,242,240,.92); }
+.modal .muted{ color: rgba(232,242,240,.70); }
+
+
+
+/* ===== Fix: Legend text should be white (not black) ===== */
+.legendSym{ color: rgba(255,255,255,.92); font-weight: 900; }
+.legendItem{ color: rgba(255,255,255,.92); }
+.legendItem:active{ transform: translateY(1px); }
+
+/* ===== Fix: Watchlist scroll area ===== */
+.watchTable{ overflow: hidden; }
+.watchStickyHead{
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1));
+  padding: 10px 6px 8px;
+  border-radius: 14px;
+}
+.watchScroll{
+  display:block;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+/* Scrollbar styling (optional) */
+.watchScroll::-webkit-scrollbar{ width: 10px; }
+.watchScroll::-webkit-scrollbar-track{ background: rgba(0,0,0,.10); border-radius: 999px; }
+.watchScroll::-webkit-scrollbar-thumb{ background: rgba(210,220,230,.22); border-radius: 999px; border: 2px solid rgba(0,0,0,.10); }
+
+
+
+/* ===== Compare chart: Grid view (small multiples) ===== */
+.sparkGridWrap{
+  margin-top: 6px;
+}
+.sparkGrid{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 8px;
+  overscroll-behavior: contain;
+}
+
+.sparkTile{
+  width: 100%;
+  text-align: left;
+  padding: 10px 10px 8px;
+  border-radius: 18px;
+  border: 1px solid rgba(210,220,230,.12);
+  background: rgba(0,0,0,.16);
+  cursor: pointer;
+}
+.sparkTile:hover{ border-color: rgba(210,220,230,.22); }
+.sparkTile.active{
+  border-color: rgba(46,204,113,.32);
+  background: rgba(46,204,113,.08);
+}
+.sparkTop{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  margin-bottom: 6px;
+}
+.sparkSym{ font-weight: 900; letter-spacing:.2px; color: rgba(255,255,255,.92); }
+.sparkVal{ margin-left:auto; font-weight: 900; }
+.sparkSvg{ width:100%; height: 110px; display:block; }
+.sparkFoot{ margin-top: 4px; }
+
+.sparkGrid::-webkit-scrollbar{ width: 10px; }
+.sparkGrid::-webkit-scrollbar-track{ background: rgba(0,0,0,.10); border-radius: 999px; }
+.sparkGrid::-webkit-scrollbar-thumb{ background: rgba(210,220,230,.22); border-radius: 999px; border: 2px solid rgba(0,0,0,.10); }
+
+
+/* ===== FIX: Spark grid top-right value color ===== */
+.sparkVal{
+  color: rgba(255,255,255,.92) !important;
+}
+
+
+/* ===============================
+   Grid tiles smaller (~40%)
+   =============================== */
+.sparkGrid{
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  max-height: 360px;
+}
+
+.sparkTile{
+  padding: 6px 8px 6px;
+  border-radius: 14px;
+}
+
+.sparkTop{
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.sparkSym{
+  font-size: 12px;
+}
+
+.sparkVal{
+  font-size: 12px;
+}
+
+.sparkSvg{
+  height: 64px; /* was 110px */
+}
+
+.sparkFoot{
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+
+/* ===============================
+   Grid tiles EVEN smaller (+20%)
+   =============================== */
+.sparkGrid{
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 6px;
+  max-height: 340px;
+}
+
+.sparkTile{
+  padding: 5px 6px 5px;
+  border-radius: 12px;
+}
+
+.sparkTop{
+  gap: 5px;
+  margin-bottom: 3px;
+}
+
+.sparkSym{
+  font-size: 11px;
+}
+
+.sparkVal{
+  font-size: 11px;
+}
+
+.sparkSvg{
+  height: 52px; /* was 64px */
+}
+
+.sparkFoot{
+  margin-top: 2px;
+  font-size: 10px;
+}

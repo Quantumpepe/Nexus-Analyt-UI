@@ -7,27 +7,28 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>nexus-grid-ui</title>
-    <meta
-  http-equiv="Content-Security-Policy"
-  content="
-    default-src 'self';
-    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://auth.privy.io;
-    style-src 'self' 'unsafe-inline';
-    img-src 'self' data: https:;
-    connect-src 'self'
-      https://explorer-api.walletconnect.com
-      https://rpc.walletconnect.com
-      https://*.walletconnect.com
-      https://auth.privy.io
-      https://*.privy.io
-      https://rpc.ankr.com
-      https://eth-mainnet.g.alchemy.com
-      https://polygon-mainnet.g.alchemy.com
-      https://bsc-dataseed.binance.org
-      https://nexus-analyt-pro.onrender.com;
-    frame-src https://auth.privy.io;
-  "
-/>
+    <meta http-equiv="Content-Security-Policy"
+    content="
+     default-src 'self';
+     script-src 'self' 'unsafe-inline' 'unsafe-eval' https://auth.privy.io https://*.privy.io;
+     style-src 'self' 'unsafe-inline';
+     img-src 'self' data: https:;
+     connect-src 'self'
+       https://auth.privy.io
+       https://*.privy.io
+       https://explorer-api.walletconnect.com
+       https://*.walletconnect.com
+       https://*.walletconnect.org
+       wss://*.walletconnect.com
+       wss://*.walletconnect.org
+       https://rpc.ankr.com
+       https://eth-mainnet.g.alchemy.com
+       https://polygon-mainnet.g.alchemy.com
+       https://bsc-dataseed.binance.org
+       https://nexus-analyt-pro.onrender.com;
+     frame-src https://auth.privy.io;
+   ">
+
 
   </head>
   <body>

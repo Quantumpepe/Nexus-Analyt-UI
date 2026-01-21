@@ -135,14 +135,21 @@ const fmtUsd = (n) => {
 // ------------------------
 // CoinGecko price helpers (Wallet total value)
 // ------------------------
+// IMPORTANT:
+// - Do NOT call api.coingecko.com directly from the browser (CORS + 429).
+// - Always go through our backend proxy which caches responses.
+//   Backend routes (Render):
+//     - /api/cg/simple_price
+//     - /api/cg/token_price/<platform>
 const CG = {
   nativeIds: { ETH: "ethereum", POL: "polygon-pos", BNB: "binancecoin" },
   platforms: { ETH: "ethereum", POL: "polygon-pos", BNB: "binance-smart-chain" },
 };
 
-async function cgFetchJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
+async function cgProxyJson(path) {
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, { credentials: "include" });
+  if (!res.ok) throw new Error(`CG Proxy HTTP ${res.status}`);
   return res.json();
 }
 
@@ -150,8 +157,7 @@ async function fetchNativeUsdPrices(chains = []) {
   const ids = Array.from(new Set((chains || []).map((c) => CG.nativeIds[c]).filter(Boolean)));
   if (!ids.length) return {};
   const qs = new URLSearchParams({ ids: ids.join(","), vs_currencies: "usd" }).toString();
-  const url = `https://api.coingecko.com/api/v3/simple/price?${qs}`;
-  const json = await cgFetchJson(url);
+  const json = await cgProxyJson(`/api/cg/simple_price?${qs}`);
   const out = {};
   for (const c of chains || []) {
     const id = CG.nativeIds[c];
@@ -165,10 +171,8 @@ async function fetchTokenUsdPrices(chainKey, addresses = []) {
   const platform = CG.platforms[chainKey];
   const addrs = Array.from(new Set((addresses || []).map((a) => String(a || "").toLowerCase()).filter(Boolean)));
   if (!platform || !addrs.length) return {};
-  // CoinGecko allows many addresses; keep it safe-ish.
   const qs = new URLSearchParams({ contract_addresses: addrs.join(","), vs_currencies: "usd" }).toString();
-  const url = `https://api.coingecko.com/api/v3/simple/token_price/${platform}?${qs}`;
-  const json = await cgFetchJson(url);
+  const json = await cgProxyJson(`/api/cg/token_price/${platform}?${qs}`);
   const out = {};
   for (const a of addrs) {
     const px = Number(json?.[a]?.usd);
@@ -176,6 +180,7 @@ async function fetchTokenUsdPrices(chainKey, addresses = []) {
   }
   return out;
 }
+
 
 const fmtPct = (n) => {
   if (n === null || n === undefined || Number.isNaN(Number(n))) return "—";

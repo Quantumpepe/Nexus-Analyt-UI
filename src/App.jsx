@@ -1,19 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 import "./App.css";
 
-const API_BASE_RAW = (import.meta.env.VITE_API_BASE ?? "").trim();
-
-// If VITE_API_BASE is not set, fall back to:
-// - local dev default (Flask): http://127.0.0.1:5000
-// - production default (Render): https://nexus-analyt-pro.onrender.com
-// You can always override this by setting VITE_API_BASE in your frontend deploy environment.
-const API_BASE =
-  (API_BASE_RAW ? API_BASE_RAW : (import.meta.env.DEV ? "http://127.0.0.1:5000" : "https://nexus-analyt-pro.onrender.com"))
-    .replace(/\/+$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE ?? "").trim();
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
+const TREASURY_ADDRESS = (import.meta.env.VITE_TREASURY_ADDRESS ?? "").trim();
 
 const TOKEN_WHITELIST = {
   ETH: [
@@ -135,21 +128,14 @@ const fmtUsd = (n) => {
 // ------------------------
 // CoinGecko price helpers (Wallet total value)
 // ------------------------
-// IMPORTANT:
-// - Do NOT call api.coingecko.com directly from the browser (CORS + 429).
-// - Always go through our backend proxy which caches responses.
-//   Backend routes (Render):
-//     - /api/cg/simple_price
-//     - /api/cg/token_price/<platform>
 const CG = {
   nativeIds: { ETH: "ethereum", POL: "polygon-pos", BNB: "binancecoin" },
   platforms: { ETH: "ethereum", POL: "polygon-pos", BNB: "binance-smart-chain" },
 };
 
-async function cgProxyJson(path) {
-  const url = `${API_BASE}${path}`;
-  const res = await fetch(url, { credentials: "include" });
-  if (!res.ok) throw new Error(`CG Proxy HTTP ${res.status}`);
+async function cgFetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
   return res.json();
 }
 
@@ -157,7 +143,8 @@ async function fetchNativeUsdPrices(chains = []) {
   const ids = Array.from(new Set((chains || []).map((c) => CG.nativeIds[c]).filter(Boolean)));
   if (!ids.length) return {};
   const qs = new URLSearchParams({ ids: ids.join(","), vs_currencies: "usd" }).toString();
-  const json = await cgProxyJson(`/api/cg/simple_price?${qs}`);
+  const url = `https://api.coingecko.com/api/v3/simple/price?${qs}`;
+  const json = await cgFetchJson(url);
   const out = {};
   for (const c of chains || []) {
     const id = CG.nativeIds[c];
@@ -171,8 +158,10 @@ async function fetchTokenUsdPrices(chainKey, addresses = []) {
   const platform = CG.platforms[chainKey];
   const addrs = Array.from(new Set((addresses || []).map((a) => String(a || "").toLowerCase()).filter(Boolean)));
   if (!platform || !addrs.length) return {};
+  // CoinGecko allows many addresses; keep it safe-ish.
   const qs = new URLSearchParams({ contract_addresses: addrs.join(","), vs_currencies: "usd" }).toString();
-  const json = await cgProxyJson(`/api/cg/token_price/${platform}?${qs}`);
+  const url = `https://api.coingecko.com/api/v3/simple/token_price/${platform}?${qs}`;
+  const json = await cgFetchJson(url);
   const out = {};
   for (const a of addrs) {
     const px = Number(json?.[a]?.usd);
@@ -180,7 +169,6 @@ async function fetchTokenUsdPrices(chainKey, addresses = []) {
   }
   return out;
 }
-
 
 const fmtPct = (n) => {
   if (n === null || n === undefined || Number.isNaN(Number(n))) return "—";
@@ -208,10 +196,10 @@ async function api(path, { method = "GET", token, body } = {}) {
   };
 
   const doFetch = async (withBearer) => {
-    return fetch(`${API_BASE}${path?.startsWith("/") ? path : "/" + path}`, {
+    return fetch(`${API_BASE}${path}`, {
       method,
       headers: makeHeaders(withBearer),
-      credentials: "include",
+      credentials: "omit",
       body: body ? JSON.stringify(body) : undefined,
     });
   };
@@ -240,6 +228,39 @@ async function api(path, { method = "GET", token, body } = {}) {
     throw err;
   }
   return data;
+}
+
+// ---- Payments (ERC20 transfer) helpers (no external deps) ----
+function _hexPad64(hexNo0x) {
+  const h = (hexNo0x || "").replace(/^0x/i, "").toLowerCase();
+  return h.padStart(64, "0");
+}
+function _toHexAmount(amountUnits) {
+  // amountUnits: BigInt
+  let h = amountUnits.toString(16);
+  if (h.length % 2) h = "0" + h;
+  return "0x" + h;
+}
+function _erc20TransferData(to, amountUnits) {
+  // transfer(address,uint256) selector
+  const selector = "0xa9059cbb";
+  const addr = (to || "").toLowerCase().replace(/^0x/, "");
+  if (addr.length !== 40) throw new Error("Invalid recipient address");
+  const amtHex = amountUnits.toString(16);
+  return selector + _hexPad64(addr) + _hexPad64(amtHex);
+}
+async function _ensureEthMainnet() {
+  if (!window?.ethereum?.request) throw new Error("No injected wallet found (MetaMask).");
+  const chainHex = await window.ethereum.request({ method: "eth_chainId" });
+  if (String(chainHex).toLowerCase() === "0x1") return;
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0x1" }],
+    });
+  } catch (e) {
+    throw new Error("Please switch your wallet to Ethereum Mainnet.");
+  }
 }
 
 function useInterval(fn, ms, enabled = true) {
@@ -1029,14 +1050,45 @@ function AppInner() {
 
       const addr = String(embedded?.address || "").toLowerCase();
       if (!cancelled && addr) setWallet(addr);
-
-      // Privy access token (JWT). Your backend should verify this.
-      // If backend doesn't use it yet, keeping it here is harmless.
+      // Backend session token (signed-nonce login using embedded wallet).
+      // The Flask backend expects its own Bearer token (it does NOT accept the Privy JWT directly).
       try {
-        const t = (await getAccessToken?.()) || "";
-        if (!cancelled) setToken(t);
-      } catch {
-        if (!cancelled) setToken("");
+        if (!addr) {
+          if (!cancelled) setToken("");
+          return;
+        }
+
+        const n = await api("/api/auth/nonce", { method: "POST", body: { address: addr } });
+        const msg = String(n?.message || "");
+        if (!msg) throw new Error("Backend nonce missing message.");
+
+        // Sign the nonce message with the embedded Privy wallet (no MetaMask required).
+        const provider = await embedded?.getEthereumProvider?.();
+        if (!provider?.request) throw new Error("Wallet provider not available for signing.");
+
+        let sig = "";
+        try {
+          // Most providers expect [message, address]
+          sig = await provider.request({ method: "personal_sign", params: [msg, addr] });
+        } catch {
+          // Some providers expect [address, message]
+          sig = await provider.request({ method: "personal_sign", params: [addr, msg] });
+        }
+
+        const v = await api("/api/auth/verify", {
+          method: "POST",
+          body: { address: addr, message: msg, signature: sig },
+        });
+
+        const backendToken = String(v?.token || "");
+        if (!backendToken) throw new Error("Backend login failed (no token).");
+
+        if (!cancelled) setToken(backendToken);
+      } catch (e) {
+        if (!cancelled) {
+          setToken("");
+          setErrorMsg((m) => (m ? m : `Backend auth: ${String(e?.message || e || "failed")}`));
+        }
       }
     })();
 
@@ -1355,7 +1407,7 @@ return [c, { native, stables, custom }];
   // Access (NFT / Code) — backend driven (status + redeem)
   const [access, setAccess] = useState(null); // { active, until, source, tier, note }
   const [accessModalOpen, setAccessModalOpen] = useState(false);
-  const [accessTab, setAccessTab] = useState("redeem"); // 'redeem' | 'nft'
+  const [accessTab, setAccessTab] = useState("redeem"); // 'redeem' | 'nft' | 'subscribe' | 'subscribe'
 
   const [redeemCode, setRedeemCode] = useState("");
   const [redeemBusy, setRedeemBusy] = useState(false);
@@ -1363,6 +1415,12 @@ return [c, { native, stables, custom }];
 
   const [nftBusy, setNftBusy] = useState(false);
   const [nftMsg, setNftMsg] = useState("");
+
+  // Subscribe (USDC/USDT on ETH)
+  const [subPlan, setSubPlan] = useState("silver"); // silver=$10 (ETH/BNB/POL) | gold=$25 (full app)
+  const [subToken, setSubToken] = useState("USDC"); // USDC | USDT
+  const [subBusy, setSubBusy] = useState(false);
+  const [subMsg, setSubMsg] = useState("");
 
   const refreshAccess = useCallback(async () => {
     if (!wallet) {
@@ -1436,6 +1494,60 @@ return [c, { native, stables, custom }];
       setNftBusy(false);
     }
   }, [wallet, api, refreshAccess]);
+
+
+  const subscribePay = useCallback(async () => {
+    if (!wallet) {
+      setSubMsg("Wallet nicht verbunden.");
+      return;
+    }
+    if (!TREASURY_ADDRESS) {
+      setSubMsg("Treasury-Adresse fehlt (VITE_TREASURY_ADDRESS).");
+      return;
+    }
+
+    setSubBusy(true);
+    setSubMsg("");
+    try {
+      // ETH only (chainId 1)
+      await _ensureEthMainnet();
+
+      const specs = TOKEN_WHITELIST.ETH || [];
+      const spec = specs.find((t) => t.symbol === subToken);
+      if (!spec?.address) throw new Error("Token not supported.");
+
+      const priceUsd = subPlan === "gold" ? 25 : 10;
+      const amountUnits = BigInt(priceUsd) * (10n ** BigInt(spec.decimals || 6));
+
+      const data = _erc20TransferData(TREASURY_ADDRESS, amountUnits);
+
+      const txHash = await window.ethereum.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: wallet,
+            to: spec.address,
+            data,
+            value: "0x0",
+          },
+        ],
+      });
+
+      // Ask backend to verify on-chain payment + activate plan
+      const res = await api("/api/access/subscribe/verify", {
+        method: "POST",
+        body: { chain_id: 1, tx_hash: txHash, plan: subPlan },
+      });
+
+      setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
+      setAccessModalOpen(false);
+      await refreshAccess();
+    } catch (e) {
+      setSubMsg(e?.message || "Payment failed.");
+    } finally {
+      setSubBusy(false);
+    }
+  }, [wallet, subPlan, subToken, api, refreshAccess]);
 
   // Best-pair explain (click -> modal)
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }
@@ -2209,11 +2321,73 @@ async function runAi() {
     <div className="app">
       
       <style>{`
-        .btnPill, .btnPill *, .btnGhost, .btnGhost * { 
+.btnPill, .btnPill *, .btnGhost, .btnGhost * { 
           color: #fff !important; 
           -webkit-text-fill-color: #fff !important;
         }
-      `}</style>
+
+        /* --- Mobile / small screens: prevent horizontal overflow and wrap topbar controls --- */
+        html, body { max-width: 100%; overflow-x: hidden; }
+        #root { max-width: 100%; overflow-x: hidden; }
+
+        @media (max-width: 820px) {
+          header.topbar {
+            flex-wrap: wrap;
+            align-items: flex-start;
+            gap: 10px;
+            padding-bottom: 10px;
+          }
+          header.topbar .brand {
+            flex: 1 1 240px;
+            min-width: 220px;
+          }
+          header.topbar .walletBox {
+            flex: 1 1 100%;
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+            gap: 8px;
+          }
+          header.topbar .walletBox > * {
+            flex: 0 0 auto;
+          }
+          header.topbar .btnGhost,
+          header.topbar .btnPill {
+            white-space: nowrap;
+          }
+
+          /* Main layout: stack grids/columns to avoid sideways scroll */
+          main.main {
+            max-width: 100%;
+            overflow-x: hidden;
+          }
+          .chartGrid {
+            display: block !important;
+          }
+          .sparkGridWrap, .sparkGrid {
+            max-width: 100%;
+            overflow-x: auto;
+          }
+        }
+
+      
+
+        /* --- Compare header chips: wrap on small screens to avoid horizontal scroll --- */
+        @media (max-width: 820px) {
+          .cardHead { flex-wrap: wrap; align-items: flex-start; gap: 10px; }
+          .cardTitle { flex: 1 1 180px; }
+          .cardActions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+            gap: 8px;
+            max-width: 100%;
+            overflow-x: hidden;
+          }
+          .cardActions .chip { white-space: nowrap; }
+        }
+`}</style>
 <header className="topbar">
         <div className="brand">
           <div className="logoBox" title="Logo placeholder">
@@ -2308,6 +2482,26 @@ async function runAi() {
                 Activate NFT
               </button>
 
+
+              <button
+                className="btnGhost"
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setAccessTab("subscribe");
+                  setSubMsg("");
+                  setAccessModalOpen(true);
+                }}
+                title="Subscribe (USDC/USDT on ETH)"
+              >
+                Subscribe
+              </button>
+
               <div className="text-xs" style={{ opacity: 0.75, marginLeft: 6 }}>
                 {access?.active ? (
                   <>
@@ -2382,6 +2576,7 @@ async function runAi() {
                 </div>
 
                 <div className="hr" style={{ margin: "12px 0" }} />
+
 {accessTab === "redeem" ? (
                   <div>
                     <div className="hint">Enter your permanent code:</div>
@@ -2398,7 +2593,7 @@ async function runAi() {
                     </div>
                     {redeemMsg ? <div className="hint" style={{ marginTop: 8 }}>{redeemMsg}</div> : null}
                   </div>
-                ) : (
+                ) : accessTab === "nft" ? (
                   <div>
                     <div className="hint">Check connected wallet for a valid access NFT:</div>
                     <div className="row" style={{ gap: 8, marginTop: 8 }}>
@@ -2407,6 +2602,74 @@ async function runAi() {
                       </button>
                     </div>
                     {nftMsg ? <div className="hint" style={{ marginTop: 8 }}>{nftMsg}</div> : null}
+                  </div>
+                ) : (
+                  <div>
+                    <div className="hint" style={{ marginBottom: 8 }}>
+                      Subscribe with USDC/USDT on <b>Ethereum</b> (ETH mainnet).
+                    </div>
+
+                    <div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
+                      <b>Basic</b> ($10/mo): ETH, BNB, POL · <b>Pro</b> ($25/mo): Full app
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      <button
+                        type="button"
+                        className={`pill ${subPlan === "silver" ? "active" : ""}`} style={{ color: "#fff", background: subPlan === "silver" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.18)", cursor: "pointer" }}
+                        onClick={() => setSubPlan("silver")}
+                      >
+                        Basic $10
+                      </button>
+                      <button
+                        type="button"
+                        className={`pill ${subPlan === "gold" ? "active" : ""}`} style={{ color: "#fff", background: subPlan === "gold" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.18)", cursor: "pointer" }}
+                        onClick={() => setSubPlan("gold")}
+                      >
+                        Pro $25
+                      </button>
+                      <div style={{ flex: 1 }} />
+                      <button
+                        type="button"
+                        className={`pill ${subToken === "USDC" ? "active" : ""}`} style={{ color: "#fff", background: subToken === "USDC" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.18)", cursor: "pointer" }}
+                        onClick={() => setSubToken("USDC")}
+                      >
+                        USDC
+                      </button>
+                      <button
+                        type="button"
+                        className={`pill ${subToken === "USDT" ? "active" : ""}`} style={{ color: "#fff", background: subToken === "USDT" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.18)", cursor: "pointer" }}
+                        onClick={() => setSubToken("USDT")}
+                      >
+                        USDT
+                      </button>
+                    </div>
+
+                    <div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
+                      Selected: <b>{subPlan === "gold" ? "Pro $25" : "Basic $10"}</b> · <b>{subToken}</b>
+                    </div>
+
+                    <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                      <button className="btn" disabled={subBusy} onClick={subscribePay}>
+                        {subBusy ? "..." : "Pay & Activate"}
+                      </button>
+                      <button
+                        className="btnGhost"
+                        type="button"
+                        onClick={() => {
+                          setSubMsg("");
+                          refreshAccess();
+                        }}
+                      >
+                        Refresh
+                      </button>
+                    </div>
+
+                    {subMsg ? <div className="hint" style={{ marginTop: 8 }}>{subMsg}</div> : null}
+
+                    <div className="hint" style={{ marginTop: 10, opacity: 0.8 }}>
+                      Note: You must have enough {subToken} for the plan amount plus ETH gas.
+                    </div>
                   </div>
                 )}
 
@@ -3613,7 +3876,28 @@ async function runAi() {
 // App (provider wrapper)
 // ------------------------
 export default function App() {
-  // PrivyProvider is expected to wrap <App /> in src/main.jsx
-  // (Keep a single PrivyProvider instance in the app.)
-  return <AppInner />;
+  const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
+
+  if (!privyAppId) {
+    return (
+      <div style={{ padding: 16, color: "#fff", fontFamily: "system-ui" }}>
+        Missing <b>VITE_PRIVY_APP_ID</b> in your environment.
+      </div>
+    );
+  }
+
+  return (
+    <PrivyProvider
+      appId={privyAppId}
+      config={{
+        loginMethods: ["email"],
+        embeddedWallets: {
+          createOnLogin: "users-without-wallets",
+        },
+        // Keep external wallets optional: we don't trigger them anywhere in this UI.
+      }}
+    >
+      <AppInner />
+    </PrivyProvider>
+  );
 }

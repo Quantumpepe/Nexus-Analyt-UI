@@ -12,13 +12,17 @@ if (!PRIVY_APP_ID) {
 ReactDOM.createRoot(document.getElementById("root")).render(
   <ErrorBoundary>
     <PrivyProvider
-      appId={PRIVY_APP_ID}
-      config={{
-        loginMethods: ["wallet", "email"],
-        appearance: { theme: "dark" },
-      }}
-    >
-      <App />
-    </PrivyProvider>
+  appId={PRIVY_APP_ID}
+  config={{
+    loginMethods: ["google"],   // stabil & schnell
+    embeddedWallets: {
+      createOnLogin: "users-without-wallets",
+    },
+    appearance: { theme: "dark" },
+  }}
+>
+  <App />
+</PrivyProvider>
+
   </ErrorBoundary>
 );

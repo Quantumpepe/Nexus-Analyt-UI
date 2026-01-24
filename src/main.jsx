@@ -4,7 +4,7 @@
  import { PrivyProvider } from "@privy-io/react-auth";
 +import ErrorBoundary from "./ErrorBoundary.jsx";
 
- // ... dein PRIVY_APP_ID Code bleibt
+ 
 
  ReactDOM.createRoot(document.getElementById("root")).render(
 -  <React.StrictMode>

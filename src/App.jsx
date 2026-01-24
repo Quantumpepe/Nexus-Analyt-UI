@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
-
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 import "./App.css";
@@ -8,13 +7,6 @@ import "./App.css";
 const API_BASE = (import.meta.env.VITE_API_BASE ?? "").trim();
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
 const TREASURY_ADDRESS = (import.meta.env.VITE_TREASURY_ADDRESS ?? "").trim();
-const safeText = (v) => {
-  if (v == null) return "";
-  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
-  if (typeof v === "bigint") return v.toString();
-  try { return JSON.stringify(v, null, 2); } catch { return String(v); }
-};
-
 
 const TOKEN_WHITELIST = {
   ETH: [
@@ -141,10 +133,60 @@ const CG = {
   platforms: { ETH: "ethereum", POL: "polygon-pos", BNB: "binance-smart-chain" },
 };
 
+// CoinGecko is CORS-blocked in browsers. Always call it via the backend proxy.
+// Backend must expose:
+//   GET /api/proxy/coingecko?url=<encoded https://api.coingecko.com/...>
+// This helper also caches + de-duplicates calls to reduce 429 rate limits.
+const _cgCache = new Map();
+
 async function cgFetchJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
-  return res.json();
+  const now = Date.now();
+  const key = String(url || "");
+  const hit = _cgCache.get(key);
+
+  // 30s cache window (prevents spamming CoinGecko / proxy)
+  if (hit?.data && now - hit.ts < 30_000) return hit.data;
+  if (hit?.promise) return hit.promise;
+
+  const proxyBase = (API_BASE || "").replace(/\/$/, "");
+  const proxyUrl = `${proxyBase}/api/proxy/coingecko?url=${encodeURIComponent(key)}`;
+
+  const run = (async () => {
+    // small retry/backoff for temporary 429/5xx
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(proxyUrl, { credentials: "include" });
+        if (!res.ok) {
+          // Bubble up the *real* error text (helps debugging on Render)
+          const t = await res.text().catch(() => "");
+          const msg = t ? `${res.status} ${t}` : String(res.status);
+          // Retry 429 + 5xx
+          if (res.status === 429 || (res.status >= 500 && res.status <= 599)) {
+            await sleep(300 * Math.pow(2, attempt));
+            continue;
+          }
+          throw new Error(`CoinGecko proxy HTTP ${msg}`);
+        }
+        const json = await res.json();
+        _cgCache.set(key, { ts: Date.now(), data: json });
+        return json;
+      } catch (e) {
+        lastErr = e;
+        await sleep(200 * Math.pow(2, attempt));
+      }
+    }
+    throw lastErr || new Error("CoinGecko proxy failed");
+  })();
+
+  _cgCache.set(key, { ts: now, promise: run });
+  try {
+    return await run;
+  } finally {
+    // Clear promise slot; keep cached data if succeeded
+    const cur = _cgCache.get(key);
+    if (cur?.promise) _cgCache.delete(key);
+  }
 }
 
 async function fetchNativeUsdPrices(chains = []) {
@@ -207,7 +249,7 @@ async function api(path, { method = "GET", token, body } = {}) {
     return fetch(`${API_BASE}${path}`, {
       method,
       headers: makeHeaders(withBearer),
-      credentials: "omit",
+      credentials: "include",
       body: body ? JSON.stringify(body) : undefined,
     });
   };
@@ -1058,45 +1100,14 @@ function AppInner() {
 
       const addr = String(embedded?.address || "").toLowerCase();
       if (!cancelled && addr) setWallet(addr);
-      // Backend session token (signed-nonce login using embedded wallet).
-      // The Flask backend expects its own Bearer token (it does NOT accept the Privy JWT directly).
+
+      // Privy access token (JWT). Your backend should verify this.
+      // If backend doesn't use it yet, keeping it here is harmless.
       try {
-        if (!addr) {
-          if (!cancelled) setToken("");
-          return;
-        }
-
-        const n = await api("/api/auth/nonce", { method: "POST", body: { address: addr } });
-        const msg = String(n?.message || "");
-        if (!msg) throw new Error("Backend nonce missing message.");
-
-        // Sign the nonce message with the embedded Privy wallet (no MetaMask required).
-        const provider = await embedded?.getEthereumProvider?.();
-        if (!provider?.request) throw new Error("Wallet provider not available for signing.");
-
-        let sig = "";
-        try {
-          // Most providers expect [message, address]
-          sig = await provider.request({ method: "personal_sign", params: [msg, addr] });
-        } catch {
-          // Some providers expect [address, message]
-          sig = await provider.request({ method: "personal_sign", params: [addr, msg] });
-        }
-
-        const v = await api("/api/auth/verify", {
-          method: "POST",
-          body: { address: addr, message: msg, signature: sig },
-        });
-
-        const backendToken = String(v?.token || "");
-        if (!backendToken) throw new Error("Backend login failed (no token).");
-
-        if (!cancelled) setToken(backendToken);
-      } catch (e) {
-        if (!cancelled) {
-          setToken("");
-          setErrorMsg((m) => (m ? m : `Backend auth: ${String(e?.message || e || "failed")}`));
-        }
+        const t = (await getAccessToken?.()) || "";
+        if (!cancelled) setToken(t);
+      } catch {
+        if (!cancelled) setToken("");
       }
     })();
 
@@ -3880,32 +3891,5 @@ async function runAi() {
   );
 }
 
-// ------------------------
-// App (provider wrapper)
-// ------------------------
-export default function App() {
-  const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
-
-  if (!privyAppId) {
-    return (
-      <div style={{ padding: 16, color: "#fff", fontFamily: "system-ui" }}>
-        Missing <b>VITE_PRIVY_APP_ID</b> in your environment.
-      </div>
-    );
-  }
-
-  return (
-    <PrivyProvider
-      appId={privyAppId}
-      config={{
-        loginMethods: ["email"],
-        embeddedWallets: {
-          createOnLogin: "users-without-wallets",
-        },
-        // Keep external wallets optional: we don't trigger them anywhere in this UI.
-      }}
-    >
-      <AppInner />
-    </PrivyProvider>
-  );
-}
+// App is rendered and wrapped by PrivyProvider in src/main.jsx.
+export default AppInner;

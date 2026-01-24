@@ -11,7 +11,7 @@ if (!PRIVY_APP_ID) {
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <PrivyProvider
+    
       appId={PRIVY_APP_ID}
       config={{
         // optional defaults – kannst du später anpassen
@@ -19,7 +19,6 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         appearance: { theme: "dark" },
       }}
     >
-      <App />
-    </PrivyProvider>
+      
   </React.StrictMode>
 );

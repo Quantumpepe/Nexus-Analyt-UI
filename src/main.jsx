@@ -1,24 +1,20 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App.jsx";
-import { PrivyProvider } from "@privy-io/react-auth";
+ import React from "react";
+ import ReactDOM from "react-dom/client";
+ import App from "./App.jsx";
+ import { PrivyProvider } from "@privy-io/react-auth";
++import ErrorBoundary from "./ErrorBoundary.jsx";
 
-const PRIVY_APP_ID = (import.meta.env.VITE_PRIVY_APP_ID ?? "").trim();
+ // ... dein PRIVY_APP_ID Code bleibt
 
-if (!PRIVY_APP_ID) {
-  throw new Error("Missing VITE_PRIVY_APP_ID in your environment.");
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    
-      appId={PRIVY_APP_ID}
-      config={{
-        // optional defaults – kannst du später anpassen
-        loginMethods: ["wallet", "email"],
-        appearance: { theme: "dark" },
-      }}
-    >
-      
-  </React.StrictMode>
-);
+ ReactDOM.createRoot(document.getElementById("root")).render(
+-  <React.StrictMode>
+-    <PrivyProvider ...>
+-      <App />
+-    </PrivyProvider>
+-  </React.StrictMode>
++  <ErrorBoundary>
++    <PrivyProvider appId={PRIVY_APP_ID} config={{ loginMethods: ["wallet", "email"], appearance: { theme: "dark" } }}>
++      <App />
++    </PrivyProvider>
++  </ErrorBoundary>
+ );

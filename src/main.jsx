@@ -14,12 +14,13 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <PrivyProvider
   appId={PRIVY_APP_ID}
   config={{
-    loginMethods: ["google"],   // stabil & schnell
-    embeddedWallets: {
-      createOnLogin: "users-without-wallets",
-    },
-    appearance: { theme: "dark" },
-  }}
+  loginMethods: ["google"],
+  embeddedWallets: {
+    createOnLogin: "users-without-wallets",
+  },
+  appearance: { theme: "dark" },
+}}
+
 >
   <App />
 </PrivyProvider>

@@ -8,6 +8,13 @@ import "./App.css";
 const API_BASE = (import.meta.env.VITE_API_BASE ?? "").trim();
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
 const TREASURY_ADDRESS = (import.meta.env.VITE_TREASURY_ADDRESS ?? "").trim();
+const safeText = (v) => {
+  if (v == null) return "";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "bigint") return v.toString();
+  try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+};
+
 
 const TOKEN_WHITELIST = {
   ETH: [

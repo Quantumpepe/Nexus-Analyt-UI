@@ -260,7 +260,9 @@ body{
 .watchHead,.watchRow{
   display:grid;
   grid-template-columns:60px 1fr 120px 80px 160px 120px 40px;
-  gap:8px;align-items:center;
+  gap:8px;
+  align-items:center;
+  min-width: 760px;   /* 👈 DAS ist die Ergänzung */
 }
 .watchHead{
   font-weight:800;color:var(--silver);
@@ -270,7 +272,7 @@ body{
   display:block;
   height: 320px;          /* force scrollbar area */
   overflow-y: scroll;     /* always show scrollbar */
-  overflow-x: hidden;
+  overflow-x: auto;
   padding-right: 8px;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;

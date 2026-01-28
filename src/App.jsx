@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 import "./App.css";
@@ -133,60 +133,10 @@ const CG = {
   platforms: { ETH: "ethereum", POL: "polygon-pos", BNB: "binance-smart-chain" },
 };
 
-// CoinGecko is CORS-blocked in browsers. Always call it via the backend proxy.
-// Backend must expose:
-//   GET /api/proxy/coingecko?url=<encoded https://api.coingecko.com/...>
-// This helper also caches + de-duplicates calls to reduce 429 rate limits.
-const _cgCache = new Map();
-
 async function cgFetchJson(url) {
-  const now = Date.now();
-  const key = String(url || "");
-  const hit = _cgCache.get(key);
-
-  // 30s cache window (prevents spamming CoinGecko / proxy)
-  if (hit?.data && now - hit.ts < 30_000) return hit.data;
-  if (hit?.promise) return hit.promise;
-
-  const proxyBase = (API_BASE || "").replace(/\/$/, "");
-  const proxyUrl = `${proxyBase}/api/proxy/coingecko?url=${encodeURIComponent(key)}`;
-
-  const run = (async () => {
-    // small retry/backoff for temporary 429/5xx
-    let lastErr;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const res = await fetch(proxyUrl, { credentials: "include" });
-        if (!res.ok) {
-          // Bubble up the *real* error text (helps debugging on Render)
-          const t = await res.text().catch(() => "");
-          const msg = t ? `${res.status} ${t}` : String(res.status);
-          // Retry 429 + 5xx
-          if (res.status === 429 || (res.status >= 500 && res.status <= 599)) {
-            await sleep(300 * Math.pow(2, attempt));
-            continue;
-          }
-          throw new Error(`CoinGecko proxy HTTP ${msg}`);
-        }
-        const json = await res.json();
-        _cgCache.set(key, { ts: Date.now(), data: json });
-        return json;
-      } catch (e) {
-        lastErr = e;
-        await sleep(200 * Math.pow(2, attempt));
-      }
-    }
-    throw lastErr || new Error("CoinGecko proxy failed");
-  })();
-
-  _cgCache.set(key, { ts: now, promise: run });
-  try {
-    return await run;
-  } finally {
-    // Clear promise slot; keep cached data if succeeded
-    const cur = _cgCache.get(key);
-    if (cur?.promise) _cgCache.delete(key);
-  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
+  return res.json();
 }
 
 async function fetchNativeUsdPrices(chains = []) {
@@ -907,7 +857,9 @@ function computeBestPairs(chart, limit = 30) {
 // App (inner)
 // ------------------------
 function AppInner() {
-  const [errorMsg, setErrorMsg] = useState("");
+  
+  const [watchErr, setWatchErr] = useState("");
+const [errorMsg, setErrorMsg] = useState("");
 
 
   // Privy (Auth + embedded wallet). IMPORTANT: We do NOT trigger MetaMask here.
@@ -2116,47 +2068,103 @@ const [aiLoading, setAiLoading] = useState(false);
   const [addContract, setAddContract] = useState("");
   const [addChain, setAddChain] = useState("eth");
 
-  function submitAdd() {
-    const sym = String(addSymbol || "").trim().toUpperCase();
-    if (!sym) return;
+  async function submitAdd() {
+  const sym = String(addSymbol || "").trim().toUpperCase();
+  if (!sym) return;
 
-    const item = addIsToken
-      ? { symbol: sym, mode: "dex", contract: String(addContract || "").trim(), chain: String(addChain || "").trim() }
-      : { symbol: sym, mode: "market" };
+  const item = addIsToken
+    ? { symbol: sym, mode: "dex", contract: String(addContract || "").trim(), chain: String(addChain || "").trim() }
+    : { symbol: sym, mode: "market" };
 
-    if (item.mode === "dex" && !item.contract) return setErrorMsg("Contract address required for token.");
-
-    setWatchItems((prev) => {
-      const arr = Array.isArray(prev) ? prev.slice() : [];
-      const key = `${item.mode}|${item.symbol}|${item.contract || ""}`.toLowerCase();
-      const exists = arr.some((x) => `${x.mode || "market"}|${String(x.symbol || "")}|${String(x.contract || "")}`.toLowerCase() === key);
-      if (exists) return arr;
-      return [...arr, item];
-    });
-
-    setAddOpen(false);
-    setAddSymbol("");
-    setAddIsToken(false);
-    setAddContract("");
-    setAddChain("eth");
-    fetchWatchSnapshot();
+  if (item.mode === "dex" && !item.contract) {
+    return setErrorMsg("Contract address required for token.");
   }
 
-  function removeWatchItemByKey({ symbol, mode, contract }) {
-    const sym = String(symbol || "").toUpperCase();
-    const m = String(mode || "market").toLowerCase();
-    const c = String(contract || "").toLowerCase();
+  // Build next items array deterministically so we can refresh immediately.
+  const prev = Array.isArray(watchItems) ? watchItems : [];
+  const key = `${item.mode}|${item.symbol}|${item.contract || ""}`.toLowerCase();
+  const exists = prev.some(
+    (x) => `${x.mode || "market"}|${String(x.symbol || "")}|${String(x.contract || "")}`.toLowerCase() === key
+  );
 
-    setWatchItems((prev) => {
-      const arr = Array.isArray(prev) ? prev.slice() : [];
-      return arr.filter((it) => {
-        const itSym = String(it.symbol || "").toUpperCase();
-        const itMode = String(it.mode || "market").toLowerCase();
-        const itContract = String(it.contract || "").toLowerCase();
-        // keep items that do NOT match this row
-        return !(itSym === sym && itMode === m && itContract === c);
-      });
+  const nextItems = exists ? prev : [...prev, item];
+
+  // Optimistic update
+  setWatchItems(nextItems);
+
+  // close/reset modal
+  setAddOpen(false);
+  setAddSymbol("");
+  setAddIsToken(false);
+  setAddContract("");
+  setAddChain("eth");
+
+  // Persist + refresh rows immediately so user doesn't have to press Refresh
+  try {
+    const data = await api("/api/watchlist/snapshot", {
+      method: "POST",
+      body: { items: nextItems },
     });
+    if (data?.rows) setWatchRows(data.rows);
+    if (data?.coins) setCompareCoins(data.coins);
+    if (data?.symbols) setCompareSymbols(data.symbols);
+    if (data?.cached != null) setWatchCached(Boolean(data.cached));
+    setWatchErr("");
+  } catch (e) {
+    setWatchErr(String(e?.message || e));
+  }
+}
+
+  function removeWatchItemByKey({ symbol, mode = "market", tokenAddress = "" }) {
+  const sym = String(symbol || "").toUpperCase();
+  const m = String(mode || "market").toLowerCase();
+  const addr = String(tokenAddress || "").toLowerCase();
+
+  // Build next "items" array (the true source of truth we send to backend)
+  const nextItems = (watchItems || []).filter((x) => {
+    if (!x) return false;
+    const xs = String(x.symbol || "").toUpperCase();
+    const xm = String(x.mode || "market").toLowerCase();
+    const xa = String(x.tokenAddress || "").toLowerCase();
+    return !(xs === sym && xm === m && xa === addr);
+  });
+
+  // Optimistic UI update (so it disappears immediately)
+  setWatchItems(nextItems);
+  setWatchRows((prev) =>
+    (prev || []).filter((r) => {
+      if (!r) return false;
+      const rs = String(r.symbol || "").toUpperCase();
+      const rm = String(r.mode || "market").toLowerCase();
+      const ra = String(r.tokenAddress || "").toLowerCase();
+      return !(rs === sym && rm === m && ra === addr);
+    })
+  );
+
+  // Keep compare selection consistent (avoid "ghost" selections)
+  setCompareSet((prev) => {
+    const p = Array.isArray(prev) ? prev : [];
+    return p.filter((s) => String(s || "").toUpperCase() !== sym);
+  });
+
+  // Persist: ask backend to recompute snapshot for the new items list
+  // (This makes sure the item doesn't come back on next poll.)
+  (async () => {
+    try {
+      const data = await api("/api/watchlist/snapshot", {
+        method: "POST",
+        body: { items: nextItems },
+      });
+
+      if (data?.rows) setWatchRows(data.rows);
+      if (data?.coins) setCompareCoins(data.coins);
+      if (data?.symbols) setCompareSymbols(data.symbols);
+      if (data?.cached != null) setWatchCached(Boolean(data.cached));
+      setWatchErr("");
+    } catch (e) {
+      setWatchErr(String(e?.message || e));
+    }
+  })();
   }
 
   // AI
@@ -3676,8 +3684,8 @@ async function runAi() {
               <button className="btnGhost" onClick={fetchWatchSnapshot}>Refresh</button>
               <InfoButton title="Watchlist">
                 <Help showClose dismissable
-                  de={<><p><b>Compare</b> Checkbox steuert Compare-Auswahl (max 10).</p><p><b>Token</b> braucht Contract Address.</p></>}
-                  en={<><p><b>Compare</b> checkbox controls the compare set (max 10).</p><p><b>Token</b> requires a contract address.</p></>}
+                  de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 10).</p><p><b>Token</b> braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen eines neuen Coins/Tokens einmal drücken, damit Preis/Volumen nachgeladen werden.</p></>}
+                  en={<><p><b>Compare</b> checkbox controls the compare set (max 10).</p><p><b>Token</b> requires a contract address.</p><p><b>Refresh</b>: After adding a new coin/token, press once so price/volume can be fetched.</p></>}
                 />
               </InfoButton>
             </div>
@@ -3891,5 +3899,32 @@ async function runAi() {
   );
 }
 
-// App is rendered and wrapped by PrivyProvider in src/main.jsx.
-export default AppInner;
+// ------------------------
+// App (provider wrapper)
+// ------------------------
+export default function App() {
+  const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
+
+  if (!privyAppId) {
+    return (
+      <div style={{ padding: 16, color: "#fff", fontFamily: "system-ui" }}>
+        Missing <b>VITE_PRIVY_APP_ID</b> in your environment.
+      </div>
+    );
+  }
+
+  return (
+    <PrivyProvider
+      appId={privyAppId}
+      config={{
+        loginMethods: ["email"],
+        embeddedWallets: {
+          createOnLogin: "users-without-wallets",
+        },
+        // Keep external wallets optional: we don't trigger them anywhere in this UI.
+      }}
+    >
+      <AppInner />
+    </PrivyProvider>
+  );
+}

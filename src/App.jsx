@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
-
+import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 import "./App.css";
@@ -3899,6 +3898,11 @@ async function runAi() {
     </div>
   );
 }
+
+// ------------------------
+// App (provider wrapper)
+// ------------------------
 export default function App() {
+  // NOTE: PrivyProvider is mounted in src/main.jsx (single provider).
   return <AppInner />;
 }

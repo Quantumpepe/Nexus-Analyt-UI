@@ -1700,40 +1700,7 @@ function _fmtPctLocal(x) {
     return null;
   }
 
-  
-function _buildDailyPctFromPrice(points, maxDays = 30) {
-  // points: [{t, v}] where v=price. returns [{t, v}] where v=% change day-over-day
-  if (!Array.isArray(points) || points.length < 2) return [];
-  const dayLast = new Map(); // dayKey -> {t, v}
-  for (const p of points) {
-    const t = Number(p?.t);
-    const v = Number(p?.v);
-    if (!Number.isFinite(t) || !Number.isFinite(v) || t <= 0) continue;
-    const d = new Date(t);
-    const dayKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
-    // keep the last point of the day
-    dayLast.set(dayKey, { t, v });
-  }
-  const days = Array.from(dayLast.keys()).sort();
-  if (days.length < 2) return [];
-  const out = [];
-  let prev = dayLast.get(days[0])?.v;
-  for (let i = 1; i < days.length; i++) {
-    const cur = dayLast.get(days[i]);
-    if (!cur) continue;
-    const pct = (prev && prev !== 0) ? ((cur.v - prev) / prev) * 100 : NaN;
-    if (Number.isFinite(pct)) {
-      // put timestamp at midday UTC for stable labels
-      const [Y,M,D] = days[i].split("-").map(Number);
-      const tMid = Date.UTC(Y, M-1, D, 12, 0, 0);
-      out.push({ t: tMid, v: pct });
-    }
-    prev = cur.v;
-  }
-  return out.slice(-maxDays);
-}
-
-function _writePairExplainCache(pairStr, tf, series) {
+  function _writePairExplainCache(pairStr, tf, series) {
     const key = _pairExplainCacheKey(pairStr, tf);
     const day = _utcDayKey();
     try {
@@ -1765,10 +1732,8 @@ function _writePairExplainCache(pairStr, tf, series) {
       const qs = new URLSearchParams({ symbols: `${a},${b}`, range: PAIR_EXPLAIN_TF }).toString();
       const r = await api(`/api/compare?${qs}`, { method: "GET" });
 
-// Prefer backend-provided daily series for "Daily moves (last 30 days)".
-// If backend doesn't send daily (or it's empty), derive it from the price series.
-const hasDaily = !!(r?.daily && Object.keys(r.daily || {}).length);
-const raw = hasDaily ? (r.daily || {}) : (r?.series || {});
+// Prefer backend-provided daily series for "Daily moves (last 30 days)"
+const raw = (r?.daily && Object.keys(r.daily || {}).length) ? (r.daily || {}) : (r?.series || {});
 
 // Normalize: backend may return points as [[ts_ms, price], ...]. UI expects {t, v}.
 const series = {};
@@ -1782,13 +1747,6 @@ for (const [sym, pts] of Object.entries(raw || {})) {
     series[sym] = pts
       .map((p) => ({ t: Number(p?.t ?? p?.time ?? p?.x ?? 0), v: Number(p?.v ?? p?.p ?? p?.y ?? 0) }))
       .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
-  }
-}
-
-if (!hasDaily) {
-  // raw was price series -> convert to daily % moves
-  for (const sym of Object.keys(series)) {
-    series[sym] = _buildDailyPctFromPrice(series[sym], 30);
   }
 }
 

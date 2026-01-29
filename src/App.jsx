@@ -1,4 +1,5 @@
 
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 
@@ -188,7 +189,7 @@ async function api(path, { method = "GET", token, body } = {}) {
   // Backend auth note:
   // Your Flask backend currently returns 401 for /api/policy and /api/grid/* when
   // the request lacks the expected auth context. Depending on your backend setup,
-  // this may be cookie-session based (needs credentials: "include") or token based.
+  // this may be cookie-session based (needs credentials: token ? "include" : "omit") or token based.
   // We support both:
   //   1) Always include cookies.
   //   2) If a token is provided, send it as a Bearer token.

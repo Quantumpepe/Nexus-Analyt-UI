@@ -1,5 +1,19 @@
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PrivyProvider, usePrivy, useWallets } from "@privy-io/react-auth";
+
+const API = (() => {
+  const envBase = (import.meta?.env?.VITE_API_BASE || "").trim();
+  if (envBase) return envBase.replace(/\/+$/, "");
+  if (typeof window !== "undefined") {
+    const h = window.location.hostname || "";
+    if (h.includes("nexus-analyt-ui") || h.includes("onrender.com")) {
+      return "https://nexus-analyt-pro.onrender.com";
+    }
+  }
+  return "";
+})();
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 import "./App.css";
@@ -3898,11 +3912,6 @@ async function runAi() {
     </div>
   );
 }
-
-// ------------------------
-// App (provider wrapper)
-// ------------------------
 export default function App() {
-  // NOTE: PrivyProvider is mounted in src/main.jsx (single provider).
   return <AppInner />;
 }

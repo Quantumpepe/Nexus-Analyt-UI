@@ -1731,9 +1731,27 @@ function _fmtPctLocal(x) {
     try {
       const qs = new URLSearchParams({ symbols: `${a},${b}`, range: PAIR_EXPLAIN_TF }).toString();
       const r = await api(`/api/compare?${qs}`, { method: "GET" });
-      const series = r?.series || {};
-      setPairExplainSeries(series);
-      _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
+
+// Prefer backend-provided daily series for "Daily moves (last 30 days)"
+const raw = (r?.daily && Object.keys(r.daily || {}).length) ? (r.daily || {}) : (r?.series || {});
+
+// Normalize: backend may return points as [[ts_ms, price], ...]. UI expects {t, v}.
+const series = {};
+for (const [sym, pts] of Object.entries(raw || {})) {
+  if (!Array.isArray(pts)) { series[sym] = []; continue; }
+  if (pts.length && Array.isArray(pts[0])) {
+    series[sym] = pts
+      .map((p) => ({ t: Number(p?.[0] ?? 0), v: Number(p?.[1] ?? 0) }))
+      .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
+  } else {
+    series[sym] = pts
+      .map((p) => ({ t: Number(p?.t ?? p?.time ?? p?.x ?? 0), v: Number(p?.v ?? p?.p ?? p?.y ?? 0) }))
+      .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
+  }
+}
+
+setPairExplainSeries(series);
+_writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     } catch (e) {
       // keep silent; UI will show —
     } finally {
@@ -1750,9 +1768,13 @@ function _fmtPctLocal(x) {
       const firstPt = arr[0];
       const lastPt = arr[arr.length - 1];
 
-      // backend series format: [{t:..., v:...}, ...] OR already-numeric arrays
-      const first = (firstPt && typeof firstPt === "object") ? Number(firstPt.v) : Number(firstPt);
-      const last = (lastPt && typeof lastPt === "object") ? Number(lastPt.v) : Number(lastPt);
+      // backend series format can be:
+// - [{t, v}, ...]
+// - [[ts_ms, price], ...]
+// - [number, ...] (rare fallback)
+      const first = Array.isArray(firstPt) ? Number(firstPt?.[1]) : ((firstPt && typeof firstPt === "object") ? Number(firstPt.v) : Number(firstPt));
+      const last  = Array.isArray(lastPt)  ? Number(lastPt?.[1])  : ((lastPt && typeof lastPt === "object") ? Number(lastPt.v) : Number(lastPt));
+
 
       if (!Number.isFinite(first) || !Number.isFinite(last) || !first) return null;
       return ((last - first) / first) * 100.0;

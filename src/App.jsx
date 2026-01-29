@@ -1,5 +1,6 @@
 
 
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 
@@ -1902,13 +1903,14 @@ const [aiLoading, setAiLoading] = useState(false);
     inflightWatch.current = true;
     try {
       const r = await api("/api/watchlist/snapshot", { method: "POST", body: { items: watchItems } });
-      const nextRows = (r?.results || []);
+      const nextRows = (r?.results || r?.rows || []);
       setWatchRows(nextRows);
       try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(nextRows)); } catch {}
-      if ((r?.results || []).length) {
+      if ((r?.results || r?.rows || []).length) {
         const symUp = String(gridItem || "").toUpperCase();
-        const exists = (r.results || []).some((x) => String(x.symbol || "").toUpperCase() === symUp);
-        if (!exists) setGridItem(String(r.results[0].symbol || "BTC").toUpperCase());
+        const list = (r?.results || r?.rows || []);
+        const exists = (list || []).some((x) => String(x.symbol || "").toUpperCase() === symUp);
+        if (!exists && (list || []).length) setGridItem(String(list[0].symbol || "BTC").toUpperCase());
       }
     } catch (e) {
       setErrorMsg(`Watchlist: ${e.message}`);
@@ -1950,9 +1952,25 @@ const [aiLoading, setAiLoading] = useState(false);
       }
 
       const merged = mergeCompareBatches(batches);
-      const nextSeries = (merged.series || {});
-      setCompareSeries(nextSeries);
-      try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(nextSeries)); } catch {}
+const nextSeriesRaw = (merged.series || {});
+// Backend may return points as [[ts_ms, price], ...]. UI expects {t, v}.
+const nextSeries = {};
+for (const [sym, pts] of Object.entries(nextSeriesRaw)) {
+  if (!Array.isArray(pts)) { nextSeries[sym] = []; continue; }
+  if (pts.length && Array.isArray(pts[0])) {
+    nextSeries[sym] = pts.map((p) => ({ t: Number(p?.[0] ?? 0), v: Number(p?.[1] ?? 0) }))
+                         .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
+  } else {
+    // assume already in {t,v} (or {t,p}) shape
+    nextSeries[sym] = pts.map((p) => {
+      const t = Number(p?.t ?? p?.time ?? p?.x ?? 0);
+      const v = Number(p?.v ?? p?.p ?? p?.value ?? p?.y ?? 0);
+      return { t, v };
+    }).filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
+  }
+}
+setCompareSeries(nextSeries);
+try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(nextSeries)); } catch {}
     } catch (e) {
       setErrorMsg(`Compare: ${e.message}`);
     } finally {
@@ -1976,10 +1994,11 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // grid
   const fetchGridOrders = async () => {
-    if (!token || !gridItem) return;
+    // Allow read without token (some backends are public for GET /orders)
+    if (!gridItem) return;
     try {
       const qs = new URLSearchParams({ item: gridItem }).toString();
-      const r = await api(`/api/grid/orders?${qs}`, { method: "GET", token });
+      const r = await api(`/api/grid/orders?${qs}`, { method: "GET", token: token || undefined });
       const orders = r?.orders || r?.data?.orders || [];
       setGridOrders(Array.isArray(orders) ? orders : []);
       const tick = r?.tick ?? r?.data?.tick ?? null;
@@ -2040,8 +2059,22 @@ const [aiLoading, setAiLoading] = useState(false);
         if (qty === undefined || !Number.isFinite(qty) || qty <= 0) throw new Error("Invalid qty.");
         body.qty = qty;
       }
-
-      const r = await api("/api/grid/manual/add", { method: "POST", token, body });
+      // Some backend versions expose different manual-add paths; try a small fallback set on 404.
+      const tryPaths = ["/api/grid/manual/add", "/api/grid/add", "/api/grid/manual_add"];
+      let r = null;
+      let lastErr = null;
+      for (const p of tryPaths) {
+        try {
+          r = await api(p, { method: "POST", token, body });
+          lastErr = null;
+          break;
+        } catch (e) {
+          lastErr = e;
+          if (Number(e?.status) === 404) continue;
+          throw e;
+        }
+      }
+      if (!r && lastErr) throw lastErr;
       setGridOrders(r?.orders || []);
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       fetchGridOrders();
@@ -2050,7 +2083,7 @@ const [aiLoading, setAiLoading] = useState(false);
     }
   }
 
-  useInterval(fetchGridOrders, 15000, !!token && !!gridItem);
+  useInterval(fetchGridOrders, 15000, !!gridItem);
 
   const gridLiveFallback = useMemo(() => {
     const row = (watchRows || []).find((r) => String(r.symbol || "").toUpperCase() === String(gridItem || "").toUpperCase());
@@ -2131,7 +2164,8 @@ const [aiLoading, setAiLoading] = useState(false);
       method: "POST",
       body: { items: nextItems },
     });
-    if (data?.rows) setWatchRows(data.rows);
+    const nextRows = data?.results || data?.rows || [];
+    if (Array.isArray(nextRows)) setWatchRows(nextRows);
     if (data?.coins) setCompareCoins(data.coins);
     if (data?.symbols) setCompareSymbols(data.symbols);
     if (data?.cached != null) setWatchCached(Boolean(data.cached));
@@ -2182,7 +2216,8 @@ const [aiLoading, setAiLoading] = useState(false);
         body: { items: nextItems },
       });
 
-      if (data?.rows) setWatchRows(data.rows);
+      const nextRows = data?.results || data?.rows || [];
+    if (Array.isArray(nextRows)) setWatchRows(nextRows);
       if (data?.coins) setCompareCoins(data.coins);
       if (data?.symbols) setCompareSymbols(data.symbols);
       if (data?.cached != null) setWatchCached(Boolean(data.cached));

@@ -1,6 +1,3 @@
-
-
-
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 
@@ -11,6 +8,8 @@ import "./App.css";
 // Local cache (stale-while-revalidate) so live refresh/cold-start won't blank the UI
 const LS_WATCH_ROWS_CACHE = "na_watch_rows_cache_v1";
 const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
+const LS_APP_VERSION = "na_app_version";
+const APP_VERSION = "2026-01-29-v4";
 
 const API_BASE = (import.meta.env.VITE_API_BASE ?? "").trim();
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
@@ -865,6 +864,23 @@ function computeBestPairs(chart, limit = 30) {
 // App (inner)
 // ------------------------
 function AppInner() {
+// One-time storage version gate: clears stale caches after deployments
+useEffect(() => {
+  try {
+    const v = localStorage.getItem(LS_APP_VERSION);
+    if (v !== APP_VERSION) {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("na_")) localStorage.removeItem(k);
+      }
+      localStorage.setItem(LS_APP_VERSION, APP_VERSION);
+    }
+  } catch (e) {
+    // ignore storage errors (private mode, blocked, etc.)
+  }
+}, []);
+
+
   
   const [watchErr, setWatchErr] = useState("");
 const [errorMsg, setErrorMsg] = useState("");

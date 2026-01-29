@@ -12,18 +12,20 @@ if (!PRIVY_APP_ID) {
 ReactDOM.createRoot(document.getElementById("root")).render(
   <ErrorBoundary>
     <PrivyProvider
-  appId={PRIVY_APP_ID}
-  config={{
-  loginMethods: ["google"],
-  embeddedWallets: {
-    createOnLogin: "users-without-wallets",
-  },
-  appearance: { theme: "dark" },
-}}
+      appId={PRIVY_APP_ID}
+      config={{
+        // ✅ This restores the old flow: email -> code
+        // Passkey and wallet stay available.
+        loginMethods: ["email", "passkey", "wallet"],
 
->
-  <App />
-</PrivyProvider>
+        embeddedWallets: {
+          createOnLogin: "users-without-wallets",
+        },
 
+        appearance: { theme: "dark" },
+      }}
+    >
+      <App />
+    </PrivyProvider>
   </ErrorBoundary>
 );

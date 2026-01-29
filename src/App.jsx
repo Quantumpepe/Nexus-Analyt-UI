@@ -1,22 +1,14 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-const API = (() => {
-  const envBase = (import.meta?.env?.VITE_API_BASE || "").trim();
-  if (envBase) return envBase.replace(/\/+$/, "");
-  if (typeof window !== "undefined") {
-    const h = window.location.hostname || "";
-    if (h.includes("nexus-analyt-ui") || h.includes("onrender.com")) {
-      return "https://nexus-analyt-pro.onrender.com";
-    }
-  }
-  return "";
-})();
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 import "./App.css";
+
+// Local cache (stale-while-revalidate) so live refresh/cold-start won't blank the UI
+const LS_WATCH_ROWS_CACHE = "na_watch_rows_cache_v1";
+const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
 
 const API_BASE = (import.meta.env.VITE_API_BASE ?? "").trim();
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
@@ -1331,7 +1323,14 @@ return [c, { native, stables, custom }];
     { symbol: "ETH", mode: "market" },
     { symbol: "POL", mode: "market" },
   ]);
-  const [watchRows, setWatchRows] = useState([]);
+  const [watchRows, setWatchRows] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LS_WATCH_ROWS_CACHE);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", ["BTC", "ETH", "POL"]);
   const compareSymbols = useMemo(() => {
     const uniq = [];
@@ -1805,7 +1804,14 @@ function _fmtPctLocal(x) {
     }
   }
   const [compareLoading, setCompareLoading] = useState(false);
-  const [compareSeries, setCompareSeries] = useState({});
+  const [compareSeries, setCompareSeries] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LS_COMPARE_SERIES_CACHE);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
   const [indexMode, setIndexMode] = useState(true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [highlightSym, setHighlightSym] = useState(null);
@@ -1895,7 +1901,9 @@ const [aiLoading, setAiLoading] = useState(false);
     inflightWatch.current = true;
     try {
       const r = await api("/api/watchlist/snapshot", { method: "POST", body: { items: watchItems } });
-      setWatchRows(r?.results || []);
+      const nextRows = (r?.results || []);
+      setWatchRows(nextRows);
+      try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(nextRows)); } catch {}
       if ((r?.results || []).length) {
         const symUp = String(gridItem || "").toUpperCase();
         const exists = (r.results || []).some((x) => String(x.symbol || "").toUpperCase() === symUp);
@@ -1921,6 +1929,7 @@ const [aiLoading, setAiLoading] = useState(false);
 
     if (!compareSymbols.length) {
       setCompareSeries({});
+      try { localStorage.removeItem(LS_COMPARE_SERIES_CACHE); } catch {}
       return;
     }
     inflightCompare.current = true;
@@ -1940,7 +1949,9 @@ const [aiLoading, setAiLoading] = useState(false);
       }
 
       const merged = mergeCompareBatches(batches);
-      setCompareSeries(merged.series || {});
+      const nextSeries = (merged.series || {});
+      setCompareSeries(nextSeries);
+      try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(nextSeries)); } catch {}
     } catch (e) {
       setErrorMsg(`Compare: ${e.message}`);
     } finally {

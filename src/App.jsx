@@ -5,43 +5,6 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 
-// Popular market coins for Add Coin dropdown suggestions (symbol-only, coingecko-backed)
-const POPULAR_COINS = [
-  { symbol: "BTC", name: "Bitcoin" },
-  { symbol: "ETH", name: "Ethereum" },
-  { symbol: "SOL", name: "Solana" },
-  { symbol: "BNB", name: "BNB" },
-  { symbol: "XRP", name: "XRP" },
-  { symbol: "DOGE", name: "Dogecoin" },
-  { symbol: "ADA", name: "Cardano" },
-  { symbol: "AVAX", name: "Avalanche" },
-  { symbol: "DOT", name: "Polkadot" },
-  { symbol: "LINK", name: "Chainlink" },
-  { symbol: "MATIC", name: "Polygon" },
-  { symbol: "TON", name: "Toncoin" },
-  { symbol: "TRX", name: "TRON" },
-  { symbol: "LTC", name: "Litecoin" },
-  { symbol: "BCH", name: "Bitcoin Cash" },
-  { symbol: "UNI", name: "Uniswap" },
-  { symbol: "ATOM", name: "Cosmos" },
-  { symbol: "NEAR", name: "NEAR" },
-  { symbol: "ICP", name: "Internet Computer" },
-  { symbol: "FIL", name: "Filecoin" },
-  { symbol: "ETC", name: "Ethereum Classic" },
-  { symbol: "XLM", name: "Stellar" },
-  { symbol: "HBAR", name: "Hedera" },
-  { symbol: "APT", name: "Aptos" },
-  { symbol: "SUI", name: "Sui" },
-  { symbol: "AR", name: "Arweave" },
-  { symbol: "AAVE", name: "Aave" },
-  { symbol: "OP", name: "Optimism" },
-  { symbol: "ARB", name: "Arbitrum" },
-  { symbol: "IMX", name: "Immutable" },
-  { symbol: "INJ", name: "Injective" },
-  { symbol: "GRT", name: "The Graph" },
-  { symbol: "KAS", name: "Kaspa" },
-  { symbol: "PEPE", name: "Pepe" },
-];
 
 
 import "./App.css";
@@ -2448,51 +2411,112 @@ const [aiLoading, setAiLoading] = useState(false);
   }
 
   const [addOpen, setAddOpen] = useState(false);
-  const [addSymbol, setAddSymbol] = useState("");
-  const [addIsToken, setAddIsToken] = useState(false);
-  const [addContract, setAddContract] = useState("");
-  const [addChain, setAddChain] = useState("eth");
 
-  async function submitAdd() {
-  const sym = String(addSymbol || "").trim().toUpperCase();
-  if (!sym) return;
+// Add-Coin modal (old-app style): Market (CoinGecko search) + DEX (Contract)
+const [addTab, setAddTab] = useState("market"); // "market" | "dex"
+const [addQuery, setAddQuery] = useState("");
+const [addSearching, setAddSearching] = useState(false);
+const [addResults, setAddResults] = useState([]); // [{id,symbol,name,market_cap_rank}]
+const [addSearchErr, setAddSearchErr] = useState("");
 
-  const item = addIsToken
-    ? { symbol: sym, mode: "dex", contract: String(addContract || "").trim(), chain: String(addChain || "").trim() }
-    : { symbol: sym, mode: "market" };
+// DEX tab inputs
+const [addChain, setAddChain] = useState("eth");
+const [addContract, setAddContract] = useState("");
 
-  if (item.mode === "dex" && !item.contract) {
-    return setErrorMsg("Contract address required for token.");
+const resetAddModal = () => {
+  setAddOpen(false);
+  setAddTab("market");
+  setAddQuery("");
+  setAddSearching(false);
+  setAddResults([]);
+  setAddSearchErr("");
+  setAddChain("eth");
+  setAddContract("");
+};
+
+const runMarketSearch = async () => {
+  const q = String(addQuery || "").trim();
+  if (!q) return;
+  setAddSearchErr("");
+  setAddSearching(true);
+  try {
+    // Backend proxy to CoinGecko search (avoids CG CORS + rate issues)
+    const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`);
+    const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
+    const norm = (list || [])
+      .map((x) => ({
+        id: String(x.id || x.coingecko_id || x.cg_id || "").trim(),
+        symbol: String(x.symbol || "").trim(),
+        name: String(x.name || "").trim(),
+        market_cap_rank: x.market_cap_rank ?? x.rank ?? null,
+      }))
+      .filter((x) => x.id && x.symbol);
+    setAddResults(norm);
+    if (!norm.length) setAddSearchErr("No results.");
+  } catch (e) {
+    setAddSearchErr(String(e?.message || e));
+    setAddResults([]);
+  } finally {
+    setAddSearching(false);
   }
+};
 
-  // Build next items array deterministically so we can refresh immediately.
+const addMarketCoin = async (coin) => {
+  const sym = String(coin?.symbol || "").trim().toUpperCase();
+  const cgId = String(coin?.id || "").trim();
+  if (!sym || !cgId) return;
+
+  const item = { symbol: sym, mode: "market", coingecko_id: cgId, name: coin?.name || "", rank: coin?.market_cap_rank ?? null };
+
   const prev = Array.isArray(watchItems) ? watchItems : [];
-  const key = `${item.mode}|${item.symbol}|${item.contract || ""}`.toLowerCase();
-  const exists = prev.some(
-    (x) => `${x.mode || "market"}|${String(x.symbol || "")}|${String(x.contract || "")}`.toLowerCase() === key
-  );
-
+  const key = `${item.mode}|${item.symbol}|${item.coingecko_id}`.toLowerCase();
+  const exists = prev.some((x) => {
+    const xs = String(x?.symbol || "").trim().toUpperCase();
+    const xm = String(x?.mode || "market").toLowerCase();
+    const xid = String(x?.coingecko_id || x?.id || "").toLowerCase();
+    return `${xm}|${xs}|${xid}`.toLowerCase() === key;
+  });
   const nextItems = exists ? prev : [...prev, item];
 
-  // Optimistic update
+  // Optimistic update + immediate snapshot refresh
   setWatchItems(nextItems);
-
-  // close/reset modal
-  setAddOpen(false);
-  setAddSymbol("");
-  setAddIsToken(false);
-  setAddContract("");
-  setAddChain("eth");
-
-  // Persist + refresh rows immediately so user doesn't have to press Refresh
   try {
-    // Use the shared snapshot fetcher so retry/backoff logic is consistent.
     await fetchWatchSnapshot(nextItems, { force: true });
     setWatchErr("");
   } catch (e) {
     setWatchErr(String(e?.message || e));
   }
-}
+
+  // keep modal open to allow adding multiple, but clear search to reduce confusion
+  setAddQuery("");
+  setAddResults([]);
+  setAddSearchErr("");
+};
+
+const addDexToken = async () => {
+  const contract = String(addContract || "").trim();
+  const chain = String(addChain || "eth").trim();
+  if (!contract) return setErrorMsg("Contract address required.");
+
+  // We store contract in both "contract" (UI) and "tokenAddress" (backward compat for older backend)
+  const item = { symbol: contract.slice(0, 10).toUpperCase(), mode: "dex", contract, tokenAddress: contract, chain };
+
+  const prev = Array.isArray(watchItems) ? watchItems : [];
+  const key = `${item.mode}|${item.contract}`.toLowerCase();
+  const exists = prev.some((x) => `${String(x?.mode || "market").toLowerCase()}|${String(x?.contract || x?.tokenAddress || "").toLowerCase()}` === key);
+  const nextItems = exists ? prev : [...prev, item];
+
+  setWatchItems(nextItems);
+  try {
+    await fetchWatchSnapshot(nextItems, { force: true });
+    setWatchErr("");
+  } catch (e) {
+    setWatchErr(String(e?.message || e));
+  }
+
+  // keep modal open; clear contract for next add
+  setAddContract("");
+};
 
   function removeWatchItemByKey({ symbol, mode = "market", tokenAddress = "" }) {
   const sym = String(symbol || "").toUpperCase();
@@ -4214,85 +4238,151 @@ async function runAi() {
 
 
             {addOpen && (
-        <div className="modalBackdrop" onClick={() => setAddOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))" }}>
-            <div className="modalHead">
-              <div className="cardTitle">Add Coin / Token</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <InfoButton title="Add Coin / Token">
-                  <Help showClose dismissable
-                    de={<><p><b>Coin</b> (Market) braucht nur Symbol (z.B. ETH).</p><p><b>Token</b> braucht Contract Address.</p></>}
-                    en={<><p><b>Coin</b> (market) only needs a symbol (e.g., ETH).</p><p><b>Token</b> requires a contract address.</p></>}
-                  />
-                </InfoButton>
-                <button className="iconBtn" onClick={() => setAddOpen(false)}>×</button>
-              </div>
-            </div>
-
-            <div className="formRow">
-              <label>{addIsToken ? "Contract / Address" : "Symbol"}</label>
-              <input
-                value={addSymbol}
-                onChange={(e) => setAddSymbol((e.target.value || "").toUpperCase())}
-                placeholder={addIsToken ? "0x…" : "e.g. ETH"}
-                list={!addIsToken ? "coin-suggestions" : undefined}
-                spellCheck={false}
-              />
-              {!addIsToken && (
-                <datalist id="coin-suggestions">
-                  {POPULAR_COINS.map((c) => (
-                    <option key={c.symbol} value={c.symbol} label={c.name} />
-                  ))}
-                </datalist>
-              )}
-              {!addIsToken && <div className="hint">Tip to search, or pick from the dropdown suggestions.</div>}
-            </div>
-
-            <div className="formRow">
-              <label>Type</label>
-              <select value={addIsToken ? "token" : "coin"} onChange={(e) => setAddIsToken(e.target.value === "token")}>
-                <option value="coin">Market coin (BTC, ETH...)</option>
-                <option value="token">Token (contract)</option>
-              </select>
-            </div>
-
-            {addIsToken && (
-              <>
-                <div className="formRow">
-                  <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    Contract
-                    <InfoButton title="Contract Address">
-                      <Help showClose dismissable
-                        de={<><p><b>Pflicht</b> für Tokens. Beispiel: 0x…</p></>}
-                        en={<><p><b>Required</b> for tokens. Example: 0x…</p></>}
-                      />
-                    </InfoButton>
-                  </label>
-                  <input value={addContract} onChange={(e) => setAddContract(e.target.value)} placeholder="0x..." />
-                </div>
-
-                <div className="formRow">
-                  <label>Chain</label>
-                  <select value={addChain} onChange={(e) => setAddChain(e.target.value)}>
-                    <option value="eth">ETH</option>
-                    <option value="bsc">BSC</option>
-                    <option value="polygon">Polygon</option>
-                    <option value="arbitrum">Arbitrum</option>
-                    <option value="base">Base</option>
-                  </select>
-                </div>
-              </>
-            )}
-
-            <div className="btnRow">
-              <button className="btn" onClick={submitAdd}>Add</button>
-              <button className="btnGhost" onClick={() => setAddOpen(false)}>Cancel</button>
-            </div>
-
-            <div className="muted tiny">Cache-first: coins in backend cache appear instantly; new ones are fetched.</div>
-          </div>
+  <div className="modalBackdrop" onClick={resetAddModal}>
+    <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modalHead">
+        <div className="cardTitle">Select token (CoinGecko)</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <InfoButton title="Select token (CoinGecko)">
+            <Help
+              de={
+                <>
+                  <p>
+                    Suche nach <b>Symbol</b> oder <b>Name</b> (z.B. <code>TON</code>, <code>BNB</code>). Bei gleichen Symbolen bitte den richtigen{" "}
+                    <b>Namen/Rank</b> auswählen.
+                  </p>
+                  <p>
+                    <b>Market (CEX)</b> nutzt CoinGecko-IDs (zuverlässig). <b>DEX (Contract)</b> fügt einen Contract hinzu.
+                  </p>
+                </>
+              }
+              en={
+                <>
+                  <p>
+                    Search by <b>symbol</b> or <b>name</b> (e.g. <code>TON</code>, <code>BNB</code>). If there are multiple matches, pick the right{" "}
+                    <b>name/rank</b>.
+                  </p>
+                  <p>
+                    <b>Market (CEX)</b> uses CoinGecko IDs (reliable). <b>DEX (Contract)</b> adds a contract address.
+                  </p>
+                </>
+              }
+            />
+          </InfoButton>
+          <button className="iconBtn" onClick={resetAddModal} aria-label="Close">
+            ×
+          </button>
         </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+        <button
+          className="pill"
+          style={{ opacity: addTab === "market" ? 1 : 0.6, borderColor: addTab === "market" ? "rgba(34,197,94,0.7)" : undefined }}
+          onClick={() => setAddTab("market")}
+          type="button"
+        >
+          Market (CEX)
+        </button>
+        <button
+          className="pill"
+          style={{ opacity: addTab === "dex" ? 1 : 0.6, borderColor: addTab === "dex" ? "rgba(34,197,94,0.7)" : undefined }}
+          onClick={() => setAddTab("dex")}
+          type="button"
+        >
+          DEX (Contract)
+        </button>
+      </div>
+
+      {addTab === "market" && (
+        <>
+          <div className="muted" style={{ marginTop: 10 }}>
+            Search &mdash; pick the exact coin, so prices & updates are correct.
+          </div>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+            <input
+              className="input"
+              placeholder="e.g. TON / BNB / Dogecoin"
+              value={addQuery}
+              onChange={(e) => setAddQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") runMarketSearch();
+              }}
+            />
+            <button className="btn" onClick={runMarketSearch} disabled={addSearching || !String(addQuery || "").trim()}>
+              {addSearching ? "Searching..." : "Search"}
+            </button>
+          </div>
+
+          {addSearchErr ? (
+            <div style={{ marginTop: 8, color: "#ffb4b4" }}>
+              {addSearchErr}
+            </div>
+          ) : null}
+
+          <div style={{ maxHeight: 360, overflow: "auto", marginTop: 10 }}>
+            {(addResults || []).map((c) => (
+              <div key={c.id} className="watchRow" style={{ alignItems: "center" }}>
+                <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {c.name} <span className="muted">({String(c.symbol || "").toUpperCase()})</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    ID: <code>{c.id}</code>
+                    {c.market_cap_rank != null ? <> &middot; Rank #{c.market_cap_rank}</> : null}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button className="btn" onClick={() => addMarketCoin(c)}>
+                    Add
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
+
+      {addTab === "dex" && (
+        <>
+          <div className="muted" style={{ marginTop: 10 }}>
+            Add token by contract address (DEX). Backend must support resolving contract metadata.
+          </div>
+
+          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+            <div className="muted">Chain</div>
+            <select value={addChain} onChange={(e) => setAddChain(e.target.value)}>
+              <option value="eth">Ethereum</option>
+              <option value="bsc">BSC</option>
+              <option value="polygon">Polygon</option>
+              <option value="arb">Arbitrum</option>
+              <option value="op">Optimism</option>
+              <option value="base">Base</option>
+            </select>
+
+            <div className="muted">Contract</div>
+            <input className="input" placeholder="0x..." value={addContract} onChange={(e) => setAddContract(e.target.value)} />
+          </div>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+            <button className="btn" onClick={addDexToken} disabled={!String(addContract || "").trim()}>
+              Add
+            </button>
+            <button className="btnGhost" onClick={resetAddModal}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+
+      <div className="muted" style={{ marginTop: 10 }}>
+        Tip: coins already cached on backend appear instantly; new ones may take a moment to fetch.
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }

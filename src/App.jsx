@@ -4,6 +4,46 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
+
+// Popular market coins for Add Coin dropdown suggestions (symbol-only, coingecko-backed)
+const POPULAR_COINS = [
+  { symbol: "BTC", name: "Bitcoin" },
+  { symbol: "ETH", name: "Ethereum" },
+  { symbol: "SOL", name: "Solana" },
+  { symbol: "BNB", name: "BNB" },
+  { symbol: "XRP", name: "XRP" },
+  { symbol: "DOGE", name: "Dogecoin" },
+  { symbol: "ADA", name: "Cardano" },
+  { symbol: "AVAX", name: "Avalanche" },
+  { symbol: "DOT", name: "Polkadot" },
+  { symbol: "LINK", name: "Chainlink" },
+  { symbol: "MATIC", name: "Polygon" },
+  { symbol: "TON", name: "Toncoin" },
+  { symbol: "TRX", name: "TRON" },
+  { symbol: "LTC", name: "Litecoin" },
+  { symbol: "BCH", name: "Bitcoin Cash" },
+  { symbol: "UNI", name: "Uniswap" },
+  { symbol: "ATOM", name: "Cosmos" },
+  { symbol: "NEAR", name: "NEAR" },
+  { symbol: "ICP", name: "Internet Computer" },
+  { symbol: "FIL", name: "Filecoin" },
+  { symbol: "ETC", name: "Ethereum Classic" },
+  { symbol: "XLM", name: "Stellar" },
+  { symbol: "HBAR", name: "Hedera" },
+  { symbol: "APT", name: "Aptos" },
+  { symbol: "SUI", name: "Sui" },
+  { symbol: "AR", name: "Arweave" },
+  { symbol: "AAVE", name: "Aave" },
+  { symbol: "OP", name: "Optimism" },
+  { symbol: "ARB", name: "Arbitrum" },
+  { symbol: "IMX", name: "Immutable" },
+  { symbol: "INJ", name: "Injective" },
+  { symbol: "GRT", name: "The Graph" },
+  { symbol: "KAS", name: "Kaspa" },
+  { symbol: "PEPE", name: "Pepe" },
+];
+
+
 import "./App.css";
 
 // Local cache (stale-while-revalidate) so live refresh/cold-start won't blank the UI
@@ -4190,8 +4230,22 @@ async function runAi() {
             </div>
 
             <div className="formRow">
-              <label>Symbol</label>
-              <input value={addSymbol} onChange={(e) => setAddSymbol(e.target.value)} placeholder="e.g. ETH" />
+              <label>{addIsToken ? "Contract / Address" : "Symbol"}</label>
+              <input
+                value={addSymbol}
+                onChange={(e) => setAddSymbol((e.target.value || "").toUpperCase())}
+                placeholder={addIsToken ? "0x…" : "e.g. ETH"}
+                list={!addIsToken ? "coin-suggestions" : undefined}
+                spellCheck={false}
+              />
+              {!addIsToken && (
+                <datalist id="coin-suggestions">
+                  {POPULAR_COINS.map((c) => (
+                    <option key={c.symbol} value={c.symbol} label={c.name} />
+                  ))}
+                </datalist>
+              )}
+              {!addIsToken && <div className="hint">Tip to search, or pick from the dropdown suggestions.</div>}
             </div>
 
             <div className="formRow">

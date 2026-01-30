@@ -141,11 +141,47 @@ const CG = {
   platforms: { ETH: "ethereum", POL: "polygon-pos", BNB: "binance-smart-chain" },
 };
 
-async function cgFetchJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
-  return res.json();
+// CoinGecko fetch helper (browser) with short-lived caching + gentle backoff.
+// This prevents UI lag + 429 rate-limits during rapid refreshes.
+const __cgCache = new Map(); // url -> {ts:number, data:any}
+let __cgCooldownUntil = 0;
+
+async function cgFetchJson(url, { ttlMs = 120_000 } = {}) {
+  const now = Date.now();
+
+  // cooldown after 429
+  if (now < __cgCooldownUntil) {
+    const hit = __cgCache.get(url);
+    if (hit && now - hit.ts < ttlMs) return hit.data;
+    throw new Error(`CoinGecko cooldown`);
+  }
+
+  // cache hit
+  const hit = __cgCache.get(url);
+  if (hit && now - hit.ts < ttlMs) return hit.data;
+
+  const res = await fetch(url, { cache: "no-store" });
+
+  if (res.status === 429) {
+    __cgCooldownUntil = now + 120_000; // 120s
+    // return stale if present
+    const stale = __cgCache.get(url);
+    if (stale) return stale.data;
+    throw new Error(`CoinGecko HTTP 429`);
+  }
+
+  if (!res.ok) {
+    // return stale if present
+    const stale = __cgCache.get(url);
+    if (stale) return stale.data;
+    throw new Error(`CoinGecko HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+  __cgCache.set(url, { ts: now, data });
+  return data;
 }
+
 
 async function fetchNativeUsdPrices(chains = []) {
   const ids = Array.from(new Set((chains || []).map((c) => CG.nativeIds[c]).filter(Boolean)));
@@ -186,10 +222,16 @@ const fmtPct = (n) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function api(path, { method = "GET", token, body, timeoutMs = 15000, signal } = {}) {
+async function api(path, { method = "GET", token, body } = {}) {
   // Backend auth note:
-  // We support both cookie + optional Bearer token.
-  // Added: timeout + abort to make mobile stable (prevents hanging requests).
+  // Your Flask backend currently returns 401 for /api/policy and /api/grid/* when
+  // the request lacks the expected auth context. Depending on your backend setup,
+  // this may be cookie-session based (needs credentials: token ? "include" : "omit") or token based.
+  // We support both:
+  //   1) Always include cookies.
+  //   2) If a token is provided, send it as a Bearer token.
+  //   3) If the backend rejects Bearer tokens (401), retry once without the Bearer
+  //      header (so public/cookie-only endpoints still work).
 
   const makeHeaders = (withBearer) => {
     const headers = { "Content-Type": "application/json" };
@@ -198,27 +240,12 @@ async function api(path, { method = "GET", token, body, timeoutMs = 15000, signa
   };
 
   const doFetch = async (withBearer) => {
-    const controller = new AbortController();
-
-    // merge external signal into our controller
-    if (signal) {
-      if (signal.aborted) controller.abort();
-      else signal.addEventListener("abort", () => controller.abort(), { once: true });
-    }
-
-    const timer = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 15000));
-
-    try {
-      return await fetch(`${API_BASE}${path}`, {
-        method,
-        headers: makeHeaders(withBearer),
-        credentials: "include",
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
+    return fetch(`${API_BASE}${path}`, {
+      method,
+      headers: makeHeaders(withBearer),
+      credentials: "include",
+      body: body ? JSON.stringify(body) : undefined,
+    });
   };
 
   // First try with Bearer (if provided).
@@ -229,7 +256,7 @@ async function api(path, { method = "GET", token, body, timeoutMs = 15000, signa
     res = await doFetch(false);
   }
 
-  const text = await res.text().catch(() => "");
+  const text = await res.text();
   let data = null;
   try {
     data = text ? JSON.parse(text) : null;
@@ -246,7 +273,6 @@ async function api(path, { method = "GET", token, body, timeoutMs = 15000, signa
   }
   return data;
 }
-
 
 // ---- Payments (ERC20 transfer) helpers (no external deps) ----
 function _hexPad64(hexNo0x) {
@@ -1351,7 +1377,6 @@ return [c, { native, stables, custom }];
     { symbol: "BTC", mode: "market" },
     { symbol: "ETH", mode: "market" },
     { symbol: "POL", mode: "market" },
-    { symbol: "PEPE", mode: "market" },
   ]);
   const [watchRows, setWatchRows] = useState(() => {
     try {
@@ -1986,11 +2011,7 @@ const [aiQuestion, setAiQuestion] = useState("");
   const [aiFollowUp, setAiFollowUp] = useState(true);
   const [aiHistory, setAiHistory] = useState([]); // [{role:"user"|"assistant", content:string}]
 const [aiLoading, setAiLoading] = useState(false);
-  const [aiOutput, setAiOutput] = useState("")
-  // AI request stability (avoid parallel calls + allow abort)
-  const aiAbortRef = useRef(null);
-  const aiInFlightRef = useRef(false);
-;
+  const [aiOutput, setAiOutput] = useState("");
 
   // watch snapshot polling
   const inflightWatch = useRef(false);
@@ -2009,9 +2030,8 @@ const [aiLoading, setAiLoading] = useState(false);
         if (!exists && (list || []).length) setGridItem(String(list[0].symbol || "BTC").toUpperCase());
       }
     } catch (e) {
-      if (e?.name === "AbortError") { return; }
-      console.warn("Watchlist fetch failed", e);
-      } finally {
+      setErrorMsg(`Watchlist: ${e.message}`);
+    } finally {
       inflightWatch.current = false;
     }
   };
@@ -2022,105 +2042,66 @@ const [aiLoading, setAiLoading] = useState(false);
   }, []);
   useInterval(fetchWatchSnapshot, 120000, true);
 
-  
-// compare fetch (batched /api/compare) — stable on mobile (abort + debounce + timeout)
-const inflightCompare = useRef(false);
-const compareAbortRef = useRef(null);
-const compareDebounceRef = useRef(null);
+  // compare fetch (batched /api/compare)
+  const inflightCompare = useRef(false);
+  const fetchCompare = async () => {
+    if (inflightCompare.current) return;
 
-const fetchCompare = async () => {
-  // If a previous compare is running, abort it and continue (so UI changes feel instant).
-  if (inflightCompare.current && compareAbortRef.current) {
-    try { compareAbortRef.current.abort(); } catch {}
-    inflightCompare.current = false;
-  }
-
-  if (!compareSymbols.length) {
-    setCompareSeries({});
-    try { localStorage.removeItem(LS_COMPARE_SERIES_CACHE); } catch {}
-    return;
-  }
-
-  inflightCompare.current = true;
-  setCompareLoading(true);
-
-  const ac = new AbortController();
-  compareAbortRef.current = ac;
-
-  try {
-    const batches = [];
-
-    for (let i = 0; i < compareSymbols.length; i += 8) {
-      if (ac.signal.aborted) throw new DOMException("Aborted", "AbortError");
-
-      const chunk = compareSymbols.slice(i, i + 8);
-      const qs = new URLSearchParams({
-        symbols: chunk.join(","),
-        range: timeframe,
-      }).toString();
-
-      // small spacing to reduce upstream rate limits (CoinGecko)
-      if (i > 0) await sleep(120);
-
-      const r = await api(`/api/compare?${qs}`, { method: "GET", timeoutMs: 20000, signal: ac.signal });
-      batches.push(r);
+    if (!compareSymbols.length) {
+      setCompareSeries({});
+      try { localStorage.removeItem(LS_COMPARE_SERIES_CACHE); } catch {}
+      return;
     }
+    inflightCompare.current = true;
+    setCompareLoading(true);
+    try {
+      const batches = [];
 
-    const merged = mergeCompareBatches(batches);
-    const nextSeriesRaw = (merged.series || {});
-
-    // Backend may return points as [[ts_ms, price], ...]. UI expects {t, v}.
-    const nextSeries = {};
-    for (const [sym, pts] of Object.entries(nextSeriesRaw)) {
-      if (!Array.isArray(pts)) { nextSeries[sym] = []; continue; }
-      if (pts.length && Array.isArray(pts[0])) {
-        nextSeries[sym] = pts.map((p) => ({ t: Number(p?.[0] ?? 0), v: Number(p?.[1] ?? 0) }))
-                             .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
-      } else {
-        // assume already in {t,v} (or {t,p}) shape
-        nextSeries[sym] = pts.map((p) => {
-          const t = Number(p?.t ?? p?.time ?? p?.x ?? 0);
-          const v = Number(p?.v ?? p?.p ?? p?.value ?? p?.y ?? 0);
-          return { t, v };
-        }).filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
+      for (let i = 0; i < compareSymbols.length; i += 8) {
+        const chunk = compareSymbols.slice(i, i + 8);
+        const qs = new URLSearchParams({
+          symbols: chunk.join(","),
+          range: timeframe,
+        }).toString();
+        if (i > 0) await sleep(120);
+        const r = await api(`/api/compare?${qs}`, { method: "GET" });
+        batches.push(r);
       }
-    }
 
-    setCompareSeries(nextSeries);
-    try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(nextSeries)); } catch {}
-  } catch (e) {
-    if (e?.name === "AbortError") {
-      // expected when user changes selection/timeframe quickly
-    } else {
-      console.warn("Compare fetch failed", e);
-      // optional soft-retry (once) to reduce 'blank chart' on flaky mobile networks
-      try {
-        if (!fetchCompare._retryScheduled) {
-          fetchCompare._retryScheduled = true;
-          setTimeout(() => { fetchCompare._retryScheduled = false; fetchCompare(); }, 2000);
-        }
-      } catch {}
-      }
-  } finally {
-    inflightCompare.current = false;
-    setCompareLoading(false);
+      const merged = mergeCompareBatches(batches);
+const nextSeriesRaw = (merged.series || {});
+// Backend may return points as [[ts_ms, price], ...]. UI expects {t, v}.
+const nextSeries = {};
+for (const [sym, pts] of Object.entries(nextSeriesRaw)) {
+  if (!Array.isArray(pts)) { nextSeries[sym] = []; continue; }
+  if (pts.length && Array.isArray(pts[0])) {
+    nextSeries[sym] = pts.map((p) => ({ t: Number(p?.[0] ?? 0), v: Number(p?.[1] ?? 0) }))
+                         .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
+  } else {
+    // assume already in {t,v} (or {t,p}) shape
+    nextSeries[sym] = pts.map((p) => {
+      const t = Number(p?.t ?? p?.time ?? p?.x ?? 0);
+      const v = Number(p?.v ?? p?.p ?? p?.value ?? p?.y ?? 0);
+      return { t, v };
+    }).filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
   }
-};
-
-// Debounce: avoids request storms when toggling coins fast (mobile stability)
-useEffect(() => {
-  try { if (compareDebounceRef.current) clearTimeout(compareDebounceRef.current); } catch {}
-  compareDebounceRef.current = setTimeout(() => {
-    fetchCompare();
-  }, 600);
-
-  return () => {
-    try { if (compareDebounceRef.current) clearTimeout(compareDebounceRef.current); } catch {}
+}
+setCompareSeries(nextSeries);
+try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(nextSeries)); } catch {}
+    } catch (e) {
+      setErrorMsg(`Compare: ${e.message}`);
+    } finally {
+      inflightCompare.current = false;
+      setCompareLoading(false);
+    }
   };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [timeframe, compareSymbols.join("|")]);
 
-useInterval(fetchCompare, 120000, compareSymbols.length > 0);
+  useEffect(() => {
+    fetchCompare();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeframe, compareSymbols.join("|")]);
+
+  useInterval(fetchCompare, 120000, compareSymbols.length > 0);
 
   // policy (UI-only for now)
   function setTradingEnabled(enabled) {
@@ -2267,26 +2248,20 @@ useInterval(fetchCompare, 120000, compareSymbols.length > 0);
   const sym = String(addSymbol || "").trim().toUpperCase();
   if (!sym) return;
 
+  const item = addIsToken
+    ? { symbol: sym, mode: "dex", contract: String(addContract || "").trim(), chain: String(addChain || "").trim() }
+    : { symbol: sym, mode: "market" };
 
-const tokenAddr = String(addContract || "").trim();
-const item = addIsToken
-  ? { symbol: sym, mode: "dex", tokenAddress: tokenAddr, chain: String(addChain || "").trim() }
-  : { symbol: sym, mode: "market" };
+  if (item.mode === "dex" && !item.contract) {
+    return setErrorMsg("Contract address required for token.");
+  }
 
-if (item.mode === "dex" && !item.tokenAddress) {
-  return setErrorMsg("Contract address required for token.");
-}
-
-// Build next items array deterministically so we can refresh immediately.
-const prev = Array.isArray(watchItems) ? watchItems : [];
-const key = `${item.mode}|${item.symbol}|${item.tokenAddress || ""}|${item.chain || ""}`.toLowerCase();
-const exists = prev.some((x) => {
-  const xm = String(x?.mode || "market");
-  const xs = String(x?.symbol || "");
-  const xa = String(x?.tokenAddress || x?.contract || "");
-  const xc = String(x?.chain || "");
-  return `${xm}|${xs}|${xa}|${xc}`.toLowerCase() === key;
-});
+  // Build next items array deterministically so we can refresh immediately.
+  const prev = Array.isArray(watchItems) ? watchItems : [];
+  const key = `${item.mode}|${item.symbol}|${item.contract || ""}`.toLowerCase();
+  const exists = prev.some(
+    (x) => `${x.mode || "market"}|${String(x.symbol || "")}|${String(x.contract || "")}`.toLowerCase() === key
+  );
 
   const nextItems = exists ? prev : [...prev, item];
 
@@ -2327,7 +2302,7 @@ const exists = prev.some((x) => {
     if (!x) return false;
     const xs = String(x.symbol || "").toUpperCase();
     const xm = String(x.mode || "market").toLowerCase();
-    const xa = String(x.tokenAddress || x.contract || "").toLowerCase();
+    const xa = String(x.tokenAddress || "").toLowerCase();
     return !(xs === sym && xm === m && xa === addr);
   });
 
@@ -2338,7 +2313,7 @@ const exists = prev.some((x) => {
       if (!r) return false;
       const rs = String(r.symbol || "").toUpperCase();
       const rm = String(r.mode || "market").toLowerCase();
-      const ra = String(r.tokenAddress || r.contract || "").toLowerCase();
+      const ra = String(r.tokenAddress || "").toLowerCase();
       return !(rs === sym && rm === m && ra === addr);
     })
   );
@@ -2437,14 +2412,6 @@ async function runAi() {
 
 
     setAiLoading(true);
-
-    // Abort any previous AI call and ensure only one in flight (mobile stability)
-    if (aiInFlightRef.current && aiAbortRef.current) {
-      try { aiAbortRef.current.abort(); } catch {}
-    }
-    const aiAc = new AbortController();
-    aiAbortRef.current = aiAc;
-    aiInFlightRef.current = true;
     try {
       // Chart timeframe is the source of truth for Pro mode.
       const tf = String(timeframe || "").toUpperCase();
@@ -2517,7 +2484,7 @@ async function runAi() {
         series_stats: seriesStats,
       };
 
-      const r = await api("/api/ai/run", { method: "POST", token: token || undefined, body, timeoutMs: 30000, signal: aiAc.signal });
+      const r = await api("/api/ai/run", { method: "POST", token: token || undefined, body });
 
       let text =
         r?.answer ??
@@ -2539,13 +2506,8 @@ async function runAi() {
         });
   }
     } catch (e) {
-      if (e?.name === "AbortError") {
-        // expected when user re-runs AI quickly
-      } else {
-        setErrorMsg(`AI: ${e.message}`);
-      }
+      setErrorMsg(`AI: ${e.message}`);
     } finally {
-      aiInFlightRef.current = false;
       setAiLoading(false);
     }
   }
@@ -4033,11 +3995,7 @@ async function runAi() {
         </section>
       </main>
 
-      {errorMsg ? (
-        <div style={{ width: "min(1200px, calc(100% - 24px))", margin: "0 auto 18px" }}>
-          <div className="error">{errorMsg}</div>
-        </div>
-      ) : null}
+      {null}
 
       {/* Add modal */}
 

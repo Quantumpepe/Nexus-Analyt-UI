@@ -222,7 +222,7 @@ const fmtPct = (n) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function api(path, { method = "GET", token, body } = {}) {
+async function api(path, { method = "GET", token, body, signal } = {}) {
   // Backend auth note:
   // Your Flask backend currently returns 401 for /api/policy and /api/grid/* when
   // the request lacks the expected auth context. Depending on your backend setup,
@@ -244,6 +244,7 @@ async function api(path, { method = "GET", token, body } = {}) {
   const doFetch = async (withBearer) => {
     return fetch(`${API_BASE}${path}`, {
       method,
+      signal,
       headers: makeHeaders(withBearer),
       credentials: "include",
       body: body ? JSON.stringify(body) : undefined,
@@ -1949,7 +1950,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [highlightSym, setHighlightSym] = useState(null);
 
   const chartRaw = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
-  const bestPairsTop = useMemo(() => computeBestPairs(chartRaw, 30).slice(0, 10), [chartRaw]);
+  const bestPairsTop = useMemo(() => {
+    if (compareSymbols.length < 2) return [];
+    return computeBestPairs(chartRaw, 30).slice(0, 10);
+  }, [chartRaw, compareSymbols.join("|")]);
 
   // grid (manual)
   const [gridItem, setGridItem] = useState("BTC");
@@ -2075,8 +2079,8 @@ const [aiLoading, setAiLoading] = useState(false);
     setCompareLoading(true);
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
-      const url = `${API_BASE}${API}/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(compareRange)}`;
-      const r = await fetch(url, { method: "GET", signal: ac.signal });
+      const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(compareRange)}`;
+      const r = await fetch(url, { method: "GET", credentials: "include", headers: { Accept: "application/json" }, signal: ac.signal });
 
       let data = null;
       try { data = await r.json(); } catch { data = null; }
@@ -2111,6 +2115,14 @@ const [aiLoading, setAiLoading] = useState(false);
   };
 
   useEffect(() => {
+    // If no compare symbols selected, clear compare-derived state so UI can't show "ghost" pairs/series.
+    if (!compareSymbols.length) {
+      setCompareSeries({});
+      setSelectedPair(null);
+      lastGoodCompareRef.current = null;
+      try { localStorage.removeItem(LS_COMPARE_SERIES_CACHE); } catch {}
+      return;
+    }
     fetchCompare();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe, compareSymbols.join("|")]);
@@ -3460,7 +3472,11 @@ async function runAi() {
                 </div>
 
                 <div className="pairsScroll">
-                  {bestPairsTop.length ? (
+                  {compareSymbols.length < 2 ? (
+                    <div className="muted tiny" style={{ padding: "8px 4px" }}>
+                      Select at least 2 coins in Watchlist (Compare checkbox) to see best pairs.
+                    </div>
+                  ) : bestPairsTop.length ? (
                     bestPairsTop.map((p, i) => (
                       <div key={p.pair} className="pairRow" style={{ gap: 12, cursor: "pointer" }} onClick={() => openPairExplain(p)}>
                         <span className="muted" style={{ width: 30, textAlign: "right" }}>#{i + 1}</span>
@@ -3470,7 +3486,7 @@ async function runAi() {
                       </div>
                     ))
                   ) : (
-                    <div className="muted">Not enough chart data yet.</div>
+                    <div className="muted">Not enough chart data for this range yet.</div>
                   )}
                 </div>
               </div>

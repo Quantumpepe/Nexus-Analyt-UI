@@ -234,7 +234,9 @@ async function api(path, { method = "GET", token, body } = {}) {
   //      header (so public/cookie-only endpoints still work).
 
   const makeHeaders = (withBearer) => {
-    const headers = { "Content-Type": "application/json" };
+    const headers = { Accept: "application/json" };
+    // Only send Content-Type when we actually send a JSON body (avoids CORS preflight on GET)
+    if (body != null && method !== "GET") headers["Content-Type"] = "application/json";
     if (withBearer && token) headers["Authorization"] = `Bearer ${token}`;
     return headers;
   };
@@ -1931,6 +1933,17 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       return {};
     }
   });
+  const lastGoodCompareRef = useRef(null);
+  const compareAbortRef = useRef(null);
+  const lastCompareFetchRef = useRef(0);
+
+  // seed "last good" on first load
+  useEffect(() => {
+    if (!lastGoodCompareRef.current && compareSeries && Object.keys(compareSeries).length) {
+      lastGoodCompareRef.current = compareSeries;
+    }
+  }, []);
+
   const [indexMode, setIndexMode] = useState(true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [highlightSym, setHighlightSym] = useState(null);
@@ -2044,54 +2057,55 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // compare fetch (batched /api/compare)
   const inflightCompare = useRef(false);
-  const fetchCompare = async () => {
-    if (inflightCompare.current) return;
+  const fetchCompare = async (opts = {}) => {
+    if (!compareSymbols.length) return;
 
-    if (!compareSymbols.length) {
-      setCompareSeries({});
-      try { localStorage.removeItem(LS_COMPARE_SERIES_CACHE); } catch {}
-      return;
+    // simple throttle so UI changes don't spam the backend
+    const now = Date.now();
+    if (!opts.force && now - lastCompareFetchRef.current < 800) return;
+    lastCompareFetchRef.current = now;
+
+    // Abort previous in-flight compare request
+    if (compareAbortRef.current) {
+      try { compareAbortRef.current.abort(); } catch {}
     }
-    inflightCompare.current = true;
+    const ac = new AbortController();
+    compareAbortRef.current = ac;
+
     setCompareLoading(true);
     try {
-      const batches = [];
+      const syms = compareSymbols.slice(0, 10).join(",");
+      const url = `${API_BASE}${API}/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(compareRange)}`;
+      const r = await fetch(url, { method: "GET", signal: ac.signal });
 
-      for (let i = 0; i < compareSymbols.length; i += 8) {
-        const chunk = compareSymbols.slice(i, i + 8);
-        const qs = new URLSearchParams({
-          symbols: chunk.join(","),
-          range: timeframe,
-        }).toString();
-        if (i > 0) await sleep(120);
-        const r = await api(`/api/compare?${qs}`, { method: "GET" });
-        batches.push(r);
+      let data = null;
+      try { data = await r.json(); } catch { data = null; }
+
+      if (!r.ok) {
+        const msg = (data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${r.status}`;
+        throw new Error(msg);
       }
 
-      const merged = mergeCompareBatches(batches);
-const nextSeriesRaw = (merged.series || {});
-// Backend may return points as [[ts_ms, price], ...]. UI expects {t, v}.
-const nextSeries = {};
-for (const [sym, pts] of Object.entries(nextSeriesRaw)) {
-  if (!Array.isArray(pts)) { nextSeries[sym] = []; continue; }
-  if (pts.length && Array.isArray(pts[0])) {
-    nextSeries[sym] = pts.map((p) => ({ t: Number(p?.[0] ?? 0), v: Number(p?.[1] ?? 0) }))
-                         .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
-  } else {
-    // assume already in {t,v} (or {t,p}) shape
-    nextSeries[sym] = pts.map((p) => {
-      const t = Number(p?.t ?? p?.time ?? p?.x ?? 0);
-      const v = Number(p?.v ?? p?.p ?? p?.value ?? p?.y ?? 0);
-      return { t, v };
-    }).filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
-  }
-}
-setCompareSeries(nextSeries);
-try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(nextSeries)); } catch {}
+      if (data && data.series) {
+        setCompareSeries(data.series);
+        lastGoodCompareRef.current = data.series;
+        try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(data.series)); } catch {}
+      } else if (lastGoodCompareRef.current) {
+        // keep last-good series if backend returns empty
+        setCompareSeries(lastGoodCompareRef.current);
+      }
     } catch (e) {
-      setErrorMsg(`Compare: ${e.message}`);
+      // If request was aborted, ignore silently
+      if (e && (e.name === "AbortError" || String(e).includes("AbortError"))) return;
+
+      // keep last good data (no UI errors)
+      if (lastGoodCompareRef.current) {
+        setCompareSeries(lastGoodCompareRef.current);
+      }
+      // still log for debugging
+      // eslint-disable-next-line no-console
+      console.warn("compare fetch failed:", e);
     } finally {
-      inflightCompare.current = false;
       setCompareLoading(false);
     }
   };
@@ -2302,7 +2316,7 @@ try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(nextSeries));
     if (!x) return false;
     const xs = String(x.symbol || "").toUpperCase();
     const xm = String(x.mode || "market").toLowerCase();
-    const xa = String(x.tokenAddress || "").toLowerCase();
+    const xa = String(x.contract || x.tokenAddress || "").toLowerCase();
     return !(xs === sym && xm === m && xa === addr);
   });
 
@@ -2313,7 +2327,7 @@ try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(nextSeries));
       if (!r) return false;
       const rs = String(r.symbol || "").toUpperCase();
       const rm = String(r.mode || "market").toLowerCase();
-      const ra = String(r.tokenAddress || "").toLowerCase();
+      const ra = String(r.contract || r.tokenAddress || "").toLowerCase();
       return !(rs === sym && rm === m && ra === addr);
     })
   );

@@ -1976,6 +1976,31 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     }
   }, []);
 
+  // Keep compareSeries in sync with compareSymbols so removing coins never leaves "ghost" lines
+  // (compare fetch is throttled; this prunes immediately even if fetchCompare returns early)
+  const prevCompareSymbolsRef = useRef(compareSymbols);
+
+  useEffect(() => {
+    // prune local series immediately
+    setCompareSeries((prev) => {
+      const next = {};
+      for (const s of compareSymbols || []) {
+        if (prev && prev[s]) next[s] = prev[s];
+      }
+      lastGoodCompareRef.current = next;
+      try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(next)); } catch {}
+      return next;
+    });
+
+    // If symbols decreased (removal), bypass throttle once to refresh from backend
+    const prevSyms = prevCompareSymbolsRef.current || [];
+    const removed = prevSyms.length > (compareSymbols || []).length;
+    prevCompareSymbolsRef.current = compareSymbols;
+
+    if (removed) fetchCompare({ force: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compareSymbols.join("|")]);
+
   const [indexMode, setIndexMode] = useState(true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [highlightSym, setHighlightSym] = useState(null);
@@ -2090,7 +2115,13 @@ const [aiLoading, setAiLoading] = useState(false);
   // compare fetch (batched /api/compare)
   const inflightCompare = useRef(false);
   const fetchCompare = async (opts = {}) => {
-    if (!compareSymbols.length) return;
+    if (!compareSymbols.length) {
+      // Clear chart immediately when nothing is selected (prevents stale cache lines)
+      setCompareSeries({});
+      lastGoodCompareRef.current = {};
+      try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify({})); } catch {}
+      return;
+    }
 
     // simple throttle so UI changes don't spam the backend
     const now = Date.now();
@@ -2335,9 +2366,8 @@ const [aiLoading, setAiLoading] = useState(false);
     });
     const nextRows = data?.results || data?.rows || [];
     if (Array.isArray(nextRows)) setWatchRows(nextRows);
-    if (data?.coins) setCompareCoins(data.coins);
-    if (data?.symbols) setCompareSymbols(data.symbols);
-    if (data?.cached != null) setWatchCached(Boolean(data.cached));
+if (Array.isArray(data?.symbols)) setCompareSet(data.symbols);
+if (data?.cached != null) setWatchCached(Boolean(data.cached));
     setWatchErr("");
   } catch (e) {
     setWatchErr(String(e?.message || e));
@@ -2387,9 +2417,8 @@ const [aiLoading, setAiLoading] = useState(false);
 
       const nextRows = data?.results || data?.rows || [];
     if (Array.isArray(nextRows)) setWatchRows(nextRows);
-      if (data?.coins) setCompareCoins(data.coins);
-      if (data?.symbols) setCompareSymbols(data.symbols);
-      if (data?.cached != null) setWatchCached(Boolean(data.cached));
+if (Array.isArray(data?.symbols)) setCompareSet(data.symbols);
+if (data?.cached != null) setWatchCached(Boolean(data.cached));
       setWatchErr("");
     } catch (e) {
       setWatchErr(String(e?.message || e));

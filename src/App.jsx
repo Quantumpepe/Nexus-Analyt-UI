@@ -12,7 +12,11 @@ const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
 const LS_APP_VERSION = "na_app_version";
 const APP_VERSION = "2026-01-29-v4";
 
-const API_BASE = (import.meta.env.VITE_API_BASE ?? "").trim();
+const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (
+  (typeof window !== "undefined" && !["localhost","127.0.0.1"].includes(window.location.hostname) && window.location.hostname.includes("nexus-analyt-ui"))
+    ? "https://nexus-analyt-pro.onrender.com"
+    : ""
+);
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
 const TREASURY_ADDRESS = (import.meta.env.VITE_TREASURY_ADDRESS ?? "").trim();
 
@@ -436,6 +440,33 @@ function mergeCompareBatches(batches) {
     for (const [sym, h] of Object.entries(health)) merged.health[sym] = h;
   }
   return merged;
+}
+
+
+// Normalize backend series to UI format: {SYM: [{t, v}, ...]}
+function normalizeBackendSeries(seriesLike) {
+  const out = {};
+  for (const [sym, pts] of Object.entries(seriesLike || {})) {
+    if (!Array.isArray(pts)) {
+      out[sym] = [];
+      continue;
+    }
+    // backend often returns [[ts_ms, price], ...]
+    if (pts.length && Array.isArray(pts[0])) {
+      out[sym] = pts
+        .map((p) => ({ t: Number(p?.[0] ?? 0), v: Number(p?.[1] ?? 0) }))
+        .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
+      continue;
+    }
+    // backend may return objects already
+    out[sym] = pts
+      .map((p) => ({
+        t: Number(p?.t ?? p?.time ?? p?.x ?? 0),
+        v: Number(p?.v ?? p?.p ?? p?.y ?? 0),
+      }))
+      .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
+  }
+  return out;
 }
 
 function buildUnifiedChart(seriesBySym) {
@@ -2088,9 +2119,15 @@ const [aiLoading, setAiLoading] = useState(false);
       }
 
       if (data && data.series) {
-        setCompareSeries(data.series);
-        lastGoodCompareRef.current = data.series;
-        try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(data.series)); } catch {}
+        const normalized = normalizeBackendSeries(data.series);
+        const hasAny = Object.values(normalized).some((arr) => Array.isArray(arr) && arr.length);
+        if (hasAny) {
+          setCompareSeries(normalized);
+          lastGoodCompareRef.current = normalized;
+          try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(normalized)); } catch {}
+        } else if (lastGoodCompareRef.current) {
+          setCompareSeries(lastGoodCompareRef.current);
+        }
       } else if (lastGoodCompareRef.current) {
         // keep last-good series if backend returns empty
         setCompareSeries(lastGoodCompareRef.current);

@@ -2134,8 +2134,7 @@ const [aiLoading, setAiLoading] = useState(false);
             fetchWatchSnapshot(itemsOverride, { ...opts, force: true });
           }, delay);
         }
-      }
-      }
+}
     } catch (e) {
       setErrorMsg(`Watchlist: ${e.message}`);
     } finally {

@@ -12,11 +12,7 @@ const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
 const LS_APP_VERSION = "na_app_version";
 const APP_VERSION = "2026-01-29-v4";
 
-const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (
-  (typeof window !== "undefined" && !["localhost","127.0.0.1"].includes(window.location.hostname) && window.location.hostname.includes("nexus-analyt-ui"))
-    ? "https://nexus-analyt-pro.onrender.com"
-    : ""
-);
+const API_BASE = (import.meta.env.VITE_API_BASE ?? "").trim();
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
 const TREASURY_ADDRESS = (import.meta.env.VITE_TREASURY_ADDRESS ?? "").trim();
 
@@ -250,7 +246,7 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
       method,
       signal,
       headers: makeHeaders(withBearer),
-      credentials: "include",
+      credentials: "omit",
       body: body ? JSON.stringify(body) : undefined,
     });
   };
@@ -440,33 +436,6 @@ function mergeCompareBatches(batches) {
     for (const [sym, h] of Object.entries(health)) merged.health[sym] = h;
   }
   return merged;
-}
-
-
-// Normalize backend series to UI format: {SYM: [{t, v}, ...]}
-function normalizeBackendSeries(seriesLike) {
-  const out = {};
-  for (const [sym, pts] of Object.entries(seriesLike || {})) {
-    if (!Array.isArray(pts)) {
-      out[sym] = [];
-      continue;
-    }
-    // backend often returns [[ts_ms, price], ...]
-    if (pts.length && Array.isArray(pts[0])) {
-      out[sym] = pts
-        .map((p) => ({ t: Number(p?.[0] ?? 0), v: Number(p?.[1] ?? 0) }))
-        .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
-      continue;
-    }
-    // backend may return objects already
-    out[sym] = pts
-      .map((p) => ({
-        t: Number(p?.t ?? p?.time ?? p?.x ?? 0),
-        v: Number(p?.v ?? p?.p ?? p?.y ?? 0),
-      }))
-      .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t > 0);
-  }
-  return out;
 }
 
 function buildUnifiedChart(seriesBySym) {
@@ -1957,8 +1926,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     }
   }
   const [compareLoading, setCompareLoading] = useState(false);
-  const [compareError, setCompareError] = useState("");
-  const [compareLastUpdated, setCompareLastUpdated] = useState(0);
   const [compareSeries, setCompareSeries] = useState(() => {
     try {
       const raw = localStorage.getItem(LS_COMPARE_SERIES_CACHE);
@@ -1983,7 +1950,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [highlightSym, setHighlightSym] = useState(null);
 
   const chartRaw = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
-  const bestPairsTop = useMemo(() => computeBestPairs(chartRaw, 30).slice(0, 10), [chartRaw]);
+  const bestPairsTop = useMemo(() => {
+    if (compareSymbols.length < 2) return [];
+    return computeBestPairs(chartRaw, 30).slice(0, 10);
+  }, [chartRaw, compareSymbols.join("|")]);
 
   // grid (manual)
   const [gridItem, setGridItem] = useState("BTC");
@@ -2107,14 +2077,37 @@ const [aiLoading, setAiLoading] = useState(false);
     compareAbortRef.current = ac;
 
     setCompareLoading(true);
-    setCompareError("");
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
-      const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(timeframe)}`;
-      const r = await fetch(url, { method: "GET", credentials: "include", headers: { Accept: "application/json" }, signal: ac.signal });
+      const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(compareRange)}`;
+      
+// fetch with a small retry to avoid transient Render/proxy hiccups
+let r = null;
+let data = null;
 
-      let data = null;
-      try { data = await r.json(); } catch { data = null; }
+for (let attempt = 1; attempt <= 2; attempt++) {
+  try {
+    r = await fetch(url, {
+      method: "GET",
+      credentials: "omit",
+      headers: { Accept: "application/json" },
+      signal: ac.signal,
+    });
+
+    try { data = await r.json(); } catch { data = null; }
+
+    // Success or a client error -> stop retrying
+    if (r.ok || (r.status && r.status < 500)) break;
+  } catch (e) {
+    // Abort should stop immediately
+    if (ac.signal.aborted) throw e;
+    // Network error -> retry once
+    if (attempt >= 2) throw e;
+  }
+
+  // wait a little before retry
+  await new Promise((res) => setTimeout(res, 400));
+}
 
       if (!r.ok) {
         const msg = (data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${r.status}`;
@@ -2122,18 +2115,9 @@ const [aiLoading, setAiLoading] = useState(false);
       }
 
       if (data && data.series) {
-        const normalized = normalizeBackendSeries(data.series);
-        const hasAny = Object.values(normalized).some((arr) => Array.isArray(arr) && arr.length);
-        if (hasAny) {
-          setCompareSeries(normalized);
-          setCompareLastUpdated(Date.now());
-          lastGoodCompareRef.current = normalized;
-          try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(normalized)); } catch {}
-        } else if (lastGoodCompareRef.current) {
-          setCompareSeries(lastGoodCompareRef.current);
-        setCompareLastUpdated(Date.now());
-          setCompareLastUpdated(Date.now());
-        }
+        setCompareSeries(data.series);
+        lastGoodCompareRef.current = data.series;
+        try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(data.series)); } catch {}
       } else if (lastGoodCompareRef.current) {
         // keep last-good series if backend returns empty
         setCompareSeries(lastGoodCompareRef.current);
@@ -2149,13 +2133,20 @@ const [aiLoading, setAiLoading] = useState(false);
       // still log for debugging
       // eslint-disable-next-line no-console
       console.warn("compare fetch failed:", e);
-      setCompareError(e?.message || String(e) || "Compare request failed");
     } finally {
       setCompareLoading(false);
     }
   };
 
   useEffect(() => {
+    // If no compare symbols selected, clear compare-derived state so UI can't show "ghost" pairs/series.
+    if (!compareSymbols.length) {
+      setCompareSeries({});
+      setSelectedPair(null);
+      lastGoodCompareRef.current = null;
+      try { localStorage.removeItem(LS_COMPARE_SERIES_CACHE); } catch {}
+      return;
+    }
     fetchCompare();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe, compareSymbols.join("|")]);
@@ -3419,16 +3410,6 @@ async function runAi() {
                 <div className="muted tiny">{compareLoading ? "Loading…" : `${compareSymbols.length} selected`}</div>
               </div>
 
-              {compareLoading && (
-                <div className="muted tiny" style={{ marginTop: 6 }}>Loading chart data…</div>
-              )}
-              {!!compareError && !compareLoading && (
-                <div className="tiny" style={{ marginTop: 6, color: "#ff6b6b" }}>{compareError}</div>
-              )}
-              {compareLastUpdated > 0 && !compareLoading && !compareError && (
-                <div className="muted tiny" style={{ marginTop: 6 }}>Updated: {new Date(compareLastUpdated).toLocaleTimeString()}</div>
-              )}
-
               {viewMode === "overlay" ? (
               <>
                 <SvgChart chart={chartRaw} height={320} highlightSym={highlightSym} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
@@ -3515,7 +3496,11 @@ async function runAi() {
                 </div>
 
                 <div className="pairsScroll">
-                  {bestPairsTop.length ? (
+                  {compareSymbols.length < 2 ? (
+                    <div className="muted tiny" style={{ padding: "8px 4px" }}>
+                      Select at least 2 coins in Watchlist (Compare checkbox) to see best pairs.
+                    </div>
+                  ) : bestPairsTop.length ? (
                     bestPairsTop.map((p, i) => (
                       <div key={p.pair} className="pairRow" style={{ gap: 12, cursor: "pointer" }} onClick={() => openPairExplain(p)}>
                         <span className="muted" style={{ width: 30, textAlign: "right" }}>#{i + 1}</span>
@@ -3525,7 +3510,7 @@ async function runAi() {
                       </div>
                     ))
                   ) : (
-                    <div className="muted">Not enough chart data yet.</div>
+                    <div className="muted">Not enough chart data for this range yet.</div>
                   )}
                 </div>
               </div>

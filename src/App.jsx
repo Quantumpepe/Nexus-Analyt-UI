@@ -1957,8 +1957,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     }
   }
   const [compareLoading, setCompareLoading] = useState(false);
-  const [compareError, setCompareError] = useState("");
-  const [compareLastUpdated, setCompareLastUpdated] = useState(0);
   const [compareSeries, setCompareSeries] = useState(() => {
     try {
       const raw = localStorage.getItem(LS_COMPARE_SERIES_CACHE);
@@ -2107,7 +2105,6 @@ const [aiLoading, setAiLoading] = useState(false);
     compareAbortRef.current = ac;
 
     setCompareLoading(true);
-    setCompareError("");
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
       const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(timeframe)}`;
@@ -2126,13 +2123,10 @@ const [aiLoading, setAiLoading] = useState(false);
         const hasAny = Object.values(normalized).some((arr) => Array.isArray(arr) && arr.length);
         if (hasAny) {
           setCompareSeries(normalized);
-          setCompareLastUpdated(Date.now());
           lastGoodCompareRef.current = normalized;
           try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(normalized)); } catch {}
         } else if (lastGoodCompareRef.current) {
           setCompareSeries(lastGoodCompareRef.current);
-        setCompareLastUpdated(Date.now());
-          setCompareLastUpdated(Date.now());
         }
       } else if (lastGoodCompareRef.current) {
         // keep last-good series if backend returns empty
@@ -2149,7 +2143,6 @@ const [aiLoading, setAiLoading] = useState(false);
       // still log for debugging
       // eslint-disable-next-line no-console
       console.warn("compare fetch failed:", e);
-      setCompareError(e?.message || String(e) || "Compare request failed");
     } finally {
       setCompareLoading(false);
     }
@@ -3417,17 +3410,7 @@ async function runAi() {
               <div className="chartHeader">
                 <div className="label">Diagramm (auto scale)</div>
                 <div className="muted tiny">{compareLoading ? "Loading…" : `${compareSymbols.length} selected`}</div>
-              
-              {compareLoading && (
-                <div className="muted tiny" style={{ marginTop: 6 }}>Loading chart data…</div>
-              )}
-              {!!compareError && !compareLoading && (
-                <div className="tiny" style={{ marginTop: 6, color: "#ff6b6b" }}>{compareError}</div>
-              )}
-              {compareLastUpdated > 0 && !compareLoading && !compareError && (
-                <div className="muted tiny" style={{ marginTop: 6 }}>Updated: {new Date(compareLastUpdated).toLocaleTimeString()}
-              )}
-</div>
+              </div>
 
               {viewMode === "overlay" ? (
               <>

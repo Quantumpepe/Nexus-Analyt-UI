@@ -222,7 +222,7 @@ const fmtPct = (n) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function api(path, { method = "GET", token, body } = {}) {
+async function api(path, { method = "GET", token, body, signal } = {}) {
   // Backend auth note:
   // Your Flask backend currently returns 401 for /api/policy and /api/grid/* when
   // the request lacks the expected auth context. Depending on your backend setup,
@@ -244,6 +244,7 @@ async function api(path, { method = "GET", token, body } = {}) {
   const doFetch = async (withBearer) => {
     return fetch(`${API_BASE}${path}`, {
       method,
+      signal,
       headers: makeHeaders(withBearer),
       credentials: "include",
       body: body ? JSON.stringify(body) : undefined,
@@ -2075,8 +2076,8 @@ const [aiLoading, setAiLoading] = useState(false);
     setCompareLoading(true);
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
-      const url = `${API_BASE}${API}/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(compareRange)}`;
-      const r = await fetch(url, { method: "GET", signal: ac.signal });
+      const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(compareRange)}`;
+      const r = await fetch(url, { method: "GET", credentials: "include", headers: { Accept: "application/json" }, signal: ac.signal });
 
       let data = null;
       try { data = await r.json(); } catch { data = null; }

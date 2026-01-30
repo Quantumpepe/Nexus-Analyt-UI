@@ -1950,10 +1950,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [highlightSym, setHighlightSym] = useState(null);
 
   const chartRaw = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
-  const bestPairsTop = useMemo(() => {
-    if (compareSymbols.length < 2) return [];
-    return computeBestPairs(chartRaw, 30).slice(0, 10);
-  }, [chartRaw, compareSymbols.join("|")]);
+  const bestPairsTop = useMemo(() => computeBestPairs(chartRaw, 30).slice(0, 10), [chartRaw]);
 
   // grid (manual)
   const [gridItem, setGridItem] = useState("BTC");
@@ -2079,7 +2076,7 @@ const [aiLoading, setAiLoading] = useState(false);
     setCompareLoading(true);
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
-      const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(compareRange)}`;
+      const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(timeframe)}`;
       const r = await fetch(url, { method: "GET", credentials: "include", headers: { Accept: "application/json" }, signal: ac.signal });
 
       let data = null;
@@ -2115,14 +2112,6 @@ const [aiLoading, setAiLoading] = useState(false);
   };
 
   useEffect(() => {
-    // If no compare symbols selected, clear compare-derived state so UI can't show "ghost" pairs/series.
-    if (!compareSymbols.length) {
-      setCompareSeries({});
-      setSelectedPair(null);
-      lastGoodCompareRef.current = null;
-      try { localStorage.removeItem(LS_COMPARE_SERIES_CACHE); } catch {}
-      return;
-    }
     fetchCompare();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeframe, compareSymbols.join("|")]);
@@ -3472,11 +3461,7 @@ async function runAi() {
                 </div>
 
                 <div className="pairsScroll">
-                  {compareSymbols.length < 2 ? (
-                    <div className="muted tiny" style={{ padding: "8px 4px" }}>
-                      Select at least 2 coins in Watchlist (Compare checkbox) to see best pairs.
-                    </div>
-                  ) : bestPairsTop.length ? (
+                  {bestPairsTop.length ? (
                     bestPairsTop.map((p, i) => (
                       <div key={p.pair} className="pairRow" style={{ gap: 12, cursor: "pointer" }} onClick={() => openPairExplain(p)}>
                         <span className="muted" style={{ width: 30, textAlign: "right" }}>#{i + 1}</span>
@@ -3486,7 +3471,7 @@ async function runAi() {
                       </div>
                     ))
                   ) : (
-                    <div className="muted">Not enough chart data for this range yet.</div>
+                    <div className="muted">Not enough chart data yet.</div>
                   )}
                 </div>
               </div>

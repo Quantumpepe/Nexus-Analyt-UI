@@ -1964,6 +1964,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const lastGoodCompareRef = useRef(null);
   const compareAbortRef = useRef(null);
   const lastCompareFetchRef = useRef(0);
+  const compareRetryRef = useRef({ key: "", n: 0, t: null });
 
   // seed "last good" on first load
   useEffect(() => {
@@ -2081,11 +2082,13 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // watch snapshot polling
   const inflightWatch = useRef(false);
-  const fetchWatchSnapshot = async () => {
+  const watchRetryRef = useRef({ key: "", n: 0, t: null });
+
+  const fetchWatchSnapshot = async (itemsOverride = null, opts = {}) => {
     if (inflightWatch.current) return;
     inflightWatch.current = true;
     try {
-      const r = await api("/api/watchlist/snapshot", { method: "POST", body: { items: watchItems } });
+      const r = await api("/api/watchlist/snapshot", { method: "POST", body: { items: (itemsOverride ?? watchItems) } });
       const nextRows = (r?.results || r?.rows || []);
       setWatchRows(nextRows);
       try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(nextRows)); } catch {}
@@ -2094,6 +2097,44 @@ const [aiLoading, setAiLoading] = useState(false);
         const list = (r?.results || r?.rows || []);
         const exists = (list || []).some((x) => String(x.symbol || "").toUpperCase() === symUp);
         if (!exists && (list || []).length) setGridItem(String(list[0].symbol || "BTC").toUpperCase());
+      }
+
+      // If backend is warming up (new coin), rows may temporarily show source="error"/missing price.
+      // Retry a couple times quickly so user doesn't need a full page refresh.
+      const _items = (itemsOverride ?? watchItems) || [];
+      const _key = Array.isArray(_items)
+        ? _items
+            .map((w) => String(w?.symbol || "").toUpperCase())
+            .filter(Boolean)
+            .sort()
+            .join("|")
+        : "";
+      const _hasErrors = Array.isArray(nextRows) && nextRows.some((x) => {
+        const src = String(x?.source || "").toLowerCase();
+        const p = x?.price;
+        return src === "error" || p == null || p === "—" || (typeof p === "string" && !p.trim());
+      });
+
+      if (!_hasErrors) {
+        // reset retry state when good data arrives
+        if (watchRetryRef.current.t) { try { clearTimeout(watchRetryRef.current.t); } catch {} }
+        watchRetryRef.current = { key: _key, n: 0, t: null };
+      } else if (_key) {
+        if (watchRetryRef.current.key !== _key) {
+          // new selection -> reset counter
+          if (watchRetryRef.current.t) { try { clearTimeout(watchRetryRef.current.t); } catch {} }
+          watchRetryRef.current = { key: _key, n: 0, t: null };
+        }
+        if (watchRetryRef.current.n < 2) {
+          const delay = 1200 * (watchRetryRef.current.n + 1);
+          const nnext = watchRetryRef.current.n + 1;
+          if (watchRetryRef.current.t) { try { clearTimeout(watchRetryRef.current.t); } catch {} }
+          watchRetryRef.current.t = setTimeout(() => {
+            watchRetryRef.current.n = nnext;
+            fetchWatchSnapshot(itemsOverride, { ...opts, force: true });
+          }, delay);
+        }
+      }
       }
     } catch (e) {
       setErrorMsg(`Watchlist: ${e.message}`);
@@ -2132,6 +2173,8 @@ const [aiLoading, setAiLoading] = useState(false);
       setCompareSeries({});
       lastGoodCompareRef.current = {};
       try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify({})); } catch {}
+      if (compareRetryRef.current.t) { try { clearTimeout(compareRetryRef.current.t); } catch {} }
+      compareRetryRef.current = { key: "", n: 0, t: null };
       return;
     }
 
@@ -2163,6 +2206,38 @@ const [aiLoading, setAiLoading] = useState(false);
 
       if (data && data.series) {
         const normalized = normalizeBackendSeries(data.series);
+        // Ensure all currently selected symbols exist as keys (even if empty)
+        for (const s of compareSymbols) {
+          const S = String(s || "").toUpperCase();
+          if (S && !Object.prototype.hasOwnProperty.call(normalized, S)) normalized[S] = [];
+        }
+
+        // If some selected coins are still warming up (empty series), retry a couple times.
+        const cmpKey = compareSymbols.join("|");
+        const missing = compareSymbols.filter((s) => {
+          const S = String(s || "").toUpperCase();
+          return !S || !Array.isArray(normalized[S]) || normalized[S].length === 0;
+        });
+
+        if (!missing.length) {
+          if (compareRetryRef.current.t) { try { clearTimeout(compareRetryRef.current.t); } catch {} }
+          compareRetryRef.current = { key: cmpKey, n: 0, t: null };
+        } else {
+          if (compareRetryRef.current.key !== cmpKey) {
+            if (compareRetryRef.current.t) { try { clearTimeout(compareRetryRef.current.t); } catch {} }
+            compareRetryRef.current = { key: cmpKey, n: 0, t: null };
+          }
+          if (compareRetryRef.current.n < 2) {
+            const delay = 1400 * (compareRetryRef.current.n + 1);
+            const nnext = compareRetryRef.current.n + 1;
+            if (compareRetryRef.current.t) { try { clearTimeout(compareRetryRef.current.t); } catch {} }
+            compareRetryRef.current.t = setTimeout(() => {
+              compareRetryRef.current.n = nnext;
+              fetchCompare({ force: true });
+            }, delay);
+          }
+        }
+
         const hasAny = Object.values(normalized).some((arr) => Array.isArray(arr) && arr.length);
         if (hasAny) {
           setCompareSeries(normalized);
@@ -2372,14 +2447,8 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // Persist + refresh rows immediately so user doesn't have to press Refresh
   try {
-    const data = await api("/api/watchlist/snapshot", {
-      method: "POST",
-      body: { items: nextItems },
-    });
-    const nextRows = data?.results || data?.rows || [];
-    if (Array.isArray(nextRows)) setWatchRows(nextRows);
-if (Array.isArray(data?.symbols)) setCompareSet(data.symbols);
-if (data?.cached != null) setWatchCached(Boolean(data.cached));
+    // Use the shared snapshot fetcher so retry/backoff logic is consistent.
+    await fetchWatchSnapshot(nextItems, { force: true });
     setWatchErr("");
   } catch (e) {
     setWatchErr(String(e?.message || e));

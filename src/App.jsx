@@ -2108,6 +2108,22 @@ const [aiLoading, setAiLoading] = useState(false);
   }, []);
   useInterval(fetchWatchSnapshot, 120000, true);
 
+  // 🔁 Refetch snapshot immediately when watchlist changes (so newly added coins get data without full page refresh)
+  const watchlistKey = useMemo(() => {
+    const arr = Array.isArray(watchItems) ? watchItems : [];
+    return arr
+      .map((w) => String(w?.symbol || "").toUpperCase())
+      .filter(Boolean)
+      .sort()
+      .join("|");
+  }, [watchItems]);
+
+  useEffect(() => {
+    if (!watchItems || !watchItems.length) return;
+    fetchWatchSnapshot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchlistKey]);
+
   // compare fetch (batched /api/compare)
   const inflightCompare = useRef(false);
   const fetchCompare = async (opts = {}) => {

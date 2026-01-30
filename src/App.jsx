@@ -250,7 +250,7 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
       method,
       signal,
       headers: makeHeaders(withBearer),
-      credentials: "include",
+      credentials: "omit",
       body: body ? JSON.stringify(body) : undefined,
     });
   };
@@ -2151,7 +2151,7 @@ const [aiLoading, setAiLoading] = useState(false);
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
       const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(timeframe)}`;
-      const r = await fetch(url, { method: "GET", credentials: "include", headers: { Accept: "application/json" }, signal: ac.signal });
+      const r = await fetch(url, { method: "GET", credentials: "omit", headers: { Accept: "application/json" }, signal: ac.signal });
 
       let data = null;
       try { data = await r.json(); } catch { data = null; }

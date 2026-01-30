@@ -942,7 +942,7 @@ useEffect(() => {
     if (v !== APP_VERSION) {
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
-        if (k && k.startsWith("na_")) localStorage.removeItem(k);
+        if (k && (k.startsWith("na_") || k.startsWith("nexus_"))) localStorage.removeItem(k);
       }
       localStorage.setItem(LS_APP_VERSION, APP_VERSION);
     }
@@ -1407,11 +1407,7 @@ return [c, { native, stables, custom }];
   }, [walletModalOpen, wallet]);
 
   // watchlist
-  const [watchItems, setWatchItems] = useLocalStorageState("nexus_watch_items", [
-    { symbol: "BTC", mode: "market" },
-    { symbol: "ETH", mode: "market" },
-    { symbol: "POL", mode: "market" },
-  ]);
+  const [watchItems, setWatchItems] = useLocalStorageState("nexus_watch_items", []);
   const [watchRows, setWatchRows] = useState(() => {
     try {
       const raw = localStorage.getItem(LS_WATCH_ROWS_CACHE);
@@ -1420,7 +1416,7 @@ return [c, { native, stables, custom }];
       return [];
     }
   });
-  const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", ["BTC", "ETH", "POL"]);
+  const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
     const uniq = [];
     for (const s of compareSet || []) {
@@ -2405,6 +2401,15 @@ if (data?.cached != null) setWatchCached(Boolean(data.cached));
     const p = Array.isArray(prev) ? prev : [];
     return p.filter((s) => String(s || "").toUpperCase() !== sym);
   });
+
+  // If you removed the last watch item, also clear compare selection + chart cache
+  if (!nextItems.length) {
+    setCompareSet([]);
+    setCompareSeries({});
+    lastGoodCompareRef.current = {};
+    try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify({})); } catch {}
+  }
+
 
   // Persist: ask backend to recompute snapshot for the new items list
   // (This makes sure the item doesn't come back on next poll.)

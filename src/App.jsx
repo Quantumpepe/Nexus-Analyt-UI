@@ -1,3 +1,4 @@
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 
@@ -2008,8 +2009,9 @@ const [aiLoading, setAiLoading] = useState(false);
         if (!exists && (list || []).length) setGridItem(String(list[0].symbol || "BTC").toUpperCase());
       }
     } catch (e) {
-      setErrorMsg(`Watchlist: ${e.message}`);
-    } finally {
+      if (e?.name === "AbortError") { return; }
+      console.warn("Watchlist fetch failed", e);
+      } finally {
       inflightWatch.current = false;
     }
   };
@@ -2090,8 +2092,15 @@ const fetchCompare = async () => {
     if (e?.name === "AbortError") {
       // expected when user changes selection/timeframe quickly
     } else {
-      setErrorMsg(`Compare: ${e.message}`);
-    }
+      console.warn("Compare fetch failed", e);
+      // optional soft-retry (once) to reduce 'blank chart' on flaky mobile networks
+      try {
+        if (!fetchCompare._retryScheduled) {
+          fetchCompare._retryScheduled = true;
+          setTimeout(() => { fetchCompare._retryScheduled = false; fetchCompare(); }, 2000);
+        }
+      } catch {}
+      }
   } finally {
     inflightCompare.current = false;
     setCompareLoading(false);

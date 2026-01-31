@@ -1,4 +1,14 @@
 
+function loadSetLS(key) {
+  try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
+  catch { return new Set(); }
+}
+function saveSetLS(key, setVal) {
+  localStorage.setItem(key, JSON.stringify(Array.from(setVal)));
+}
+
+const LS_WATCH_REMOVED = "nexus_watch_removed";
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 
@@ -4658,4 +4668,20 @@ async function runAi() {
 }
 export default function App() {
   return <AppInner />;
+}
+
+function optimisticRemoveWatch(symbol) {
+  const removed = loadSetLS(LS_WATCH_REMOVED);
+  removed.add(symbol);
+  saveSetLS(LS_WATCH_REMOVED, removed);
+
+  setWatchItems(prev => prev.filter(x => x.symbol !== symbol));
+  setCompareSet(prev => prev.filter(s => s !== symbol));
+
+  // best-effort backend sync
+  fetch(`${API_BASE}/api/watchlist/remove`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol })
+  }).catch(() => {});
 }

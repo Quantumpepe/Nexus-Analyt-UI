@@ -122,7 +122,7 @@ function formatNativeFromWei(weiBig, decimals = 18, maxFrac = 6) {
 // ------------------------
 // utils
 // ------------------------
-\1
+
 function _cmpKey(symbols, tf) {
   const arr = Array.isArray(symbols) ? symbols : [];
   const keySyms = arr.map((s) => String(s || "").toUpperCase()).filter(Boolean).sort().join(",");

@@ -13,6 +13,9 @@ import "./App.css";
 const LS_WATCH_ROWS_CACHE = "na_watch_rows_cache_v1";
 const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
 const LS_APP_VERSION = "na_app_version";
+const LS_COMPARE_STORE = "na_compare_store_v2";
+const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
+const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (
@@ -119,7 +122,55 @@ function formatNativeFromWei(weiBig, decimals = 18, maxFrac = 6) {
 // ------------------------
 // utils
 // ------------------------
-const PALETTE10 = ["#2ecc71", "#3498db", "#f1c40f", "#9b59b6", "#e67e22", "#e74c3c", "#1abc9c", "#ec407a", "#bdc3c7", "#f39c12"];
+\1
+function _cmpKey(symbols, tf) {
+  const arr = Array.isArray(symbols) ? symbols : [];
+  const keySyms = arr.map((s) => String(s || "").toUpperCase()).filter(Boolean).sort().join(",");
+  return `${String(tf || "30D")}:${keySyms}`;
+}
+
+function _cmpStoreRead() {
+  try {
+    const raw = localStorage.getItem(LS_COMPARE_STORE);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function _cmpStoreWrite(store) {
+  try { localStorage.setItem(LS_COMPARE_STORE, JSON.stringify(store || {})); } catch {}
+}
+
+function _cmpGetCached(symbols, tf) {
+  try {
+    const store = _cmpStoreRead();
+    const k = _cmpKey(symbols, tf);
+    const entry = store?.[k];
+    if (!entry || !entry.ts || !entry.data) return null;
+    if (Date.now() - Number(entry.ts) > COMPARE_CACHE_TTL_MS) return null;
+    return entry.data;
+  } catch {
+    return null;
+  }
+}
+
+function _cmpPutCached(symbols, tf, data) {
+  try {
+    const k = _cmpKey(symbols, tf);
+    const store = _cmpStoreRead();
+    store[k] = { ts: Date.now(), data };
+
+    // trim oldest
+    const keys = Object.keys(store || {});
+    if (keys.length > COMPARE_CACHE_MAX_ENTRIES) {
+      keys.sort((a, b) => (Number(store[a]?.ts || 0) - Number(store[b]?.ts || 0)));
+      const toDel = keys.slice(0, Math.max(0, keys.length - COMPARE_CACHE_MAX_ENTRIES));
+      for (const dk of toDel) delete store[dk];
+    }
+    _cmpStoreWrite(store);
+  } catch {}
+}
 
 const stripTrailingZeros = (s) => s.replace(/0+$/, "").replace(/\.$/, "");
 
@@ -1957,6 +2008,11 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareSeries, setCompareSeries] = useState(() => {
+    // Prefer per-(timeframe+symbols) cache so reloads feel instant
+    const cached = _cmpGetCached(compareSymbols, timeframe);
+    if (cached) return cached;
+
+    // Fallback: legacy single-bucket cache
     try {
       const raw = localStorage.getItem(LS_COMPARE_SERIES_CACHE);
       return raw ? JSON.parse(raw) : {};
@@ -2192,6 +2248,13 @@ const [aiLoading, setAiLoading] = useState(false);
     const ac = new AbortController();
     compareAbortRef.current = ac;
 
+    // Show cached series immediately (SWR) so chart renders without waiting for backend
+    const cached = _cmpGetCached(compareSymbols, timeframe);
+    if (cached && Object.keys(cached || {}).length) {
+      setCompareSeries(cached);
+      lastGoodCompareRef.current = cached;
+    }
+
     setCompareLoading(true);
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
@@ -2245,6 +2308,7 @@ const [aiLoading, setAiLoading] = useState(false);
           setCompareSeries(normalized);
           lastGoodCompareRef.current = normalized;
           try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(normalized)); } catch {}
+          _cmpPutCached(compareSymbols, timeframe, normalized);
         } else if (lastGoodCompareRef.current) {
           setCompareSeries(lastGoodCompareRef.current);
         }

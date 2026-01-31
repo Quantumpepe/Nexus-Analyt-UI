@@ -26,9 +26,6 @@ const LS_WATCH_ROWS_CACHE = "na_watch_rows_cache_v1";
 const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
 const LS_APP_VERSION = "na_app_version";
 const LS_COMPARE_STORE = "na_compare_store_v2";
-
-// Device cache prune: delete cached entries that were not used for 7 days
-const DEVICE_CACHE_PRUNE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
@@ -146,24 +143,7 @@ function _cmpKey(symbols, tf) {
 function _cmpStoreRead() {
   try {
     const raw = localStorage.getItem(LS_COMPARE_STORE);
-    const store = raw ? (JSON.parse(raw) || {}) : {};
-    // prune entries not used for 7 days (falls back to ts for legacy entries)
-    const now = Date.now();
-    let changed = false;
-    for (const k of Object.keys(store)) {
-      const entry = store[k];
-      const lastUsed = (entry && typeof entry.lastUsed === "number") ? entry.lastUsed
-        : (entry && typeof entry.ts === "number") ? entry.ts
-        : 0;
-      if (!lastUsed || (now - lastUsed) > DEVICE_CACHE_PRUNE_AGE_MS) {
-        delete store[k];
-        changed = true;
-      }
-    }
-    if (changed) {
-      try { localStorage.setItem(LS_COMPARE_STORE, JSON.stringify(store)); } catch {}
-    }
-    return store;
+    return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
   }
@@ -180,9 +160,7 @@ function _cmpGetCached(symbols, tf) {
     const entry = store?.[k];
     if (!entry || !entry.ts || !entry.data) return null;
     if (Date.now() - Number(entry.ts) > COMPARE_CACHE_TTL_MS) return null;
-    entry.lastUsed = Date.now();
-      _cmpStoreWrite(store);
-      return entry.data;
+    return entry.data;
   } catch {
     return null;
   }
@@ -202,17 +180,6 @@ function _cmpPutCached(symbols, tf, data) {
       for (const dk of toDel) delete store[dk];
     }
     _cmpStoreWrite(store);
-  } catch {}
-}
-
-function _cmpTouch(symbols, tf) {
-  try {
-    const store = _cmpStoreRead();
-    const key = _cmpKey(symbols, tf);
-    if (store[key]) {
-      store[key].lastUsed = Date.now();
-      _cmpStoreWrite(store);
-    }
   } catch {}
 }
 
@@ -2678,16 +2645,7 @@ const addDexToken = async () => {
 
       const nextRows = data?.results || data?.rows || [];
     if (Array.isArray(nextRows)) setWatchRows(nextRows);
-if (Array.isArray(data?.symbols)) {
-        // IMPORTANT: never overwrite the user's compare selection based on backend snapshot output.
-        // The backend may return a partial/temporary symbol list (rate limits / warm-up), which would
-        // otherwise "randomly" remove coins after refresh/poll. We only use backend symbols to seed
-        // compare when the user has not selected anything yet.
-        setCompareSet((prev) => {
-          const p = Array.isArray(prev) ? prev : [];
-          return p.length ? p : data.symbols;
-        });
-      }
+if (Array.isArray(data?.symbols)) setCompareSet(data.symbols);
 if (data?.cached != null) setWatchCached(Boolean(data.cached));
       setWatchErr("");
     } catch (e) {

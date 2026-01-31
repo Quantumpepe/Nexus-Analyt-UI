@@ -6,29 +6,72 @@ import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 import "./App.css";
 
-// Chart palette (10 colors). Kept inline (no external dep) to avoid runtime ReferenceError.
-// Used for consistent compare/index chart series coloring.
-const PALETTE10 = [
-  "#22c55e", // green
-  "#60a5fa", // blue
-  "#f59e0b", // amber
-  "#a78bfa", // violet
-  "#f472b6", // pink
-  "#34d399", // emerald
-  "#fb7185", // rose
-  "#38bdf8", // sky
-  "#eab308", // yellow
-  "#c084fc", // purple
-];
-
 // Local cache (stale-while-revalidate) so live refresh/cold-start won't blank the UI
 const LS_WATCH_ROWS_CACHE = "na_watch_rows_cache_v1";
 const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
 const LS_APP_VERSION = "na_app_version";
-const LS_COMPARE_STORE = "na_compare_store_v2";
-const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
-const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
+
+// Device-side cache store (SWR) for heavy UI data like compare series.
+// Rule: entries not used for 7 days are deleted.
+const LS_COMPARE_STORE = "na_compare_store_v2";
+const DEVICE_CACHE_PRUNE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const COMPARE_CACHE_MAX_ENTRIES = 30; // cap to avoid unbounded localStorage growth
+
+function _compareCacheKey(symbols, range) {
+  const syms = (symbols || [])
+    .map((s) => String(s || "").toUpperCase().trim())
+    .filter(Boolean)
+    .sort();
+  return `compare:${String(range || "").toUpperCase()}:${syms.join(",")}`;
+}
+
+function _safeJsonParse(raw, fallback) {
+  try { return raw ? JSON.parse(raw) : fallback; } catch { return fallback; }
+}
+
+function _loadCompareStore() {
+  const store = _safeJsonParse(localStorage.getItem(LS_COMPARE_STORE), null);
+  if (!store || typeof store !== "object") return { v: 1, entries: {} };
+  if (!store.entries || typeof store.entries !== "object") store.entries = {};
+  if (!store.v) store.v = 1;
+  return store;
+}
+
+function _saveCompareStore(store) {
+  try { localStorage.setItem(LS_COMPARE_STORE, JSON.stringify(store)); } catch {}
+}
+
+function _touchCompareEntry(store, key) {
+  if (!store?.entries?.[key]) return;
+  store.entries[key].lastUsed = Date.now();
+}
+
+function _pruneCompareStore(store, activeKeys = []) {
+  const now = Date.now();
+  const active = new Set(activeKeys || []);
+  const entries = store?.entries || {};
+
+  // prune unused > 7d
+  for (const [k, v] of Object.entries(entries)) {
+    const lastUsed = Number(v?.lastUsed ?? v?.ts ?? 0);
+    const tooOld = !lastUsed || (now - lastUsed > DEVICE_CACHE_PRUNE_AGE_MS);
+    if (tooOld && !active.has(k)) delete entries[k];
+  }
+
+  // cap by oldest lastUsed
+  const keys = Object.keys(entries);
+  if (keys.length > COMPARE_CACHE_MAX_ENTRIES) {
+    const sorted = keys
+      .map((k) => ({ k, t: Number(entries[k]?.lastUsed ?? entries[k]?.ts ?? 0) }))
+      .sort((a, b) => (a.t || 0) - (b.t || 0));
+    const removeN = keys.length - COMPARE_CACHE_MAX_ENTRIES;
+    for (let i = 0; i < removeN; i++) delete entries[sorted[i].k];
+  }
+
+  store.entries = entries;
+  return store;
+}
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (
   (typeof window !== "undefined" && !["localhost","127.0.0.1"].includes(window.location.hostname) && window.location.hostname.includes("nexus-analyt-ui"))
@@ -134,54 +177,7 @@ function formatNativeFromWei(weiBig, decimals = 18, maxFrac = 6) {
 // ------------------------
 // utils
 // ------------------------
-function _cmpKey(symbols, tf) {
-  const arr = Array.isArray(symbols) ? symbols : [];
-  const keySyms = arr.map((s) => String(s || "").toUpperCase()).filter(Boolean).sort().join(",");
-  return `${String(tf || "30D")}:${keySyms}`;
-}
-
-function _cmpStoreRead() {
-  try {
-    const raw = localStorage.getItem(LS_COMPARE_STORE);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function _cmpStoreWrite(store) {
-  try { localStorage.setItem(LS_COMPARE_STORE, JSON.stringify(store || {})); } catch {}
-}
-
-function _cmpGetCached(symbols, tf) {
-  try {
-    const store = _cmpStoreRead();
-    const k = _cmpKey(symbols, tf);
-    const entry = store?.[k];
-    if (!entry || !entry.ts || !entry.data) return null;
-    if (Date.now() - Number(entry.ts) > COMPARE_CACHE_TTL_MS) return null;
-    return entry.data;
-  } catch {
-    return null;
-  }
-}
-
-function _cmpPutCached(symbols, tf, data) {
-  try {
-    const k = _cmpKey(symbols, tf);
-    const store = _cmpStoreRead();
-    store[k] = { ts: Date.now(), data };
-
-    // trim oldest
-    const keys = Object.keys(store || {});
-    if (keys.length > COMPARE_CACHE_MAX_ENTRIES) {
-      keys.sort((a, b) => (Number(store[a]?.ts || 0) - Number(store[b]?.ts || 0)));
-      const toDel = keys.slice(0, Math.max(0, keys.length - COMPARE_CACHE_MAX_ENTRIES));
-      for (const dk of toDel) delete store[dk];
-    }
-    _cmpStoreWrite(store);
-  } catch {}
-}
+const PALETTE10 = ["#2ecc71", "#3498db", "#f1c40f", "#9b59b6", "#e67e22", "#e74c3c", "#1abc9c", "#ec407a", "#bdc3c7", "#f39c12"];
 
 const stripTrailingZeros = (s) => s.replace(/0+$/, "").replace(/\.$/, "");
 
@@ -315,7 +311,7 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
       method,
       signal,
       headers: makeHeaders(withBearer),
-      credentials: "omit",
+      credentials: "include",
       body: body ? JSON.stringify(body) : undefined,
     });
   };
@@ -1007,7 +1003,7 @@ useEffect(() => {
     if (v !== APP_VERSION) {
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const k = localStorage.key(i);
-        if (k && (k.startsWith("na_") || k.startsWith("nexus_"))) localStorage.removeItem(k);
+        if (k && k.startsWith("na_")) localStorage.removeItem(k);
       }
       localStorage.setItem(LS_APP_VERSION, APP_VERSION);
     }
@@ -1472,7 +1468,11 @@ return [c, { native, stables, custom }];
   }, [walletModalOpen, wallet]);
 
   // watchlist
-  const [watchItems, setWatchItems] = useLocalStorageState("nexus_watch_items", []);
+  const [watchItems, setWatchItems] = useLocalStorageState("nexus_watch_items", [
+    { symbol: "BTC", mode: "market" },
+    { symbol: "ETH", mode: "market" },
+    { symbol: "POL", mode: "market" },
+  ]);
   const [watchRows, setWatchRows] = useState(() => {
     try {
       const raw = localStorage.getItem(LS_WATCH_ROWS_CACHE);
@@ -1481,7 +1481,7 @@ return [c, { native, stables, custom }];
       return [];
     }
   });
-  const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
+  const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", ["BTC", "ETH", "POL"]);
   const compareSymbols = useMemo(() => {
     const uniq = [];
     for (const s of compareSet || []) {
@@ -1534,7 +1534,7 @@ return [c, { native, stables, custom }];
 
 
   // compare/chart
-  const [timeframe, setTimeframe] = useLocalStorageState("nexus_timeframe", "30D");
+  const [timeframe, setTimeframe] = useState("30D");
   const PAIR_EXPLAIN_TF = "30D";
 
   // Access (NFT / Code) - UI only (stored locally). Later we can wire this to backend verification.
@@ -2019,12 +2019,16 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareSeries, setCompareSeries] = useState(() => {
-    // Prefer per-(timeframe+symbols) cache so reloads feel instant
-    const cached = _cmpGetCached(compareSymbols, timeframe);
-    if (cached) return cached;
-
-    // Fallback: legacy single-bucket cache
     try {
+      const key = _compareCacheKey(compareSymbols, timeframe);
+      const store = _loadCompareStore();
+      const entry = store?.entries?.[key];
+      if (entry && entry.data && typeof entry.data === "object") {
+        _touchCompareEntry(store, key);
+        _saveCompareStore(_pruneCompareStore(store, [key]));
+        return entry.data;
+      }
+      // backward-compat (older single-key cache)
       const raw = localStorage.getItem(LS_COMPARE_SERIES_CACHE);
       return raw ? JSON.parse(raw) : {};
     } catch {
@@ -2034,7 +2038,18 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const lastGoodCompareRef = useRef(null);
   const compareAbortRef = useRef(null);
   const lastCompareFetchRef = useRef(0);
-  const compareRetryRef = useRef({ key: "", n: 0, t: null });
+
+
+  // Keep device cache healthy: touch active key and prune old entries (>7 days unused)
+  useEffect(() => {
+    try {
+      const key = _compareCacheKey(compareSymbols, timeframe);
+      const store = _loadCompareStore();
+      _touchCompareEntry(store, key);
+      _saveCompareStore(_pruneCompareStore(store, [key]));
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeframe, compareSymbols.join("|")]);
 
   // seed "last good" on first load
   useEffect(() => {
@@ -2043,32 +2058,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     }
   }, []);
 
-  // Keep compareSeries in sync with compareSymbols so removing coins never leaves "ghost" lines
-  // (compare fetch is throttled; this prunes immediately even if fetchCompare returns early)
-  const prevCompareSymbolsRef = useRef(compareSymbols);
-
-  useEffect(() => {
-    // prune local series immediately
-    setCompareSeries((prev) => {
-      const next = {};
-      for (const s of compareSymbols || []) {
-        if (prev && prev[s]) next[s] = prev[s];
-      }
-      lastGoodCompareRef.current = next;
-      try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(next)); } catch {}
-      return next;
-    });
-
-    // If symbols decreased (removal), bypass throttle once to refresh from backend
-    const prevSyms = prevCompareSymbolsRef.current || [];
-    const removed = prevSyms.length > (compareSymbols || []).length;
-    prevCompareSymbolsRef.current = compareSymbols;
-
-    if (removed) fetchCompare({ force: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compareSymbols.join("|")]);
-
-  const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
+  const [indexMode, setIndexMode] = useState(true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [highlightSym, setHighlightSym] = useState(null);
 
@@ -2152,13 +2142,11 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // watch snapshot polling
   const inflightWatch = useRef(false);
-  const watchRetryRef = useRef({ key: "", n: 0, t: null });
-
-  const fetchWatchSnapshot = async (itemsOverride = null, opts = {}) => {
+  const fetchWatchSnapshot = async () => {
     if (inflightWatch.current) return;
     inflightWatch.current = true;
     try {
-      const r = await api("/api/watchlist/snapshot", { method: "POST", body: { items: (itemsOverride ?? watchItems) } });
+      const r = await api("/api/watchlist/snapshot", { method: "POST", body: { items: watchItems } });
       const nextRows = (r?.results || r?.rows || []);
       setWatchRows(nextRows);
       try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(nextRows)); } catch {}
@@ -2168,43 +2156,6 @@ const [aiLoading, setAiLoading] = useState(false);
         const exists = (list || []).some((x) => String(x.symbol || "").toUpperCase() === symUp);
         if (!exists && (list || []).length) setGridItem(String(list[0].symbol || "BTC").toUpperCase());
       }
-
-      // If backend is warming up (new coin), rows may temporarily show source="error"/missing price.
-      // Retry a couple times quickly so user doesn't need a full page refresh.
-      const _items = (itemsOverride ?? watchItems) || [];
-      const _key = Array.isArray(_items)
-        ? _items
-            .map((w) => String(w?.symbol || "").toUpperCase())
-            .filter(Boolean)
-            .sort()
-            .join("|")
-        : "";
-      const _hasErrors = Array.isArray(nextRows) && nextRows.some((x) => {
-        const src = String(x?.source || "").toLowerCase();
-        const p = x?.price;
-        return src === "error" || p == null || p === "—" || (typeof p === "string" && !p.trim());
-      });
-
-      if (!_hasErrors) {
-        // reset retry state when good data arrives
-        if (watchRetryRef.current.t) { try { clearTimeout(watchRetryRef.current.t); } catch {} }
-        watchRetryRef.current = { key: _key, n: 0, t: null };
-      } else if (_key) {
-        if (watchRetryRef.current.key !== _key) {
-          // new selection -> reset counter
-          if (watchRetryRef.current.t) { try { clearTimeout(watchRetryRef.current.t); } catch {} }
-          watchRetryRef.current = { key: _key, n: 0, t: null };
-        }
-        if (watchRetryRef.current.n < 2) {
-          const delay = 1200 * (watchRetryRef.current.n + 1);
-          const nnext = watchRetryRef.current.n + 1;
-          if (watchRetryRef.current.t) { try { clearTimeout(watchRetryRef.current.t); } catch {} }
-          watchRetryRef.current.t = setTimeout(() => {
-            watchRetryRef.current.n = nnext;
-            fetchWatchSnapshot(itemsOverride, { ...opts, force: true });
-          }, delay);
-        }
-}
     } catch (e) {
       setErrorMsg(`Watchlist: ${e.message}`);
     } finally {
@@ -2218,34 +2169,10 @@ const [aiLoading, setAiLoading] = useState(false);
   }, []);
   useInterval(fetchWatchSnapshot, 120000, true);
 
-  // 🔁 Refetch snapshot immediately when watchlist changes (so newly added coins get data without full page refresh)
-  const watchlistKey = useMemo(() => {
-    const arr = Array.isArray(watchItems) ? watchItems : [];
-    return arr
-      .map((w) => String(w?.symbol || "").toUpperCase())
-      .filter(Boolean)
-      .sort()
-      .join("|");
-  }, [watchItems]);
-
-  useEffect(() => {
-    if (!watchItems || !watchItems.length) return;
-    fetchWatchSnapshot();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchlistKey]);
-
   // compare fetch (batched /api/compare)
   const inflightCompare = useRef(false);
   const fetchCompare = async (opts = {}) => {
-    if (!compareSymbols.length) {
-      // Clear chart immediately when nothing is selected (prevents stale cache lines)
-      setCompareSeries({});
-      lastGoodCompareRef.current = {};
-      try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify({})); } catch {}
-      if (compareRetryRef.current.t) { try { clearTimeout(compareRetryRef.current.t); } catch {} }
-      compareRetryRef.current = { key: "", n: 0, t: null };
-      return;
-    }
+    if (!compareSymbols.length) return;
 
     // simple throttle so UI changes don't spam the backend
     const now = Date.now();
@@ -2259,18 +2186,11 @@ const [aiLoading, setAiLoading] = useState(false);
     const ac = new AbortController();
     compareAbortRef.current = ac;
 
-    // Show cached series immediately (SWR) so chart renders without waiting for backend
-    const cached = _cmpGetCached(compareSymbols, timeframe);
-    if (cached && Object.keys(cached || {}).length) {
-      setCompareSeries(cached);
-      lastGoodCompareRef.current = cached;
-    }
-
     setCompareLoading(true);
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
       const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(timeframe)}`;
-      const r = await fetch(url, { method: "GET", credentials: "omit", headers: { Accept: "application/json" }, signal: ac.signal });
+      const r = await fetch(url, { method: "GET", credentials: "include", headers: { Accept: "application/json" }, signal: ac.signal });
 
       let data = null;
       try { data = await r.json(); } catch { data = null; }
@@ -2282,44 +2202,17 @@ const [aiLoading, setAiLoading] = useState(false);
 
       if (data && data.series) {
         const normalized = normalizeBackendSeries(data.series);
-        // Ensure all currently selected symbols exist as keys (even if empty)
-        for (const s of compareSymbols) {
-          const S = String(s || "").toUpperCase();
-          if (S && !Object.prototype.hasOwnProperty.call(normalized, S)) normalized[S] = [];
-        }
-
-        // If some selected coins are still warming up (empty series), retry a couple times.
-        const cmpKey = compareSymbols.join("|");
-        const missing = compareSymbols.filter((s) => {
-          const S = String(s || "").toUpperCase();
-          return !S || !Array.isArray(normalized[S]) || normalized[S].length === 0;
-        });
-
-        if (!missing.length) {
-          if (compareRetryRef.current.t) { try { clearTimeout(compareRetryRef.current.t); } catch {} }
-          compareRetryRef.current = { key: cmpKey, n: 0, t: null };
-        } else {
-          if (compareRetryRef.current.key !== cmpKey) {
-            if (compareRetryRef.current.t) { try { clearTimeout(compareRetryRef.current.t); } catch {} }
-            compareRetryRef.current = { key: cmpKey, n: 0, t: null };
-          }
-          if (compareRetryRef.current.n < 2) {
-            const delay = 1400 * (compareRetryRef.current.n + 1);
-            const nnext = compareRetryRef.current.n + 1;
-            if (compareRetryRef.current.t) { try { clearTimeout(compareRetryRef.current.t); } catch {} }
-            compareRetryRef.current.t = setTimeout(() => {
-              compareRetryRef.current.n = nnext;
-              fetchCompare({ force: true });
-            }, delay);
-          }
-        }
-
         const hasAny = Object.values(normalized).some((arr) => Array.isArray(arr) && arr.length);
         if (hasAny) {
           setCompareSeries(normalized);
           lastGoodCompareRef.current = normalized;
           try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(normalized)); } catch {}
-          _cmpPutCached(compareSymbols, timeframe, normalized);
+          try {
+            const key = _compareCacheKey(compareSymbols, timeframe);
+            const store = _loadCompareStore();
+            store.entries[key] = { data: normalized, ts: Date.now(), lastUsed: Date.now() };
+            _saveCompareStore(_pruneCompareStore(store, [key]));
+          } catch {}
         } else if (lastGoodCompareRef.current) {
           setCompareSeries(lastGoodCompareRef.current);
         }
@@ -2486,112 +2379,58 @@ const [aiLoading, setAiLoading] = useState(false);
   }
 
   const [addOpen, setAddOpen] = useState(false);
+  const [addSymbol, setAddSymbol] = useState("");
+  const [addIsToken, setAddIsToken] = useState(false);
+  const [addContract, setAddContract] = useState("");
+  const [addChain, setAddChain] = useState("eth");
 
-// Add-Coin modal (old-app style): Market (CoinGecko search) + DEX (Contract)
-const [addTab, setAddTab] = useState("market"); // "market" | "dex"
-const [addQuery, setAddQuery] = useState("");
-const [addSearching, setAddSearching] = useState(false);
-const [addResults, setAddResults] = useState([]); // [{id,symbol,name,market_cap_rank}]
-const [addSearchErr, setAddSearchErr] = useState("");
+  async function submitAdd() {
+  const sym = String(addSymbol || "").trim().toUpperCase();
+  if (!sym) return;
 
-// DEX tab inputs
-const [addChain, setAddChain] = useState("eth");
-const [addContract, setAddContract] = useState("");
+  const item = addIsToken
+    ? { symbol: sym, mode: "dex", contract: String(addContract || "").trim(), chain: String(addChain || "").trim() }
+    : { symbol: sym, mode: "market" };
 
-const resetAddModal = () => {
+  if (item.mode === "dex" && !item.contract) {
+    return setErrorMsg("Contract address required for token.");
+  }
+
+  // Build next items array deterministically so we can refresh immediately.
+  const prev = Array.isArray(watchItems) ? watchItems : [];
+  const key = `${item.mode}|${item.symbol}|${item.contract || ""}`.toLowerCase();
+  const exists = prev.some(
+    (x) => `${x.mode || "market"}|${String(x.symbol || "")}|${String(x.contract || "")}`.toLowerCase() === key
+  );
+
+  const nextItems = exists ? prev : [...prev, item];
+
+  // Optimistic update
+  setWatchItems(nextItems);
+
+  // close/reset modal
   setAddOpen(false);
-  setAddTab("market");
-  setAddQuery("");
-  setAddSearching(false);
-  setAddResults([]);
-  setAddSearchErr("");
+  setAddSymbol("");
+  setAddIsToken(false);
+  setAddContract("");
   setAddChain("eth");
-  setAddContract("");
-};
 
-const runMarketSearch = async () => {
-  const q = String(addQuery || "").trim();
-  if (!q) return;
-  setAddSearchErr("");
-  setAddSearching(true);
+  // Persist + refresh rows immediately so user doesn't have to press Refresh
   try {
-    // Backend proxy to CoinGecko search (avoids CG CORS + rate issues)
-    const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`);
-    const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
-    const norm = (list || [])
-      .map((x) => ({
-        id: String(x.id || x.coingecko_id || x.cg_id || "").trim(),
-        symbol: String(x.symbol || "").trim(),
-        name: String(x.name || "").trim(),
-        market_cap_rank: x.market_cap_rank ?? x.rank ?? null,
-      }))
-      .filter((x) => x.id && x.symbol);
-    setAddResults(norm);
-    if (!norm.length) setAddSearchErr("No results.");
-  } catch (e) {
-    setAddSearchErr(String(e?.message || e));
-    setAddResults([]);
-  } finally {
-    setAddSearching(false);
-  }
-};
-
-const addMarketCoin = async (coin) => {
-  const sym = String(coin?.symbol || "").trim().toUpperCase();
-  const cgId = String(coin?.id || "").trim();
-  if (!sym || !cgId) return;
-
-  const item = { symbol: sym, mode: "market", coingecko_id: cgId, name: coin?.name || "", rank: coin?.market_cap_rank ?? null };
-
-  const prev = Array.isArray(watchItems) ? watchItems : [];
-  const key = `${item.mode}|${item.symbol}|${item.coingecko_id}`.toLowerCase();
-  const exists = prev.some((x) => {
-    const xs = String(x?.symbol || "").trim().toUpperCase();
-    const xm = String(x?.mode || "market").toLowerCase();
-    const xid = String(x?.coingecko_id || x?.id || "").toLowerCase();
-    return `${xm}|${xs}|${xid}`.toLowerCase() === key;
-  });
-  const nextItems = exists ? prev : [...prev, item];
-
-  // Optimistic update + immediate snapshot refresh
-  setWatchItems(nextItems);
-  try {
-    await fetchWatchSnapshot(nextItems, { force: true });
+    const data = await api("/api/watchlist/snapshot", {
+      method: "POST",
+      body: { items: nextItems },
+    });
+    const nextRows = data?.results || data?.rows || [];
+    if (Array.isArray(nextRows)) setWatchRows(nextRows);
+    if (data?.coins) setCompareCoins(data.coins);
+    if (data?.symbols) setCompareSymbols(data.symbols);
+    if (data?.cached != null) setWatchCached(Boolean(data.cached));
     setWatchErr("");
   } catch (e) {
     setWatchErr(String(e?.message || e));
   }
-
-  // keep modal open to allow adding multiple, but clear search to reduce confusion
-  setAddQuery("");
-  setAddResults([]);
-  setAddSearchErr("");
-};
-
-const addDexToken = async () => {
-  const contract = String(addContract || "").trim();
-  const chain = String(addChain || "eth").trim();
-  if (!contract) return setErrorMsg("Contract address required.");
-
-  // We store contract in both "contract" (UI) and "tokenAddress" (backward compat for older backend)
-  const item = { symbol: contract.slice(0, 10).toUpperCase(), mode: "dex", contract, tokenAddress: contract, chain };
-
-  const prev = Array.isArray(watchItems) ? watchItems : [];
-  const key = `${item.mode}|${item.contract}`.toLowerCase();
-  const exists = prev.some((x) => `${String(x?.mode || "market").toLowerCase()}|${String(x?.contract || x?.tokenAddress || "").toLowerCase()}` === key);
-  const nextItems = exists ? prev : [...prev, item];
-
-  setWatchItems(nextItems);
-  try {
-    await fetchWatchSnapshot(nextItems, { force: true });
-    setWatchErr("");
-  } catch (e) {
-    setWatchErr(String(e?.message || e));
-  }
-
-  // keep modal open; clear contract for next add
-  setAddContract("");
-};
+}
 
   function removeWatchItemByKey({ symbol, mode = "market", tokenAddress = "" }) {
   const sym = String(symbol || "").toUpperCase();
@@ -2625,15 +2464,6 @@ const addDexToken = async () => {
     return p.filter((s) => String(s || "").toUpperCase() !== sym);
   });
 
-  // If you removed the last watch item, also clear compare selection + chart cache
-  if (!nextItems.length) {
-    setCompareSet([]);
-    setCompareSeries({});
-    lastGoodCompareRef.current = {};
-    try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify({})); } catch {}
-  }
-
-
   // Persist: ask backend to recompute snapshot for the new items list
   // (This makes sure the item doesn't come back on next poll.)
   (async () => {
@@ -2645,8 +2475,9 @@ const addDexToken = async () => {
 
       const nextRows = data?.results || data?.rows || [];
     if (Array.isArray(nextRows)) setWatchRows(nextRows);
-if (Array.isArray(data?.symbols)) setCompareSet(data.symbols);
-if (data?.cached != null) setWatchCached(Boolean(data.cached));
+      if (data?.coins) setCompareCoins(data.coins);
+      if (data?.symbols) setCompareSymbols(data.symbols);
+      if (data?.cached != null) setWatchCached(Boolean(data.cached));
       setWatchErr("");
     } catch (e) {
       setWatchErr(String(e?.message || e));
@@ -4313,160 +4144,71 @@ async function runAi() {
 
 
             {addOpen && (
-  <div className="modalBackdrop" onClick={resetAddModal}>
-    <div className="modal" onClick={(e) => e.stopPropagation()}>
-      <div className="modalHead">
-        <div className="cardTitle">{addTab === "dex" ? "Add token (Contract)" : "Select token (CoinGecko)"}</div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <InfoButton title="Select token (CoinGecko)">
-            <Help
-              de={
-                <>
-                  <p>
-                    Suche nach <b>Symbol</b> oder <b>Name</b> (z.B. <code>TON</code>, <code>BNB</code>). Bei gleichen Symbolen bitte den richtigen{" "}
-                    <b>Namen/Rank</b> auswählen.
-                  </p>
-                  <p>
-                    <b>Market (CEX)</b> nutzt CoinGecko-IDs (zuverlässig). <b>DEX (Contract)</b> fügt einen Contract hinzu.
-                  </p>
-                </>
-              }
-              en={
-                <>
-                  <p>
-                    Search by <b>symbol</b> or <b>name</b> (e.g. <code>TON</code>, <code>BNB</code>). If there are multiple matches, pick the right{" "}
-                    <b>name/rank</b>.
-                  </p>
-                  <p>
-                    <b>Market (CEX)</b> uses CoinGecko IDs (reliable). <b>DEX (Contract)</b> adds a contract address.
-                  </p>
-                </>
-              }
-            />
-          </InfoButton>
-          <button className="iconBtn" onClick={resetAddModal} aria-label="Close">
-            ×
-          </button>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-        <button
-	          className="btn"
-	          style={{ opacity: addTab === "market" ? 1 : 0.7 }}
-          onClick={() => setAddTab("market")}
-          type="button"
-        >
-          Market (CEX)
-        </button>
-        <button
-	          className="btn"
-	          style={{ opacity: addTab === "dex" ? 1 : 0.7 }}
-          onClick={() => setAddTab("dex")}
-          type="button"
-        >
-          DEX (Contract)
-        </button>
-      </div>
-
-      {addTab === "market" && (
-        <>
-          <div className="muted" style={{ marginTop: 10 }}>
-            Search &mdash; pick the exact coin, so prices & updates are correct.
-          </div>
-
-          <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
-            <input
-              className="input"
-              placeholder="e.g. TON / BNB / Dogecoin"
-              value={addQuery}
-              onChange={(e) => setAddQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") runMarketSearch();
-              }}
-            />
-            <button className="btn" onClick={runMarketSearch} disabled={addSearching || !String(addQuery || "").trim()}>
-              {addSearching ? "Searching..." : "Search"}
-            </button>
-          </div>
-
-          {addSearchErr ? (
-            <div style={{ marginTop: 8, color: "#ffb4b4" }}>
-              {addSearchErr}
+        <div className="modalBackdrop" onClick={() => setAddOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))" }}>
+            <div className="modalHead">
+              <div className="cardTitle">Add Coin / Token</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <InfoButton title="Add Coin / Token">
+                  <Help showClose dismissable
+                    de={<><p><b>Coin</b> (Market) braucht nur Symbol (z.B. ETH).</p><p><b>Token</b> braucht Contract Address.</p></>}
+                    en={<><p><b>Coin</b> (market) only needs a symbol (e.g., ETH).</p><p><b>Token</b> requires a contract address.</p></>}
+                  />
+                </InfoButton>
+                <button className="iconBtn" onClick={() => setAddOpen(false)}>×</button>
+              </div>
             </div>
-          ) : null}
 
-          <div style={{ maxHeight: 360, overflow: "auto", marginTop: 10 }}>
-            {(addResults || []).length === 0 &&
-            !addSearching &&
-            String(addQuery || "").trim() ? (
-              <div className="muted" style={{ padding: 10 }}>
-                No results yet. Try a different keyword.
-              </div>
-            ) : null}
+            <div className="formRow">
+              <label>Symbol</label>
+              <input value={addSymbol} onChange={(e) => setAddSymbol(e.target.value)} placeholder="e.g. ETH" />
+            </div>
 
-            {(addResults || []).map((coin) => (
-<div key={coin.id} className="watchRow" style={{ alignItems: "center" }}>
-                <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {coin.name} <span className="muted">({String(coin.symbol || "").toUpperCase()})</span>
-                  </div>
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    ID: <code>{coin.id}</code>
-                    {coin.market_cap_rank != null ? <> &middot; Rank #{coin.market_cap_rank}</> : null}
-                  </div>
+            <div className="formRow">
+              <label>Type</label>
+              <select value={addIsToken ? "token" : "coin"} onChange={(e) => setAddIsToken(e.target.value === "token")}>
+                <option value="coin">Market coin (BTC, ETH...)</option>
+                <option value="token">Token (contract)</option>
+              </select>
+            </div>
+
+            {addIsToken && (
+              <>
+                <div className="formRow">
+                  <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    Contract
+                    <InfoButton title="Contract Address">
+                      <Help showClose dismissable
+                        de={<><p><b>Pflicht</b> für Tokens. Beispiel: 0x…</p></>}
+                        en={<><p><b>Required</b> for tokens. Example: 0x…</p></>}
+                      />
+                    </InfoButton>
+                  </label>
+                  <input value={addContract} onChange={(e) => setAddContract(e.target.value)} placeholder="0x..." />
                 </div>
 
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-	                <button className="btn" onClick={() => addMarketCoin(coin)}>
-                    Add
-                  </button>
+                <div className="formRow">
+                  <label>Chain</label>
+                  <select value={addChain} onChange={(e) => setAddChain(e.target.value)}>
+                    <option value="eth">ETH</option>
+                    <option value="bsc">BSC</option>
+                    <option value="polygon">Polygon</option>
+                    <option value="arbitrum">Arbitrum</option>
+                    <option value="base">Base</option>
+                  </select>
                 </div>
-              </div>
-            
-))}
+              </>
+            )}
+
+            <div className="btnRow">
+              <button className="btn" onClick={submitAdd}>Add</button>
+              <button className="btnGhost" onClick={() => setAddOpen(false)}>Cancel</button>
+            </div>
+
+            <div className="muted tiny">Cache-first: coins in backend cache appear instantly; new ones are fetched.</div>
           </div>
-        </>
+        </div>
       )}
-
-      {addTab === "dex" && (
-        <>
-          <div className="muted" style={{ marginTop: 10 }}>
-            Add token by contract address (DEX). Backend must support resolving contract metadata.
-          </div>
-
-          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-            <div className="muted">Chain</div>
-            <select value={addChain} onChange={(e) => setAddChain(e.target.value)}>
-              <option value="eth">Ethereum</option>
-              <option value="bsc">BSC</option>
-              <option value="polygon">Polygon</option>
-              <option value="arb">Arbitrum</option>
-              <option value="op">Optimism</option>
-              <option value="base">Base</option>
-            </select>
-
-            <div className="muted">Contract</div>
-            <input className="input" placeholder="0x..." value={addContract} onChange={(e) => setAddContract(e.target.value)} />
-          </div>
-
-          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-            <button className="btn" onClick={addDexToken} disabled={!String(addContract || "").trim()}>
-              Add
-            </button>
-            <button className="btnGhost" onClick={resetAddModal}>
-              Cancel
-            </button>
-          </div>
-        </>
-      )}
-
-      <div className="muted" style={{ marginTop: 10 }}>
-        Tip: coins already cached on backend appear instantly; new ones may take a moment to fetch.
-      </div>
-    </div>
-  </div>
-)}
     </div>
   );
 }

@@ -2158,10 +2158,15 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // watch snapshot polling
   const inflightWatch = useRef(false);
+  const watchRefreshQueued = useRef(false);
   const watchRetryRef = useRef({ key: "", n: 0, t: null });
 
   const fetchWatchSnapshot = async (itemsOverride = null, opts = {}) => {
-    if (inflightWatch.current) return;
+    if (inflightWatch.current) {
+      // If a refresh is requested while a snapshot is already in-flight, queue exactly one refresh.
+      watchRefreshQueued.current = true;
+      return;
+    }
     inflightWatch.current = true;
     try {
       const r = await api("/api/watchlist/snapshot", { method: "POST", body: { items: (itemsOverride ?? watchItems) } });
@@ -2210,11 +2215,16 @@ const [aiLoading, setAiLoading] = useState(false);
             fetchWatchSnapshot(itemsOverride, { ...opts, force: true });
           }, delay);
         }
-}
     } catch (e) {
       setErrorMsg(`Watchlist: ${e.message}`);
     } finally {
       inflightWatch.current = false;
+      if (watchRefreshQueued.current) {
+        // Run exactly one queued refresh after the current one completes.
+        watchRefreshQueued.current = false;
+        // Force refresh so we don't get blocked by any internal guards.
+        fetchWatchSnapshot(itemsOverride, { ...opts, force: true });
+      }
     }
   };
 
@@ -4204,7 +4214,7 @@ async function runAi() {
             <div className="cardTitle">Watchlist</div>
             <div className="cardActions" style={{ alignItems: "center" }}>
               <button className="btn" onClick={() => setAddOpen(true)}>+ Add</button>
-              <button className="btnGhost" onClick={fetchWatchSnapshot}>Refresh</button>
+              <button className="btnGhost" onClick={() => fetchWatchSnapshot(null, { force: true, user: true })}>Refresh</button>
               <InfoButton title="Watchlist">
                 <Help showClose dismissable
                   de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 10).</p><p><b>Token</b> braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen eines neuen Coins/Tokens einmal drücken, damit Preis/Volumen nachgeladen werden.</p></>}

@@ -2040,6 +2040,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const compareAbortRef = useRef(null);
   const lastCompareFetchRef = useRef(0);
   const compareRetryRef = useRef({ key: "", n: 0, t: null });
+  const compareFailRetryRef = useRef({ key: "", n: 0, t: null });
 
   // seed "last good" on first load
   useEffect(() => {
@@ -2285,6 +2286,13 @@ const [aiLoading, setAiLoading] = useState(false);
         throw new Error(msg);
       }
 
+      // reset HTTP-failure retry state on any successful HTTP response
+      {
+        const cmpKeyHTTP = compareSymbols.join(\"|\");
+        if (compareFailRetryRef.current.t) { try { clearTimeout(compareFailRetryRef.current.t); } catch {} }
+        compareFailRetryRef.current = { key: cmpKeyHTTP, n: 0, t: null };
+      }
+
       if (data && data.series) {
         const normalized = normalizeBackendSeries(data.series);
         // Ensure all currently selected symbols exist as keys (even if empty)
@@ -2340,6 +2348,29 @@ const [aiLoading, setAiLoading] = useState(false);
       if (lastGoodCompareRef.current) {
         setCompareSeries(lastGoodCompareRef.current);
       }
+
+      // Auto-retry on transient backend/network failures so users don't need to refresh.
+      // This is separate from the "missing series" warm-up retry above.
+      try {
+        const cmpKeyHTTP = compareSymbols.join("|");
+        if (compareFailRetryRef.current.key !== cmpKeyHTTP) {
+          if (compareFailRetryRef.current.t) { try { clearTimeout(compareFailRetryRef.current.t); } catch {} }
+          compareFailRetryRef.current = { key: cmpKeyHTTP, n: 0, t: null };
+        }
+        const maxRetries = 3;
+        const online = (typeof navigator === "undefined") ? true : (navigator.onLine !== false);
+        if (online && compareFailRetryRef.current.n < maxRetries) {
+          const nnext = compareFailRetryRef.current.n + 1;
+          // backoff: 1.2s, 2.4s, 4.8s
+          const delay = 1200 * Math.pow(2, compareFailRetryRef.current.n);
+          if (compareFailRetryRef.current.t) { try { clearTimeout(compareFailRetryRef.current.t); } catch {} }
+          compareFailRetryRef.current.t = setTimeout(() => {
+            compareFailRetryRef.current.n = nnext;
+            fetchCompare({ force: true });
+          }, delay);
+        }
+      } catch {}
+
       // still log for debugging
       // eslint-disable-next-line no-console
       console.warn("compare fetch failed:", e);

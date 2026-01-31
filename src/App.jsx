@@ -1078,7 +1078,7 @@ const [errorMsg, setErrorMsg] = useState("");
 
   const removeWalletToken = (chain, tokenAddress) => {
     const c = String(chain || "").toUpperCase();
-    const addr = String(tokenAddress || "").toLowerCase();
+    const addr = String(tokenAddress || contract || "").toLowerCase();
     const cur = walletTokensByChain?.[c] || [];
     const next = cur.filter((t) => String(t?.address || "").toLowerCase() != addr);
     setWalletTokensForChain(c, next);
@@ -2629,10 +2629,10 @@ const addDexToken = async () => {
   setAddContract("");
 };
 
-  function removeWatchItemByKey({ symbol, mode = "market", tokenAddress = "" }) {
+  function removeWatchItemByKey({ symbol, mode = "market", tokenAddress = "", contract = "" }) {
   const sym = String(symbol || "").toUpperCase();
   const m = String(mode || "market").toLowerCase();
-  const addr = String(tokenAddress || "").toLowerCase();
+  const addr = String(tokenAddress || contract || "").toLowerCase();
 
   // Build next "items" array (the true source of truth we send to backend)
   const nextItems = (watchItems || []).filter((x) => {
@@ -2681,7 +2681,7 @@ const addDexToken = async () => {
 
       const nextRows = data?.results || data?.rows || [];
     if (Array.isArray(nextRows)) setWatchRows(nextRows);
-if (Array.isArray(data?.symbols)) setCompareSet(data.symbols);
+if (Array.isArray(data?.symbols)) setCompareSet((prev) => (Array.isArray(prev) && prev.length ? prev : data.symbols));
 if (data?.cached != null) setWatchCached(Boolean(data.cached));
       setWatchErr("");
     } catch (e) {
@@ -4245,7 +4245,7 @@ async function runAi() {
                     <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`}>{fmtPct(r.change24h)}</div>
                     <div className="right mono">{fmtUsd(r.volume24h)}</div>
                     <div className="right muted">{r.source || "—"}</div>
-                    <div className="right"><button className="iconBtn" onClick={() => removeWatchItemByKey({ symbol: sym, mode: r.mode || "market", contract: r.contract || r.id || "" })} title="Remove">×</button></div>
+                    <div className="right"><button className="iconBtn" onClick={() => removeWatchItemByKey({ symbol: sym, mode: r.mode || "market", tokenAddress: r.contract || r.id || "" })} title="Remove">×</button></div>
                   </div>
                 );
               })}

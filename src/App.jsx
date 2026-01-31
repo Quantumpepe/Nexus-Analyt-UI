@@ -4322,11 +4322,15 @@ async function runAi() {
           ) : null}
 
           <div style={{ maxHeight: 360, overflow: "auto", marginTop: 10 }}>
-            {(addResults || []).length === 0 && !addSearching && String(addQuery||"").trim() ? (
-            <div className="muted" style={{ padding: 10 }}>No results yet. Try a different keyword.</div>
-          ) : null
+            {(addResults || []).length === 0 &&
+            !addSearching &&
+            String(addQuery || "").trim() ? (
+              <div className="muted" style={{ padding: 10 }}>
+                No results yet. Try a different keyword.
+              </div>
+            ) : null}
 
-          }(addResults || []).map((c) => (
+            {(addResults || []).map((c) => (
               <div key={c.id} className="watchRow" style={{ alignItems: "center" }}>
                 <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

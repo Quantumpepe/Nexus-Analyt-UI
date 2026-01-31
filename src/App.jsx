@@ -183,6 +183,53 @@ function _cmpPutCached(symbols, tf, data) {
   } catch {}
 }
 
+// CoinGecko search cache (client-side) to keep search snappy even if backend/CG is slow
+const LS_CG_SEARCH_CACHE = "na_cg_search_cache_v1";
+const CG_SEARCH_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CG_SEARCH_MAX_ENTRIES = 40;
+
+function _cgSearchRead() {
+  try {
+    const raw = localStorage.getItem(LS_CG_SEARCH_CACHE);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function _cgSearchWrite(store) {
+  try { localStorage.setItem(LS_CG_SEARCH_CACHE, JSON.stringify(store || {})); } catch {}
+}
+
+function _cgSearchGet(q) {
+  try {
+    const store = _cgSearchRead();
+    const key = String(q || "").toLowerCase();
+    const e = store?.[key];
+    if (!e || !e.ts || !Array.isArray(e.data)) return null;
+    if (Date.now() - Number(e.ts) > CG_SEARCH_TTL_MS) return null;
+    return e.data;
+  } catch {
+    return null;
+  }
+}
+
+function _cgSearchPut(q, data) {
+  try {
+    const key = String(q || "").toLowerCase();
+    const store = _cgSearchRead();
+    store[key] = { ts: Date.now(), data: Array.isArray(data) ? data : [] };
+
+    // trim oldest entries
+    const keys = Object.keys(store || {});
+    if (keys.length > CG_SEARCH_MAX_ENTRIES) {
+      keys.sort((a, b) => Number(store[a]?.ts || 0) - Number(store[b]?.ts || 0));
+      for (const dk of keys.slice(0, keys.length - CG_SEARCH_MAX_ENTRIES)) delete store[dk];
+    }
+    _cgSearchWrite(store);
+  } catch {}
+}
+
 const stripTrailingZeros = (s) => s.replace(/0+$/, "").replace(/\.$/, "");
 
 const fmtUsd = (n) => {
@@ -2559,10 +2606,44 @@ const resetAddModal = () => {
 const runMarketSearch = async () => {
   const q = String(addQuery || "").trim();
   if (!q) return;
+  const qKey = q.toLowerCase();
+
   setAddSearchErr("");
+
+  // 1) Instant result from client cache (if present)
+  const cached = _cgSearchGet(qKey);
+  if (cached) {
+    setAddResults(cached);
+    if (!cached.length) setAddSearchErr("No results.");
+    // revalidate in background (do not block UI)
+    (async () => {
+      try {
+        const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`);
+        const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
+        const norm = (list || [])
+          .map((x) => ({
+            id: String(x.id || x.coingecko_id || x.cg_id || "").trim(),
+            symbol: String(x.symbol || "").trim(),
+            name: String(x.name || "").trim(),
+            market_cap_rank: x.market_cap_rank ?? x.rank ?? null,
+          }))
+          .filter((x) => x.id && x.symbol);
+        _cgSearchPut(qKey, norm);
+        // only update if query didn't change
+        if (String(addQuery || "").trim().toLowerCase() === qKey) {
+          setAddResults(norm);
+          setAddSearchErr(norm.length ? "" : "No results.");
+        }
+      } catch {
+        // ignore background refresh errors
+      }
+    })();
+    return;
+  }
+
+  // 2) No cache => do a normal fetch, but show spinner
   setAddSearching(true);
   try {
-    // Backend proxy to CoinGecko search (avoids CG CORS + rate issues)
     const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`);
     const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
     const norm = (list || [])
@@ -2573,6 +2654,8 @@ const runMarketSearch = async () => {
         market_cap_rank: x.market_cap_rank ?? x.rank ?? null,
       }))
       .filter((x) => x.id && x.symbol);
+
+    _cgSearchPut(qKey, norm);
     setAddResults(norm);
     if (!norm.length) setAddSearchErr("No results.");
   } catch (e) {
@@ -2583,6 +2666,7 @@ const runMarketSearch = async () => {
   }
 };
 
+
 const addMarketCoin = async (coin) => {
   const sym = String(coin?.symbol || "").trim().toUpperCase();
   const cgId = String(coin?.id || "").trim();
@@ -2590,30 +2674,60 @@ const addMarketCoin = async (coin) => {
 
   const item = { symbol: sym, mode: "market", coingecko_id: cgId, name: coin?.name || "", rank: coin?.market_cap_rank ?? null };
 
-  const prev = Array.isArray(watchItems) ? watchItems : [];
-  const key = `${item.mode}|${item.symbol}|${item.coingecko_id}`.toLowerCase();
-  const exists = prev.some((x) => {
-    const xs = String(x?.symbol || "").trim().toUpperCase();
-    const xm = String(x?.mode || "market").toLowerCase();
-    const xid = String(x?.coingecko_id || x?.id || "").toLowerCase();
-    return `${xm}|${xs}|${xid}`.toLowerCase() === key;
+  // Optimistic: update local state immediately (never wait for backend)
+  let nextItems = null;
+  setWatchItems((prev0) => {
+    const prev = Array.isArray(prev0) ? prev0 : [];
+    const key = `${item.mode}|${item.symbol}|${item.coingecko_id}`.toLowerCase();
+    const exists = prev.some((x) => {
+      const xs = String(x?.symbol || "").trim().toUpperCase();
+      const xm = String(x?.mode || "market").toLowerCase();
+      const xid = String(x?.coingecko_id || x?.id || "").toLowerCase();
+      return `${xm}|${xs}|${xid}`.toLowerCase() === key;
+    });
+    nextItems = exists ? prev : [...prev, item];
+    return nextItems;
   });
-  const nextItems = exists ? prev : [...prev, item];
 
-  // Optimistic update + immediate snapshot refresh
-  setWatchItems(nextItems);
+  // Ensure it shows instantly in the table even if snapshot is down (placeholder row).
+  setWatchRows((prev0) => {
+    const prev = Array.isArray(prev0) ? prev0 : [];
+    const has = prev.some((r) => String(r?.symbol || "").toUpperCase() === sym);
+    if (has) return prev;
+    return [
+      ...prev,
+      {
+        symbol: sym,
+        mode: "market",
+        coingecko_id: cgId,
+        name: item.name || sym,
+        price: null,
+        chg_24h: null,
+        vol: null,
+        source: "pending",
+      },
+    ];
+  });
+
+  // By default, include new coin in compare selection (up to max 10)
+  setCompareSet((prev0) => {
+    const prev = Array.isArray(prev0) ? prev0 : [];
+    if (prev.includes(sym)) return prev;
+    if (prev.length >= 10) return prev;
+    return [...prev, sym];
+  });
+
+  // Kick a background snapshot refresh (best-effort). Never block the click.
   try {
-    await fetchWatchSnapshot(nextItems, { force: true });
-    setWatchErr("");
-  } catch (e) {
-    setWatchErr(String(e?.message || e));
-  }
+    fetchWatchSnapshot(nextItems || null, { force: true, user: true });
+  } catch {}
 
   // keep modal open to allow adding multiple, but clear search to reduce confusion
   setAddQuery("");
   setAddResults([]);
   setAddSearchErr("");
 };
+
 
 const addDexToken = async () => {
   const contract = String(addContract || "").trim();
@@ -2623,22 +2737,47 @@ const addDexToken = async () => {
   // We store contract in both "contract" (UI) and "tokenAddress" (backward compat for older backend)
   const item = { symbol: contract.slice(0, 10).toUpperCase(), mode: "dex", contract, tokenAddress: contract, chain };
 
-  const prev = Array.isArray(watchItems) ? watchItems : [];
-  const key = `${item.mode}|${item.contract}`.toLowerCase();
-  const exists = prev.some((x) => `${String(x?.mode || "market").toLowerCase()}|${String(x?.contract || x?.tokenAddress || "").toLowerCase()}` === key);
-  const nextItems = exists ? prev : [...prev, item];
+  let nextItems = null;
+  setWatchItems((prev0) => {
+    const prev = Array.isArray(prev0) ? prev0 : [];
+    const key = `${item.mode}|${item.contract}`.toLowerCase();
+    const exists = prev.some((x) => `${String(x?.mode || "market").toLowerCase()}|${String(x?.contract || x?.tokenAddress || "").toLowerCase()}` === key);
+    nextItems = exists ? prev : [...prev, item];
+    return nextItems;
+  });
 
-  setWatchItems(nextItems);
+  // placeholder row so user sees it instantly
+  setWatchRows((prev0) => {
+    const prev = Array.isArray(prev0) ? prev0 : [];
+    const addr = contract.toLowerCase();
+    const has = prev.some((r) => String(r?.contract || r?.tokenAddress || "").toLowerCase() === addr);
+    if (has) return prev;
+    return [
+      ...prev,
+      {
+        symbol: item.symbol,
+        mode: "dex",
+        contract,
+        tokenAddress: contract,
+        chain,
+        name: item.symbol,
+        price: null,
+        chg_24h: null,
+        vol: null,
+        source: "pending",
+      },
+    ];
+  });
+
+  // Background snapshot refresh (best-effort)
   try {
-    await fetchWatchSnapshot(nextItems, { force: true });
-    setWatchErr("");
-  } catch (e) {
-    setWatchErr(String(e?.message || e));
-  }
+    fetchWatchSnapshot(nextItems || null, { force: true, user: true });
+  } catch {}
 
   // keep modal open; clear contract for next add
   setAddContract("");
 };
+
 
   function removeWatchItemByKey({ symbol, mode = "market", tokenAddress = "", contract = "" }) {
   const sym = String(symbol || "").toUpperCase();

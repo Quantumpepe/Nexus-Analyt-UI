@@ -2288,7 +2288,7 @@ const [aiLoading, setAiLoading] = useState(false);
 
       // reset HTTP-failure retry state on any successful HTTP response
       {
-        const cmpKeyHTTP = compareSymbols.join(\"|\");
+        const cmpKeyHTTP = compareSymbols.join(\"|");
         if (compareFailRetryRef.current.t) { try { clearTimeout(compareFailRetryRef.current.t); } catch {} }
         compareFailRetryRef.current = { key: cmpKeyHTTP, n: 0, t: null };
       }

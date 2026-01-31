@@ -4,10 +4,22 @@ import { usePrivy, useWallets } from "@privy-io/react-auth";
 
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
-
-
-
 import "./App.css";
+
+// Chart palette (10 colors). Kept inline (no external dep) to avoid runtime ReferenceError.
+// Used for consistent compare/index chart series coloring.
+const PALETTE10 = [
+  "#22c55e", // green
+  "#60a5fa", // blue
+  "#f59e0b", // amber
+  "#a78bfa", // violet
+  "#f472b6", // pink
+  "#34d399", // emerald
+  "#fb7185", // rose
+  "#38bdf8", // sky
+  "#eab308", // yellow
+  "#c084fc", // purple
+];
 
 // Local cache (stale-while-revalidate) so live refresh/cold-start won't blank the UI
 const LS_WATCH_ROWS_CACHE = "na_watch_rows_cache_v1";

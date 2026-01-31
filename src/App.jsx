@@ -1000,14 +1000,19 @@ function computeBestPairs(chart, limit = 30) {
 // App (inner)
 // ------------------------
 function AppInner() {
-// One-time storage version gate: clears stale caches after deployments
+// One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
 useEffect(() => {
   try {
     const v = localStorage.getItem(LS_APP_VERSION);
     if (v !== APP_VERSION) {
-      for (let i = localStorage.length - 1; i >= 0; i--) {
-        const k = localStorage.key(i);
-        if (k && (k.startsWith("na_") || k.startsWith("nexus_"))) localStorage.removeItem(k);
+      // Only clear volatile caches; never wipe user choices like compare set/watch items
+      const keysToClear = [
+        LS_WATCH_ROWS_CACHE,
+        LS_COMPARE_SERIES_CACHE,
+        LS_COMPARE_STORE,
+      ];
+      for (const k of keysToClear) {
+        try { localStorage.removeItem(k); } catch {}
       }
       localStorage.setItem(LS_APP_VERSION, APP_VERSION);
     }

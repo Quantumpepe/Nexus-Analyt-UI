@@ -1,3 +1,4 @@
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 
@@ -1471,7 +1472,7 @@ return [c, { native, stables, custom }];
 
 
   // compare/chart
-  const [timeframe, setTimeframe] = useLocalStorageState("nexus_timeframe", "30D");
+  const [timeframe, setTimeframe] = useState("30D");
   const PAIR_EXPLAIN_TF = "30D";
 
   // Access (NFT / Code) - UI only (stored locally). Later we can wire this to backend verification.
@@ -2000,7 +2001,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compareSymbols.join("|")]);
 
-  const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
+  const [indexMode, setIndexMode] = useState(true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [highlightSym, setHighlightSym] = useState(null);
 
@@ -4240,7 +4241,7 @@ async function runAi() {
   <div className="modalBackdrop" onClick={resetAddModal}>
     <div className="modal" onClick={(e) => e.stopPropagation()}>
       <div className="modalHead">
-        <div className="cardTitle">{addTab === "dex" ? "Add token (Contract)" : "Select token (CoinGecko)"}</div>
+        <div className="cardTitle">Select token (CoinGecko)</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <InfoButton title="Select token (CoinGecko)">
             <Help
@@ -4321,23 +4322,15 @@ async function runAi() {
           ) : null}
 
           <div style={{ maxHeight: 360, overflow: "auto", marginTop: 10 }}>
-            {(addResults || []).length === 0 &&
-            !addSearching &&
-            String(addQuery || "").trim() ? (
-              <div className="muted" style={{ padding: 10 }}>
-                No results yet. Try a different keyword.
-              </div>
-            ) : null}
-
-            {(addResults || []).map((coin) => (
-<div key={coin.id} className="watchRow" style={{ alignItems: "center" }}>
+            {(addResults || []).map((c) => (
+              <div key={c.id} className="watchRow" style={{ alignItems: "center" }}>
                 <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {coin.name} <span className="muted">({String(coin.symbol || "").toUpperCase()})</span>
+                    {c.name} <span className="muted">({String(c.symbol || "").toUpperCase()})</span>
                   </div>
                   <div className="muted" style={{ fontSize: 12 }}>
-                    ID: <code>{coin.id}</code>
-                    {coin.market_cap_rank != null ? <> &middot; Rank #{coin.market_cap_rank}</> : null}
+                    ID: <code>{c.id}</code>
+                    {c.market_cap_rank != null ? <> &middot; Rank #{c.market_cap_rank}</> : null}
                   </div>
                 </div>
 
@@ -4347,8 +4340,7 @@ async function runAi() {
                   </button>
                 </div>
               </div>
-            
-))}
+            ))}
           </div>
         </>
       )}

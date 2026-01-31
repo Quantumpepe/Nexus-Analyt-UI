@@ -1033,6 +1033,8 @@ function computeBestPairs(chart, limit = 30) {
 // App (inner)
 // ------------------------
 function AppInner() {
+  const consoleGuardRef = useRef(false);
+
 // One-time storage version gate: clears stale caches after deployments
 useEffect(() => {
   try {
@@ -1048,6 +1050,48 @@ useEffect(() => {
     // ignore storage errors (private mode, blocked, etc.)
   }
 }, []);
+
+  // Suppress noisy wallet/extension console warnings in production.
+  // This prevents scary anti-scam console banners from injected scripts from confusing users.
+  // NOTE: We only filter a very specific message substring; all other logs/warns remain.
+  useEffect(() => {
+    if (!import.meta?.env?.PROD) return;
+    if (consoleGuardRef.current) return;
+    consoleGuardRef.current = true;
+
+    const origLog = console.log;
+    const origWarn = console.warn;
+
+    const isNoisyWalletBanner = (args) => {
+      try {
+        const joined = args
+          .map((a) => (typeof a === "string" ? a : ""))
+          .join(" ");
+        return (
+          joined.includes("You are reading this message because you opened the browser console") ||
+          joined.includes("Never share your tokens") ||
+          joined.includes("If someone told you to do this, it is very likely a scam")
+        );
+      } catch (e) {
+        return false;
+      }
+    };
+
+    console.log = (...args) => {
+      if (isNoisyWalletBanner(args)) return;
+      return origLog(...args);
+    };
+    console.warn = (...args) => {
+      if (isNoisyWalletBanner(args)) return;
+      return origWarn(...args);
+    };
+
+    return () => {
+      console.log = origLog;
+      console.warn = origWarn;
+    };
+  }, []);
+
 
 
   

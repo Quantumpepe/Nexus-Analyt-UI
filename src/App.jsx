@@ -2678,7 +2678,16 @@ const addDexToken = async () => {
 
       const nextRows = data?.results || data?.rows || [];
     if (Array.isArray(nextRows)) setWatchRows(nextRows);
-if (Array.isArray(data?.symbols)) setCompareSet(data.symbols);
+if (Array.isArray(data?.symbols)) {
+        // IMPORTANT: never overwrite the user's compare selection based on backend snapshot output.
+        // The backend may return a partial/temporary symbol list (rate limits / warm-up), which would
+        // otherwise "randomly" remove coins after refresh/poll. We only use backend symbols to seed
+        // compare when the user has not selected anything yet.
+        setCompareSet((prev) => {
+          const p = Array.isArray(prev) ? prev : [];
+          return p.length ? p : data.symbols;
+        });
+      }
 if (data?.cached != null) setWatchCached(Boolean(data.cached));
       setWatchErr("");
     } catch (e) {

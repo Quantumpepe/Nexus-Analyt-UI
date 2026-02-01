@@ -189,7 +189,7 @@ function formatNativeFromWei(weiBig, decimals = 18, maxFrac = 6) {
 function _cmpKey(symbols, tf) {
   const arr = Array.isArray(symbols) ? symbols : [];
   const keySyms = arr.map((s) => String(s || "").toUpperCase()).filter(Boolean).sort().join(",");
-  return `${String(tf || "30D")}:${keySyms}`;
+  return `${String(tf || "1Y")}:${keySyms}`;
 }
 
 function _cmpStoreRead() {
@@ -632,6 +632,44 @@ function normalizeBackendSeries(seriesLike) {
   }
   return out;
 }
+
+
+function _tfDays(tf) {
+  const k = String(tf || "").toUpperCase();
+  if (k === "1D") return 1;
+  if (k === "7D") return 7;
+  if (k === "30D") return 30;
+  if (k === "90D") return 90;
+  if (k === "1Y") return 365;
+  return null; // e.g. 3Y handled separately
+}
+
+// Slice a full-series dict {SYM:[{t,v}...]} into the selected view timeframe.
+// Uses per-series max timestamp as anchor (so it works even if coins have different ranges).
+function sliceCompareSeries(full, timeframe) {
+  const tf = String(timeframe || "90D").toUpperCase();
+  if (!full || typeof full !== "object") return {};
+  if (tf === "3Y" || tf === "1Y") return full;
+  const days = _tfDays(tf);
+  if (!days) return full;
+  const windowMs = days * 24 * 60 * 60 * 1000;
+  const out = {};
+  for (const [sym, pts] of Object.entries(full)) {
+    if (!Array.isArray(pts) || pts.length === 0) { out[sym] = []; continue; }
+    const maxT = Number(pts[pts.length - 1]?.t ?? pts[pts.length - 1]?.[0] ?? 0);
+    const cutoff = maxT ? (maxT - windowMs) : 0;
+    out[sym] = pts.filter((p) => Number(p?.t ?? p?.[0] ?? 0) >= cutoff);
+  }
+  return out;
+}
+
+function _compareFetchRange(timeframe) {
+  const tf = String(timeframe || "90D").toUpperCase();
+  if (tf === "3Y") return "3Y";
+  if (tf === "1D") return "1D"; // keep intraday fidelity
+  return "1Y"; // fetch once, slice for 7D/30D/90D/1Y views
+}
+
 
 function buildUnifiedChart(seriesBySym) {
   const syms = Object.keys(seriesBySym || {});
@@ -1639,7 +1677,8 @@ return [c, { native, stables, custom }];
 
 
   // compare/chart
-  const [timeframe, setTimeframe] = useLocalStorageState("nexus_timeframe", "30D");
+  const [timeframe, setTimeframe] = useLocalStorageState("nexus_timeframe", "90D");
+  const compareFetchRange = useMemo(() => _compareFetchRange(timeframe), [timeframe]);
   const PAIR_EXPLAIN_TF = "30D";
 
   // Access (NFT / Code) - UI only (stored locally). Later we can wire this to backend verification.
@@ -2125,7 +2164,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareSeries, setCompareSeries] = useState(() => {
     // Prefer per-(timeframe+symbols) cache so reloads feel instant
-    const cached = _cmpGetCached(compareSymbols, timeframe);
+    const cached = _cmpGetCached(compareSymbols, _compareFetchRange(timeframe));
     if (cached) return cached;
 
     // Fallback: legacy single-bucket cache
@@ -2178,8 +2217,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [highlightSym, setHighlightSym] = useState(null);
 
-  const chartRaw = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
-  const bestPairsTop = useMemo(() => computeBestPairs(chartRaw, 30).slice(0, 10), [chartRaw]);
+  const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
+
+  // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/3Y)
+  const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
+  const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
+  const bestPairsTop = useMemo(() => computeBestPairs(chartRawFull, 30).slice(0, 10), [chartRawFull]);
 
   // grid (manual)
   const [gridItem, setGridItem] = useState("BTC");
@@ -2386,7 +2429,8 @@ const [aiLoading, setAiLoading] = useState(false);
     compareAbortRef.current = ac;
 
     // Show cached series immediately (SWR) so chart renders without waiting for backend
-    const cached = _cmpGetCached(compareSymbols, timeframe);
+    const fetchRange = _compareFetchRange(timeframe);
+    const cached = _cmpGetCached(compareSymbols, fetchRange);
     if (cached && Object.keys(cached || {}).length) {
       setCompareSeries(cached);
       lastGoodCompareRef.current = cached;
@@ -2395,7 +2439,7 @@ const [aiLoading, setAiLoading] = useState(false);
     setCompareLoading(true);
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
-      const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(timeframe)}`;
+      const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(fetchRange)}`;
       const r = await fetch(url, { method: "GET", credentials: "omit", headers: { Accept: "application/json" }, signal: ac.signal });
 
       let data = null;
@@ -2452,7 +2496,7 @@ const [aiLoading, setAiLoading] = useState(false);
           setCompareSeries(normalized);
           lastGoodCompareRef.current = normalized;
           try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(normalized)); } catch {}
-          _cmpPutCached(compareSymbols, timeframe, normalized);
+          _cmpPutCached(compareSymbols, fetchRange, normalized);
         } else if (lastGoodCompareRef.current) {
           setCompareSeries(lastGoodCompareRef.current);
         }
@@ -2502,7 +2546,7 @@ const [aiLoading, setAiLoading] = useState(false);
   useEffect(() => {
     fetchCompare();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeframe, compareSymbols.join("|")]);
+  }, [compareFetchRange, compareSymbols.join("|")]);
 
   useInterval(fetchCompare, 120000, compareSymbols.length > 0);
 

@@ -1655,58 +1655,6 @@ return [c, { native, stables, custom }];
     const uniq = [];
     for (const s of compareSet || []) {
       const sym = String(s || "").toUpperCase().trim();
-
-
-  // Display rows: keep UI stable even if backend snapshot omits a coin.
-  // Source of truth is watchItems; watchRows only enriches with live data.
-  const displayRows = useMemo(() => {
-    const rows = Array.isArray(watchRows) ? watchRows : [];
-    const items = Array.isArray(watchItems) ? watchItems : [];
-
-    const rowMap = new Map();
-    for (const r of rows) {
-      const key = _watchKeyFromItem({
-        mode: r.mode || "market",
-        symbol: r.symbol,
-        tokenAddress: r.contract || r.tokenAddress || "",
-        coingecko_id: r.coingecko_id || r.id || r.cg_id || "",
-      });
-      if (key) rowMap.set(key, r);
-    }
-
-    const out = [];
-    for (const it of items) {
-      const key = _watchKeyFromItem(it);
-      if (!key) continue;
-      if (_hasTombstone(key)) continue;
-
-      const r = rowMap.get(key);
-      if (r) {
-        out.push({
-          ...it,
-          ...r,
-          // keep identifiers present for remove + refresh
-          mode: r.mode || it.mode || "market",
-          symbol: String(r.symbol || it.symbol || "").toUpperCase(),
-          coingecko_id: r.coingecko_id || it.coingecko_id || "",
-          contract: r.contract || it.contract || it.tokenAddress || "",
-          source: r.source || it.source || "ok",
-        });
-      } else {
-        out.push({
-          ...it,
-          mode: it.mode || "market",
-          symbol: String(it.symbol || "").toUpperCase(),
-          contract: it.contract || it.tokenAddress || "",
-          source: "pending",
-          price: null,
-          change24h: null,
-          volume24h: null,
-        });
-      }
-    }
-    return out;
-  }, [watchItems, watchRows]);
       if (sym && !uniq.includes(sym)) uniq.push(sym);
     }
     return uniq.slice(0, 10);
@@ -4676,7 +4624,7 @@ async function runAi() {
             </div>
 
             <div className="watchScroll">
-              {displayRows.map((r, idx) => {
+              {watchRows.map((r, idx) => {
                 const sym = String(r.symbol || "").toUpperCase();
                 const checked = compareSymbols.includes(sym);
                 return (
@@ -4699,7 +4647,7 @@ async function runAi() {
                   </div>
                 );
               })}
-              {!displayRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
+              {!watchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
             </div>
           </div>
 

@@ -2777,30 +2777,8 @@ const [addResults, setAddResults] = useState([]); // [{id,symbol,name,market_cap
 const [addSearchErr, setAddSearchErr] = useState("");
 
 const addSearchAbortRef = useRef(null);
-const addSearchDebounceRef = useRef(null);
 
-// Auto-search with debounce for faster UX (no need to press Enter).
-useEffect(() => {
-  if (!addOpen) return;
-  if (addTab !== "market") return;
-  const q = String(addQuery || "").trim();
-  if (q.length < 2) return;
-
-  if (addSearchDebounceRef.current) {
-    try { clearTimeout(addSearchDebounceRef.current); } catch {}
-  }
-  addSearchDebounceRef.current = setTimeout(() => {
-    runMarketSearch({ auto: true });
-  }, 250);
-
-  return () => {
-    if (addSearchDebounceRef.current) {
-      try { clearTimeout(addSearchDebounceRef.current); } catch {}
-      addSearchDebounceRef.current = null;
-    }
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [addOpen, addTab, addQuery]);
+// Search is triggered only when user presses Search (or Enter).
 
 
 // DEX tab inputs

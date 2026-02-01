@@ -1681,6 +1681,38 @@ return [c, { native, stables, custom }];
   const compareFetchRange = useMemo(() => _compareFetchRange(timeframe), [timeframe]);
   const PAIR_EXPLAIN_TF = "30D";
 
+  // ------------------------
+  // 3Y gating (self-collected)
+  // ------------------------
+  // UX rule: 3Y should become active ONLY when 3Y data is available.
+  // Users may still *request* a 3Y load, but we keep the currently-selected
+  // timeframe (e.g. 90D) until 3Y is ready.
+  const MIN_3Y_POINTS = 700; // daily points ~ 2 years; tune to your storage cadence
+  const [pendingTf, setPendingTf] = useState(null); // e.g. '3Y' while loading
+  const pendingTfRef = useRef(null);
+  useEffect(() => { pendingTfRef.current = pendingTf; }, [pendingTf]);
+
+  const has3YData = useMemo(() => {
+    if (!compareSymbols.length) return false;
+    const cached3y = _cmpGetCached(compareSymbols, "3Y");
+    if (!cached3y) return false;
+    // Require all selected symbols to have enough 3Y points.
+    return compareSymbols.every((s) => {
+      const S = String(s || "").toUpperCase();
+      const arr = cached3y?.[S];
+      return Array.isArray(arr) && arr.length >= MIN_3Y_POINTS;
+    });
+  }, [compareSymbols.join("|"), timeframe]);
+
+  // Safety: if localStorage remembers timeframe=3Y but we don't have data yet,
+  // fall back to 90D (prevents blank/confusing chart states).
+  useEffect(() => {
+    if (String(timeframe || "").toUpperCase() === "3Y" && !has3YData) {
+      setTimeframe("90D");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeframe, has3YData]);
+
   // Access (NFT / Code) - UI only (stored locally). Later we can wire this to backend verification.
   // Access (NFT / Code) — backend driven (status + redeem)
   const [access, setAccess] = useState(null); // { active, until, source, tier, note }
@@ -2429,7 +2461,8 @@ const [aiLoading, setAiLoading] = useState(false);
     compareAbortRef.current = ac;
 
     // Show cached series immediately (SWR) so chart renders without waiting for backend
-    const fetchRange = _compareFetchRange(timeframe);
+    // NOTE: fetchRange can be overridden (used for preloading 3Y while keeping UI timeframe at 90D).
+    const fetchRange = (opts && opts.fetchRangeOverride) ? String(opts.fetchRangeOverride).toUpperCase() : _compareFetchRange(timeframe);
     const cached = _cmpGetCached(compareSymbols, fetchRange);
     if (cached && Object.keys(cached || {}).length) {
       setCompareSeries(cached);
@@ -2497,6 +2530,22 @@ const [aiLoading, setAiLoading] = useState(false);
           lastGoodCompareRef.current = normalized;
           try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(normalized)); } catch {}
           _cmpPutCached(compareSymbols, fetchRange, normalized);
+
+          // If we were preloading 3Y, only switch UI to 3Y once data is actually sufficient.
+          if (String(fetchRange).toUpperCase() === "3Y" && pendingTfRef.current === "3Y") {
+            const ok3y = compareSymbols.every((s) => {
+              const S = String(s || "").toUpperCase();
+              const arr = normalized?.[S];
+              return Array.isArray(arr) && arr.length >= MIN_3Y_POINTS;
+            });
+            setPendingTf(null);
+            if (ok3y) {
+              setTimeframe("3Y");
+            } else {
+              // Keep current timeframe (e.g. 90D) and inform user.
+              setErrorMsg("3Y Daten sind noch nicht verfügbar (zu wenig Historie gesammelt)." );
+            }
+          }
         } else if (lastGoodCompareRef.current) {
           setCompareSeries(lastGoodCompareRef.current);
         }
@@ -2532,6 +2581,13 @@ const [aiLoading, setAiLoading] = useState(false);
             compareFailRetryRef.current.n = nnext;
             fetchCompare({ force: true });
           }, delay);
+        }
+      } catch {}
+
+      // If we were preloading 3Y, clear pending state on failure.
+      try {
+        if (String(fetchRange).toUpperCase() === "3Y" && pendingTfRef.current === "3Y") {
+          setPendingTf(null);
         }
       } catch {}
 
@@ -3935,16 +3991,42 @@ async function runAi() {
             <div className="cardTitle">Compare (max 10)</div>
             <div className="cardActions">
               {TIMEFRAMES.map((tf) => {
-                const disabled = !!tf.intraday;
+                const k = String(tf.key || "").toUpperCase();
+                const is3y = k === "3Y";
+                const is1d = k === "1D";
+                const loading3y = is3y && pendingTf === "3Y";
+                const disabled = (compareSymbols.length === 0) || loading3y;
+                const title =
+                  compareSymbols.length === 0
+                    ? "Select coins first (Watchlist → Compare)"
+                    : is3y
+                      ? (has3YData
+                          ? "3Y (self collected)"
+                          : "3Y will unlock after enough history is collected. Click to try loading.")
+                      : (is1d ? "1D may load intraday data" : "");
+
                 return (
                   <button
                     key={tf.key}
                     className={`chip ${timeframe === tf.key ? "active" : ""}`}
-                    onClick={() => setTimeframe(tf.key)}
+                    onClick={() => {
+                      if (disabled) return;
+                      if (is3y) {
+                        if (has3YData) {
+                          setTimeframe("3Y");
+                        } else {
+                          setErrorMsg("");
+                          setPendingTf("3Y");
+                          fetchCompare({ force: true, fetchRangeOverride: "3Y" });
+                        }
+                        return;
+                      }
+                      setTimeframe(tf.key);
+                    }}
                     disabled={disabled}
-                    title={disabled ? "Needs backend intraday endpoint" : ""}
+                    title={title}
                   >
-                    {tf.label}
+                    {loading3y ? "3Y…" : tf.label}
                   </button>
                 );
               })}

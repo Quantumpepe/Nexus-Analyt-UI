@@ -1655,6 +1655,58 @@ return [c, { native, stables, custom }];
     const uniq = [];
     for (const s of compareSet || []) {
       const sym = String(s || "").toUpperCase().trim();
+
+
+  // Display rows: keep UI stable even if backend snapshot omits a coin.
+  // Source of truth is watchItems; watchRows only enriches with live data.
+  const displayRows = useMemo(() => {
+    const rows = Array.isArray(watchRows) ? watchRows : [];
+    const items = Array.isArray(watchItems) ? watchItems : [];
+
+    const rowMap = new Map();
+    for (const r of rows) {
+      const key = _watchKeyFromItem({
+        mode: r.mode || "market",
+        symbol: r.symbol,
+        tokenAddress: r.contract || r.tokenAddress || "",
+        coingecko_id: r.coingecko_id || r.id || r.cg_id || "",
+      });
+      if (key) rowMap.set(key, r);
+    }
+
+    const out = [];
+    for (const it of items) {
+      const key = _watchKeyFromItem(it);
+      if (!key) continue;
+      if (_hasTombstone(key)) continue;
+
+      const r = rowMap.get(key);
+      if (r) {
+        out.push({
+          ...it,
+          ...r,
+          // keep identifiers present for remove + refresh
+          mode: r.mode || it.mode || "market",
+          symbol: String(r.symbol || it.symbol || "").toUpperCase(),
+          coingecko_id: r.coingecko_id || it.coingecko_id || "",
+          contract: r.contract || it.contract || it.tokenAddress || "",
+          source: r.source || it.source || "ok",
+        });
+      } else {
+        out.push({
+          ...it,
+          mode: it.mode || "market",
+          symbol: String(it.symbol || "").toUpperCase(),
+          contract: it.contract || it.tokenAddress || "",
+          source: "pending",
+          price: null,
+          change24h: null,
+          volume24h: null,
+        });
+      }
+    }
+    return out;
+  }, [watchItems, watchRows]);
       if (sym && !uniq.includes(sym)) uniq.push(sym);
     }
     return uniq.slice(0, 10);
@@ -2381,38 +2433,8 @@ const [aiLoading, setAiLoading] = useState(false);
         // Also drop anything not in current watchItems (never replace by snapshot).
         return allowedKeys.has(k);
       });
-      setWatchRows((prev0) => {
-        const prev = Array.isArray(prev0) ? prev0 : [];
-        const prevMap = new Map(prev.map((r) => [_watchKeyFromRow(r), r]));
-        const nextMap = new Map((nextRows || []).map((r) => [_watchKeyFromRow(r), r]));
-        const itemsSrc = (itemsOverride ?? watchItems) || [];
-        const merged = [];
-
-        // Ensure one row per watch item (source of truth), preserving any existing placeholder rows
-        for (const it of itemsSrc) {
-          const k = _watchKeyFromItem(it);
-          const row = nextMap.get(k) || prevMap.get(k) || {
-            symbol: String(it?.symbol || "").toUpperCase(),
-            mode: String(it?.mode || "market"),
-            coingecko_id: String(it?.coingecko_id || it?.id || ""),
-            name: it?.name || String(it?.symbol || "").toUpperCase(),
-            price: null,
-            chg_24h: null,
-            vol: null,
-            source: "pending",
-          };
-          merged.push(row);
-          nextMap.delete(k);
-        }
-
-        // Add any remaining rows returned by backend that are still allowed (should be none, but keep safe)
-        for (const [k, row] of nextMap.entries()) {
-          if (allowedKeys.has(k)) merged.push(row);
-        }
-
-        try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(merged)); } catch {}
-        return merged;
-      });
+      setWatchRows(nextRows);
+      try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(nextRows)); } catch {}
       if ((r?.results || r?.rows || []).length) {
         const symUp = String(gridItem || "").toUpperCase();
         const list = (r?.results || r?.rows || []);
@@ -4654,7 +4676,7 @@ async function runAi() {
             </div>
 
             <div className="watchScroll">
-              {watchRows.map((r, idx) => {
+              {displayRows.map((r, idx) => {
                 const sym = String(r.symbol || "").toUpperCase();
                 const checked = compareSymbols.includes(sym);
                 return (
@@ -4677,7 +4699,7 @@ async function runAi() {
                   </div>
                 );
               })}
-              {!watchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
+              {!displayRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
             </div>
           </div>
 

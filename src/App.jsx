@@ -1,3 +1,87 @@
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+
+import { Alchemy, Network, Utils } from "alchemy-sdk";
+
+import "./App.css";
+
+// Chart palette (10 colors). Kept inline (no external dep) to avoid runtime ReferenceError.
+// Used for consistent compare/index chart series coloring.
+const PALETTE10 = [
+  "#22c55e", // green
+  "#60a5fa", // blue
+  "#f59e0b", // amber
+  "#a78bfa", // violet
+  "#f472b6", // pink
+  "#34d399", // emerald
+  "#fb7185", // rose
+  "#38bdf8", // sky
+  "#eab308", // yellow
+  "#c084fc", // purple
+];
+
+// Local cache (stale-while-revalidate) so live refresh/cold-start won't blank the UI
+const LS_WATCH_ROWS_CACHE = "na_watch_rows_cache_v1";
+const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
+const LS_APP_VERSION = "na_app_version";
+const LS_COMPARE_STORE = "na_compare_store_v2";
+const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
+const COMPARE_CACHE_MAX_ENTRIES = 20;
+const APP_VERSION = "2026-01-29-v4";
+
+const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (
+  (typeof window !== "undefined" && !["localhost","127.0.0.1"].includes(window.location.hostname) && window.location.hostname.includes("nexus-analyt-ui"))
+    ? "https://nexus-analyt-pro.onrender.com"
+    : ""
+);
+const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
+const TREASURY_ADDRESS = (import.meta.env.VITE_TREASURY_ADDRESS ?? "").trim();
+
+const TOKEN_WHITELIST = {
+  ETH: [
+    { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
+    { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
+  ],
+  POL: [
+    // Polygon native USDC (Circle) and USDT
+    { symbol: "USDC", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
+    { symbol: "USDT", address: "0xC2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 },
+  ],
+  BNB: [
+    // BNB Chain (BEP-20) pegged versions
+    { symbol: "USDC", address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", decimals: 18 },
+    { symbol: "USDT", address: "0x55d398326f99059fF775485246999027B3197955", decimals: 18 },
+  ],
+};
+
+
+// ------------------------
+// Alchemy (wallet balances)
+// ------------------------
+// You can override any URL via env vars:
+//   VITE_ALCHEMY_RPC_ETH, VITE_ALCHEMY_RPC_POL, VITE_ALCHEMY_RPC_BNB
+// Defaults below follow Alchemy's common network hostnames.
+// IMPORTANT: Alchemy RPC auth is done via the /v2/<API_KEY> path.
+// If you still get 401 "Must be authenticated", it usually means the key is not
+// the *Alchemy API Key* (or it contains hidden whitespace) OR your env isn't loaded.
+// In that case, copy the full HTTPS endpoint from Alchemy dashboard and set:
+//   VITE_ALCHEMY_RPC_ETH / _POL / _BNB
+// (those override everything below).
+const ALCHEMY_RPC = {
+  ETH:
+    import.meta.env.VITE_ALCHEMY_RPC_ETH ||
+    (ALCHEMY_KEY ? `https://eth-mainnet.g.alchemy.com/v2/${encodeURIComponent(ALCHEMY_KEY)}` : ""),
+  POL:
+    import.meta.env.VITE_ALCHEMY_RPC_POL ||
+    (ALCHEMY_KEY ? `https://polygon-mainnet.g.alchemy.com/v2/${encodeURIComponent(ALCHEMY_KEY)}` : ""),
+  BNB:
+    import.meta.env.VITE_ALCHEMY_RPC_BNB ||
+    (ALCHEMY_KEY ? `https://bnb-mainnet.g.alchemy.com/v2/${encodeURIComponent(ALCHEMY_KEY)}` : ""),
+};
+
+function maskAlchemyUrl(url) {
+  if (!url) return "";
   // hide API key segment if present
   return url.replace(/\/v2\/[^/?#]+/i, "/v2/****");
 }
@@ -96,53 +180,6 @@ function _cmpPutCached(symbols, tf, data) {
       for (const dk of toDel) delete store[dk];
     }
     _cmpStoreWrite(store);
-  } catch {}
-}
-
-// CoinGecko search cache (client-side) to keep search snappy even if backend/CG is slow
-const LS_CG_SEARCH_CACHE = "na_cg_search_cache_v1";
-const CG_SEARCH_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const CG_SEARCH_MAX_ENTRIES = 40;
-
-function _cgSearchRead() {
-  try {
-    const raw = localStorage.getItem(LS_CG_SEARCH_CACHE);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function _cgSearchWrite(store) {
-  try { localStorage.setItem(LS_CG_SEARCH_CACHE, JSON.stringify(store || {})); } catch {}
-}
-
-function _cgSearchGet(q) {
-  try {
-    const store = _cgSearchRead();
-    const key = String(q || "").toLowerCase();
-    const e = store?.[key];
-    if (!e || !e.ts || !Array.isArray(e.data)) return null;
-    if (Date.now() - Number(e.ts) > CG_SEARCH_TTL_MS) return null;
-    return e.data;
-  } catch {
-    return null;
-  }
-}
-
-function _cgSearchPut(q, data) {
-  try {
-    const key = String(q || "").toLowerCase();
-    const store = _cgSearchRead();
-    store[key] = { ts: Date.now(), data: Array.isArray(data) ? data : [] };
-
-    // trim oldest entries
-    const keys = Object.keys(store || {});
-    if (keys.length > CG_SEARCH_MAX_ENTRIES) {
-      keys.sort((a, b) => Number(store[a]?.ts || 0) - Number(store[b]?.ts || 0));
-      for (const dk of keys.slice(0, keys.length - CG_SEARCH_MAX_ENTRIES)) delete store[dk];
-    }
-    _cgSearchWrite(store);
   } catch {}
 }
 
@@ -963,19 +1000,14 @@ function computeBestPairs(chart, limit = 30) {
 // App (inner)
 // ------------------------
 function AppInner() {
-// One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
+// One-time storage version gate: clears stale caches after deployments
 useEffect(() => {
   try {
     const v = localStorage.getItem(LS_APP_VERSION);
     if (v !== APP_VERSION) {
-      // Only clear volatile caches; never wipe user choices like compare set/watch items
-      const keysToClear = [
-        LS_WATCH_ROWS_CACHE,
-        LS_COMPARE_SERIES_CACHE,
-        LS_COMPARE_STORE,
-      ];
-      for (const k of keysToClear) {
-        try { localStorage.removeItem(k); } catch {}
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k.startsWith("na_") || k.startsWith("nexus_"))) localStorage.removeItem(k);
       }
       localStorage.setItem(LS_APP_VERSION, APP_VERSION);
     }
@@ -1041,7 +1073,7 @@ const [errorMsg, setErrorMsg] = useState("");
 
   const removeWalletToken = (chain, tokenAddress) => {
     const c = String(chain || "").toUpperCase();
-    const addr = String(tokenAddress || contract || "").toLowerCase();
+    const addr = String(tokenAddress || "").toLowerCase();
     const cur = walletTokensByChain?.[c] || [];
     const next = cur.filter((t) => String(t?.address || "").toLowerCase() != addr);
     setWalletTokensForChain(c, next);
@@ -2003,7 +2035,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const compareAbortRef = useRef(null);
   const lastCompareFetchRef = useRef(0);
   const compareRetryRef = useRef({ key: "", n: 0, t: null });
-  const compareFailRetryRef = useRef({ key: "", n: 0, t: null });
 
   // seed "last good" on first load
   useEffect(() => {
@@ -2121,15 +2152,10 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // watch snapshot polling
   const inflightWatch = useRef(false);
-  const watchRefreshQueued = useRef(false);
   const watchRetryRef = useRef({ key: "", n: 0, t: null });
 
   const fetchWatchSnapshot = async (itemsOverride = null, opts = {}) => {
-    if (inflightWatch.current) {
-      // If a refresh is requested while a snapshot is already in-flight, queue exactly one refresh.
-      watchRefreshQueued.current = true;
-      return;
-    }
+    if (inflightWatch.current) return;
     inflightWatch.current = true;
     try {
       const r = await api("/api/watchlist/snapshot", { method: "POST", body: { items: (itemsOverride ?? watchItems) } });
@@ -2178,17 +2204,11 @@ const [aiLoading, setAiLoading] = useState(false);
             fetchWatchSnapshot(itemsOverride, { ...opts, force: true });
           }, delay);
         }
-      }
+}
     } catch (e) {
       setErrorMsg(`Watchlist: ${e.message}`);
     } finally {
       inflightWatch.current = false;
-      if (watchRefreshQueued.current) {
-        // Run exactly one queued refresh after the current one completes.
-        watchRefreshQueued.current = false;
-        // Force refresh so we don't get blocked by any internal guards.
-        fetchWatchSnapshot(itemsOverride, { ...opts, force: true });
-      }
     }
   };
 
@@ -2260,13 +2280,6 @@ const [aiLoading, setAiLoading] = useState(false);
         throw new Error(msg);
       }
 
-      // reset HTTP-failure retry state on any successful HTTP response
-      {
-        const cmpKeyHTTP = compareSymbols.join("|");
-        if (compareFailRetryRef.current.t) { try { clearTimeout(compareFailRetryRef.current.t); } catch {} }
-        compareFailRetryRef.current = { key: cmpKeyHTTP, n: 0, t: null };
-      }
-
       if (data && data.series) {
         const normalized = normalizeBackendSeries(data.series);
         // Ensure all currently selected symbols exist as keys (even if empty)
@@ -2322,29 +2335,6 @@ const [aiLoading, setAiLoading] = useState(false);
       if (lastGoodCompareRef.current) {
         setCompareSeries(lastGoodCompareRef.current);
       }
-
-      // Auto-retry on transient backend/network failures so users don't need to refresh.
-      // This is separate from the "missing series" warm-up retry above.
-      try {
-        const cmpKeyHTTP = compareSymbols.join("|");
-        if (compareFailRetryRef.current.key !== cmpKeyHTTP) {
-          if (compareFailRetryRef.current.t) { try { clearTimeout(compareFailRetryRef.current.t); } catch {} }
-          compareFailRetryRef.current = { key: cmpKeyHTTP, n: 0, t: null };
-        }
-        const maxRetries = 3;
-        const online = (typeof navigator === "undefined") ? true : (navigator.onLine !== false);
-        if (online && compareFailRetryRef.current.n < maxRetries) {
-          const nnext = compareFailRetryRef.current.n + 1;
-          // backoff: 1.2s, 2.4s, 4.8s
-          const delay = 1200 * Math.pow(2, compareFailRetryRef.current.n);
-          if (compareFailRetryRef.current.t) { try { clearTimeout(compareFailRetryRef.current.t); } catch {} }
-          compareFailRetryRef.current.t = setTimeout(() => {
-            compareFailRetryRef.current.n = nnext;
-            fetchCompare({ force: true });
-          }, delay);
-        }
-      } catch {}
-
       // still log for debugging
       // eslint-disable-next-line no-console
       console.warn("compare fetch failed:", e);
@@ -2522,44 +2512,10 @@ const resetAddModal = () => {
 const runMarketSearch = async () => {
   const q = String(addQuery || "").trim();
   if (!q) return;
-  const qKey = q.toLowerCase();
-
   setAddSearchErr("");
-
-  // 1) Instant result from client cache (if present)
-  const cached = _cgSearchGet(qKey);
-  if (cached) {
-    setAddResults(cached);
-    if (!cached.length) setAddSearchErr("No results.");
-    // revalidate in background (do not block UI)
-    (async () => {
-      try {
-        const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`);
-        const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
-        const norm = (list || [])
-          .map((x) => ({
-            id: String(x.id || x.coingecko_id || x.cg_id || "").trim(),
-            symbol: String(x.symbol || "").trim(),
-            name: String(x.name || "").trim(),
-            market_cap_rank: x.market_cap_rank ?? x.rank ?? null,
-          }))
-          .filter((x) => x.id && x.symbol);
-        _cgSearchPut(qKey, norm);
-        // only update if query didn't change
-        if (String(addQuery || "").trim().toLowerCase() === qKey) {
-          setAddResults(norm);
-          setAddSearchErr(norm.length ? "" : "No results.");
-        }
-      } catch {
-        // ignore background refresh errors
-      }
-    })();
-    return;
-  }
-
-  // 2) No cache => do a normal fetch, but show spinner
   setAddSearching(true);
   try {
+    // Backend proxy to CoinGecko search (avoids CG CORS + rate issues)
     const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`);
     const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
     const norm = (list || [])
@@ -2570,8 +2526,6 @@ const runMarketSearch = async () => {
         market_cap_rank: x.market_cap_rank ?? x.rank ?? null,
       }))
       .filter((x) => x.id && x.symbol);
-
-    _cgSearchPut(qKey, norm);
     setAddResults(norm);
     if (!norm.length) setAddSearchErr("No results.");
   } catch (e) {
@@ -2582,7 +2536,6 @@ const runMarketSearch = async () => {
   }
 };
 
-
 const addMarketCoin = async (coin) => {
   const sym = String(coin?.symbol || "").trim().toUpperCase();
   const cgId = String(coin?.id || "").trim();
@@ -2590,60 +2543,30 @@ const addMarketCoin = async (coin) => {
 
   const item = { symbol: sym, mode: "market", coingecko_id: cgId, name: coin?.name || "", rank: coin?.market_cap_rank ?? null };
 
-  // Optimistic: update local state immediately (never wait for backend)
-  let nextItems = null;
-  setWatchItems((prev0) => {
-    const prev = Array.isArray(prev0) ? prev0 : [];
-    const key = `${item.mode}|${item.symbol}|${item.coingecko_id}`.toLowerCase();
-    const exists = prev.some((x) => {
-      const xs = String(x?.symbol || "").trim().toUpperCase();
-      const xm = String(x?.mode || "market").toLowerCase();
-      const xid = String(x?.coingecko_id || x?.id || "").toLowerCase();
-      return `${xm}|${xs}|${xid}`.toLowerCase() === key;
-    });
-    nextItems = exists ? prev : [...prev, item];
-    return nextItems;
+  const prev = Array.isArray(watchItems) ? watchItems : [];
+  const key = `${item.mode}|${item.symbol}|${item.coingecko_id}`.toLowerCase();
+  const exists = prev.some((x) => {
+    const xs = String(x?.symbol || "").trim().toUpperCase();
+    const xm = String(x?.mode || "market").toLowerCase();
+    const xid = String(x?.coingecko_id || x?.id || "").toLowerCase();
+    return `${xm}|${xs}|${xid}`.toLowerCase() === key;
   });
+  const nextItems = exists ? prev : [...prev, item];
 
-  // Ensure it shows instantly in the table even if snapshot is down (placeholder row).
-  setWatchRows((prev0) => {
-    const prev = Array.isArray(prev0) ? prev0 : [];
-    const has = prev.some((r) => String(r?.symbol || "").toUpperCase() === sym);
-    if (has) return prev;
-    return [
-      ...prev,
-      {
-        symbol: sym,
-        mode: "market",
-        coingecko_id: cgId,
-        name: item.name || sym,
-        price: null,
-        chg_24h: null,
-        vol: null,
-        source: "pending",
-      },
-    ];
-  });
-
-  // By default, include new coin in compare selection (up to max 10)
-  setCompareSet((prev0) => {
-    const prev = Array.isArray(prev0) ? prev0 : [];
-    if (prev.includes(sym)) return prev;
-    if (prev.length >= 10) return prev;
-    return [...prev, sym];
-  });
-
-  // Kick a background snapshot refresh (best-effort). Never block the click.
+  // Optimistic update + immediate snapshot refresh
+  setWatchItems(nextItems);
   try {
-    fetchWatchSnapshot(nextItems || null, { force: true, user: true });
-  } catch {}
+    await fetchWatchSnapshot(nextItems, { force: true });
+    setWatchErr("");
+  } catch (e) {
+    setWatchErr(String(e?.message || e));
+  }
 
   // keep modal open to allow adding multiple, but clear search to reduce confusion
   setAddQuery("");
   setAddResults([]);
   setAddSearchErr("");
 };
-
 
 const addDexToken = async () => {
   const contract = String(addContract || "").trim();
@@ -2653,52 +2576,27 @@ const addDexToken = async () => {
   // We store contract in both "contract" (UI) and "tokenAddress" (backward compat for older backend)
   const item = { symbol: contract.slice(0, 10).toUpperCase(), mode: "dex", contract, tokenAddress: contract, chain };
 
-  let nextItems = null;
-  setWatchItems((prev0) => {
-    const prev = Array.isArray(prev0) ? prev0 : [];
-    const key = `${item.mode}|${item.contract}`.toLowerCase();
-    const exists = prev.some((x) => `${String(x?.mode || "market").toLowerCase()}|${String(x?.contract || x?.tokenAddress || "").toLowerCase()}` === key);
-    nextItems = exists ? prev : [...prev, item];
-    return nextItems;
-  });
+  const prev = Array.isArray(watchItems) ? watchItems : [];
+  const key = `${item.mode}|${item.contract}`.toLowerCase();
+  const exists = prev.some((x) => `${String(x?.mode || "market").toLowerCase()}|${String(x?.contract || x?.tokenAddress || "").toLowerCase()}` === key);
+  const nextItems = exists ? prev : [...prev, item];
 
-  // placeholder row so user sees it instantly
-  setWatchRows((prev0) => {
-    const prev = Array.isArray(prev0) ? prev0 : [];
-    const addr = contract.toLowerCase();
-    const has = prev.some((r) => String(r?.contract || r?.tokenAddress || "").toLowerCase() === addr);
-    if (has) return prev;
-    return [
-      ...prev,
-      {
-        symbol: item.symbol,
-        mode: "dex",
-        contract,
-        tokenAddress: contract,
-        chain,
-        name: item.symbol,
-        price: null,
-        chg_24h: null,
-        vol: null,
-        source: "pending",
-      },
-    ];
-  });
-
-  // Background snapshot refresh (best-effort)
+  setWatchItems(nextItems);
   try {
-    fetchWatchSnapshot(nextItems || null, { force: true, user: true });
-  } catch {}
+    await fetchWatchSnapshot(nextItems, { force: true });
+    setWatchErr("");
+  } catch (e) {
+    setWatchErr(String(e?.message || e));
+  }
 
   // keep modal open; clear contract for next add
   setAddContract("");
 };
 
-
-  function removeWatchItemByKey({ symbol, mode = "market", tokenAddress = "", contract = "" }) {
+  function removeWatchItemByKey({ symbol, mode = "market", tokenAddress = "" }) {
   const sym = String(symbol || "").toUpperCase();
   const m = String(mode || "market").toLowerCase();
-  const addr = String(tokenAddress || contract || "").toLowerCase();
+  const addr = String(tokenAddress || "").toLowerCase();
 
   // Build next "items" array (the true source of truth we send to backend)
   const nextItems = (watchItems || []).filter((x) => {
@@ -2747,7 +2645,7 @@ const addDexToken = async () => {
 
       const nextRows = data?.results || data?.rows || [];
     if (Array.isArray(nextRows)) setWatchRows(nextRows);
-if (Array.isArray(data?.symbols)) setCompareSet((prev) => (Array.isArray(prev) && prev.length ? prev : data.symbols));
+if (Array.isArray(data?.symbols)) setCompareSet(data.symbols);
 if (data?.cached != null) setWatchCached(Boolean(data.cached));
       setWatchErr("");
     } catch (e) {
@@ -4270,7 +4168,7 @@ async function runAi() {
             <div className="cardTitle">Watchlist</div>
             <div className="cardActions" style={{ alignItems: "center" }}>
               <button className="btn" onClick={() => setAddOpen(true)}>+ Add</button>
-              <button className="btnGhost" onClick={() => fetchWatchSnapshot(null, { force: true, user: true })}>Refresh</button>
+              <button className="btnGhost" onClick={fetchWatchSnapshot}>Refresh</button>
               <InfoButton title="Watchlist">
                 <Help showClose dismissable
                   de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 10).</p><p><b>Token</b> braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen eines neuen Coins/Tokens einmal drücken, damit Preis/Volumen nachgeladen werden.</p></>}
@@ -4311,7 +4209,7 @@ async function runAi() {
                     <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`}>{fmtPct(r.change24h)}</div>
                     <div className="right mono">{fmtUsd(r.volume24h)}</div>
                     <div className="right muted">{r.source || "—"}</div>
-                    <div className="right"><button className="iconBtn" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeWatchItemByKey({ symbol: sym, mode: r.mode || "market", tokenAddress: r.contract || r.id || "" }); }} title="Remove">×</button></div>
+                    <div className="right"><button className="iconBtn" onClick={() => removeWatchItemByKey({ symbol: sym, mode: r.mode || "market", contract: r.contract || r.id || "" })} title="Remove">×</button></div>
                   </div>
                 );
               })}
@@ -4574,20 +4472,4 @@ async function runAi() {
 }
 export default function App() {
   return <AppInner />;
-}
-
-function optimisticRemoveWatch(symbol) {
-  const removed = loadSetLS(LS_WATCH_REMOVED);
-  removed.add(symbol);
-  saveSetLS(LS_WATCH_REMOVED, removed);
-
-  setWatchItems(prev => prev.filter(x => x.symbol !== symbol));
-  setCompareSet(prev => prev.filter(s => s !== symbol));
-
-  // best-effort backend sync
-  fetch(`${API_BASE}/api/watchlist/remove`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ symbol })
-  }).catch(() => {});
 }

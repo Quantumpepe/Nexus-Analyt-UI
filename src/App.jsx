@@ -2853,6 +2853,10 @@ const runMarketSearch = async (opts = {}) => {
     setAddResults(norm);
     if (!norm.length) setAddSearchErr("No results.");
   } catch (e) {
+    // If request was aborted (due to debounce / new query), ignore silently.
+    if (e && (e.name === "AbortError" || String(e).includes("AbortError") || String(e).toLowerCase().includes("aborted"))) {
+      return;
+    }
     setAddSearchErr(String(e?.message || e));
     setAddResults([]);
   } finally {
@@ -4816,7 +4820,7 @@ async function runAi() {
             </button>
           </div>
 
-          {addSearchErr ? (
+          {addSearchErr && !String(addSearchErr).toLowerCase().includes("aborted") ? (
             <div style={{ marginTop: 8, color: "#ffb4b4" }}>
               {addSearchErr}
             </div>

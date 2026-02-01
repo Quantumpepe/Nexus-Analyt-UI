@@ -9,18 +9,47 @@ function saveSetLS(key, setVal) {
 
 const LS_WATCH_REMOVED = "nexus_watch_removed";
 
-// Tombstones for watchlist removals: prevent backend snapshots from re-adding removed items.
-function makeWatchKey({ symbol, mode = "market", coingecko_id = "", contract = "", tokenAddress = "", chain = "" }) {
-  const sym = String(symbol || "").trim().toUpperCase();
-  const m = String(mode || "market").trim().toLowerCase();
-  const id = (m === "dex")
-    ? String(contract || tokenAddress || "").trim().toLowerCase()
-    : String(coingecko_id || "").trim().toLowerCase();
-  const ch = (m === "dex") ? String(chain || "").trim().toLowerCase() : "";
-  return `${m}|${sym}|${id}${ch ? `|${ch}` : ""}`.toLowerCase();
+function _watchKeyFromItem(it) {
+  const mode = String(it?.mode || "market").toLowerCase();
+  if (mode === "dex") {
+    const addr = String(it?.contract || it?.tokenAddress || "").toLowerCase();
+    return `dex|${addr}`;
+  }
+  const sym = String(it?.symbol || "").toUpperCase();
+  const cg = String(it?.coingecko_id || it?.id || "").toLowerCase();
+  return `market|${sym}|${cg}`;
 }
-function loadRemovedSet() { return loadSetLS(LS_WATCH_REMOVED); }
-function saveRemovedSet(setVal) { saveSetLS(LS_WATCH_REMOVED, setVal); }
+function _watchKeyFromRow(r) {
+  const mode = String(r?.mode || "market").toLowerCase();
+  if (mode === "dex") {
+    const addr = String(r?.contract || r?.tokenAddress || "").toLowerCase();
+    return `dex|${addr}`;
+  }
+  const sym = String(r?.symbol || "").toUpperCase();
+  const cg = String(r?.coingecko_id || r?.id || "").toLowerCase();
+  return `market|${sym}|${cg}`;
+}
+function _loadTombstones() {
+  try { return JSON.parse(localStorage.getItem(LS_WATCH_REMOVED) || "{}") || {}; } catch { return {}; }
+}
+function _saveTombstones(obj) {
+  try { localStorage.setItem(LS_WATCH_REMOVED, JSON.stringify(obj || {})); } catch {}
+}
+function _setTombstone(key) {
+  if (!key) return;
+  const ts = _loadTombstones();
+  ts[key] = Date.now();
+  _saveTombstones(ts);
+}
+function _clearTombstone(key) {
+  if (!key) return;
+  const ts = _loadTombstones();
+  if (ts[key] != null) {
+    delete ts[key];
+    _saveTombstones(ts);
+  }
+}
+
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
@@ -1149,6 +1178,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const removeWalletToken = (chain, tokenAddress) => {
     const c = String(chain || "").toUpperCase();
     const addr = String(tokenAddress || contract || "").toLowerCase();
+
     const cur = walletTokensByChain?.[c] || [];
     const next = cur.filter((t) => String(t?.address || "").toLowerCase() != addr);
     setWalletTokensForChain(c, next);
@@ -2240,19 +2270,15 @@ const [aiLoading, setAiLoading] = useState(false);
     inflightWatch.current = true;
     try {
       const r = await api("/api/watchlist/snapshot", { method: "POST", body: { items: (itemsOverride ?? watchItems) } });
-      const nextRows0 = (r?.results || r?.rows || []);
-      // Never resurrect removed items: filter tombstones + enforce watchItems as source of truth.
-      const removed = (() => { try { return loadRemovedSet(); } catch { return new Set(); } })();
-      const allowed = new Set(((itemsOverride ?? watchItems) || []).map((it) => makeWatchKey(it)));
-      const nextRows = (Array.isArray(nextRows0) ? nextRows0 : []).filter((row) => {
-        const sym = String(row?.symbol || "").trim().toUpperCase();
-        const mode = String(row?.mode || "market").trim().toLowerCase();
-        const key = (mode === "dex")
-          ? makeWatchKey({ symbol: sym, mode: "dex", contract: row?.contract || row?.tokenAddress || "", tokenAddress: row?.contract || row?.tokenAddress || "", chain: row?.chain || "" })
-          : makeWatchKey({ symbol: sym, mode: "market", coingecko_id: row?.coingecko_id || row?.id || "" });
-        if (removed.has(key)) return false;
-        // If backend returned extra rows, drop them (never replace user selection).
-        return allowed.size ? allowed.has(key) : true;
+      const nextRowsRaw = (r?.results || r?.rows || []);
+      // Merge-only rule: watchItems is the source of truth. Never resurrect removed items.
+      const allowedKeys = new Set(((itemsOverride ?? watchItems) || []).map(_watchKeyFromItem));
+      const tomb = _loadTombstones();
+      const nextRows = (Array.isArray(nextRowsRaw) ? nextRowsRaw : []).filter((row) => {
+        const k = _watchKeyFromRow(row);
+        if (tomb && tomb[k] != null) return false;
+        // Also drop anything not in current watchItems (never replace by snapshot).
+        return allowedKeys.has(k);
       });
       setWatchRows(nextRows);
       try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(nextRows)); } catch {}
@@ -2624,6 +2650,33 @@ const [addSearching, setAddSearching] = useState(false);
 const [addResults, setAddResults] = useState([]); // [{id,symbol,name,market_cap_rank}]
 const [addSearchErr, setAddSearchErr] = useState("");
 
+const addSearchAbortRef = useRef(null);
+const addSearchDebounceRef = useRef(null);
+
+// Auto-search with debounce for faster UX (no need to press Enter).
+useEffect(() => {
+  if (!addOpen) return;
+  if (addTab !== "market") return;
+  const q = String(addQuery || "").trim();
+  if (q.length < 2) return;
+
+  if (addSearchDebounceRef.current) {
+    try { clearTimeout(addSearchDebounceRef.current); } catch {}
+  }
+  addSearchDebounceRef.current = setTimeout(() => {
+    runMarketSearch({ auto: true });
+  }, 250);
+
+  return () => {
+    if (addSearchDebounceRef.current) {
+      try { clearTimeout(addSearchDebounceRef.current); } catch {}
+      addSearchDebounceRef.current = null;
+    }
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [addOpen, addTab, addQuery]);
+
+
 // DEX tab inputs
 const [addChain, setAddChain] = useState("eth");
 const [addContract, setAddContract] = useState("");
@@ -2639,10 +2692,15 @@ const resetAddModal = () => {
   setAddContract("");
 };
 
-const runMarketSearch = async () => {
+const runMarketSearch = async (opts = {}) => {
   const q = String(addQuery || "").trim();
   if (!q) return;
   const qKey = q.toLowerCase();
+
+  // Abort previous in-flight search (keeps UI responsive)
+  if (addSearchAbortRef.current) { try { addSearchAbortRef.current.abort(); } catch {} }
+  const ac = new AbortController();
+  addSearchAbortRef.current = ac;
 
   setAddSearchErr("");
 
@@ -2654,7 +2712,7 @@ const runMarketSearch = async () => {
     // revalidate in background (do not block UI)
     (async () => {
       try {
-        const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`);
+        const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
         const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
         const norm = (list || [])
           .map((x) => ({
@@ -2680,7 +2738,7 @@ const runMarketSearch = async () => {
   // 2) No cache => do a normal fetch, but show spinner
   setAddSearching(true);
   try {
-    const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`);
+    const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
     const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
     const norm = (list || [])
       .map((x) => ({
@@ -2710,12 +2768,8 @@ const addMarketCoin = async (coin) => {
 
   const item = { symbol: sym, mode: "market", coingecko_id: cgId, name: coin?.name || "", rank: coin?.market_cap_rank ?? null };
 
-  // If this coin was previously removed, clear its tombstone.
-  try {
-    const removed = loadRemovedSet();
-    const key = makeWatchKey({ symbol: sym, mode: "market", coingecko_id: cgId });
-    if (removed.has(key)) { removed.delete(key); saveRemovedSet(removed); }
-  } catch {}
+  // If user previously removed this coin, clear its tombstone so it can appear again.
+  _clearTombstone(_watchKeyFromItem(item));
 
   // Optimistic: update local state immediately (never wait for backend)
   let nextItems = null;
@@ -2752,13 +2806,7 @@ const addMarketCoin = async (coin) => {
     ];
   });
 
-  // By default, include new coin in compare selection (up to max 10)
-  setCompareSet((prev0) => {
-    const prev = Array.isArray(prev0) ? prev0 : [];
-    if (prev.includes(sym)) return prev;
-    if (prev.length >= 10) return prev;
-    return [...prev, sym];
-  });
+  // NOTE: Do NOT auto-add to Compare when adding to Watchlist.
 
   // Kick a background snapshot refresh (best-effort). Never block the click.
   try {
@@ -2780,12 +2828,7 @@ const addDexToken = async () => {
   // We store contract in both "contract" (UI) and "tokenAddress" (backward compat for older backend)
   const item = { symbol: contract.slice(0, 10).toUpperCase(), mode: "dex", contract, tokenAddress: contract, chain };
 
-  // If this token was previously removed, clear its tombstone.
-  try {
-    const removed = loadRemovedSet();
-    const key = makeWatchKey({ symbol: item.symbol, mode: "dex", contract, tokenAddress: contract, chain });
-    if (removed.has(key)) { removed.delete(key); saveRemovedSet(removed); }
-  } catch {}
+  _clearTombstone(_watchKeyFromItem(item));
 
   let nextItems = null;
   setWatchItems((prev0) => {
@@ -2829,20 +2872,24 @@ const addDexToken = async () => {
 };
 
 
-  function removeWatchItemByKey({ symbol, mode = "market", coingecko_id = "", tokenAddress = "", contract = "", chain = "" }) {
+  function removeWatchItemByKey({ symbol, mode = "market", tokenAddress = "", contract = "" }) {
   const sym = String(symbol || "").toUpperCase();
   const m = String(mode || "market").toLowerCase();
   const addr = String(tokenAddress || contract || "").toLowerCase();
 
-  // Tombstone this removal so backend snapshots can't "resurrect" it.
-  try {
-    const removed = loadRemovedSet();
-    const key = (m === "dex")
-      ? makeWatchKey({ symbol: sym, mode: "dex", contract: addr, tokenAddress: addr, chain })
-      : makeWatchKey({ symbol: sym, mode: "market", coingecko_id });
-    removed.add(key);
-    saveRemovedSet(removed);
-  } catch {}
+// Tombstone: prevent backend snapshots from resurrecting removed items.
+// Derive stable key from stored watchItems when possible.
+const removedItem = (watchItems || []).find((x) => {
+  const xs = String(x?.symbol || "").toUpperCase();
+  const xm = String(x?.mode || "market").toLowerCase();
+  const xa = String(x?.contract || x?.tokenAddress || "").toLowerCase();
+  return xs === sym && xm === m && xa === addr;
+});
+const removedKey = removedItem
+  ? _watchKeyFromItem(removedItem)
+  : (m === "dex" ? `dex|${addr}` : `market|${sym}|`);
+_setTombstone(removedKey);
+
 
   // Build next "items" array (the true source of truth we send to backend)
   const nextItems = (watchItems || []).filter((x) => {
@@ -2889,24 +2936,15 @@ const addDexToken = async () => {
         body: { items: nextItems },
       });
 
-      const nextRows0 = data?.results || data?.rows || [];
-      // Apply tombstones + enforce watchItems as source of truth
-      try {
-        const removed = loadRemovedSet();
-        const allowed = new Set((nextItems || []).map((it) => makeWatchKey(it)));
-        const nextRows = (Array.isArray(nextRows0) ? nextRows0 : []).filter((row) => {
-          const sym2 = String(row?.symbol || "").trim().toUpperCase();
-          const mode2 = String(row?.mode || "market").trim().toLowerCase();
-          const key2 = (mode2 === "dex")
-            ? makeWatchKey({ symbol: sym2, mode: "dex", contract: row?.contract || row?.tokenAddress || "", tokenAddress: row?.contract || row?.tokenAddress || "", chain: row?.chain || "" })
-            : makeWatchKey({ symbol: sym2, mode: "market", coingecko_id: row?.coingecko_id || row?.id || "" });
-          if (removed.has(key2)) return false;
-          return allowed.size ? allowed.has(key2) : true;
-        });
-        setWatchRows(nextRows);
-      } catch {
-        if (Array.isArray(nextRows0)) setWatchRows(nextRows0);
-      }
+      const nextRowsRaw = data?.results || data?.rows || [];
+      const allowedKeys = new Set((nextItems || []).map(_watchKeyFromItem));
+      const tomb = _loadTombstones();
+      const nextRows = (Array.isArray(nextRowsRaw) ? nextRowsRaw : []).filter((row) => {
+        const k = _watchKeyFromRow(row);
+        if (tomb && tomb[k] != null) return false;
+        return allowedKeys.has(k);
+      });
+      if (Array.isArray(nextRows)) setWatchRows(nextRows);
 if (Array.isArray(data?.symbols)) setCompareSet((prev) => (Array.isArray(prev) && prev.length ? prev : data.symbols));
 if (data?.cached != null) setWatchCached(Boolean(data.cached));
       setWatchErr("");
@@ -4458,7 +4496,7 @@ async function runAi() {
                 return (
                   <div key={`${sym}-${idx}`} className="watchRow">
                     <div>
-                      <input type="checkbox" checked={checked} onChange={(e) => { e.stopPropagation(); toggleCompare(sym); }} disabled={!checked && compareSymbols.length >= 10} />
+                      <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 10} />
                     </div>
                     <div className="watchCoin">
                       <div className="coinLogo small">{sym.slice(0, 1)}</div>
@@ -4471,7 +4509,7 @@ async function runAi() {
                     <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`}>{fmtPct(r.change24h)}</div>
                     <div className="right mono">{fmtUsd(r.volume24h)}</div>
                     <div className="right muted">{r.source || "—"}</div>
-                    <div className="right"><button className="iconBtn" onClick={(e) => { e.stopPropagation(); removeWatchItemByKey({ symbol: sym, mode: r.mode || "market", coingecko_id: r.coingecko_id || r.id || "", tokenAddress: r.contract || r.tokenAddress || "", contract: r.contract || r.tokenAddress || "", chain: r.chain || "" }); }} title="Remove">×</button></div>
+                    <div className="right"><button className="iconBtn" onClick={() => removeWatchItemByKey({ symbol: sym, mode: r.mode || "market", tokenAddress: r.contract || r.id || "" })} title="Remove">×</button></div>
                   </div>
                 );
               })}
@@ -4680,7 +4718,7 @@ async function runAi() {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-	                <button className="btn" onClick={(e) => { e.stopPropagation(); addMarketCoin(coin); }}>
+	                <button className="btn" onClick={() => addMarketCoin(coin)}>
                     Add
                   </button>
                 </div>

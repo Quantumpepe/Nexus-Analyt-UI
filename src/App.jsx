@@ -2812,7 +2812,7 @@ const runMarketSearch = async (opts = {}) => {
     // revalidate in background (do not block UI)
     (async () => {
       try {
-        const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
+        const r = await api(`/api/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
         const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
         const norm = (list || [])
           .map((x) => ({
@@ -2838,7 +2838,7 @@ const runMarketSearch = async (opts = {}) => {
   // 2) No cache => do a normal fetch, but show spinner
   setAddSearching(true);
   try {
-    const r = await api(`/api/coins/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
+    const r = await api(`/api/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
     const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
     const norm = (list || [])
       .map((x) => ({

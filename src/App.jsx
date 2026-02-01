@@ -2381,8 +2381,38 @@ const [aiLoading, setAiLoading] = useState(false);
         // Also drop anything not in current watchItems (never replace by snapshot).
         return allowedKeys.has(k);
       });
-      setWatchRows(nextRows);
-      try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(nextRows)); } catch {}
+      setWatchRows((prev0) => {
+        const prev = Array.isArray(prev0) ? prev0 : [];
+        const prevMap = new Map(prev.map((r) => [_watchKeyFromRow(r), r]));
+        const nextMap = new Map((nextRows || []).map((r) => [_watchKeyFromRow(r), r]));
+        const itemsSrc = (itemsOverride ?? watchItems) || [];
+        const merged = [];
+
+        // Ensure one row per watch item (source of truth), preserving any existing placeholder rows
+        for (const it of itemsSrc) {
+          const k = _watchKeyFromItem(it);
+          const row = nextMap.get(k) || prevMap.get(k) || {
+            symbol: String(it?.symbol || "").toUpperCase(),
+            mode: String(it?.mode || "market"),
+            coingecko_id: String(it?.coingecko_id || it?.id || ""),
+            name: it?.name || String(it?.symbol || "").toUpperCase(),
+            price: null,
+            chg_24h: null,
+            vol: null,
+            source: "pending",
+          };
+          merged.push(row);
+          nextMap.delete(k);
+        }
+
+        // Add any remaining rows returned by backend that are still allowed (should be none, but keep safe)
+        for (const [k, row] of nextMap.entries()) {
+          if (allowedKeys.has(k)) merged.push(row);
+        }
+
+        try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(merged)); } catch {}
+        return merged;
+      });
       if ((r?.results || r?.rows || []).length) {
         const symUp = String(gridItem || "").toUpperCase();
         const list = (r?.results || r?.rows || []);

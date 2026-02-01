@@ -445,6 +445,32 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
   return data;
 }
 
+// Search helper: backend endpoint name may differ across deployments.
+// We try a small set of compatible routes and return the first successful response.
+async function apiSearchCoins(query, { signal } = {}) {
+  const q = String(query || "").trim();
+  if (!q) return [];
+  const enc = encodeURIComponent(q);
+
+  const candidates = [
+    `/api/search?q=${enc}`,
+    `/api/coingecko/search?q=${enc}`,
+    `/api/coingecko_search?q=${enc}`,
+    `/search?q=${enc}`,
+  ];
+
+  let lastErr = null;
+  for (const path of candidates) {
+    try {
+      return await api(path, { signal });
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("Search failed");
+}
+
+
 // ---- Payments (ERC20 transfer) helpers (no external deps) ----
 function _hexPad64(hexNo0x) {
   const h = (hexNo0x || "").replace(/^0x/i, "").toLowerCase();
@@ -2812,7 +2838,7 @@ const runMarketSearch = async (opts = {}) => {
     // revalidate in background (do not block UI)
     (async () => {
       try {
-        const r = await api(`/api/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
+        const r = await apiSearchCoins(q, { signal: ac.signal });
         const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
         const norm = (list || [])
           .map((x) => ({
@@ -2838,7 +2864,7 @@ const runMarketSearch = async (opts = {}) => {
   // 2) No cache => do a normal fetch, but show spinner
   setAddSearching(true);
   try {
-    const r = await api(`/api/search?q=${encodeURIComponent(q)}`, { signal: ac.signal });
+    const r = await apiSearchCoins(q, { signal: ac.signal });
     const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
     const norm = (list || [])
       .map((x) => ({

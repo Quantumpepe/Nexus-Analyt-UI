@@ -2508,13 +2508,20 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // 🔁 Refetch snapshot immediately when watchlist changes (so newly added coins get data without full page refresh)
   const watchlistKey = useMemo(() => {
-    const arr = Array.isArray(watchItems) ? watchItems : [];
-    return arr
-      .map((w) => String(w?.symbol || "").toUpperCase())
-      .filter(Boolean)
-      .sort()
-      .join("|");
-  }, [watchItems]);
+  const arr = Array.isArray(watchItems) ? watchItems : [];
+  // Use full unique key (mode + id/contract + symbol) so adding tokens or same-symbol variants triggers refresh immediately.
+  return arr
+    .map((w) => {
+      const sym = String(w?.symbol || "").toUpperCase().trim();
+      const mode = String(w?.mode || "market").toLowerCase();
+      const id = String(w?.coingecko_id || w?.id || "").toLowerCase();
+      const addr = String(w?.contract || w?.tokenAddress || "").toLowerCase();
+      return `${mode}|${sym}|${id || addr}`;
+    })
+    .filter(Boolean)
+    .sort()
+    .join("|");
+}, [watchItems]);
 
   useEffect(() => {
     if (!watchItems || !watchItems.length) return;
@@ -2965,7 +2972,12 @@ const addMarketCoin = async (coin) => {
   // Ensure it shows instantly in the table even if snapshot is down (placeholder row).
   setWatchRows((prev0) => {
     const prev = Array.isArray(prev0) ? prev0 : [];
-    const has = prev.some((r) => String(r?.symbol || "").toUpperCase() === sym);
+    const has = prev.some((r) => {
+      const rs = String(r?.symbol || "").toUpperCase().trim();
+      const rm = String(r?.mode || "market").toLowerCase();
+      const rid = String(r?.coingecko_id || r?.id || "").toLowerCase();
+      return `${rm}|${rs}|${rid}` === `market|${sym}|${String(cgId || "").toLowerCase()}`;
+    });
     if (has) return prev;
     return [
       ...prev,
@@ -2985,8 +2997,11 @@ const addMarketCoin = async (coin) => {
   // NOTE: Do NOT auto-add to Compare when adding to Watchlist.
 
   // Kick a background snapshot refresh (best-effort). Never block the click.
+  // Use setTimeout(0) so state updates (watchItems/watchRows) are committed before we read them.
   try {
-    fetchWatchSnapshot(nextItems || null, { force: true, user: true });
+    setTimeout(() => {
+      fetchWatchSnapshot(nextItems || null, { force: true, user: true });
+    }, 0);
   } catch {}
 
   // keep modal open to allow adding multiple, but clear search to reduce confusion
@@ -3040,7 +3055,9 @@ const addDexToken = async () => {
 
   // Background snapshot refresh (best-effort)
   try {
-    fetchWatchSnapshot(nextItems || null, { force: true, user: true });
+    setTimeout(() => {
+      fetchWatchSnapshot(nextItems || null, { force: true, user: true });
+    }, 0);
   } catch {}
 
   // keep modal open; clear contract for next add
@@ -4711,7 +4728,7 @@ async function runAi() {
                     <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`}>{fmtPct(r.change24h)}</div>
                     <div className="right mono">{fmtUsd(r.volume24h)}</div>
                     <div className="right muted">{r.source || "—"}</div>
-                    <div className="right"><button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mode = (r.mode || "market").toLowerCase(); const tokenAddress = mode === "dex" ? (r.contract || r.tokenAddress || "") : ""; removeWatchItemByKey({ symbol: sym, mode, tokenAddress }); }} title="Remove">×</button></div>
+                    <div className="right"><button className="iconBtn" onClick={() => removeWatchItemByKey({ symbol: sym, mode: r.mode || "market", tokenAddress: r.contract || r.id || "" })} title="Remove">×</button></div>
                   </div>
                 );
               })}

@@ -4711,7 +4711,7 @@ async function runAi() {
                     <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`}>{fmtPct(r.change24h)}</div>
                     <div className="right mono">{fmtUsd(r.volume24h)}</div>
                     <div className="right muted">{r.source || "—"}</div>
-                    <div className="right"><button className="iconBtn" onClick={() => removeWatchItemByKey({ symbol: sym, mode: r.mode || "market", tokenAddress: r.contract || r.id || "" })} title="Remove">×</button></div>
+                    <div className="right"><button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mode = (r.mode || "market").toLowerCase(); const tokenAddress = mode === "dex" ? (r.contract || r.tokenAddress || "") : ""; removeWatchItemByKey({ symbol: sym, mode, tokenAddress }); }} title="Remove">×</button></div>
                   </div>
                 );
               })}

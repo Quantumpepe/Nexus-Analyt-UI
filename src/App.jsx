@@ -1,4 +1,5 @@
 
+
 function loadSetLS(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
   catch { return new Set(); }
@@ -410,13 +411,37 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
   };
 
   const doFetch = async (withBearer) => {
-    return fetch(`${API_BASE}${path}`, {
-      method,
-      signal,
-      headers: makeHeaders(withBearer),
-      credentials: "omit",
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    // Hard safety timeout so UI never gets stuck in "Searching..." due to
+    // Render sleep / hanging connections.
+    const ctrl = new AbortController();
+    const timeoutMs = method === "GET" ? 15000 : 25000;
+    const t = setTimeout(() => {
+      try { ctrl.abort(); } catch {}
+    }, timeoutMs);
+
+    // Merge external signal (e.g. AbortController from search) with our timeout.
+    // Important: if the passed-in signal is already aborted, we must abort immediately,
+    // otherwise fetch() may never resolve on some browsers.
+    const merged = new AbortController();
+    const onAbort = () => { try { merged.abort(); } catch {} };
+    try {
+      if (signal?.aborted) onAbort();
+      if (signal) signal.addEventListener("abort", onAbort, { once: true });
+      ctrl.signal.addEventListener("abort", onAbort, { once: true });
+    } catch {}
+
+    try {
+      return await fetch(`${API_BASE}${path}`, {
+        method,
+        signal: merged.signal,
+        headers: makeHeaders(withBearer),
+        credentials: "omit",
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } finally {
+      clearTimeout(t);
+      try { if (signal) signal.removeEventListener("abort", onAbort); } catch {}
+    }
   };
 
   // First try with Bearer (if provided).
@@ -452,8 +477,14 @@ async function apiSearchCoins(query, { signal } = {}) {
   if (!q) return [];
   const enc = encodeURIComponent(q);
 
+  // IMPORTANT:
+  // Our backend canonical search endpoints are:
+  //   - /api/search (alias)
+  //   - /api/coins/search (real implementation)
+  // Try both first to avoid long waits on wrong endpoints.
   const candidates = [
     `/api/search?q=${enc}`,
+    `/api/coins/search?q=${enc}`,
     `/api/coingecko/search?q=${enc}`,
     `/api/coingecko_search?q=${enc}`,
     `/search?q=${enc}`,
@@ -2872,6 +2903,8 @@ const runMarketSearch = async (opts = {}) => {
   // 2) No cache => do a normal fetch, but show spinner
   setAddSearching(true);
   try {
+    // If Render is sleeping or the backend hangs, do not keep the UI in
+    // "Searching..." forever.
     const r = await apiSearchCoins(q, { signal: ac.signal });
     const list = Array.isArray(r) ? r : Array.isArray(r?.coins) ? r.coins : Array.isArray(r?.results) ? r.results : [];
     const norm = (list || [])
@@ -2891,7 +2924,12 @@ const runMarketSearch = async (opts = {}) => {
     if (e && (e.name === "AbortError" || String(e).includes("AbortError") || String(e).toLowerCase().includes("aborted"))) {
       return;
     }
-    setAddSearchErr(String(e?.message || e));
+    const msg = String(e?.message || e);
+    if (msg.toLowerCase().includes("timeout") || msg.toLowerCase().includes("aborted")) {
+      setAddSearchErr("Search timed out. Backend may be sleeping — try again.");
+    } else {
+      setAddSearchErr(msg);
+    }
     setAddResults([]);
   } finally {
     setAddSearching(false);

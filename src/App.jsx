@@ -642,7 +642,7 @@ const TIMEFRAMES = [
   { key: "30D", label: "30D" },
   { key: "90D", label: "90D" },
   { key: "1Y", label: "1Y" },
-  { key: "3Y", label: "3Y" },
+  { key: "2Y", label: "2Y" },
 ];
 
 // ------------------------
@@ -698,7 +698,7 @@ function _tfDays(tf) {
   if (k === "30D") return 30;
   if (k === "90D") return 90;
   if (k === "1Y") return 365;
-  return null; // e.g. 3Y handled separately
+  return null; // e.g. 2Y handled separately
 }
 
 // Slice a full-series dict {SYM:[{t,v}...]} into the selected view timeframe.
@@ -706,7 +706,7 @@ function _tfDays(tf) {
 function sliceCompareSeries(full, timeframe) {
   const tf = String(timeframe || "90D").toUpperCase();
   if (!full || typeof full !== "object") return {};
-  if (tf === "3Y" || tf === "1Y") return full;
+  if (tf === "2Y" || tf === "1Y") return full;
   const days = _tfDays(tf);
   if (!days) return full;
   const windowMs = days * 24 * 60 * 60 * 1000;
@@ -722,7 +722,7 @@ function sliceCompareSeries(full, timeframe) {
 
 function _compareFetchRange(timeframe) {
   const tf = String(timeframe || "90D").toUpperCase();
-  if (tf === "3Y") return "3Y";
+  if (tf === "2Y") return "2Y";
   if (tf === "1D") return "1D"; // keep intraday fidelity
   return "1Y"; // fetch once, slice for 7D/30D/90D/1Y views
 }
@@ -1739,36 +1739,36 @@ return [c, { native, stables, custom }];
   const PAIR_EXPLAIN_TF = "30D";
 
   // ------------------------
-  // 3Y gating (self-collected)
+  // 2Y (from CoinGecko)
   // ------------------------
-  // UX rule: 3Y should become active ONLY when 3Y data is available.
-  // Users may still *request* a 3Y load, but we keep the currently-selected
-  // timeframe (e.g. 90D) until 3Y is ready.
-  const MIN_3Y_POINTS = 700; // daily points ~ 2 years; tune to your storage cadence
-  const [pendingTf, setPendingTf] = useState(null); // e.g. '3Y' while loading
+  // 2Y is available from the backend (CoinGecko). Always allow selecting 2Y.
+  // We may still load data in the background, but we don't block selection.
+  // timeframe (e.g. 90D) until 2Y is ready.
+  const MIN_2Y_POINTS = 0; // 0 = no gating
+  const [pendingTf, setPendingTf] = useState(null); // e.g. '2Y' while loading
   const pendingTfRef = useRef(null);
   useEffect(() => { pendingTfRef.current = pendingTf; }, [pendingTf]);
 
-  const has3YData = useMemo(() => {
+  const has2YData = useMemo(() => {
     if (!compareSymbols.length) return false;
-    const cached3y = _cmpGetCached(compareSymbols, "3Y");
-    if (!cached3y) return false;
-    // Require all selected symbols to have enough 3Y points.
+    const cached2y = _cmpGetCached(compareSymbols, "2Y");
+    if (!cached2y) return false;
+    // Require all selected symbols to have enough 2Y points.
     return compareSymbols.every((s) => {
       const S = String(s || "").toUpperCase();
-      const arr = cached3y?.[S];
-      return Array.isArray(arr) && arr.length >= MIN_3Y_POINTS;
+      const arr = cached2y?.[S];
+      return Array.isArray(arr) && arr.length >= MIN_2Y_POINTS;
     });
   }, [compareSymbols.join("|"), timeframe]);
 
-  // Safety: if localStorage remembers timeframe=3Y but we don't have data yet,
+  // Safety: if localStorage remembers timeframe=2Y but we don't have data yet,
   // fall back to 90D (prevents blank/confusing chart states).
   useEffect(() => {
-    if (String(timeframe || "").toUpperCase() === "3Y" && !has3YData) {
+    if (String(timeframe || "").toUpperCase() === "2Y" && !has2YData) {
       setTimeframe("90D");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeframe, has3YData]);
+  }, [timeframe, has2YData]);
 
   // Access (NFT / Code) - UI only (stored locally). Later we can wire this to backend verification.
   // Access (NFT / Code) — backend driven (status + redeem)
@@ -2308,7 +2308,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
 
-  // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/3Y)
+  // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/2Y)
   const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
   const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
   const bestPairsTop = useMemo(() => computeBestPairs(chartRawFull, 30).slice(0, 10), [chartRawFull]);
@@ -2555,7 +2555,7 @@ const [aiLoading, setAiLoading] = useState(false);
     compareAbortRef.current = ac;
 
     // Show cached series immediately (SWR) so chart renders without waiting for backend
-    // NOTE: fetchRange can be overridden (used for preloading 3Y while keeping UI timeframe at 90D).
+    // NOTE: fetchRange can be overridden (used for preloading 2Y while keeping UI timeframe at 90D).
     const fetchRange = (opts && opts.fetchRangeOverride) ? String(opts.fetchRangeOverride).toUpperCase() : _compareFetchRange(timeframe);
     const cached = _cmpGetCached(compareSymbols, fetchRange);
     if (cached && Object.keys(cached || {}).length) {
@@ -2625,19 +2625,19 @@ const [aiLoading, setAiLoading] = useState(false);
           try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(normalized)); } catch {}
           _cmpPutCached(compareSymbols, fetchRange, normalized);
 
-          // If we were preloading 3Y, only switch UI to 3Y once data is actually sufficient.
-          if (String(fetchRange).toUpperCase() === "3Y" && pendingTfRef.current === "3Y") {
-            const ok3y = compareSymbols.every((s) => {
+          // If we were preloading 2Y, only switch UI to 2Y once data is actually sufficient.
+          if (String(fetchRange).toUpperCase() === "2Y" && pendingTfRef.current === "2Y") {
+            const ok2y = compareSymbols.every((s) => {
               const S = String(s || "").toUpperCase();
               const arr = normalized?.[S];
-              return Array.isArray(arr) && arr.length >= MIN_3Y_POINTS;
+              return Array.isArray(arr) && arr.length >= MIN_2Y_POINTS;
             });
             setPendingTf(null);
-            if (ok3y) {
-              setTimeframe("3Y");
+            if (ok2y) {
+              setTimeframe("2Y");
             } else {
               // Keep current timeframe (e.g. 90D) and inform user.
-              setErrorMsg("3Y Daten sind noch nicht verfügbar (zu wenig Historie gesammelt)." );
+              setErrorMsg("2Y Daten sind noch nicht verfügbar (zu wenig Historie gesammelt)." );
             }
           }
         } else if (lastGoodCompareRef.current) {
@@ -2678,9 +2678,9 @@ const [aiLoading, setAiLoading] = useState(false);
         }
       } catch {}
 
-      // If we were preloading 3Y, clear pending state on failure.
+      // If we were preloading 2Y, clear pending state on failure.
       try {
-        if (String(fetchRange).toUpperCase() === "3Y" && pendingTfRef.current === "3Y") {
+        if (String(fetchRange).toUpperCase() === "2Y" && pendingTfRef.current === "2Y") {
           setPendingTf(null);
         }
       } catch {}
@@ -4085,17 +4085,17 @@ async function runAi() {
             <div className="cardActions">
               {TIMEFRAMES.map((tf) => {
                 const k = String(tf.key || "").toUpperCase();
-                const is3y = k === "3Y";
+                const is2y = k === "2Y";
                 const is1d = k === "1D";
-                const loading3y = is3y && pendingTf === "3Y";
-                const disabled = (compareSymbols.length === 0) || loading3y;
+                const loading2y = is2y && pendingTf === "2Y";
+                const disabled = (compareSymbols.length === 0) || loading2y;
                 const title =
                   compareSymbols.length === 0
                     ? "Select coins first (Watchlist → Compare)"
-                    : is3y
-                      ? (has3YData
-                          ? "3Y (self collected)"
-                          : "3Y will unlock after enough history is collected. Click to try loading.")
+                    : is2y
+                      ? (has2YData
+                          ? "2Y (self collected)"
+                          : "2Y will unlock after enough history is collected. Click to try loading.")
                       : (is1d ? "1D may load intraday data" : "");
 
                 return (
@@ -4104,13 +4104,13 @@ async function runAi() {
                     className={`chip ${timeframe === tf.key ? "active" : ""}`}
                     onClick={() => {
                       if (disabled) return;
-                      if (is3y) {
-                        if (has3YData) {
-                          setTimeframe("3Y");
+                      if (is2y) {
+                        if (has2YData) {
+                          setTimeframe("2Y");
                         } else {
                           setErrorMsg("");
-                          setPendingTf("3Y");
-                          fetchCompare({ force: true, fetchRangeOverride: "3Y" });
+                          setPendingTf("2Y");
+                          fetchCompare({ force: true, fetchRangeOverride: "2Y" });
                         }
                         return;
                       }
@@ -4119,7 +4119,7 @@ async function runAi() {
                     disabled={disabled}
                     title={title}
                   >
-                    {loading3y ? "3Y…" : tf.label}
+                    {loading2y ? "2Y…" : tf.label}
                   </button>
                 );
               })}

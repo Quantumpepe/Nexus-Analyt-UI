@@ -783,11 +783,40 @@ function normalizeToIndex(lines) {
 
 function formatXAxisLabel(t, timeframe) {
   const d = new Date(t);
-  if (timeframe === "1D") {
+  const tf = String(timeframe || "").toUpperCase();
+  if (tf === "1D") {
     return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   }
-  return d.toLocaleDateString(undefined, { month: "2-digit", day: "2-digit" });
+  if (tf === "2Y") {
+    // Month labels with year (makes the long range obvious)
+    return d.toLocaleDateString("de-DE", { month: "short", year: "2-digit" });
+  }
+  if (tf === "1Y") {
+    return d.toLocaleDateString("de-DE", { month: "short" });
+  }
+  return d.toLocaleDateString("de-DE", { month: "2-digit", day: "2-digit" });
 }
+
+function _monthStartTs(ms) {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+}
+
+function buildMonthlyTicks(tMin, tMax) {
+  const a = _monthStartTs(tMin);
+  const b = _monthStartTs(tMax);
+  const out = [];
+  let d = new Date(a);
+  const end = new Date(b);
+  // include start..end inclusive
+  while (d <= end) {
+    out.push(d.getTime());
+    d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  }
+  // If we somehow end up with no ticks, fall back.
+  return out.length ? out : [tMin, tMax];
+}
+
 
 // ------------------------
 // SVG chart with y-scale + x labels
@@ -915,17 +944,37 @@ const tMin = x[0];
           </g>
         ))}
 {/* X labels */}
-        <text x={padL} y={h - 8} className="chartLabel">
-          {formatXAxisLabel(tMin, timeframe)}
-        </text>
-        <text x={padL + innerW / 2} y={h - 8} textAnchor="middle" className="chartLabel">
-          {formatXAxisLabel(tMid, timeframe)}
-        </text>
-        <text x={w - padR} y={h - 8} textAnchor="end" className="chartLabel">
-          {formatXAxisLabel(tMax, timeframe)}
-        </text>
+        {String(timeframe || "").toUpperCase() === "2Y" ? (
+          (() => {
+            const ticks = buildMonthlyTicks(tMin, tMax);
+            return ticks.map((t) => {
+              const x = sx(t);
+              // Rotate labels to fit 24 months.
+              return (
+                <g key={t} transform={`translate(${x}, ${h - 8}) rotate(-45)`}>
+                  <text x={0} y={0} textAnchor="end" className="chartLabel">
+                    {formatXAxisLabel(t, timeframe)}
+                  </text>
+                </g>
+              );
+            });
+          })()
+        ) : (
+          <>
+            <text x={padL} y={h - 8} className="chartLabel">
+              {formatXAxisLabel(tMin, timeframe)}
+            </text>
+            <text x={padL + innerW / 2} y={h - 8} textAnchor="middle" className="chartLabel">
+              {formatXAxisLabel(tMid, timeframe)}
+            </text>
+            <text x={w - padR} y={h - 8} textAnchor="end" className="chartLabel">
+              {formatXAxisLabel(tMax, timeframe)}
+            </text>
+          </>
+        )}
 
-        {/* lines */}
+    {/* lines */}
+
         {syms.map((sym, idx) => {
           const d = makePath(sym);
           if (!d) return null;

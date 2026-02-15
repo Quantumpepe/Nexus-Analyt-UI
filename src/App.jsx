@@ -951,8 +951,8 @@ const tMin = x[0];
               const x = sx(t);
               // Rotate labels to fit 24 months.
               return (
-                <g key={t} transform={`translate(${x}, ${h - 18}) rotate(-45)`}>
-                  <text x={0} y={0} textAnchor="end" className="chartLabel">
+                <g key={t} pointerEvents="none" transform={`translate(${x}, ${h - 18}) rotate(-45)`}>
+                  <text x={0} y={0} textAnchor="end" className="chartLabel" pointerEvents="none">
                     {formatXAxisLabel(t, timeframe)}
                   </text>
                 </g>

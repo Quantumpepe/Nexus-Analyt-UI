@@ -789,7 +789,7 @@ function formatXAxisLabel(t, timeframe) {
   }
   if (tf === "2Y") {
     // Month labels with year (makes the long range obvious)
-    return d.toLocaleDateString("de-DE", { month: "short", year: "2-digit" });
+    return d.toLocaleDateString("de-DE", { month: "short", year: "numeric" });
   }
   if (tf === "1Y") {
     return d.toLocaleDateString("de-DE", { month: "short" });
@@ -944,36 +944,17 @@ const tMin = x[0];
           </g>
         ))}
 {/* X labels */}
-        {String(timeframe || "").toUpperCase() === "2Y" ? (
-          (() => {
-            const ticks = buildMonthlyTicks(tMin, tMax);
-            return ticks.map((t) => {
-              const x = sx(t);
-              // Rotate labels to fit 24 months.
-              return (
-                <g key={t} pointerEvents="none" transform={`translate(${x}, ${h - 18}) rotate(-45)`}>
-                  <text x={0} y={0} textAnchor="end" className="chartLabel" pointerEvents="none">
-                    {formatXAxisLabel(t, timeframe)}
-                  </text>
-                </g>
-              );
-            });
-          })()
-        ) : (
-          <>
-            <text x={padL} y={h - 8} className="chartLabel">
-              {formatXAxisLabel(tMin, timeframe)}
-            </text>
-            <text x={padL + innerW / 2} y={h - 8} textAnchor="middle" className="chartLabel">
-              {formatXAxisLabel(tMid, timeframe)}
-            </text>
-            <text x={w - padR} y={h - 8} textAnchor="end" className="chartLabel">
-              {formatXAxisLabel(tMax, timeframe)}
-            </text>
-          </>
-        )}
+        <text x={padL} y={h - 8} className="chartLabel">
+          {formatXAxisLabel(tMin, timeframe)}
+        </text>
+        <text x={padL + innerW / 2} y={h - 8} textAnchor="middle" className="chartLabel">
+          {formatXAxisLabel(tMid, timeframe)}
+        </text>
+        <text x={w - padR} y={h - 8} textAnchor="end" className="chartLabel">
+          {formatXAxisLabel(tMax, timeframe)}
+        </text>
 
-    {/* lines */}
+{/* lines */}
 
         {syms.map((sym, idx) => {
           const d = makePath(sym);

@@ -792,7 +792,7 @@ function formatXAxisLabel(t, timeframe) {
     return d.toLocaleDateString("de-DE", { month: "short", year: "numeric" });
   }
   if (tf === "1Y") {
-    return d.toLocaleDateString("de-DE", { month: "short" });
+    return d.toLocaleDateString("de-DE", { month: "short", year: "numeric" });
   }
   return d.toLocaleDateString("de-DE", { month: "2-digit", day: "2-digit" });
 }

@@ -412,7 +412,9 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
     // Hard safety timeout so UI never gets stuck in "Searching..." due to
     // Render sleep / hanging connections.
     const ctrl = new AbortController();
-    const timeoutMs = method === "GET" ? 15000 : 25000;
+    const timeoutMs =
+     path?.includes("/api/access/redeem") ? 60000 :
+     method === "GET" ? 15000 : 25000;
     const t = setTimeout(() => {
       try { ctrl.abort(); } catch {}
     }, timeoutMs);

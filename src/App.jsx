@@ -1,5 +1,3 @@
-
-
 function loadSetLS(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
   catch { return new Set(); }
@@ -2878,7 +2876,7 @@ const addSearchAbortRef = useRef(null);
 
 
 // DEX tab inputs
-const [addChain, setAddChain] = useState("eth");
+const [addChain, setAddChain] = useState("polygon");
 const [addContract, setAddContract] = useState("");
 
 const resetAddModal = () => {
@@ -3614,7 +3612,7 @@ async function runAi() {
                 ) : (
                   <div>
                     <div className="hint" style={{ marginBottom: 8 }}>
-                      Subscribe with USDC/USDT on <b>Ethereum</b> (ETH mainnet).
+                      Subscribe with USDC/USDT on <b>Polygon</b> (POL).
                     </div>
 
                     <div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
@@ -3667,7 +3665,7 @@ async function runAi() {
                     {subMsg ? <div className="hint" style={{ marginTop: 8 }}>{subMsg}</div> : null}
 
                     <div className="hint" style={{ marginTop: 10, opacity: 0.8 }}>
-                      Note: You must have enough {subToken} for the plan amount plus ETH gas.
+                      Note: You must have enough {subToken} for the plan amount plus POL gas.
                     </div>
                   </div>
                 )}
@@ -3941,11 +3939,7 @@ async function runAi() {
                     }}
                   >
                     <span>
-                      {addTokenChain === "ETH"
-                        ? "Ethereum"
-                        : addTokenChain === "POL"
-                        ? "Polygon"
-                        : "BNB Chain"}
+                      "Polygon"
                     </span>
                     <span className="muted" style={{ fontSize: 12 }}>{addTokenChain}</span>
                   </div>
@@ -4973,13 +4967,9 @@ async function runAi() {
 
           <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
             <div className="muted">Chain</div>
-            <select value={addChain} onChange={(e) => setAddChain(e.target.value)}>
-              <option value="eth">Ethereum</option>
-              <option value="bsc">BSC</option>
+            <select value={addChain} onChange={(e) => value={addChain} onChange={(e) => setAddChain(e.target.value)} disabled>
               <option value="polygon">Polygon</option>
-              <option value="arb">Arbitrum</option>
-              <option value="op">Optimism</option>
-              <option value="base">Base</option>
+
             </select>
 
             <div className="muted">Contract</div>

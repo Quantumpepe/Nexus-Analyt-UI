@@ -4521,11 +4521,7 @@ async function runAi() {
                 <button className="btnDanger" onClick={gridStop}>Stop</button>
               </div>
 
-              <div className="muted" style={{ fontSize: 12, marginTop: 8, lineHeight: 1.35 }}>
-  ⚠️ If the selected token has no liquidity/trading pair, the swap may fail and gas is still charged. You are responsible for your trades.
-</div>
-
-               <div className="divider" />
+              <div className="divider" />
 
               <div className="label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 Manual order

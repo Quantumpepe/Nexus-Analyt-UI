@@ -3552,11 +3552,9 @@ async function runAi() {
                 role="dialog"
                 aria-label="Access / Redeem"
                 onMouseDown={(e) => {
-                  e.preventDefault();
                   e.stopPropagation();
                 }}
                 onClick={(e) => {
-                  e.preventDefault();
                   e.stopPropagation();
                 }}
                 style={{

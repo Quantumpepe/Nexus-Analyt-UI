@@ -1259,6 +1259,7 @@ const [errorMsg, setErrorMsg] = useState("");
   // auth
   const [token, setToken] = useLocalStorageState("nexus_token", "");
   const [wallet, setWallet] = useLocalStorageState("nexus_wallet", "");
+  const inflightRef = useRef({ orders: false, snapshot: false, compare: false, init: false });
   // Trading policy is UI-only for now (no Vault/Allowance yet).
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
   const [policy, setPolicy] = useState({ trading_enabled: false });
@@ -2571,6 +2572,9 @@ const [aiLoading, setAiLoading] = useState(false);
   // compare fetch (batched /api/compare)
   const inflightCompare = useRef(false);
   const fetchCompare = async (opts = {}) => {
+    if (inflightRef.current.compare) return;
+    inflightRef.current.compare = true;
+    try {
     if (!compareSymbols.length) {
       // Clear chart immediately when nothing is selected (prevents stale cache lines)
       setCompareSeries({});
@@ -2730,7 +2734,11 @@ const [aiLoading, setAiLoading] = useState(false);
     } finally {
       setCompareLoading(false);
     }
-  };
+  
+    } finally {
+      inflightRef.current.compare = false;
+    }
+};
 
   useEffect(() => {
     fetchCompare();
@@ -2747,6 +2755,9 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // grid
   const fetchGridOrders = async () => {
+    if (inflightRef.current.orders) return;
+    inflightRef.current.orders = true;
+    try {
     // Allow read without token (some backends are public for GET /orders)
     if (!gridItem) return;
     try {
@@ -2760,6 +2771,10 @@ const [aiLoading, setAiLoading] = useState(false);
     } catch (e) {
       setErrorMsg((m) => (m ? m : `Grid orders: ${e.message}`));
     }
+    } finally {
+      inflightRef.current.orders = false;
+    }
+
   };
 
   async function gridStart() {

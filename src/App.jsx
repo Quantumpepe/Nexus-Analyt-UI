@@ -1,5 +1,3 @@
-
-
 function loadSetLS(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
   catch { return new Set(); }
@@ -1263,6 +1261,19 @@ const [errorMsg, setErrorMsg] = useState("");
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
   const [policy, setPolicy] = useState({ trading_enabled: false });
   const [walletModalOpen, setWalletModalOpen] = useState(false);
+  // Contracts (Vault/Executor/Router) fetched from backend ENV so UI stays in sync after deploys
+  const [contracts, setContracts] = useState(null);
+  // Fetch contract addresses from backend (Render ENV) once
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api("/api/contracts", { method: "GET" });
+        if (r && r.chains) setContracts(r);
+      } catch (e) {
+        // don't hard-fail UI if backend doesn't have this endpoint
+      }
+    })();
+  }, []);
 
   // Alchemy balances (native per chain, optionally tokens later)
   const [balLoading, setBalLoading] = useState(false);

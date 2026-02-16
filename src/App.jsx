@@ -521,17 +521,17 @@ function _erc20TransferData(to, amountUnits) {
   const amtHex = amountUnits.toString(16);
   return selector + _hexPad64(addr) + _hexPad64(amtHex);
 }
-async function _ensureEthMainnet() {
+async function _ensurePolygon() {
   if (!window?.ethereum?.request) throw new Error("No injected wallet found (MetaMask).");
   const chainHex = await window.ethereum.request({ method: "eth_chainId" });
-  if (String(chainHex).toLowerCase() === "0x1") return;
+  if (String(chainHex).toLowerCase() === "0x89") return; // Polygon mainnet
   try {
     await window.ethereum.request({
       method: "wallet_switchEthereumChain",
-      params: [{ chainId: "0x1" }],
+      params: [{ chainId: "0x89" }],
     });
   } catch (e) {
-    throw new Error("Please switch your wallet to Ethereum Mainnet.");
+    throw new Error("Please switch your wallet to Polygon (POL).");
   }
 }
 
@@ -1268,7 +1268,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const [balLoading, setBalLoading] = useState(false);
   const [balError, setBalError] = useState("");
   const [balByChain, setBalByChain] = useState({}); // { ETH: { native: "0.0" }, ... }
-  const [balActiveChain, setBalActiveChain] = useState("ETH");
+  const [balActiveChain, setBalActiveChain] = useState("POL");
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
@@ -1326,6 +1326,11 @@ const [errorMsg, setErrorMsg] = useState("");
 
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56 };
 
+// Phase 1: only Polygon (POL) is active. Enable other EVM chains later via config.
+const ENABLED_CHAINS = ["POL"];
+const DEFAULT_CHAIN = "POL";
+
+
   const loadTokenList = async (chain) => {
     const c = String(chain || "").toUpperCase();
     if (tokenListCache?.[c]) return;
@@ -1352,7 +1357,7 @@ const [errorMsg, setErrorMsg] = useState("");
   };
 
   const openAddToken = (chain) => {
-    const c = String(chain || "BNB").toUpperCase();
+    const c = String(chain || DEFAULT_CHAIN).toUpperCase();
     setAddTokenChain(c);
     setAddTokenQuery("");
     setAddTokenContract("");
@@ -1506,7 +1511,7 @@ const [errorMsg, setErrorMsg] = useState("");
     setBalError("");
     try {
       const address = wallet;
-      const baseChains = ["ETH", "POL", "BNB"];
+      const baseChains = ENABLED_CHAINS;
 
       const results = await Promise.all(
         baseChains.map(async (c) => {
@@ -1590,7 +1595,7 @@ return [c, { native, stables, custom }];
         try {
           setWalletUsdLoading(true);
 
-          const chains = ["ETH", "POL", "BNB"].filter((c) => out?.[c]);
+          const chains = ENABLED_CHAINS.filter((c) => out?.[c]);
           const nativePx = await fetchNativeUsdPrices(chains);
 
           // Token prices (user-added tokens only; stables assumed $1)
@@ -1897,10 +1902,10 @@ return [c, { native, stables, custom }];
     setSubBusy(true);
     setSubMsg("");
     try {
-      // ETH only (chainId 1)
-      await _ensureEthMainnet();
+      // Polygon only (chainId 137)
+      await _ensurePolygon();
 
-      const specs = TOKEN_WHITELIST.ETH || [];
+      const specs = TOKEN_WHITELIST.POL || [];
       const spec = specs.find((t) => t.symbol === subToken);
       if (!spec?.address) throw new Error("Token not supported.");
 
@@ -1923,7 +1928,7 @@ return [c, { native, stables, custom }];
       // Ask backend to verify on-chain payment + activate plan
       const res = await api("/api/access/subscribe/verify", {
         method: "POST",
-        body: { chain_id: 1, tx_hash: txHash, plan: SUB_PLAN },
+        body: { chain_id: 137, tx_hash: txHash, plan: SUB_PLAN },
       });
 
       setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
@@ -2339,7 +2344,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // Grid coin source: wallet holdings only (native + stables + user-added tokens).
   // This avoids showing market/watchlist items that cannot be traded from the wallet.
   const gridWalletCoins = useMemo(() => {
-    const chain = String(balActiveChain || "ETH").toUpperCase();
+    const chain = String(balActiveChain || DEFAULT_CHAIN).toUpperCase();
     const row = balByChain?.[chain] || {};
     const out = [];
 
@@ -3036,7 +3041,7 @@ const addMarketCoin = async (coin) => {
 
 const addDexToken = async () => {
   const contract = String(addContract || "").trim();
-  const chain = String(addChain || "eth").trim();
+  const chain = String(addChain || "pol").trim();
   if (!contract) return setErrorMsg("Contract address required.");
 
   // We store contract in both "contract" (UI) and "tokenAddress" (backward compat for older backend)
@@ -3732,8 +3737,8 @@ async function runAi() {
 
                   {/* Active chain for wallet + grid */}
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    {["ETH", "POL", "BNB"].map((c) => {
-                      const active = (balActiveChain || "ETH") === c;
+                    {ENABLED_CHAINS.map((c) => {
+                      const active = (balActiveChain || DEFAULT_CHAIN) === c;
                       return (
                         <button
                           key={c}
@@ -3790,7 +3795,7 @@ async function runAi() {
               )}
 
               <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                {["ETH", "POL", "BNB"].map((c) => {
+                {ENABLED_CHAINS.map((c) => {
                   const row = balByChain?.[c] || {};
                   const nativeLabel = c; // ETH / POL / BNB
                   return (

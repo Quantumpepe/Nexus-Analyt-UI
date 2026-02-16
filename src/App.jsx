@@ -414,7 +414,7 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
     const ctrl = new AbortController();
     const timeoutMs =
      path?.includes("/api/access/redeem") ? 60000 :
-     method === "GET" ? 15000 : 25000;
+     method === "GET" ? 15000 : 60000;
     const t = setTimeout(() => {
       try { ctrl.abort(); } catch {}
     }, timeoutMs);

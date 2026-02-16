@@ -3738,8 +3738,19 @@ async function runAi() {
               </div>
 
               <div className="muted" style={{ marginTop: 10, wordBreak: "break-all" }}>
-                <div><b>Address</b></div>
-                <div>{wallet || "Not connected"}</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div><b>Address</b></div>
+                  <button
+                    className="btn"
+                    style={{ padding: "4px 10px", borderRadius: 10, fontSize: 12 }}
+                    onClick={() => wallet && navigator.clipboard?.writeText(wallet)}
+                    disabled={!wallet}
+                    title={wallet ? "Copy address" : "Wallet not connected"}
+                  >
+                    Copy
+                  </button>
+                </div>
+                <div style={{ userSelect: "text", fontFamily: "monospace" }}>{wallet || "Not connected"}</div>
               </div>
 
               <div className="hr" style={{ margin: "12px 0" }} />

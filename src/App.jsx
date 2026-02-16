@@ -1,3 +1,5 @@
+
+
 function loadSetLS(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
   catch { return new Set(); }
@@ -1837,6 +1839,16 @@ return [c, { native, stables, custom }];
   // Pro access: subscription or redeem code
   const isPro = !!(access?.active && String(access?.plan || "").toLowerCase() === "pro");
 
+  const requirePro = useCallback((actionLabel = "This action") => {
+    if (isPro) return true;
+    // Open Access modal directly on Subscribe tab with a friendly message
+    setAccessTab("subscribe");
+    setAccessModalOpen(true);
+    setSubMsg(`🔒 ${actionLabel} requires an active Nexus Pro subscription ($15/mo).`);
+    return false;
+  }, [isPro]);
+
+
   const redeemNow = useCallback(async () => {
     const code = (redeemCode || "").trim();
     if (!code) {
@@ -2230,6 +2242,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   async function runAiExplain() {
     // Optional AI: keep it local for now (no backend/web). Fast + cheap.
+    if (!requirePro("AI explain")) return;
     if (!selectedPair) return;
     setAiExplainLoading(true);
     try {
@@ -2733,10 +2746,7 @@ const [aiLoading, setAiLoading] = useState(false);
 
   async function gridStart() {
     setErrorMsg("");
-    if (!isPro) {
-      setErrorMsg("Nexus Pro required: subscribe to start new grid sessions.");
-      return;
-    }
+    if (!requirePro("Starting a new grid session")) return;
     try {
       const body = { item: gridItem, mode: gridMode, order_mode: "MANUAL", invest_usd: Number(gridInvestUsd) || 0 };
       const r = await api("/api/grid/start", { method: "POST", token: token || undefined, body });
@@ -2762,7 +2772,7 @@ const [aiLoading, setAiLoading] = useState(false);
   async function addManualOrder() {
     setErrorMsg("");
     if (!token) return setErrorMsg("Connect wallet first.");
-    if (!isPro) return setErrorMsg("Nexus Pro required: subscribe to add new orders.");
+    if (!requirePro("Placing a new order")) return;
     if (!policy?.trading_enabled) return setErrorMsg("Trading is OFF. Enable trading first.");
     try {
       const price = Number(manualPrice);
@@ -3216,6 +3226,7 @@ if (data?.cached != null) setWatchCached(Boolean(data.cached));
 async function runAi() {
     setErrorMsg("");
     setAiOutput("");
+    if (!requirePro("AI analysis")) return;
     const q = (aiQuestion || "").trim();
 
     // Require at least 1 coin context from AI selection or Compare selection
@@ -4390,7 +4401,7 @@ async function runAi() {
                     <button
                       className="btnGhost"
                       onClick={runAiExplain}
-                      disabled={aiExplainLoading || !isPro}
+                      disabled={aiExplainLoading}
                       title={!isPro ? "Subscribe to Nexus Pro to use AI" : ""}
                     >
                       {aiExplainLoading ? "Thinking…" : (isPro ? "Run AI" : "Pro required")}
@@ -4502,10 +4513,9 @@ async function runAi() {
                 <button
                   className="btn"
                   onClick={gridStart}
-                  disabled={!isPro}
                   title={!isPro ? "Subscribe to Nexus Pro to start trading" : ""}
                 >
-                  {isPro ? "Start" : "Pro required"}
+                  {"Start"}
                 </button>
                 <button className="btnDanger" onClick={gridStop}>Stop</button>
               </div>
@@ -4641,10 +4651,10 @@ async function runAi() {
               <button
                 className="btn"
                 onClick={addManualOrder}
-                disabled={!token || !policy?.trading_enabled || !isPro}
+                disabled={!token || !policy?.trading_enabled}
                 title={!isPro ? "Subscribe to Nexus Pro to trade" : ""}
               >
-                {isPro ? "Add Order" : "Pro required"}
+                {"Add Order"}
               </button>
 
               {!token && <div className="muted tiny">Connect wallet to place orders.</div>}
@@ -4812,8 +4822,8 @@ async function runAi() {
                 </div>
               ) : null}
 
-              <button className="btn" onClick={runAi} disabled={aiLoading || !isPro}>
-                {aiLoading ? "Running…" : (isPro ? "Run" : "Pro required")}
+              <button className="btn" onClick={runAi} disabled={aiLoading}>
+                {aiLoading ? "Running…" : "Run"}
               </button>
             </div>
 

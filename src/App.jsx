@@ -1,5 +1,3 @@
-
-
 function loadSetLS(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
   catch { return new Set(); }
@@ -1804,17 +1802,16 @@ return [c, { native, stables, custom }];
   // Access (NFT / Code) — backend driven (status + redeem)
   const [access, setAccess] = useState(null); // { active, until, source, tier, note }
   const [accessModalOpen, setAccessModalOpen] = useState(false);
-  const [accessTab, setAccessTab] = useState("redeem"); // 'redeem' | 'nft' | 'subscribe' | 'subscribe'
+  const [accessTab, setAccessTab] = useState("redeem"); // 'redeem' | 'subscribe'
 
   const [redeemCode, setRedeemCode] = useState("");
   const [redeemBusy, setRedeemBusy] = useState(false);
   const [redeemMsg, setRedeemMsg] = useState("");
 
-  const [nftBusy, setNftBusy] = useState(false);
-  const [nftMsg, setNftMsg] = useState("");
-
   // Subscribe (USDC/USDT on ETH)
-  const [subPlan, setSubPlan] = useState("silver"); // silver=$10 (ETH/BNB/POL) | gold=$25 (full app)
+  // Single plan: PRO $15
+  const SUB_PRICE_USD = 15;
+  const SUB_PLAN = "pro";
   const [subToken, setSubToken] = useState("USDC"); // USDC | USDT
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState("");
@@ -1836,6 +1833,9 @@ return [c, { native, stables, custom }];
   useEffect(() => {
     refreshAccess();
   }, [refreshAccess]);
+
+  // Pro access: subscription or redeem code
+  const isPro = !!(access?.active && String(access?.plan || "").toLowerCase() === "pro");
 
   const redeemNow = useCallback(async () => {
     const code = (redeemCode || "").trim();
@@ -1869,28 +1869,7 @@ return [c, { native, stables, custom }];
   // Alias for UI handler (legacy name)
   const redeemAccess = redeemNow;
 
-  const activateNft = useCallback(async () => {
-    if (!wallet) {
-      setNftMsg("Wallet nicht verbunden.");
-      return;
-    }
-    setNftBusy(true);
-    setNftMsg("");
-    try {
-      // backend decides which NFT/contract to check; keep payload minimal
-      const res = await api("/api/nft/activate", {
-        method: "POST",
-        body: { addr: wallet },
-      });
-      if (res?.ok === false) throw new Error(res?.error || "NFT activate failed");
-      setNftMsg(res?.message || "NFT geprüft / aktiviert.");
-      await refreshAccess();
-    } catch (e) {
-      setNftMsg(e?.message || "NFT Aktivierung noch nicht verfügbar.");
-    } finally {
-      setNftBusy(false);
-    }
-  }, [wallet, api, refreshAccess]);
+  // NFTs disabled in Phase 1 (UI + backend)
 
 
   const subscribePay = useCallback(async () => {
@@ -1913,8 +1892,7 @@ return [c, { native, stables, custom }];
       const spec = specs.find((t) => t.symbol === subToken);
       if (!spec?.address) throw new Error("Token not supported.");
 
-      const priceUsd = subPlan === "gold" ? 25 : 10;
-      const amountUnits = BigInt(priceUsd) * (10n ** BigInt(spec.decimals || 6));
+      const amountUnits = BigInt(SUB_PRICE_USD) * (10n ** BigInt(spec.decimals || 6));
 
       const data = _erc20TransferData(TREASURY_ADDRESS, amountUnits);
 
@@ -1933,7 +1911,7 @@ return [c, { native, stables, custom }];
       // Ask backend to verify on-chain payment + activate plan
       const res = await api("/api/access/subscribe/verify", {
         method: "POST",
-        body: { chain_id: 1, tx_hash: txHash, plan: subPlan },
+        body: { chain_id: 1, tx_hash: txHash, plan: SUB_PLAN },
       });
 
       setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
@@ -1944,7 +1922,7 @@ return [c, { native, stables, custom }];
     } finally {
       setSubBusy(false);
     }
-  }, [wallet, subPlan, subToken, api, refreshAccess]);
+  }, [wallet, subToken, api, refreshAccess]);
 
   // Best-pair explain (click -> modal)
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }
@@ -2755,6 +2733,10 @@ const [aiLoading, setAiLoading] = useState(false);
 
   async function gridStart() {
     setErrorMsg("");
+    if (!isPro) {
+      setErrorMsg("Nexus Pro required: subscribe to start new grid sessions.");
+      return;
+    }
     try {
       const body = { item: gridItem, mode: gridMode, order_mode: "MANUAL", invest_usd: Number(gridInvestUsd) || 0 };
       const r = await api("/api/grid/start", { method: "POST", token: token || undefined, body });
@@ -2780,6 +2762,7 @@ const [aiLoading, setAiLoading] = useState(false);
   async function addManualOrder() {
     setErrorMsg("");
     if (!token) return setErrorMsg("Connect wallet first.");
+    if (!isPro) return setErrorMsg("Nexus Pro required: subscribe to add new orders.");
     if (!policy?.trading_enabled) return setErrorMsg("Trading is OFF. Enable trading first.");
     try {
       const price = Number(manualPrice);
@@ -3479,19 +3462,19 @@ async function runAi() {
 
           
 
-          {/* Access (Redeem / NFT) */}
+          {/* Access (Redeem / Subscribe) */}
           {wallet && (
             <div className="flex items-center gap-2">
               <button
                 className="btnGhost"
-	                type="button"
-	                onMouseDown={(e) => {
-	                  e.preventDefault();
-	                  e.stopPropagation();
-	                }}
-	                onClick={(e) => {
-	                  e.preventDefault();
-	                  e.stopPropagation();
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   setAccessTab("redeem");
                   setRedeemMsg("");
                   setAccessModalOpen(true);
@@ -3499,24 +3482,6 @@ async function runAi() {
                 title="Redeem Code"
               >
                 Redeem Code
-              </button>
-              <button
-                className="btnGhost"
-	                type="button"
-	                onMouseDown={(e) => {
-	                  e.preventDefault();
-	                  e.stopPropagation();
-	                }}
-	                onClick={(e) => {
-	                  e.preventDefault();
-	                  e.stopPropagation();
-                  setAccessTab("nft");
-                  setNftMsg("");
-                  setAccessModalOpen(true);
-                }}
-                title="Activate NFT"
-              >
-                Activate NFT
               </button>
 
 
@@ -3540,7 +3505,7 @@ async function runAi() {
               </button>
 
               <div className="text-xs" style={{ opacity: 0.75, marginLeft: 6 }}>
-                {access?.active ? (
+                {isPro ? (
                   <>
                     Access: <span className="pillOn">ACTIVE</span>
                     {access?.until ? (
@@ -3609,7 +3574,7 @@ async function runAi() {
                 </div>
 
                 <div className="muted" style={{ marginTop: 8 }}>
-                  Redeem a permanent code, or activate access via NFT.
+                Redeem a permanent code, or subscribe to unlock <b>Trading + AI</b>.
                 </div>
 
                 <div className="hr" style={{ margin: "12px 0" }} />
@@ -3630,16 +3595,6 @@ async function runAi() {
                     </div>
                     {redeemMsg ? <div className="hint" style={{ marginTop: 8 }}>{redeemMsg}</div> : null}
                   </div>
-                ) : accessTab === "nft" ? (
-                  <div>
-                    <div className="hint">Check connected wallet for a valid access NFT:</div>
-                    <div className="row" style={{ gap: 8, marginTop: 8 }}>
-                      <button className="btn" disabled={nftBusy} onClick={activateNft}>
-                        {nftBusy ? "..." : "Check / Activate"}
-                      </button>
-                    </div>
-                    {nftMsg ? <div className="hint" style={{ marginTop: 8 }}>{nftMsg}</div> : null}
-                  </div>
                 ) : (
                   <div>
                     <div className="hint" style={{ marginBottom: 8 }}>
@@ -3647,24 +3602,15 @@ async function runAi() {
                     </div>
 
                     <div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
-                      <b>Basic</b> ($10/mo): ETH, BNB, POL · <b>Pro</b> ($25/mo): Full app
+                      <b>Nexus Pro</b> (${SUB_PRICE_USD}/mo)
+                      <div style={{ marginTop: 6, opacity: 0.85 }}>
+                        • Trading + AI unlocked<br />
+                        • 0% performance fee until $1000 profit<br />
+                        • 3% fee only above $1000
+                      </div>
                     </div>
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      <button
-                        type="button"
-                        className={`pill ${subPlan === "silver" ? "active" : ""}`} style={{ color: "#fff", background: subPlan === "silver" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.18)", cursor: "pointer" }}
-                        onClick={() => setSubPlan("silver")}
-                      >
-                        Basic $10
-                      </button>
-                      <button
-                        type="button"
-                        className={`pill ${subPlan === "gold" ? "active" : ""}`} style={{ color: "#fff", background: subPlan === "gold" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.18)", cursor: "pointer" }}
-                        onClick={() => setSubPlan("gold")}
-                      >
-                        Pro $25
-                      </button>
                       <div style={{ flex: 1 }} />
                       <button
                         type="button"
@@ -3683,7 +3629,7 @@ async function runAi() {
                     </div>
 
                     <div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
-                      Selected: <b>{subPlan === "gold" ? "Pro $25" : "Basic $10"}</b> · <b>{subToken}</b>
+                      Selected: <b>Nexus Pro ${SUB_PRICE_USD}</b> · <b>{subToken}</b>
                     </div>
 
                     <div className="row" style={{ gap: 8, marginTop: 8 }}>
@@ -3711,9 +3657,8 @@ async function runAi() {
                 )}
 
                 <div className="hint" style={{ marginTop: 14 }}>
-                  Status: {access?.active ? "ACTIVE" : "OFF"}
+                  Status: {isPro ? "ACTIVE" : "OFF"}
                   {access?.source ? ` • via ${access.source}` : ""}
-                  {access?.tier ? ` • ${access.tier}` : ""}
                 </div>
               </div>
             </>
@@ -4442,8 +4387,13 @@ async function runAi() {
                 <div style={{ display: "grid", gap: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                     <div className="label">AI commentary (optional)</div>
-                    <button className="btnGhost" onClick={runAiExplain} disabled={aiExplainLoading}>
-                      {aiExplainLoading ? "Thinking…" : "Run AI"}
+                    <button
+                      className="btnGhost"
+                      onClick={runAiExplain}
+                      disabled={aiExplainLoading || !isPro}
+                      title={!isPro ? "Subscribe to Nexus Pro to use AI" : ""}
+                    >
+                      {aiExplainLoading ? "Thinking…" : (isPro ? "Run AI" : "Pro required")}
                     </button>
                   </div>
                   {aiExplainText ? (
@@ -4549,7 +4499,14 @@ async function runAi() {
               </div>
 
               <div className="btnRow">
-                <button className="btn" onClick={gridStart}>Start</button>
+                <button
+                  className="btn"
+                  onClick={gridStart}
+                  disabled={!isPro}
+                  title={!isPro ? "Subscribe to Nexus Pro to start trading" : ""}
+                >
+                  {isPro ? "Start" : "Pro required"}
+                </button>
                 <button className="btnDanger" onClick={gridStop}>Stop</button>
               </div>
 
@@ -4681,7 +4638,14 @@ async function runAi() {
                 </div>
               )}
 
-              <button className="btn" onClick={addManualOrder} disabled={!token || !policy?.trading_enabled}>Add Order</button>
+              <button
+                className="btn"
+                onClick={addManualOrder}
+                disabled={!token || !policy?.trading_enabled || !isPro}
+                title={!isPro ? "Subscribe to Nexus Pro to trade" : ""}
+              >
+                {isPro ? "Add Order" : "Pro required"}
+              </button>
 
               {!token && <div className="muted tiny">Connect wallet to place orders.</div>}
               {token && !policy?.trading_enabled && <div className="muted tiny">Enable trading (policy) to place orders.</div>}
@@ -4842,7 +4806,15 @@ async function runAi() {
                 </button>
               </div>
 
-              <button className="btn" onClick={runAi} disabled={aiLoading}>{aiLoading ? "Running…" : "Run"}</button>
+              {!isPro ? (
+                <div className="hint" style={{ marginTop: 10, color: "rgba(255,255,255,0.75)" }}>
+                  AI is available for <b>Nexus Pro</b> only. Subscribe to unlock.
+                </div>
+              ) : null}
+
+              <button className="btn" onClick={runAi} disabled={aiLoading || !isPro}>
+                {aiLoading ? "Running…" : (isPro ? "Run" : "Pro required")}
+              </button>
             </div>
 
             <div className="aiOut">

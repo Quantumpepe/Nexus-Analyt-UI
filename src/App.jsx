@@ -4272,7 +4272,7 @@ async function runAi() {
                         onChange={(e) => setWithdrawAmt(e.target.value)}
                         placeholder="0.25"
                         inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
+                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, #0f3d33, #0c2f28)", color: "#000000", border: "1px solid rgba(0,255,170,0.35)" }}
                       />
                     </div>
                     <button
@@ -4293,7 +4293,7 @@ async function runAi() {
                       value={sendTo}
                       onChange={(e) => setSendTo(e.target.value)}
                       placeholder="0x…"
-                      style={{ width: "100%", height: 44, fontSize: 14, fontFamily: "monospace", background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
+                      style={{ width: "100%", height: 44, fontSize: 14, fontFamily: "monospace", background: "linear-gradient(180deg, #0f3d33, #0c2f28)", color: "#000000", border: "1px solid rgba(0,255,170,0.35)" }}
                     />
                   </div>
 
@@ -4306,7 +4306,7 @@ async function runAi() {
                         onChange={(e) => setSendAmt(e.target.value)}
                         placeholder="0.10"
                         inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
+                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, #0f3d33, #0c2f28)", color: "#000000", border: "1px solid rgba(0,255,170,0.35)" }}
                       />
                     </div>
                     <button

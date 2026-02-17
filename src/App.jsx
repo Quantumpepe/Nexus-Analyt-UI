@@ -4183,7 +4183,7 @@ async function runAi() {
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(true); }}
                     disabled={!wallet}
                     title={!wallet ? "Connect wallet first" : "Open Withdraw & Send"}
-                    style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14, background: "linear-gradient(180deg, #00ffa6, #00d28c)", color: "#ffffff", border: "none", borderRadius: 12 }}
+                    className="btn" style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14 }}
                   >
                     Open Withdraw &amp; Send
                   </button>
@@ -4280,7 +4280,7 @@ async function runAi() {
                       className="btnPill"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
                       disabled={txBusy || !wallet}
-                      style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap", background: "linear-gradient(180deg, #00ffa6, #00d28c)", color: "#00110b", border: "none", borderRadius: 12 }}
+                      className="btn" style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
                     >
                       {txBusy ? "…" : "Withdraw"}
                     </button>
@@ -4314,7 +4314,7 @@ async function runAi() {
                       className="btnPill"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
                       disabled={txBusy || !wallet}
-                      style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap", background: "linear-gradient(180deg, #00ffa6, #00d28c)", color: "#00110b", border: "none", borderRadius: 12 }}
+                      className="btn" style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap" }}
                     >
                       {txBusy ? "…" : "Send"}
                     </button>
@@ -4347,7 +4347,7 @@ async function runAi() {
                     type="button"
                     className="btnPill"
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }}
-                    style={{ height: 42, flex: 1, background: "linear-gradient(180deg, #00ffa6, #00d28c)", color: "#00110b", border: "none", borderRadius: 12 }}
+                    className="btn" style={{ height: 42, flex: 1 }}
                   >
                     Close
                   </button>

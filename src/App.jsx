@@ -1264,6 +1264,8 @@ const [errorMsg, setErrorMsg] = useState("");
   // External wallets must be optional and only enabled explicitly elsewhere.
   const { ready, authenticated, login, logout, getAccessToken } = usePrivy();
   const { wallets: privyWallets } = useWallets();
+  const privyWalletsKey = useMemo(() => (privyWallets || []).map((w) => String(w?.address || "")).join("|"), [privyWallets]);
+
 
   // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
   const _loginInFlight = useRef(false);
@@ -1274,6 +1276,7 @@ const [errorMsg, setErrorMsg] = useState("");
   // not the Privy JWT. We keep both:
   const [privyJwt, setPrivyJwt] = useState("");
   const [token, setToken] = useLocalStorageState("nexus_token", ""); // backend token
+  const [tokenAddr, setTokenAddr] = useLocalStorageState("nexus_token_addr", ""); // wallet bound to backend token
   const [wallet, setWallet] = useLocalStorageState("nexus_wallet", "");
   // Trading policy is UI-only for now (no Vault/Allowance yet).
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
@@ -1506,6 +1509,7 @@ const DEFAULT_CHAIN = "POL";
       if (!authenticated) {
         setWallet("");
         setToken("");
+        setTokenAddr("");
         setPrivyJwt("");
         setPolicy(null);
         return;
@@ -1520,6 +1524,12 @@ const DEFAULT_CHAIN = "POL";
         privyWallets?.[0];
 
       const addr = String(embedded?.address || "").toLowerCase();
+      // If the connected wallet changed, the backend token is no longer valid.
+      if (!cancelled && addr && token && tokenAddr && tokenAddr !== addr) {
+        setToken("");
+        setTokenAddr("");
+      }
+      // Persist wallet address as soon as it is available.
       if (!cancelled && addr) setWallet(addr);
 
       // Privy access token (JWT) - keep for future if needed.
@@ -1537,7 +1547,7 @@ const DEFAULT_CHAIN = "POL";
         if (!token && addr && !_backendAuthInFlight.current) {
           _backendAuthInFlight.current = true;
           const bt = await ensureBackendAuthToken(addr, embedded);
-          if (!cancelled) setToken(bt);
+          if (!cancelled) { setToken(bt); setTokenAddr(addr); }
         }
       } catch (e) {
         // Don't hard-fail the whole UI; just surface an error when protected calls are made.
@@ -1550,7 +1560,7 @@ const DEFAULT_CHAIN = "POL";
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, authenticated, privyWallets?.length]);
+  }, [ready, authenticated, privyWalletsKey, token, tokenAddr]);
 
   const connectWallet = async () => {
     // Connect = Privy login only (email/embedded). Never trigger MetaMask here.

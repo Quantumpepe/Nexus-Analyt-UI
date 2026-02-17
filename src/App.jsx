@@ -3690,7 +3690,6 @@ async function runAi() {
               type="button"
               className="btn"
               onMouseDown={(e) => {
-                e.preventDefault();
                 e.stopPropagation();
               }}
               onClick={(e) => {
@@ -3916,11 +3915,9 @@ async function runAi() {
               role="dialog"
               aria-label="Wallet details"
               onMouseDown={(e) => {
-                e.preventDefault();
                 e.stopPropagation();
               }}
               onClick={(e) => {
-                e.preventDefault();
                 e.stopPropagation();
               }}
               style={{
@@ -4168,7 +4165,7 @@ async function runAi() {
                           onChange={(e) => setWithdrawAmt(e.target.value)}
                           placeholder="0.25"
                           inputMode="decimal"
-                          style={{ width: "100%", height: 42, fontSize: 14 }}
+                          style={{ width: "100%", height: 42, fontSize: 14, background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
                         />
                       </div>
                       <button
@@ -4192,7 +4189,7 @@ async function runAi() {
                           value={sendTo}
                           onChange={(e) => setSendTo(e.target.value)}
                           placeholder="0x…"
-                          style={{ width: "100%", height: 42, fontSize: 14, fontFamily: "monospace" }}
+                          style={{ width: "100%", height: 42, fontSize: 14, fontFamily: "monospace", background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
                         />
                       </div>
 
@@ -4205,7 +4202,7 @@ async function runAi() {
                             onChange={(e) => setSendAmt(e.target.value)}
                             placeholder="0.10"
                             inputMode="decimal"
-                            style={{ width: "100%", height: 42, fontSize: 14 }}
+                            style={{ width: "100%", height: 42, fontSize: 14, background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
                           />
                         </div>
                         <button

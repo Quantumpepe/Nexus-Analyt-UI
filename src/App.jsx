@@ -4139,81 +4139,110 @@ async function runAi() {
               </div>
               <div className="hr" style={{ margin: "12px 0" }} />
 
-              <div>
-                <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Withdraw &amp; Send</div>
-                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                  Withdraw returns funds to this Privy wallet first (vault pays msg.sender). Then you can send to any address.
-                </div>
-
-                <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
-                    <div>
-                      <div className="muted" style={{ fontSize: 12 }}>Withdraw amount ({balActiveChain || DEFAULT_CHAIN})</div>
-                      <input
-                        className="input"
-                        value={withdrawAmt}
-                        onChange={(e) => setWithdrawAmt(e.target.value)}
-                        placeholder="e.g. 0.25"
-                        inputMode="decimal"
-                        style={{ width: "100%", marginTop: 6 }}
-                      />
+              <div style={{
+                  marginTop: 10,
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 14,
+                  padding: 12
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Withdraw &amp; Send</div>
+                    <div className="pill" style={{ fontSize: 12, padding: "4px 10px" }}>
+                      {balActiveChain || DEFAULT_CHAIN}
                     </div>
-                    <button
-                      type="button"
-                      className="btnPill"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
-                      disabled={txBusy || !wallet}
-                      title={!wallet ? "Connect wallet first" : "Withdraw from vault to this wallet"}
-                      style={{ height: 40 }}
-                    >
-                      {txBusy ? "…" : "Withdraw"}
-                    </button>
                   </div>
 
-                  <div style={{ display: "grid", gap: 8 }}>
-                    <div>
-                      <div className="muted" style={{ fontSize: 12 }}>Send to address</div>
-                      <input
-                        className="input"
-                        value={sendTo}
-                        onChange={(e) => setSendTo(e.target.value)}
-                        placeholder="0x…"
-                        style={{ width: "100%", marginTop: 6, fontFamily: "monospace" }}
-                      />
-                    </div>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.25 }}>
+                    Withdraw sends funds from the Vault back to <b>this</b> Privy wallet first. After that you can send to any address.
+                  </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
+                  <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                    {/* Withdraw row */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
                       <div>
-                        <div className="muted" style={{ fontSize: 12 }}>Amount ({balActiveChain || DEFAULT_CHAIN})</div>
+                        <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Withdraw amount</div>
                         <input
                           className="input"
-                          value={sendAmt}
-                          onChange={(e) => setSendAmt(e.target.value)}
-                          placeholder="e.g. 0.10"
+                          value={withdrawAmt}
+                          onChange={(e) => setWithdrawAmt(e.target.value)}
+                          placeholder="0.25"
                           inputMode="decimal"
-                          style={{ width: "100%", marginTop: 6 }}
+                          style={{ width: "100%", height: 42, fontSize: 14 }}
                         />
                       </div>
                       <button
                         type="button"
                         className="btnPill"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
                         disabled={txBusy || !wallet}
-                        title={!wallet ? "Connect wallet first" : "Send native coin"}
-                        style={{ height: 40 }}
+                        title={!wallet ? "Connect wallet first" : "Withdraw from vault to this wallet"}
+                        style={{ height: 42, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
                       >
-                        {txBusy ? "…" : "Send"}
+                        {txBusy ? "…" : "Withdraw"}
                       </button>
                     </div>
-                  </div>
 
-                  {txMsg ? (
-                    <div style={{ marginTop: 4, fontSize: 12, color: txMsg.toLowerCase().includes("fail") ? "#ffb3b3" : "#bfffd6" }}>
-                      {txMsg}
+                    {/* Send row */}
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <div>
+                        <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Send to address</div>
+                        <input
+                          className="input"
+                          value={sendTo}
+                          onChange={(e) => setSendTo(e.target.value)}
+                          placeholder="0x…"
+                          style={{ width: "100%", height: 42, fontSize: 14, fontFamily: "monospace" }}
+                        />
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
+                        <div>
+                          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Amount</div>
+                          <input
+                            className="input"
+                            value={sendAmt}
+                            onChange={(e) => setSendAmt(e.target.value)}
+                            placeholder="0.10"
+                            inputMode="decimal"
+                            style={{ width: "100%", height: 42, fontSize: 14 }}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="btnPill"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
+                          disabled={txBusy || !wallet}
+                          title={!wallet ? "Connect wallet first" : "Send native coin"}
+                          style={{ height: 42, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap" }}
+                        >
+                          {txBusy ? "…" : "Send"}
+                        </button>
+                      </div>
                     </div>
-                  ) : null}
-                </div>
-              </div>
+
+                    {txMsg ? (
+                      <div
+                        style={{
+                          marginTop: 2,
+                          fontSize: 12,
+                          padding: "8px 10px",
+                          borderRadius: 12,
+                          background: txMsg.toLowerCase().includes("fail")
+                            ? "rgba(255,80,80,0.10)"
+                            : "rgba(80,255,160,0.10)",
+                          border: txMsg.toLowerCase().includes("fail")
+                            ? "1px solid rgba(255,80,80,0.20)"
+                            : "1px solid rgba(80,255,160,0.18)",
+                          color: txMsg.toLowerCase().includes("fail") ? "#ffb3b3" : "#bfffd6",
+                          lineHeight: 1.25
+                        }}
+                      >
+                        {txMsg}
+                      </div>
+                    ) : null}
+                  </div>
+                </div></div>
 
             </div>
 

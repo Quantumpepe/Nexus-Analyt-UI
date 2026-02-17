@@ -1262,8 +1262,12 @@ const [errorMsg, setErrorMsg] = useState("");
 
   // Privy (Auth + embedded wallet). IMPORTANT: We do NOT trigger MetaMask here.
   // External wallets must be optional and only enabled explicitly elsewhere.
-  const { authenticated, login, logout, getAccessToken } = usePrivy();
+  const { ready, authenticated, login, logout, getAccessToken } = usePrivy();
   const { wallets: privyWallets } = useWallets();
+
+  // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
+  const _loginInFlight = useRef(false);
+  const _backendAuthInFlight = useRef(false);
 
   // auth
   // NOTE: Backend expects its OWN Bearer token (issued by /api/auth/verify),
@@ -1495,6 +1499,10 @@ const DEFAULT_CHAIN = "POL";
     };
 
     (async () => {
+      // Wait until Privy is ready; avoids transient states where authenticated is true
+      // but wallets are not yet populated.
+      if (!ready) return;
+
       if (!authenticated) {
         setWallet("");
         setToken("");
@@ -1523,16 +1531,18 @@ const DEFAULT_CHAIN = "POL";
       }
 
       // Backend auth token (required for /api/ai/* and other protected endpoints)
+      // Guard against duplicate concurrent auth attempts (can trigger multiple sign requests).
       try {
-        // If we already have a token, keep it.
         if (cancelled) return;
-        if (!token && addr) {
+        if (!token && addr && !_backendAuthInFlight.current) {
+          _backendAuthInFlight.current = true;
           const bt = await ensureBackendAuthToken(addr, embedded);
           if (!cancelled) setToken(bt);
         }
       } catch (e) {
         // Don't hard-fail the whole UI; just surface an error when protected calls are made.
-        // (AI panel will show 401 until this succeeds.)
+      } finally {
+        _backendAuthInFlight.current = false;
       }
     })();
 
@@ -1540,14 +1550,20 @@ const DEFAULT_CHAIN = "POL";
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authenticated, privyWallets?.length]);
+  }, [ready, authenticated, privyWallets?.length]);
 
   const connectWallet = async () => {
     // Connect = Privy login only (email/embedded). Never trigger MetaMask here.
     try {
+      if (!ready) return;
+      if (authenticated) return; // already logged in
+      if (_loginInFlight.current) return;
+      _loginInFlight.current = true;
       await login();
     } catch (e) {
       setErrorMsg(String(e?.message || e || "Login failed"));
+    } finally {
+      _loginInFlight.current = false;
     }
   };
 
@@ -3549,7 +3565,11 @@ async function runAi() {
               aria-label="Open wallet details"
               title="Open wallet details"
             >
-              {wallet ? `Wallet: ${wallet.slice(0, 6)}…${wallet.slice(-4)}` : "Wallet not connected"}
+              {wallet
+                ? `Wallet: ${wallet.slice(0, 6)}…${wallet.slice(-4)}`
+                : authenticated
+                  ? "Wallet: loading…"
+                  : "Wallet not connected"}
             </button>
 
             {/* External connect is EXPLICIT: only this button may open MetaMask */}
@@ -3563,11 +3583,12 @@ async function runAi() {
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (wallet) disconnectWallet();
+                // Use Privy auth state (wallet can be briefly empty while Privy initializes)
+                if (authenticated) disconnectWallet();
                 else connectWallet();
               }}
             >
-              {wallet ? "Disconnect" : "Connect"}
+              {authenticated ? "Disconnect" : "Connect"}
             </button>
           </div>
 

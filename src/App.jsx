@@ -1285,6 +1285,7 @@ const [errorMsg, setErrorMsg] = useState("");
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
+  const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
   const [walletUsdLoading, setWalletUsdLoading] = useState(false);
 
 
@@ -1619,7 +1620,10 @@ return [c, { native, stables, custom }];
             tokenPxByChain[c] = addrs.length ? await fetchTokenUsdPrices(c, addrs) : {};
           }
 
-          const byChain = {};
+          // Save latest price maps for UI (wallet token price display).
+          setWalletPx({ native: nativePx || {}, tokenByChain: tokenPxByChain || {}, ts: Date.now() });
+
+const byChain = {};
           let total = 0;
           let unpriced = 0;
 
@@ -3845,7 +3849,7 @@ async function runAi() {
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                         <div style={{ fontWeight: 800 }}>{c}</div>
                         <div style={{ fontVariantNumeric: "tabular-nums" }}>
-                          {nativeLabel}: {row.native ?? "—"}
+                          {nativeLabel}: {row.native ?? "—"}{Number.isFinite(walletPx?.native?.[c]) ? ` • ${fmtUsd(walletPx.native[c])}` : ""}
                         </div>
                       </div>
 
@@ -3862,7 +3866,10 @@ async function runAi() {
                       >
                         {Object.keys(row.stables || { USDC: 0, USDT: 0 }).map((sym) => (
                           <React.Fragment key={sym}>
-                            <div className="muted">{sym}</div>
+                            <div>
+                              <div className="muted">{sym}</div>
+                              <div style={{ fontSize: 12, opacity: 0.75 }}>{fmtUsd(1)}</div>
+                            </div>
                             <div style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>
                               {(row.stables && row.stables[sym]) ?? "0"}
                             </div>
@@ -3878,7 +3885,14 @@ async function runAi() {
                             {row.custom.map((t) => (
                               <React.Fragment key={t.address}>
                                 <div title={t.address} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                                  {t.symbol}
+                                  <div>{t.symbol}</div>
+                                  <div style={{ fontSize: 12, opacity: 0.75 }}>
+                                    {(() => {
+                                      const addr = String(t?.address || "").toLowerCase();
+                                      const px = walletPx?.tokenByChain?.[c]?.[addr];
+                                      return Number.isFinite(px) ? fmtUsd(px) : "—";
+                                    })()}
+                                  </div>
                                 </div>
                                 <div style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>
                                   {t.balance || "0"}

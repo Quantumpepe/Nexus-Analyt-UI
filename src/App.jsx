@@ -1,3 +1,6 @@
+import { Buffer } from "buffer";
+if (typeof window !== "undefined" && !window.Buffer) window.Buffer = Buffer;
+
 function loadSetLS(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
   catch { return new Set(); }

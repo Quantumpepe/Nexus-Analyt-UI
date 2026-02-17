@@ -1,14 +1,25 @@
-// Buffer polyfill (no npm install needed)
+// Proper minimal Buffer polyfill for browser
 if (typeof window !== "undefined" && !window.Buffer) {
   window.Buffer = {
-    from: (data, encoding) => {
+    from: (input, encoding) => {
       if (encoding === "base64") {
-        return Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+        const binary = atob(input);
+        const len = binary.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes;
       }
-      return new TextEncoder().encode(String(data));
+      if (encoding === "utf8" || !encoding) {
+        return new TextEncoder().encode(input);
+      }
+      throw new Error("Unsupported encoding");
     },
+    isBuffer: () => false
   };
 }
+
 function loadSetLS(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
   catch { return new Set(); }

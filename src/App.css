@@ -527,3 +527,27 @@ body{
   margin-top: 2px;
   font-size: 10px;
 }
+
+
+/* === Nexus Primary Button (matches POL badge green) === */
+.nexusPrimaryBtn {
+  background: linear-gradient(180deg, #00ffa6, #00d28c);
+  color: #00110b !important;
+  border: none !important;
+  border-radius: 12px;
+  font-weight: 600;
+  transition: all 0.15s ease-in-out;
+}
+
+.nexusPrimaryBtn:hover {
+  filter: brightness(1.05);
+}
+
+.nexusPrimaryBtn:active {
+  transform: translateY(1px);
+}
+
+.nexusPrimaryBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

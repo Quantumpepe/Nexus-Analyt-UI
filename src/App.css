@@ -531,7 +531,7 @@ body{
 
 /* === Nexus Primary Button (matches POL badge green) === */
 .nexusPrimaryBtn {
-  background: linear-gradient(180deg, #00ffa6, #00d28c);
+  background: linear-gradient(180deg, #2ecc71, #25a25a);
   color: #00110b !important;
   border: none !important;
   border-radius: 12px;

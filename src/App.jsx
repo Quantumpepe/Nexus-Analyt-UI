@@ -1264,8 +1264,6 @@ const [errorMsg, setErrorMsg] = useState("");
   // External wallets must be optional and only enabled explicitly elsewhere.
   const { ready, authenticated, login, logout, getAccessToken } = usePrivy();
   const { wallets: privyWallets } = useWallets();
-  const privyWalletsKey = useMemo(() => (privyWallets || []).map((w) => String(w?.address || "")).join("|"), [privyWallets]);
-
 
   // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
   const _loginInFlight = useRef(false);
@@ -1276,12 +1274,18 @@ const [errorMsg, setErrorMsg] = useState("");
   // not the Privy JWT. We keep both:
   const [privyJwt, setPrivyJwt] = useState("");
   const [token, setToken] = useLocalStorageState("nexus_token", ""); // backend token
-  const [tokenAddr, setTokenAddr] = useLocalStorageState("nexus_token_addr", ""); // wallet bound to backend token
   const [wallet, setWallet] = useLocalStorageState("nexus_wallet", "");
   // Trading policy is UI-only for now (no Vault/Allowance yet).
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
   const [policy, setPolicy] = useState({ trading_enabled: false });
   const [walletModalOpen, setWalletModalOpen] = useState(false);
+
+  // Wallet actions (Vault withdraw + native send)
+  const [txBusy, setTxBusy] = useState(false);
+  const [txMsg, setTxMsg] = useState("");
+  const [withdrawAmt, setWithdrawAmt] = useState(""); // in native units (e.g., POL)
+  const [sendTo, setSendTo] = useState("");
+  const [sendAmt, setSendAmt] = useState(""); // in native units
   // Contracts (Vault/Executor/Router) fetched from backend ENV so UI stays in sync after deploys
   const [contracts, setContracts] = useState(null);
   // Fetch contract addresses from backend (Render ENV) once
@@ -1295,6 +1299,112 @@ const [errorMsg, setErrorMsg] = useState("");
       }
     })();
   }, []);
+
+  // -------------------------
+  // Wallet actions: Vault withdraw + native send
+  // -------------------------
+  const _getEmbeddedProvider = async () => {
+    const embedded = privyWallets?.[0];
+    const provider = await embedded?.getEthereumProvider?.();
+    if (!provider?.request) throw new Error("Privy wallet provider not available.");
+    return provider;
+  };
+
+  const _trySwitchChain = async (provider, chainId) => {
+    if (!provider?.request || !chainId) return;
+    const hexChainId = "0x" + Number(chainId).toString(16);
+    try {
+      await provider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: hexChainId }],
+      });
+    } catch {
+      // Some embedded providers don't support chain switching; the tx will fail if on wrong chain.
+    }
+  };
+
+  const _encodeUint256 = (bn) => {
+    // bn can be a BigNumber (ethers v5 style) or bigint
+    let hex = "";
+    try {
+      hex = typeof bn === "bigint" ? bn.toString(16) : String(bn?.toHexString?.() || "").replace(/^0x/, "");
+    } catch {
+      hex = "";
+    }
+    if (!hex) hex = "0";
+    return hex.padStart(64, "0");
+  };
+
+  const _isAddr = (a) => /^0x[a-fA-F0-9]{40}$/.test(String(a || "").trim());
+
+  const sendNative = async () => {
+    try {
+      setTxMsg("");
+      if (!wallet) throw new Error("Wallet not connected.");
+      if (!_isAddr(sendTo)) throw new Error("Recipient address invalid.");
+      const amt = String(sendAmt || "").trim();
+      if (!amt || Number(amt) <= 0) throw new Error("Amount invalid.");
+      const chainKey = (balActiveChain || DEFAULT_CHAIN);
+      const chainId = CHAIN_ID?.[chainKey] || 137;
+
+      setTxBusy(true);
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, chainId);
+
+      const valueHex = Utils.hexValue(Utils.parseEther(amt));
+      const txHash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: wallet, to: String(sendTo).trim(), value: valueHex, data: "0x" }],
+      });
+
+      setTxMsg(`Sent. Tx: ${txHash}`);
+      setSendAmt("");
+      setSendTo("");
+      // refresh wallet balances in background
+      setTimeout(() => refreshBalances(), 200);
+    } catch (e) {
+      setTxMsg(String(e?.message || e || "Send failed"));
+    } finally {
+      setTxBusy(false);
+    }
+  };
+
+  const withdrawFromVault = async () => {
+    try {
+      setTxMsg("");
+      if (!wallet) throw new Error("Wallet not connected.");
+      const amt = String(withdrawAmt || "").trim();
+      if (!amt || Number(amt) <= 0) throw new Error("Withdraw amount invalid.");
+
+      const chainKey = (balActiveChain || DEFAULT_CHAIN);
+      const chainId = CHAIN_ID?.[chainKey] || 137;
+      const vaultAddr =
+        (contracts?.chains?.[chainKey]?.vault || "").trim() ||
+        (contracts?.chains?.[String(chainKey).toLowerCase()]?.vault || "").trim();
+      if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
+
+      const wei = Utils.parseEther(amt);
+      const data = "0x2e1a7d4d" + _encodeUint256(wei); // withdraw(uint256)
+
+      setTxBusy(true);
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, chainId);
+
+      const txHash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: wallet, to: vaultAddr, value: "0x0", data }],
+      });
+
+      setTxMsg(`Withdraw submitted. Tx: ${txHash}`);
+      setWithdrawAmt("");
+      setTimeout(() => refreshBalances(), 1200);
+    } catch (e) {
+      setTxMsg(String(e?.message || e || "Withdraw failed"));
+    } finally {
+      setTxBusy(false);
+    }
+  };
+
 
   // Alchemy balances (native per chain, optionally tokens later)
   const [balLoading, setBalLoading] = useState(false);
@@ -1509,7 +1619,6 @@ const DEFAULT_CHAIN = "POL";
       if (!authenticated) {
         setWallet("");
         setToken("");
-        setTokenAddr("");
         setPrivyJwt("");
         setPolicy(null);
         return;
@@ -1524,12 +1633,6 @@ const DEFAULT_CHAIN = "POL";
         privyWallets?.[0];
 
       const addr = String(embedded?.address || "").toLowerCase();
-      // If the connected wallet changed, the backend token is no longer valid.
-      if (!cancelled && addr && token && tokenAddr && tokenAddr !== addr) {
-        setToken("");
-        setTokenAddr("");
-      }
-      // Persist wallet address as soon as it is available.
       if (!cancelled && addr) setWallet(addr);
 
       // Privy access token (JWT) - keep for future if needed.
@@ -1547,7 +1650,7 @@ const DEFAULT_CHAIN = "POL";
         if (!token && addr && !_backendAuthInFlight.current) {
           _backendAuthInFlight.current = true;
           const bt = await ensureBackendAuthToken(addr, embedded);
-          if (!cancelled) { setToken(bt); setTokenAddr(addr); }
+          if (!cancelled) setToken(bt);
         }
       } catch (e) {
         // Don't hard-fail the whole UI; just surface an error when protected calls are made.
@@ -1560,7 +1663,7 @@ const DEFAULT_CHAIN = "POL";
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, authenticated, privyWalletsKey, token, tokenAddr]);
+  }, [ready, authenticated, privyWallets?.length]);
 
   const connectWallet = async () => {
     // Connect = Privy login only (email/embedded). Never trigger MetaMask here.
@@ -4034,6 +4137,84 @@ async function runAi() {
                   );
                 })}
               </div>
+              <div className="hr" style={{ margin: "12px 0" }} />
+
+              <div>
+                <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Withdraw &amp; Send</div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                  Withdraw returns funds to this Privy wallet first (vault pays msg.sender). Then you can send to any address.
+                </div>
+
+                <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
+                    <div>
+                      <div className="muted" style={{ fontSize: 12 }}>Withdraw amount ({balActiveChain || DEFAULT_CHAIN})</div>
+                      <input
+                        className="input"
+                        value={withdrawAmt}
+                        onChange={(e) => setWithdrawAmt(e.target.value)}
+                        placeholder="e.g. 0.25"
+                        inputMode="decimal"
+                        style={{ width: "100%", marginTop: 6 }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btnPill"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
+                      disabled={txBusy || !wallet}
+                      title={!wallet ? "Connect wallet first" : "Withdraw from vault to this wallet"}
+                      style={{ height: 40 }}
+                    >
+                      {txBusy ? "…" : "Withdraw"}
+                    </button>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <div>
+                      <div className="muted" style={{ fontSize: 12 }}>Send to address</div>
+                      <input
+                        className="input"
+                        value={sendTo}
+                        onChange={(e) => setSendTo(e.target.value)}
+                        placeholder="0x…"
+                        style={{ width: "100%", marginTop: 6, fontFamily: "monospace" }}
+                      />
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
+                      <div>
+                        <div className="muted" style={{ fontSize: 12 }}>Amount ({balActiveChain || DEFAULT_CHAIN})</div>
+                        <input
+                          className="input"
+                          value={sendAmt}
+                          onChange={(e) => setSendAmt(e.target.value)}
+                          placeholder="e.g. 0.10"
+                          inputMode="decimal"
+                          style={{ width: "100%", marginTop: 6 }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="btnPill"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
+                        disabled={txBusy || !wallet}
+                        title={!wallet ? "Connect wallet first" : "Send native coin"}
+                        style={{ height: 40 }}
+                      >
+                        {txBusy ? "…" : "Send"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {txMsg ? (
+                    <div style={{ marginTop: 4, fontSize: 12, color: txMsg.toLowerCase().includes("fail") ? "#ffb3b3" : "#bfffd6" }}>
+                      {txMsg}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
             </div>
 
 

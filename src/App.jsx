@@ -1,24 +1,9 @@
-// Proper minimal Buffer polyfill for browser
-if (typeof window !== "undefined" && !window.Buffer) {
-  window.Buffer = {
-    from: (input, encoding) => {
-      if (encoding === "base64") {
-        const binary = atob(input);
-        const len = binary.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        return bytes;
-      }
-      if (encoding === "utf8" || !encoding) {
-        return new TextEncoder().encode(input);
-      }
-      throw new Error("Unsupported encoding");
-    },
-    isBuffer: () => false
-  };
+import { Buffer } from "buffer";
+
+if (typeof window !== "undefined") {
+  window.Buffer = window.Buffer || Buffer;
 }
+
 
 function loadSetLS(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }

@@ -2842,8 +2842,19 @@ const [aiLoading, setAiLoading] = useState(false);
   useInterval(fetchGridOrders, 15000, !!gridItem);
 
   const gridLiveFallback = useMemo(() => {
-    const row = (watchRows || []).find((r) => String(r.symbol || "").toUpperCase() === String(gridItem || "").toUpperCase());
-    return row?.price ?? null;
+    const tgt = String(gridItem || "").toUpperCase();
+    const rows = (watchRows || []);
+    // Prefer exact symbol match from watchlist.
+    let row = rows.find((r) => String(r.symbol || "").toUpperCase() === tgt);
+    if (row?.price != null) return row.price;
+
+    // Common alias: Polygon's native token was historically shown as MATIC on many price feeds.
+    if (tgt === "POL") {
+      row = rows.find((r) => String(r.symbol || "").toUpperCase() === "MATIC");
+      if (row?.price != null) return row.price;
+    }
+
+    return null;
   }, [watchRows, gridItem]);
   const shownGridPrice = gridMeta.price ?? gridLiveFallback ?? null;
 

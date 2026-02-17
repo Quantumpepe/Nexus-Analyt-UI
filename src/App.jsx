@@ -1020,7 +1020,7 @@ const tMin = x[0];
             left: 12,
             top: 12,
             background: "rgba(7,24,22,.92)",
-            border: "1px solid rgba(210,220,230,.18)",
+            border: "none",
             borderRadius: 14,
             padding: "10px 12px",
             minWidth: 190,
@@ -3815,7 +3815,7 @@ async function runAi() {
                   width: 380,
                   maxWidth: "calc(100vw - 24px)",
                   background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: "none",
                   borderRadius: 14,
                   padding: 14,
                   zIndex: 4000,
@@ -3879,14 +3879,14 @@ async function runAi() {
                       <div style={{ flex: 1 }} />
                       <button
                         type="button"
-                        className={`pill ${subToken === "USDC" ? "active" : ""}`} style={{ color: "#fff", background: subToken === "USDC" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.18)", cursor: "pointer" }}
+                        className={`pill ${subToken === "USDC" ? "active" : ""}`} style={{ color: "#fff", background: subToken === "USDC" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
                         onClick={() => setSubToken("USDC")}
                       >
                         USDC
                       </button>
                       <button
                         type="button"
-                        className={`pill ${subToken === "USDT" ? "active" : ""}`} style={{ color: "#fff", background: subToken === "USDT" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "1px solid rgba(255,255,255,0.18)", cursor: "pointer" }}
+                        className={`pill ${subToken === "USDT" ? "active" : ""}`} style={{ color: "#fff", background: subToken === "USDT" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
                         onClick={() => setSubToken("USDT")}
                       >
                         USDT
@@ -3949,7 +3949,7 @@ async function runAi() {
                 right: 0,
                 width: 340,
                 background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                border: "1px solid rgba(255,255,255,0.08)",
+                border: "none",
                 borderRadius: 14,
                 padding: 14,
                 zIndex: 2000,
@@ -4060,7 +4060,7 @@ async function runAi() {
                     <div
                       key={c}
                       style={{
-                        border: "1px solid rgba(255,255,255,0.08)",
+                        border: "none",
                         padding: "10px",
                         borderRadius: 12,
                         background: "rgba(255,255,255,0.04)",
@@ -4162,7 +4162,7 @@ async function runAi() {
               <div style={{
                   marginTop: 10,
                   background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  border: "none",
                   borderRadius: 14,
                   padding: 12
                 }}>
@@ -4183,7 +4183,7 @@ async function runAi() {
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(true); }}
                     disabled={!wallet}
                     title={!wallet ? "Connect wallet first" : "Open Withdraw & Send"}
-                    style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.95), rgba(0,210,140,0.95))", color: "#00110b", border: "1px solid rgba(0,0,0,0.25)", borderRadius: 12 }}
+                    style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14, background: "linear-gradient(180deg, #00ffa6, #00d28c)", color: "#ffffff", border: "none", borderRadius: 12 }}
                   >
                     Open Withdraw &amp; Send
                   </button>
@@ -4235,7 +4235,7 @@ async function runAi() {
                 style={{
                   width: "min(520px, 92vw)",
                   background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                  border: "1px solid rgba(255,255,255,0.10)",
+                  border: "none",
                   borderRadius: 16,
                   padding: 14,
                   boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
@@ -4272,7 +4272,7 @@ async function runAi() {
                         onChange={(e) => setWithdrawAmt(e.target.value)}
                         placeholder="0.25"
                         inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "1px solid rgba(0,255,166,0.35)", borderRadius: 10, padding: "0 12px" }}
+                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
                       />
                     </div>
                     <button
@@ -4280,7 +4280,7 @@ async function runAi() {
                       className="btnPill"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
                       disabled={txBusy || !wallet}
-                      style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap", background: "linear-gradient(180deg, rgba(0,255,166,0.95), rgba(0,210,140,0.95))", color: "#00110b", border: "1px solid rgba(0,0,0,0.25)", borderRadius: 12 }}
+                      style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap", background: "linear-gradient(180deg, #00ffa6, #00d28c)", color: "#00110b", border: "none", borderRadius: 12 }}
                     >
                       {txBusy ? "…" : "Withdraw"}
                     </button>
@@ -4293,7 +4293,7 @@ async function runAi() {
                       value={sendTo}
                       onChange={(e) => setSendTo(e.target.value)}
                       placeholder="0x…"
-                      style={{ width: "100%", height: 44, fontSize: 14, fontFamily: "monospace", background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "1px solid rgba(0,255,166,0.35)", borderRadius: 10, padding: "0 12px" }}
+                      style={{ width: "100%", height: 44, fontSize: 14, fontFamily: "monospace", background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
                     />
                   </div>
 
@@ -4306,7 +4306,7 @@ async function runAi() {
                         onChange={(e) => setSendAmt(e.target.value)}
                         placeholder="0.10"
                         inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "1px solid rgba(0,255,166,0.35)", borderRadius: 10, padding: "0 12px" }}
+                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
                       />
                     </div>
                     <button
@@ -4314,7 +4314,7 @@ async function runAi() {
                       className="btnPill"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
                       disabled={txBusy || !wallet}
-                      style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap", background: "linear-gradient(180deg, rgba(0,255,166,0.95), rgba(0,210,140,0.95))", color: "#00110b", border: "1px solid rgba(0,0,0,0.25)", borderRadius: 12 }}
+                      style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap", background: "linear-gradient(180deg, #00ffa6, #00d28c)", color: "#00110b", border: "none", borderRadius: 12 }}
                     >
                       {txBusy ? "…" : "Send"}
                     </button>
@@ -4347,7 +4347,7 @@ async function runAi() {
                     type="button"
                     className="btnPill"
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }}
-                    style={{ height: 42, flex: 1, background: "linear-gradient(180deg, rgba(0,255,166,0.95), rgba(0,210,140,0.95))", color: "#00110b", border: "1px solid rgba(0,0,0,0.25)", borderRadius: 12 }}
+                    style={{ height: 42, flex: 1, background: "linear-gradient(180deg, #00ffa6, #00d28c)", color: "#00110b", border: "none", borderRadius: 12 }}
                   >
                     Close
                   </button>
@@ -4367,7 +4367,7 @@ async function runAi() {
                 right: 0,
                 width: 340,
                 background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                border: "1px solid rgba(255,255,255,0.10)",
+                border: "none",
                 borderRadius: 14,
                 padding: 14,
                 zIndex: 2100,
@@ -4448,7 +4448,7 @@ async function runAi() {
                 {String(addTokenQuery || "").trim() && (
                   <div style={{ marginTop: 6 }}>
                     <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Results (click to add)</div>
-                    <div style={{ maxHeight: 220, overflow: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12 }}>
+                    <div style={{ maxHeight: 220, overflow: "auto", border: "none", borderRadius: 12 }}>
                       {(() => {
                         const q = String(addTokenQuery || "").trim().toLowerCase();
                         const pool = tokenListCache?.[addTokenChain] || [];
@@ -4814,7 +4814,7 @@ async function runAi() {
                             if (!rows.length) return <div className="muted tiny">No daily series yet.</div>;
 
                             return (
-                              <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 12, overflow: "hidden" }}>
+                              <div style={{ border: "none", borderRadius: 12, overflow: "hidden" }}>
                                 <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 1fr 1fr", gap: 8, padding: "8px 10px", background: "rgba(255,255,255,0.04)" }} className="muted tiny">
                                   <div>Date</div>
                                   <div>{a}</div>
@@ -4986,7 +4986,7 @@ async function runAi() {
             padding: "10px 12px",
             borderRadius: "8px",
             background: "rgba(255, 165, 0, 0.08)",
-            border: "1px solid rgba(255,165,0,0.3)",
+            border: "none",
             fontSize: "13px",
             lineHeight: "1.4",
             color: "#f5c16c"

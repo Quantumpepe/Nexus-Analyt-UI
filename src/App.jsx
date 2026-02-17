@@ -4633,6 +4633,20 @@ async function runAi() {
                   {"Start"}
                 </button>
                 <button className="btnDanger" onClick={gridStop}>Stop</button>
+          <div style={{
+            marginTop: "10px",
+            padding: "10px 12px",
+            borderRadius: "8px",
+            background: "rgba(255, 165, 0, 0.08)",
+            border: "1px solid rgba(255,165,0,0.3)",
+            fontSize: "13px",
+            lineHeight: "1.4",
+            color: "#f5c16c"
+          }}>
+            <strong>Warning:</strong> Trading low-liquidity tokens may fail (no fills or high slippage). 
+            You may still pay gas fees even if the trade does not execute successfully.
+          </div>
+
               </div>
 
               <div className="divider" />

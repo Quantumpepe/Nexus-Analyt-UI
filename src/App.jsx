@@ -1267,6 +1267,7 @@ const [errorMsg, setErrorMsg] = useState("");
 
   // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
   const _loginInFlight = useRef(false);
+  const _loginRetryUsed = useRef(false);
   const _backendAuthInFlight = useRef(false);
 
   // auth
@@ -1279,6 +1280,7 @@ const [errorMsg, setErrorMsg] = useState("");
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
   const [policy, setPolicy] = useState({ trading_enabled: false });
   const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
 
   // Wallet actions (Vault withdraw + native send)
   const [txBusy, setTxBusy] = useState(false);
@@ -1674,7 +1676,28 @@ const DEFAULT_CHAIN = "POL";
       _loginInFlight.current = true;
       await login();
     } catch (e) {
-      setErrorMsg(String(e?.message || e || "Login failed"));
+      const msg = String(e?.message || e || "Login failed");
+      setErrorMsg(msg);
+
+      // Some desktop browsers occasionally fail the first Privy session handshake (e.g. Cloudflare/cookie timing).
+      // Auto-retry ONCE to avoid the "I must click twice" UX.
+      if (!_loginRetryUsed.current) {
+        _loginRetryUsed.current = true;
+        setTimeout(async () => {
+          try {
+            if (!ready) return;
+            if (authenticated) return;
+            if (_loginInFlight.current) return;
+            _loginInFlight.current = true;
+            await login();
+            setErrorMsg(""); // clear on success
+          } catch (_) {
+            // keep original error
+          } finally {
+            _loginInFlight.current = false;
+          }
+        }, 650);
+      }
     } finally {
       _loginInFlight.current = false;
     }
@@ -4151,100 +4174,187 @@ async function runAi() {
                   </div>
 
                   <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.25 }}>
-                    Withdraw sends funds from the Vault back to <b>this</b> Privy wallet first. After that you can send to any address.
+                    Open the transfer panel to withdraw from the Vault or send native coins to another wallet.
                   </div>
 
-                  <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                    {/* Withdraw row */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
-                      <div>
-                        <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Withdraw amount</div>
-                        <input
-                          className="input"
-                          value={withdrawAmt}
-                          onChange={(e) => setWithdrawAmt(e.target.value)}
-                          placeholder="0.25"
-                          inputMode="decimal"
-                          style={{ width: "100%", height: 42, fontSize: 14, background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        className="btnPill"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
-                        disabled={txBusy || !wallet}
-                        title={!wallet ? "Connect wallet first" : "Withdraw from vault to this wallet"}
-                        style={{ height: 42, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
-                      >
-                        {txBusy ? "…" : "Withdraw"}
-                      </button>
+                  <button
+                    type="button"
+                    className="btnPill"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(true); }}
+                    disabled={!wallet}
+                    title={!wallet ? "Connect wallet first" : "Open Withdraw & Send"}
+                    style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14 }}
+                  >
+                    Open Withdraw &amp; Send
+                  </button>
+
+                  {txMsg ? (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        fontSize: 12,
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        background: txMsg.toLowerCase().includes("fail")
+                          ? "rgba(255,80,80,0.10)"
+                          : "rgba(80,255,160,0.10)",
+                        border: txMsg.toLowerCase().includes("fail")
+                          ? "1px solid rgba(255,80,80,0.20)"
+                          : "1px solid rgba(80,255,160,0.18)",
+                        color: txMsg.toLowerCase().includes("fail") ? "#ffb3b3" : "#bfffd6",
+                        lineHeight: 1.25
+                      }}
+                    >
+                      {txMsg}
                     </div>
-
-                    {/* Send row */}
-                    <div style={{ display: "grid", gap: 10 }}>
-                      <div>
-                        <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Send to address</div>
-                        <input
-                          className="input"
-                          value={sendTo}
-                          onChange={(e) => setSendTo(e.target.value)}
-                          placeholder="0x…"
-                          style={{ width: "100%", height: 42, fontSize: 14, fontFamily: "monospace", background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
-                        />
-                      </div>
-
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
-                        <div>
-                          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Amount</div>
-                          <input
-                            className="input"
-                            value={sendAmt}
-                            onChange={(e) => setSendAmt(e.target.value)}
-                            placeholder="0.10"
-                            inputMode="decimal"
-                            style={{ width: "100%", height: 42, fontSize: 14, background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          className="btnPill"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
-                          disabled={txBusy || !wallet}
-                          title={!wallet ? "Connect wallet first" : "Send native coin"}
-                          style={{ height: 42, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap" }}
-                        >
-                          {txBusy ? "…" : "Send"}
-                        </button>
-                      </div>
-                    </div>
-
-                    {txMsg ? (
-                      <div
-                        style={{
-                          marginTop: 2,
-                          fontSize: 12,
-                          padding: "8px 10px",
-                          borderRadius: 12,
-                          background: txMsg.toLowerCase().includes("fail")
-                            ? "rgba(255,80,80,0.10)"
-                            : "rgba(80,255,160,0.10)",
-                          border: txMsg.toLowerCase().includes("fail")
-                            ? "1px solid rgba(255,80,80,0.20)"
-                            : "1px solid rgba(80,255,160,0.18)",
-                          color: txMsg.toLowerCase().includes("fail") ? "#ffb3b3" : "#bfffd6",
-                          lineHeight: 1.25
-                        }}
-                      >
-                        {txMsg}
-                      </div>
-                    ) : null}
-                  </div>
+                  ) : null}
                 </div>
 
             </div>
 
 
-          {/* Add token modal (saved per wallet; unlimited). */}
+                    {/* Withdraw & Send modal */}
+          {withdrawSendOpen && (
+            <div
+              role="dialog"
+              aria-label="Withdraw & Send"
+              onMouseDown={(e) => { e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); }}
+              style={{
+                position: "fixed",
+                inset: 0,
+                zIndex: 2400,
+                background: "rgba(0,0,0,0.55)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 16,
+              }}
+            >
+              <div
+                style={{
+                  width: "min(520px, 92vw)",
+                  background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  borderRadius: 16,
+                  padding: 14,
+                  boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
+                }}
+                onMouseDown={(e) => { e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <div className="cardTitle" style={{ margin: 0 }}>Withdraw &amp; Send</div>
+                  <button
+                    className="iconBtn"
+                    type="button"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }}
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.25 }}>
+                  Chain: <b>{balActiveChain || DEFAULT_CHAIN}</b>
+                  <div style={{ marginTop: 4 }}>
+                    Withdraw returns funds to this Privy wallet first (vault pays msg.sender). Then you can send to any address.
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
+                    <div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Withdraw amount</div>
+                      <input
+                        className="input"
+                        value={withdrawAmt}
+                        onChange={(e) => setWithdrawAmt(e.target.value)}
+                        placeholder="0.25"
+                        inputMode="decimal"
+                        style={{ width: "100%", height: 44, fontSize: 14, background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btnPill"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
+                      disabled={txBusy || !wallet}
+                      style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
+                    >
+                      {txBusy ? "…" : "Withdraw"}
+                    </button>
+                  </div>
+
+                  <div>
+                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Send to address</div>
+                    <input
+                      className="input"
+                      value={sendTo}
+                      onChange={(e) => setSendTo(e.target.value)}
+                      placeholder="0x…"
+                      style={{ width: "100%", height: 44, fontSize: 14, fontFamily: "monospace", background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
+                    />
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
+                    <div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Amount</div>
+                      <input
+                        className="input"
+                        value={sendAmt}
+                        onChange={(e) => setSendAmt(e.target.value)}
+                        placeholder="0.10"
+                        inputMode="decimal"
+                        style={{ width: "100%", height: 44, fontSize: 14, background: "rgba(0,0,0,0.25)", color: "#eafff4", border: "1px solid rgba(255,255,255,0.14)" }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btnPill"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
+                      disabled={txBusy || !wallet}
+                      style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap" }}
+                    >
+                      {txBusy ? "…" : "Send"}
+                    </button>
+                  </div>
+
+                  {txMsg ? (
+                    <div
+                      style={{
+                        marginTop: 2,
+                        fontSize: 12,
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        background: txMsg.toLowerCase().includes("fail")
+                          ? "rgba(255,80,80,0.10)"
+                          : "rgba(80,255,160,0.10)",
+                        border: txMsg.toLowerCase().includes("fail")
+                          ? "1px solid rgba(255,80,80,0.20)"
+                          : "1px solid rgba(80,255,160,0.18)",
+                        color: txMsg.toLowerCase().includes("fail") ? "#ffb3b3" : "#bfffd6",
+                        lineHeight: 1.25
+                      }}
+                    >
+                      {txMsg}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                  <button
+                    type="button"
+                    className="btnPill"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }}
+                    style={{ height: 42, flex: 1 }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}{/* Add token modal (saved per wallet; unlimited). */}
           {addTokenOpen && (
             <div
               role="dialog"

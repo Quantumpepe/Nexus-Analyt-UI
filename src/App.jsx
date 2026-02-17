@@ -351,11 +351,12 @@ async function cgFetchJson(url, { ttlMs = 120_000 } = {}) {
 
 
 async function fetchNativeUsdPrices(chains = []) {
+  // IMPORTANT: Do NOT call CoinGecko directly from the browser (CORS + 429).
+  // Use backend proxy: GET /api/coingecko/simple_price
   const ids = Array.from(new Set((chains || []).map((c) => CG.nativeIds[c]).filter(Boolean)));
   if (!ids.length) return {};
   const qs = new URLSearchParams({ ids: ids.join(","), vs_currencies: "usd" }).toString();
-  const url = `https://api.coingecko.com/api/v3/simple/price?${qs}`;
-  const json = await cgFetchJson(url);
+  const json = await api(`/api/coingecko/simple_price?${qs}`);
   const out = {};
   for (const c of chains || []) {
     const id = CG.nativeIds[c];
@@ -366,13 +367,14 @@ async function fetchNativeUsdPrices(chains = []) {
 }
 
 async function fetchTokenUsdPrices(chainKey, addresses = []) {
+  // IMPORTANT: Do NOT call CoinGecko directly from the browser (CORS + 429).
+  // Use backend proxy: GET /api/coingecko/token_price/<platform>
   const platform = CG.platforms[chainKey];
   const addrs = Array.from(new Set((addresses || []).map((a) => String(a || "").toLowerCase()).filter(Boolean)));
   if (!platform || !addrs.length) return {};
   // CoinGecko allows many addresses; keep it safe-ish.
   const qs = new URLSearchParams({ contract_addresses: addrs.join(","), vs_currencies: "usd" }).toString();
-  const url = `https://api.coingecko.com/api/v3/simple/token_price/${platform}?${qs}`;
-  const json = await cgFetchJson(url);
+  const json = await api(`/api/coingecko/token_price/${encodeURIComponent(platform)}?${qs}`);
   const out = {};
   for (const a of addrs) {
     const px = Number(json?.[a]?.usd);
@@ -1257,7 +1259,10 @@ const [errorMsg, setErrorMsg] = useState("");
   const { wallets: privyWallets } = useWallets();
 
   // auth
-  const [token, setToken] = useLocalStorageState("nexus_token", "");
+  // NOTE: Backend expects its OWN Bearer token (issued by /api/auth/verify),
+  // not the Privy JWT. We keep both:
+  const [privyJwt, setPrivyJwt] = useState("");
+  const [token, setToken] = useLocalStorageState("nexus_token", ""); // backend token
   const [wallet, setWallet] = useLocalStorageState("nexus_wallet", "");
   // Trading policy is UI-only for now (no Vault/Allowance yet).
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
@@ -1443,10 +1448,50 @@ const DEFAULT_CHAIN = "POL";
   useEffect(() => {
     let cancelled = false;
 
+    const signWithEmbeddedWallet = async (embeddedWallet, message, address) => {
+      if (!embeddedWallet) throw new Error("No wallet available to sign.");
+      const addr = String(address || embeddedWallet?.address || "").toLowerCase();
+      if (!addr) throw new Error("Missing wallet address.");
+
+      // Privy wallet implements EIP-1193 provider.
+      const provider = await embeddedWallet.getEthereumProvider?.();
+      if (!provider?.request) throw new Error("Wallet provider not available.");
+
+      // personal_sign expects params: [message, address] on most providers.
+      return await provider.request({ method: "personal_sign", params: [String(message), addr] });
+    };
+
+    const ensureBackendAuthToken = async (address, embeddedWallet) => {
+      const addr = String(address || "").toLowerCase();
+      if (!addr) return "";
+
+      // 1) Get nonce + canonical message from backend
+      const nonceRes = await api("/api/auth/nonce", {
+        method: "POST",
+        body: { address: addr },
+      });
+      const message = nonceRes?.message;
+      const nonce = nonceRes?.nonce;
+      if (!message || !nonce) throw new Error("Auth nonce failed");
+
+      // 2) Sign EXACT message
+      const signature = await signWithEmbeddedWallet(embeddedWallet, message, addr);
+
+      // 3) Verify + receive backend token
+      const verifyRes = await api("/api/auth/verify", {
+        method: "POST",
+        body: { address: addr, message, signature, nonce },
+      });
+      const backendToken = verifyRes?.token;
+      if (!backendToken) throw new Error("Auth verify failed");
+      return String(backendToken);
+    };
+
     (async () => {
       if (!authenticated) {
         setWallet("");
         setToken("");
+        setPrivyJwt("");
         setPolicy(null);
         return;
       }
@@ -1462,13 +1507,25 @@ const DEFAULT_CHAIN = "POL";
       const addr = String(embedded?.address || "").toLowerCase();
       if (!cancelled && addr) setWallet(addr);
 
-      // Privy access token (JWT). Your backend should verify this.
-      // If backend doesn't use it yet, keeping it here is harmless.
+      // Privy access token (JWT) - keep for future if needed.
       try {
         const t = (await getAccessToken?.()) || "";
-        if (!cancelled) setToken(t);
+        if (!cancelled) setPrivyJwt(t);
       } catch {
-        if (!cancelled) setToken("");
+        if (!cancelled) setPrivyJwt("");
+      }
+
+      // Backend auth token (required for /api/ai/* and other protected endpoints)
+      try {
+        // If we already have a token, keep it.
+        if (cancelled) return;
+        if (!token && addr) {
+          const bt = await ensureBackendAuthToken(addr, embedded);
+          if (!cancelled) setToken(bt);
+        }
+      } catch (e) {
+        // Don't hard-fail the whole UI; just surface an error when protected calls are made.
+        // (AI panel will show 401 until this succeeds.)
       }
     })();
 
@@ -3344,12 +3401,9 @@ async function runAi() {
         series_stats: seriesStats,
       };
 
-      const aiToken = token || (await (getAccessToken?.() || Promise.resolve("")).catch(() => ""));
-      // Ensure AI requests include Authorization even if token state is stale/empty at first render.
-      if (aiToken && aiToken !== token) {
-        try { setToken(aiToken); } catch {}
-      }
-      const r = await api("/api/ai/run", { method: "POST", token: aiToken || undefined, body });
+      // AI endpoint requires BACKEND token (issued by /api/auth/verify).
+      if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
+      const r = await api("/api/ai/run", { method: "POST", token, body });
 
       let text =
         r?.answer ??

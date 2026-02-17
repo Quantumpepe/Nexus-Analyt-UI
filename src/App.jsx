@@ -1,6 +1,14 @@
-import { Buffer } from "buffer";
-if (typeof window !== "undefined" && !window.Buffer) window.Buffer = Buffer;
-
+// Buffer polyfill (no npm install needed)
+if (typeof window !== "undefined" && !window.Buffer) {
+  window.Buffer = {
+    from: (data, encoding) => {
+      if (encoding === "base64") {
+        return Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+      }
+      return new TextEncoder().encode(String(data));
+    },
+  };
+}
 function loadSetLS(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
   catch { return new Set(); }

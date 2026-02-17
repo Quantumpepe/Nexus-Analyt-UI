@@ -3344,7 +3344,12 @@ async function runAi() {
         series_stats: seriesStats,
       };
 
-      const r = await api("/api/ai/run", { method: "POST", token: token || undefined, body });
+      const aiToken = token || (await (getAccessToken?.() || Promise.resolve("")).catch(() => ""));
+      // Ensure AI requests include Authorization even if token state is stale/empty at first render.
+      if (aiToken && aiToken !== token) {
+        try { setToken(aiToken); } catch {}
+      }
+      const r = await api("/api/ai/run", { method: "POST", token: aiToken || undefined, body });
 
       let text =
         r?.answer ??

@@ -4183,7 +4183,7 @@ async function runAi() {
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(true); }}
                     disabled={!wallet}
                     title={!wallet ? "Connect wallet first" : "Open Withdraw & Send"}
-                    style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14 }}
+                    style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.95), rgba(0,210,140,0.95))", color: "#00110b", border: "1px solid rgba(0,0,0,0.25)", borderRadius: 12 }}
                   >
                     Open Withdraw &amp; Send
                   </button>
@@ -4272,7 +4272,7 @@ async function runAi() {
                         onChange={(e) => setWithdrawAmt(e.target.value)}
                         placeholder="0.25"
                         inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, #0f3d33, #0c2f28)", color: "#000000", border: "1px solid rgba(0,255,170,0.35)" }}
+                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "1px solid rgba(0,255,166,0.35)", borderRadius: 10, padding: "0 12px" }}
                       />
                     </div>
                     <button
@@ -4280,7 +4280,7 @@ async function runAi() {
                       className="btnPill"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
                       disabled={txBusy || !wallet}
-                      style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
+                      style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap", background: "linear-gradient(180deg, rgba(0,255,166,0.95), rgba(0,210,140,0.95))", color: "#00110b", border: "1px solid rgba(0,0,0,0.25)", borderRadius: 12 }}
                     >
                       {txBusy ? "…" : "Withdraw"}
                     </button>
@@ -4293,7 +4293,7 @@ async function runAi() {
                       value={sendTo}
                       onChange={(e) => setSendTo(e.target.value)}
                       placeholder="0x…"
-                      style={{ width: "100%", height: 44, fontSize: 14, fontFamily: "monospace", background: "linear-gradient(180deg, #0f3d33, #0c2f28)", color: "#000000", border: "1px solid rgba(0,255,170,0.35)" }}
+                      style={{ width: "100%", height: 44, fontSize: 14, fontFamily: "monospace", background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "1px solid rgba(0,255,166,0.35)", borderRadius: 10, padding: "0 12px" }}
                     />
                   </div>
 
@@ -4306,7 +4306,7 @@ async function runAi() {
                         onChange={(e) => setSendAmt(e.target.value)}
                         placeholder="0.10"
                         inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, #0f3d33, #0c2f28)", color: "#000000", border: "1px solid rgba(0,255,170,0.35)" }}
+                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "1px solid rgba(0,255,166,0.35)", borderRadius: 10, padding: "0 12px" }}
                       />
                     </div>
                     <button
@@ -4314,7 +4314,7 @@ async function runAi() {
                       className="btnPill"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
                       disabled={txBusy || !wallet}
-                      style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap" }}
+                      style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap", background: "linear-gradient(180deg, rgba(0,255,166,0.95), rgba(0,210,140,0.95))", color: "#00110b", border: "1px solid rgba(0,0,0,0.25)", borderRadius: 12 }}
                     >
                       {txBusy ? "…" : "Send"}
                     </button>
@@ -4347,7 +4347,7 @@ async function runAi() {
                     type="button"
                     className="btnPill"
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }}
-                    style={{ height: 42, flex: 1 }}
+                    style={{ height: 42, flex: 1, background: "linear-gradient(180deg, rgba(0,255,166,0.95), rgba(0,210,140,0.95))", color: "#00110b", border: "1px solid rgba(0,0,0,0.25)", borderRadius: 12 }}
                   >
                     Close
                   </button>

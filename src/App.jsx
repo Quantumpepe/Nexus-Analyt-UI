@@ -1233,6 +1233,12 @@ function computeBestPairs(chart, limit = 30) {
 // App (inner)
 // ------------------------
 function AppInner() {
+
+  // Multi-chain config (UI is ready; test phase enables POL + BNB)
+  const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
+  const ENABLED_CHAINS = ["POL", "BNB"];
+  const DEFAULT_CHAIN = "POL";
+
 // One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
 useEffect(() => {
   try {
@@ -1281,6 +1287,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const [policy, setPolicy] = useState({ trading_enabled: false });
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
+  const [wsChainKey, setWsChainKey] = useState(DEFAULT_CHAIN);
 
   // Wallet actions (Vault withdraw + native send)
   const [txBusy, setTxBusy] = useState(false);
@@ -1346,7 +1353,7 @@ const [errorMsg, setErrorMsg] = useState("");
       if (!_isAddr(sendTo)) throw new Error("Recipient address invalid.");
       const amt = String(sendAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Amount invalid.");
-      const chainKey = (balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (chainKeyOverride || balActiveChain || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
 
       setTxBusy(true);
@@ -1378,7 +1385,7 @@ const [errorMsg, setErrorMsg] = useState("");
       const amt = String(withdrawAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Withdraw amount invalid.");
 
-      const chainKey = (balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (chainKeyOverride || balActiveChain || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr =
         (contracts?.chains?.[chainKey]?.vault || "").trim() ||
@@ -1468,12 +1475,6 @@ const [errorMsg, setErrorMsg] = useState("");
     POL: "https://api-polygon-tokens.polygon.technology/tokenlists/popular.tokenlist.json",
     BNB: "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
   };
-
-  const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56 };
-
-// Phase 1: only Polygon (POL) is active. Enable other EVM chains later via config.
-const ENABLED_CHAINS = ["POL"];
-const DEFAULT_CHAIN = "POL";
 
 
   const loadTokenList = async (chain) => {
@@ -4256,7 +4257,35 @@ async function runAi() {
                 </div>
 
                 <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.25 }}>
-                  Chain: <b>{balActiveChain || DEFAULT_CHAIN}</b>
+                  Chain:
+                <select
+                  value={wsChainKey}
+                  onChange={(e) => setWsChainKey(e.target.value)}
+                  style={{ marginLeft: 8, padding: "6px 10px", borderRadius: 10 }}
+                >
+                  {[
+                    { k: "POL", label: "POL (Polygon)", enabled: true },
+                    { k: "BNB", label: "BNB (BSC)", enabled: true },
+                    { k: "ETH", label: "ETH (Ethereum)", enabled: false },
+                    { k: "ARB", label: "ARB (Arbitrum)", enabled: false },
+                    { k: "OP", label: "OP (Optimism)", enabled: false },
+                    { k: "BASE", label: "BASE", enabled: false },
+                    { k: "AVAX", label: "AVAX", enabled: false },
+                    { k: "FTM", label: "FTM", enabled: false },
+                    { k: "SOL", label: "SOL (soon)", enabled: false },
+                  ].map((c) => (
+                    <option key={c.k} value={c.k} disabled={!ENABLED_CHAINS.includes(c.k)}>
+                      {c.label}{!ENABLED_CHAINS.includes(c.k) ? " — soon" : ""}
+                    </option>
+                  ))}
+                </select>
+                <span
+                  className="infoDot"
+                  title="Withdraw is chain-specific. Funds are stored on the chain where you traded. Switch to the correct chain to withdraw. Withdraw returns to this Privy wallet first, then you can send to any address."
+                  style={{ marginLeft: 10 }}
+                >
+                  i
+                </span>
                   <div style={{ marginTop: 4 }}>
                     Withdraw returns funds to this Privy wallet first (vault pays msg.sender). Then you can send to any address.
                   </div>

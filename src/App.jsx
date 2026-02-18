@@ -1360,6 +1360,17 @@ const [errorMsg, setErrorMsg] = useState("");
       const provider = await _getEmbeddedProvider();
       await _trySwitchChain(provider, chainId);
 
+      // Hard safety check: ensure we are on the expected chain before sending a tx.
+      try {
+        const currentHex = await provider.request({ method: "eth_chainId" });
+        const wantHex = "0x" + Number(chainId).toString(16);
+        if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
+          throw new Error(`Wrong network. Please switch your wallet to ${chainKey} (chainId ${wantHex}).`);
+        }
+      } catch (e) {
+        throw e;
+      }
+
       const valueHex = Utils.hexValue(Utils.parseEther(amt));
       const txHash = await provider.request({
         method: "eth_sendTransaction",
@@ -1398,6 +1409,17 @@ const [errorMsg, setErrorMsg] = useState("");
       setTxBusy(true);
       const provider = await _getEmbeddedProvider();
       await _trySwitchChain(provider, chainId);
+
+      // Hard safety check: ensure we are on the expected chain before sending a tx.
+      try {
+        const currentHex = await provider.request({ method: "eth_chainId" });
+        const wantHex = "0x" + Number(chainId).toString(16);
+        if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
+          throw new Error(`Wrong network. Please switch your wallet to ${chainKey} (chainId ${wantHex}).`);
+        }
+      } catch (e) {
+        throw e;
+      }
 
       const txHash = await provider.request({
         method: "eth_sendTransaction",
@@ -2627,6 +2649,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [manualPrice, setManualPrice] = useState("");
   const [manualBuyMode, setManualBuyMode] = useState("USD"); // USD | QTY (only used for BUY)
   const [manualUsd, setManualUsd] = useState("");
+  const [manualSlippagePct, setManualSlippagePct] = useState(5); // %
+  const [manualDeadlineMin, setManualDeadlineMin] = useState(20); // minutes
   const [gridQuickStepsStr, setGridQuickStepsStr] = useState("0.5, 1, 2");
   const gridQuickSteps = useMemo(() => {
     const arr = (gridQuickStepsStr || "")
@@ -3018,7 +3042,10 @@ const [aiLoading, setAiLoading] = useState(false);
       const price = Number(manualPrice);
       if (!Number.isFinite(price) || price <= 0) throw new Error("Invalid price.");
 
-      const body = { item: gridItem, side: manualSide, price };
+      const slp = Math.min(20, Math.max(0.1, Number(manualSlippagePct) || 5));
+      const dlm = Math.min(120, Math.max(5, Number(manualDeadlineMin) || 20));
+      const deadline = Math.floor(Date.now() / 1000) + Math.floor(dlm * 60);
+      const body = { item: gridItem, side: manualSide, price, slippage_bps: Math.round(slp * 100), deadline_sec: deadline };
 
       if (manualSide === "BUY") {
         if (manualBuyMode === "USD") {
@@ -5051,6 +5078,33 @@ async function runAi() {
                 <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="e.g. 94442" />
               </div>
 
+
+              <div className="row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -6, marginBottom: 12 }}>
+                <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>
+                <input
+                  value={manualSlippagePct}
+                  onChange={(e) => setManualSlippagePct(e.target.value)}
+                  style={{ width: 90 }}
+                  placeholder="5"
+                />
+                <div className="muted" style={{ fontSize: 12 }}>%</div>
+
+                <div style={{ width: 10 }} />
+
+                <div className="muted" style={{ fontSize: 12 }}>Deadline:</div>
+                <input
+                  value={manualDeadlineMin}
+                  onChange={(e) => setManualDeadlineMin(e.target.value)}
+                  style={{ width: 90 }}
+                  placeholder="20"
+                />
+                <div className="muted" style={{ fontSize: 12 }}>min</div>
+
+                <div style={{ width: 10 }} />
+                <div className="muted tiny">
+                  Tip: increase slippage for low-liquidity tokens to avoid failed swaps.
+                </div>
+              </div>
 
               <div className="row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 10 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Quick steps %:</div>

@@ -4363,42 +4363,41 @@ async function runAi() {
                       }}
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                     >
-                      {typeof navigator !== "undefined" &&
-                      (navigator.language || "").toLowerCase().startsWith("de") ? (
-                        <>
-                          <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – So funktioniert es</div>
-                          <div style={{ marginBottom: 8 }}>
-                            <b>1) Withdraw:</b> Das Guthaben wird zuerst aus dem Vault zurück in dein verbundenes Privy‑Wallet ausgezahlt.
-                            Der Vault zahlt immer an das verbundene Wallet (<code style={{ fontSize: 11 }}>msg.sender</code>).
-                          </div>
-                          <div style={{ marginBottom: 10 }}>
-                            <b>2) Send:</b> Nach dem Withdraw kannst du die Coins optional von deinem Wallet an eine beliebige Adresse weiterleiten.
-                          </div>
-                          <div style={{ opacity: 0.95 }}>
-                            <b>Wichtig:</b><br />
-                            • Du musst auf der richtigen Blockchain sein (BNB oder POL)<br />
-                            • Withdraw und Send sind zwei getrennte Schritte<br />
-                            • Gas‑Gebühren werden in der Native Coin bezahlt (BNB / POL)
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – How it works</div>
-                          <div style={{ marginBottom: 8 }}>
-                            <b>1) Withdraw:</b> Funds are withdrawn from the Vault back to your connected Privy wallet first.
-                            The Vault always pays the connected wallet (<code style={{ fontSize: 11 }}>msg.sender</code>).
-                          </div>
-                          <div style={{ marginBottom: 10 }}>
-                            <b>2) Send:</b> After the withdrawal is completed, you can optionally send the funds from your wallet to any other address.
-                          </div>
-                          <div style={{ opacity: 0.95 }}>
-                            <b>Important:</b><br />
-                            • You must be on the correct blockchain (BNB or POL)<br />
-                            • Withdraw and Send are two separate steps<br />
-                            • Gas fees are paid in the native coin (BNB / POL)
-                          </div>
-                        </>
-                      )}
+                      {<>
+                        {/* ENGLISH */}
+                        <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – How it works</div>
+                        <div style={{ marginBottom: 8 }}>
+                          <b>1) Withdraw:</b> Funds are withdrawn from the Vault back to your connected Privy wallet first.
+                          The Vault always pays the connected wallet (<code style={{ fontSize: 11 }}>msg.sender</code>).
+                        </div>
+                        <div style={{ marginBottom: 10 }}>
+                          <b>2) Send:</b> After the withdrawal is completed, you can optionally send the funds from your wallet to any other address.
+                        </div>
+                        <div style={{ opacity: 0.95 }}>
+                          <b>Important:</b><br />
+                          • Make sure you are on the correct blockchain (BNB or POL)<br />
+                          • Withdraw and Send are two separate steps<br />
+                          • Gas fees are paid in the native coin (BNB / POL)
+                        </div>
+
+                        <hr style={{ margin: "12px 0", borderColor: "#1cffb3" }} />
+
+                        {/* DEUTSCH */}
+                        <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – So funktioniert es</div>
+                        <div style={{ marginBottom: 8 }}>
+                          <b>1) Withdraw:</b> Das Guthaben wird zuerst aus dem Vault zurück in dein verbundenes Privy-Wallet ausgezahlt.
+                          Der Vault zahlt immer an das verbundene Wallet (<code style={{ fontSize: 11 }}>msg.sender</code>).
+                        </div>
+                        <div style={{ marginBottom: 10 }}>
+                          <b>2) Send:</b> Nach dem Withdraw kannst du die Coins optional von deinem Wallet an eine beliebige Adresse weiterleiten.
+                        </div>
+                        <div style={{ opacity: 0.95 }}>
+                          <b>Wichtig:</b><br />
+                          • Du musst auf der richtigen Blockchain sein (BNB oder POL)<br />
+                          • Withdraw und Send sind zwei getrennte Schritte<br />
+                          • Gas-Gebühren werden in der Native Coin bezahlt (BNB / POL)
+                        </div>
+                      </>}
                     </div>
                   )}
                 </span>

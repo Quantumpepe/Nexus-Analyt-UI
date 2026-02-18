@@ -311,7 +311,7 @@ const fmtUsd = (n) => {
 // CoinGecko price helpers (Wallet total value)
 // ------------------------
 const CG = {
-  nativeIds: { ETH: "ethereum", POL: "polygon-pos", BNB: "binancecoin" },
+  nativeIds: { ETH: "ethereum", POL: "polygon-ecosystem-token", BNB: "binancecoin" },
   platforms: { ETH: "ethereum", POL: "polygon-pos", BNB: "binance-smart-chain" },
 };
 
@@ -1236,7 +1236,7 @@ function AppInner() {
 
   // Multi-chain config (UI is ready; test phase enables POL + BNB)
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
-  const ENABLED_CHAINS = ["BNB"];
+  const ENABLED_CHAINS = ["POL","BNB"];
   const DEFAULT_CHAIN = "BNB";
 
 // One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
@@ -4265,6 +4265,7 @@ async function runAi() {
                 >
                   {[
                     { k: "BNB", label: "BNB (BNB Chain)", enabled: true },
+                    { k: "POL", label: "POL (Polygon)", enabled: true },
                     { k: "ETH", label: "ETH (Ethereum)", enabled: false },
                     { k: "ARB", label: "ARB (Arbitrum)", enabled: false },
                     { k: "OP", label: "OP (Optimism)", enabled: false },

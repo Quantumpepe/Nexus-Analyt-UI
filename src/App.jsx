@@ -1288,6 +1288,8 @@ const [errorMsg, setErrorMsg] = useState("");
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
   const [wsChainKey, setWsChainKey] = useState(DEFAULT_CHAIN);
+  const [wsInfoOpen, setWsInfoOpen] = useState(false);
+  const wsInfoRef = useRef(null);
 
   // Wallet actions (Vault withdraw + native send)
   const [txBusy, setTxBusy] = useState(false);
@@ -1295,6 +1297,22 @@ const [errorMsg, setErrorMsg] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState(""); // in native units (e.g., POL)
   const [sendTo, setSendTo] = useState("");
   const [sendAmt, setSendAmt] = useState(""); // in native units
+  // Withdraw & Send info tooltip
+  useEffect(() => {
+    if (!withdrawSendOpen) setWsInfoOpen(false);
+  }, [withdrawSendOpen]);
+
+  useEffect(() => {
+    if (!wsInfoOpen) return;
+    const onDown = (e) => {
+      if (wsInfoRef.current && !wsInfoRef.current.contains(e.target)) {
+        setWsInfoOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [wsInfoOpen]);
+
   // Contracts (Vault/Executor/Router) fetched from backend ENV so UI stays in sync after deploys
   const [contracts, setContracts] = useState(null);
   // Fetch contract addresses from backend (Render ENV) once
@@ -4306,12 +4324,83 @@ async function runAi() {
                     </option>
                   ))}
                 </select>
-                <span
-                  className="infoDot"
-                  title="Withdraw is chain-specific. Funds are stored on the chain where you traded. Switch to the correct chain to withdraw. Withdraw returns to this Privy wallet first, then you can send to any address."
-                  style={{ marginLeft: 10 }}
-                >
-                  i
+                <span ref={wsInfoRef} style={{ position: "relative", display: "inline-block", marginLeft: 10 }}>
+                  <span
+                    className="infoDot"
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Withdraw & Send info"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWsInfoOpen((v) => !v); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setWsInfoOpen((v) => !v);
+                      }
+                    }}
+                    title=""
+                    style={{ cursor: "pointer" }}
+                  >
+                    i
+                  </span>
+
+                  {wsInfoOpen && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 24,
+                        right: 0,
+                        width: 320,
+                        background: "rgba(6, 18, 14, 0.98)",
+                        border: "1px solid rgba(90, 255, 160, 0.35)",
+                        borderRadius: 12,
+                        padding: 12,
+                        fontSize: 12,
+                        lineHeight: 1.35,
+                        color: "rgba(235, 255, 245, 0.95)",
+                        zIndex: 9999,
+                        boxShadow: "0 0 26px rgba(40, 255, 160, 0.18)",
+                      }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    >
+                      {typeof navigator !== "undefined" &&
+                      (navigator.language || "").toLowerCase().startsWith("de") ? (
+                        <>
+                          <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – So funktioniert es</div>
+                          <div style={{ marginBottom: 8 }}>
+                            <b>1) Withdraw:</b> Das Guthaben wird zuerst aus dem Vault zurück in dein verbundenes Privy‑Wallet ausgezahlt.
+                            Der Vault zahlt immer an das verbundene Wallet (<code style={{ fontSize: 11 }}>msg.sender</code>).
+                          </div>
+                          <div style={{ marginBottom: 10 }}>
+                            <b>2) Send:</b> Nach dem Withdraw kannst du die Coins optional von deinem Wallet an eine beliebige Adresse weiterleiten.
+                          </div>
+                          <div style={{ opacity: 0.95 }}>
+                            <b>Wichtig:</b><br />
+                            • Du musst auf der richtigen Blockchain sein (BNB oder POL)<br />
+                            • Withdraw und Send sind zwei getrennte Schritte<br />
+                            • Gas‑Gebühren werden in der Native Coin bezahlt (BNB / POL)
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – How it works</div>
+                          <div style={{ marginBottom: 8 }}>
+                            <b>1) Withdraw:</b> Funds are withdrawn from the Vault back to your connected Privy wallet first.
+                            The Vault always pays the connected wallet (<code style={{ fontSize: 11 }}>msg.sender</code>).
+                          </div>
+                          <div style={{ marginBottom: 10 }}>
+                            <b>2) Send:</b> After the withdrawal is completed, you can optionally send the funds from your wallet to any other address.
+                          </div>
+                          <div style={{ opacity: 0.95 }}>
+                            <b>Important:</b><br />
+                            • You must be on the correct blockchain (BNB or POL)<br />
+                            • Withdraw and Send are two separate steps<br />
+                            • Gas fees are paid in the native coin (BNB / POL)
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </span>
                   <div style={{ marginTop: 4 }}>
                     Withdraw returns funds to this Privy wallet first (vault pays msg.sender). Then you can send to any address.

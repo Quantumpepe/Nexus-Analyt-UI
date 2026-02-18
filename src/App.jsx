@@ -530,17 +530,17 @@ function _erc20TransferData(to, amountUnits) {
   const amtHex = amountUnits.toString(16);
   return selector + _hexPad64(addr) + _hexPad64(amtHex);
 }
-async function _ensurePolygon() {
+async function _ensureBnb() {
   if (!window?.ethereum?.request) throw new Error("No injected wallet found (MetaMask).");
   const chainHex = await window.ethereum.request({ method: "eth_chainId" });
-  if (String(chainHex).toLowerCase() === "0x89") return; // Polygon mainnet
+  if (String(chainHex).toLowerCase() === "0x38") return; // BNB Chain mainnet
   try {
     await window.ethereum.request({
       method: "wallet_switchEthereumChain",
-      params: [{ chainId: "0x89" }],
+      params: [{ chainId: "0x38" }],
     });
   } catch (e) {
-    throw new Error("Please switch your wallet to Polygon (POL).");
+    throw new Error("Please switch your wallet to BNB Chain (BNB).");
   }
 }
 
@@ -1236,8 +1236,8 @@ function AppInner() {
 
   // Multi-chain config (UI is ready; test phase enables POL + BNB)
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
-  const ENABLED_CHAINS = ["POL", "BNB"];
-  const DEFAULT_CHAIN = "POL";
+  const ENABLED_CHAINS = ["BNB"];
+  const DEFAULT_CHAIN = "BNB";
 
 // One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
 useEffect(() => {
@@ -1419,7 +1419,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const [balLoading, setBalLoading] = useState(false);
   const [balError, setBalError] = useState("");
   const [balByChain, setBalByChain] = useState({}); // { ETH: { native: "0.0" }, ... }
-  const [balActiveChain, setBalActiveChain] = useState("POL");
+  const [balActiveChain, setBalActiveChain] = useState("BNB");
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
@@ -2138,7 +2138,7 @@ const byChain = {};
     setSubMsg("");
     try {
       // Polygon only (chainId 137)
-      await _ensurePolygon();
+      await _ensureBnb();
 
       const specs = TOKEN_WHITELIST.POL || [];
       const spec = specs.find((t) => t.symbol === subToken);
@@ -4264,8 +4264,7 @@ async function runAi() {
                   style={{ marginLeft: 8, padding: "6px 10px", borderRadius: 10 }}
                 >
                   {[
-                    { k: "POL", label: "POL (Polygon)", enabled: true },
-                    { k: "BNB", label: "BNB (BSC)", enabled: true },
+                    { k: "BNB", label: "BNB (BNB Chain)", enabled: true },
                     { k: "ETH", label: "ETH (Ethereum)", enabled: false },
                     { k: "ARB", label: "ARB (Arbitrum)", enabled: false },
                     { k: "OP", label: "OP (Optimism)", enabled: false },

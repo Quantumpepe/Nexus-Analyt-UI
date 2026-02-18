@@ -1281,6 +1281,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const [policy, setPolicy] = useState({ trading_enabled: false });
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
+  const [wsChainKey, setWsChainKey] = useState(DEFAULT_CHAIN);
 
   // Wallet actions (Vault withdraw + native send)
   const [txBusy, setTxBusy] = useState(false);
@@ -1339,14 +1340,14 @@ const [errorMsg, setErrorMsg] = useState("");
 
   const _isAddr = (a) => /^0x[a-fA-F0-9]{40}$/.test(String(a || "").trim());
 
-  const sendNative = async () => {
+  const sendNative = async (chainKeyOverride) => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
       if (!_isAddr(sendTo)) throw new Error("Recipient address invalid.");
       const amt = String(sendAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Amount invalid.");
-      const chainKey = (balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (chainKeyOverride || balActiveChain || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
 
       setTxBusy(true);
@@ -1371,14 +1372,14 @@ const [errorMsg, setErrorMsg] = useState("");
     }
   };
 
-  const withdrawFromVault = async () => {
+  const withdrawFromVault = async (chainKeyOverride) => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
       const amt = String(withdrawAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Withdraw amount invalid.");
 
-      const chainKey = (balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (chainKeyOverride || balActiveChain || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr =
         (contracts?.chains?.[chainKey]?.vault || "").trim() ||
@@ -1469,10 +1470,10 @@ const [errorMsg, setErrorMsg] = useState("");
     BNB: "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
   };
 
-  const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56 };
+  const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
 
 // Phase 1: only Polygon (POL) is active. Enable other EVM chains later via config.
-const ENABLED_CHAINS = ["POL"];
+const ENABLED_CHAINS = ["POL","BNB"];
 const DEFAULT_CHAIN = "POL";
 
 
@@ -4180,7 +4181,7 @@ async function runAi() {
                   <button
                     type="button"
                     className="btnPill"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(true); }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWsChainKey(balActiveChain || DEFAULT_CHAIN); setWithdrawSendOpen(true); }}
                     disabled={!wallet}
                     title={!wallet ? "Connect wallet first" : "Open Withdraw & Send"}
                     className="btn" style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14 }}
@@ -4256,7 +4257,35 @@ async function runAi() {
                 </div>
 
                 <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.25 }}>
-                  Chain: <b>{balActiveChain || DEFAULT_CHAIN}</b>
+                  Chain:
+                  <select
+                    className="input"
+                    value={wsChainKey}
+                    onChange={(e) => setWsChainKey(String(e.target.value || "").toUpperCase())}
+                    style={{ marginLeft: 8, height: 34, padding: "0 10px", width: 140 }}
+                  >
+                    {[
+                      { k: "POL", label: "POL (Polygon)", enabled: true },
+                      { k: "BNB", label: "BNB (BSC)", enabled: true },
+                      { k: "ETH", label: "ETH (Ethereum)", enabled: false },
+                      { k: "ARB", label: "ARB (Arbitrum)", enabled: false },
+                      { k: "BASE", label: "BASE", enabled: false },
+                      { k: "OP", label: "OP (Optimism)", enabled: false },
+                      { k: "AVAX", label: "AVAX", enabled: false },
+                      { k: "FTM", label: "FTM", enabled: false },
+                      { k: "SOL", label: "SOL (soon)", enabled: false },
+                    ].map((c) => (
+                      <option key={c.k} value={c.k} disabled={!c.enabled}>
+                        {c.label}{c.enabled ? "" : " (soon)"}
+                      </option>
+                    ))}
+                  </select>
+                  <span
+                    title="Withdraw is chain-specific: funds live in the Vault on the chain where you traded. Switch to the correct chain to withdraw."
+                    style={{ marginLeft: 8, cursor: "help", opacity: 0.9 }}
+                  >
+                    ⓘ
+                  </span>
                   <div style={{ marginTop: 4 }}>
                     Withdraw returns funds to this Privy wallet first (vault pays msg.sender). Then you can send to any address.
                   </div>
@@ -4278,7 +4307,7 @@ async function runAi() {
                     <button
                       type="button"
                       className="btnPill"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(wsChainKey); }}
                       disabled={txBusy || !wallet}
                       className="btn" style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
                     >
@@ -4312,7 +4341,7 @@ async function runAi() {
                     <button
                       type="button"
                       className="btnPill"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(wsChainKey); }}
                       disabled={txBusy || !wallet}
                       className="btn" style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap" }}
                     >

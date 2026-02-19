@@ -2616,6 +2616,26 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   // grid (manual)
   const [gridItem, setGridItem] = useState("BTC");
+
+const [gridNativeUsd, setGridNativeUsd] = useState({});
+
+// Ensure native coin USD price is available for POL/BNB/ETH even if they are not in the watchlist.
+// This fixes Grid "Price: --" when the watch snapshot doesn't include the native symbol.
+useEffect(() => {
+  const sym = String(gridItem || "").toUpperCase();
+  if (!["ETH", "BNB", "POL"].includes(sym)) return;
+
+  (async () => {
+    try {
+      const px = await fetchNativeUsdPrices([sym]);
+      if (px && px[sym] != null) {
+        setGridNativeUsd((prev) => ({ ...(prev || {}), [sym]: px[sym] }));
+      }
+    } catch {
+      // ignore
+    }
+  })();
+}, [gridItem]);
   // Grid coin source: wallet holdings only (native + stables + user-added tokens).
   // This avoids showing market/watchlist items that cannot be traded from the wallet.
   const gridWalletCoins = useMemo(() => {
@@ -3144,7 +3164,7 @@ const [aiLoading, setAiLoading] = useState(false);
 
   return null;
 }, [watchRows, gridItem]);
-  const shownGridPrice = gridMeta.price ?? gridLiveFallback ?? null;
+  const shownGridPrice = gridMeta.price ?? gridLiveFallback ?? gridNativeUsd[String(gridItem || '').toUpperCase()] ?? null;
 
   const setManualPriceFromMarket = () => {
     if (!shownGridPrice || !Number.isFinite(Number(shownGridPrice))) return;

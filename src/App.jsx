@@ -542,6 +542,26 @@ async function _ensureBnb() {
   } catch (e) {
     throw new Error("Please switch your wallet to BNB Chain (BNB).");
   }
+
+async function _ensureChain(chainKey) {
+  if (!window?.ethereum?.request) throw new Error("No injected wallet found (MetaMask).");
+  const want = String(chainKey || "").toUpperCase();
+  const map = { ETH: "0x1", BNB: "0x38", POL: "0x89" };
+  const wantHex = map[want];
+  if (!wantHex) throw new Error("Unsupported chain.");
+  const chainHex = await window.ethereum.request({ method: "eth_chainId" });
+  if (String(chainHex).toLowerCase() === String(wantHex).toLowerCase()) return;
+  try {
+    await window.ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: wantHex }],
+    });
+  } catch (e) {
+    const name = want === "ETH" ? "Ethereum (ETH)" : want === "BNB" ? "BNB Chain (BNB)" : "Polygon (POL)";
+    throw new Error(`Please switch your wallet to ${name}.`);
+  }
+}
+
 }
 
 function useInterval(fn, ms, enabled = true) {
@@ -2093,7 +2113,8 @@ const byChain = {};
   // Single plan: PRO $15
   const SUB_PRICE_USD = 15;
   const SUB_PLAN = "pro";
-  const [subToken, setSubToken] = useState("USDC"); // USDC | USDT
+  const [subChain, setSubChain] = useState("ETH"); // ETH | BNB | POL
+  const [subToken, setSubToken] = useState("USDC"); // NATIVE | USDC | USDT
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState("");
 
@@ -2166,47 +2187,84 @@ const byChain = {};
 
   const subscribePay = useCallback(async () => {
     if (!wallet) {
-      setSubMsg("Wallet nicht verbunden.");
+      setSubMsg("Wallet not connected.");
       return;
     }
     if (!TREASURY_ADDRESS) {
-      setSubMsg("Treasury-Adresse fehlt (VITE_TREASURY_ADDRESS).");
+      setSubMsg("Missing treasury address (VITE_TREASURY_ADDRESS).");
       return;
     }
 
     setSubBusy(true);
     setSubMsg("");
     try {
-      // Polygon only (chainId 137)
-      await _ensureBnb();
+      const chainKey = String(subChain || "ETH").toUpperCase();
+      const chainIdMap = { ETH: 1, BNB: 56, POL: 137 };
+      const chainId = chainIdMap[chainKey];
+      if (!chainId) throw new Error("Unsupported chain.");
 
-      const specs = TOKEN_WHITELIST.POL || [];
-      const spec = specs.find((t) => t.symbol === subToken);
-      if (!spec?.address) throw new Error("Token not supported.");
+      // Ensure wallet is on the selected chain
+      await _ensureChain(chainKey);
 
-      const amountUnits = BigInt(SUB_PRICE_USD) * (10n ** BigInt(spec.decimals || 6));
+      let txHash = null;
 
-      const data = _erc20TransferData(TREASURY_ADDRESS, amountUnits);
+      if (subToken === "NATIVE") {
+        // Pay $15 in native coin (ETH/BNB/POL). We compute a small buffer (+2%)
+        // to avoid underpay due to minor price movement.
+        const px = (await fetchNativeUsdPrices([chainKey]))?.[chainKey];
+        if (!px || !Number.isFinite(px) || px <= 0) throw new Error("Price feed unavailable.");
+        const nativeAmt = (SUB_PRICE_USD / px) * 1.02; // +2% buffer
+        const wei = BigInt(Math.floor(nativeAmt * 1e18));
+        if (wei <= 0n) throw new Error("Invalid amount.");
 
-      const txHash = await window.ethereum.request({
-        method: "eth_sendTransaction",
-        params: [
-          {
-            from: wallet,
-            to: spec.address,
-            data,
-            value: "0x0",
-          },
-        ],
-      });
+        txHash = await window.ethereum.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: wallet,
+              to: TREASURY_ADDRESS,
+              value: "0x" + wei.toString(16),
+              data: "0x",
+            },
+          ],
+        });
 
-      // Ask backend to verify on-chain payment + activate plan
-      const res = await api("/api/access/subscribe/verify", {
-        method: "POST",
-        body: { chain_id: 137, tx_hash: txHash, plan: SUB_PLAN },
-      });
+        // Verify + activate
+        const res = await api("/api/access/subscribe/verify", {
+          method: "POST",
+          body: { chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "native", token: chainKey },
+        });
 
-      setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
+        setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
+      } else {
+        // Pay with stablecoin (USDC/USDT) on the selected chain
+        const specs = TOKEN_WHITELIST[chainKey] || [];
+        const spec = specs.find((t) => t.symbol === subToken);
+        if (!spec?.address) throw new Error("Token not supported on this chain.");
+
+        const amountUnits = BigInt(SUB_PRICE_USD) * (10n ** BigInt(spec.decimals || 6));
+        const data = _erc20TransferData(TREASURY_ADDRESS, amountUnits);
+
+        txHash = await window.ethereum.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: wallet,
+              to: spec.address,
+              data,
+              value: "0x0",
+            },
+          ],
+        });
+
+        const res = await api("/api/access/subscribe/verify", {
+          method: "POST",
+          body: { chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: subToken },
+        });
+
+        setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
+      }
+
       setAccessModalOpen(false);
       await refreshAccess();
     } catch (e) {
@@ -2214,7 +2272,7 @@ const byChain = {};
     } finally {
       setSubBusy(false);
     }
-  }, [wallet, subToken, api, refreshAccess]);
+  }, [wallet, subChain, subToken, refreshAccess]);
 
   // Best-pair explain (click -> modal)
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }
@@ -3950,38 +4008,51 @@ async function runAi() {
                   </div>
                 ) : (
                   <div>
-                    <div className="hint" style={{ marginBottom: 8 }}>
-                      Subscribe with USDC/USDT on <b>Polygon</b> (POL).
+                                        <div className="hint" style={{ marginBottom: 8 }}>
+                      Subscribe for <b>Nexus Pro</b> (${SUB_PRICE_USD}/30 days). Pay with <b>ETH / BNB / POL</b> (native) or <b>USDC/USDT</b>.
                     </div>
 
-                    <div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
-                      <b>Nexus Pro</b> (${SUB_PRICE_USD}/mo)
-                      <div style={{ marginTop: 6, opacity: 0.85 }}>
-                        • Trading + AI unlocked<br />
-                        • 0% performance fee until $1000 profit<br />
-                        • 3% fee only above $1000
-                      </div>
+                    <div className="row" style={{ gap: 8, marginBottom: 10, alignItems: "center" }}>
+                      <div className="hint" style={{ margin: 0, opacity: 0.9 }}>Network:</div>
+                      <select
+                        className="select"
+                        value={subChain}
+                        onChange={(e) => setSubChain(e.target.value)}
+                        style={{ flex: 1 }}
+                      >
+                        <option value="ETH">Ethereum (ETH)</option>
+                        <option value="BNB">BNB Chain (BNB)</option>
+                        <option value="POL">Polygon (POL)</option>
+                      </select>
                     </div>
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
                       <div style={{ flex: 1 }} />
                       <button
                         type="button"
-                        className={`pill ${subToken === "USDC" ? "active" : ""}`} style={{ color: "#fff", background: subToken === "USDC" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
+                        className={`pill ${subToken === "NATIVE" ? "active" : ""}`}
+                        style={{ color: "#fff", background: subToken === "NATIVE" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
+                        onClick={() => setSubToken("NATIVE")}
+                      >
+                        {subChain}
+                      </button>
+                      <button
+                        type="button"
+                        className={`pill ${subToken === "USDC" ? "active" : ""}`}
+                        style={{ color: "#fff", background: subToken === "USDC" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
                         onClick={() => setSubToken("USDC")}
                       >
                         USDC
                       </button>
                       <button
                         type="button"
-                        className={`pill ${subToken === "USDT" ? "active" : ""}`} style={{ color: "#fff", background: subToken === "USDT" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
+                        className={`pill ${subToken === "USDT" ? "active" : ""}`}
+                        style={{ color: "#fff", background: subToken === "USDT" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
                         onClick={() => setSubToken("USDT")}
                       >
                         USDT
                       </button>
-                    </div>
-
-                    <div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
+                    </div><div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
                       Selected: <b>Nexus Pro ${SUB_PRICE_USD}</b> · <b>{subToken}</b>
                     </div>
 
@@ -4004,7 +4075,7 @@ async function runAi() {
                     {subMsg ? <div className="hint" style={{ marginTop: 8 }}>{subMsg}</div> : null}
 
                     <div className="hint" style={{ marginTop: 10, opacity: 0.8 }}>
-                      Note: You must have enough {subToken} for the plan amount plus POL gas.
+                      Note: You must have enough funds for the plan amount plus <b>{subChain}</b> gas.
                     </div>
                   </div>
                 )}

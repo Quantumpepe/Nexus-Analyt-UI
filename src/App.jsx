@@ -1236,7 +1236,7 @@ function AppInner() {
 
   // Multi-chain config (UI is ready; test phase enables POL + BNB)
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
-  const ENABLED_CHAINS = ["POL","BNB"];
+  const ENABLED_CHAINS = ["POL","BNB","ETH"];
   const DEFAULT_CHAIN = "BNB";
 
 // One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
@@ -2660,6 +2660,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
 
   const [gridMode, setGridMode] = useState("SAFE");
+  const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
+
   const [gridInvestUsd, setGridInvestUsd] = useState(250);
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
@@ -3030,7 +3032,7 @@ const [aiLoading, setAiLoading] = useState(false);
     setErrorMsg("");
     if (!requirePro("Starting a new grid session")) return;
     try {
-      const body = { item: gridItem, mode: gridMode, order_mode: "MANUAL", invest_usd: Number(gridInvestUsd) || 0 };
+      const body = { item: gridItem, mode: gridMode, order_mode: "MANUAL", invest_usd: Number(gridInvestUsd) || 0, auto_path: !!gridAutoPath };
       const r = await api("/api/grid/start", { method: "POST", token: token || undefined, body });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
@@ -4311,13 +4313,9 @@ async function runAi() {
                   {[
                     { k: "BNB", label: "BNB (BNB Chain)", enabled: true },
                     { k: "POL", label: "POL (Polygon)", enabled: true },
-                    { k: "ETH", label: "ETH (Ethereum)", enabled: false },
-                    { k: "ARB", label: "ARB (Arbitrum)", enabled: false },
-                    { k: "OP", label: "OP (Optimism)", enabled: false },
-                    { k: "BASE", label: "BASE", enabled: false },
-                    { k: "AVAX", label: "AVAX", enabled: false },
-                    { k: "FTM", label: "FTM", enabled: false },
+                    { k: "ETH", label: "ETH (Ethereum)", enabled: true },
                     { k: "SOL", label: "SOL (soon)", enabled: false },
+                    { k: "BTC", label: "BTC (soon)", enabled: false },
                   ].map((c) => (
                     <option key={c.k} value={c.k} disabled={!ENABLED_CHAINS.includes(c.k)}>
                       {c.label}{!ENABLED_CHAINS.includes(c.k) ? " — soon" : ""}
@@ -5143,6 +5141,23 @@ async function runAi() {
               <div className="formRow">
                 <label>Budget (USD)</label>
                 <input value={gridInvestUsd} onChange={(e) => setGridInvestUsd(e.target.value)} placeholder="250" />
+              </div>
+
+              <div className="formRow" style={{ marginTop: 6 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={!!gridAutoPath}
+                    onChange={(e) => setGridAutoPath(e.target.checked)}
+                    style={{ transform: "scale(1.1)" }}
+                  />
+                  <span>
+                    Auto-path (V2 → V3 fallback)
+                    <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                      Helps avoid failed swaps when liquidity is only on V3 (mainly ETH).
+                    </span>
+                  </span>
+                </label>
               </div>
 
               <div className="btnRow">

@@ -3110,20 +3110,40 @@ const [aiLoading, setAiLoading] = useState(false);
   useInterval(fetchGridOrders, 15000, !!gridItem);
 
   const gridLiveFallback = useMemo(() => {
-    const tgt = String(gridItem || "").toUpperCase();
-    const rows = (watchRows || []);
-    // Prefer exact symbol match from watchlist.
-    let row = rows.find((r) => String(r.symbol || "").toUpperCase() === tgt);
-    if (row?.price != null) return row.price;
+  const tgt = String(gridItem || "").toUpperCase();
+  const rows = watchRows || [];
 
-    // Common alias: Polygon's native token was historically shown as MATIC on many price feeds.
-    if (tgt === "POL") {
-      row = rows.find((r) => String(r.symbol || "").toUpperCase() === "MATIC");
-      if (row?.price != null) return row.price;
-    }
+  const findPrice = (sym) => {
+    const r = rows.find(
+      (x) => String(x.symbol || "").toUpperCase() === String(sym || "").toUpperCase()
+    );
+    return r?.price != null ? r.price : null;
+  };
 
-    return null;
-  }, [watchRows, gridItem]);
+  // 1) Direct match
+  let p = findPrice(tgt);
+  if (p != null) return p;
+
+  // 2) Alias mapping for wrapped/native differences
+  if (tgt === "POL") {
+    p = findPrice("MATIC");
+    if (p != null) return p;
+    p = findPrice("WMATIC");
+    if (p != null) return p;
+  }
+
+  if (tgt === "BNB") {
+    p = findPrice("WBNB");
+    if (p != null) return p;
+  }
+
+  if (tgt === "ETH") {
+    p = findPrice("WETH");
+    if (p != null) return p;
+  }
+
+  return null;
+}, [watchRows, gridItem]);
   const shownGridPrice = gridMeta.price ?? gridLiveFallback ?? null;
 
   const setManualPriceFromMarket = () => {

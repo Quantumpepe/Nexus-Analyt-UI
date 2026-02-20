@@ -1553,6 +1553,8 @@ const [errorMsg, setErrorMsg] = useState("");
   const [balByChain, setBalByChain] = useState({}); // { ETH: { native: "0.0" }, ... }
   const [balActiveChain, setBalActiveChain] = useState("BNB");
 
+  const [showAllWalletChains, setShowAllWalletChains] = useState(true);
+
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
@@ -2735,7 +2737,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
-  const [highlightSym, setHighlightSym] = useState(null);
+  const \[highlightSym, setHighlightSym\] = useState\(null\);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
@@ -4227,14 +4229,36 @@ async function runAi() {
                 <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Balances</div>
 
                   {/* Active chain for wallet + grid */}
-                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <button
+                      key="ALL"
+                      type="button"
+                      onClick={() => setShowAllWalletChains(true)}
+                      title="Show balances for all chains"
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 999,
+                        fontWeight: 800,
+                        fontSize: 12,
+                        cursor: "pointer",
+                        background: showAllWalletChains ? "rgba(34,197,94,0.9)" : "transparent",
+                        color: showAllWalletChains ? "#0b1411" : "#e5e7eb",
+                        border: showAllWalletChains ? "1px solid rgba(34,197,94,0.9)" : "1px solid rgba(229,231,235,0.25)",
+                      }}
+                    >
+                      ALL
+                    </button>
+
                     {ENABLED_CHAINS.map((c) => {
-                      const active = (balActiveChain || DEFAULT_CHAIN) === c;
+                      const active = !showAllWalletChains && (balActiveChain || DEFAULT_CHAIN) === c;
                       return (
                         <button
                           key={c}
                           type="button"
-                          onClick={() => setBalActiveChain(c)}
+                          onClick={() => {
+                            setShowAllWalletChains(false);
+                            setBalActiveChain(c);
+                          }}
                           title={`Show balances on ${c}`}
                           style={{
                             padding: "6px 10px",
@@ -4250,7 +4274,8 @@ async function runAi() {
                           {c}
                         </button>
                       );
-                    })}</div>
+                    })}
+                  </div>
 
                 <button
                   className="btnGhost"
@@ -4286,7 +4311,7 @@ async function runAi() {
               )}
 
               <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                {ENABLED_CHAINS.map((c) => {
+                {(showAllWalletChains ? ENABLED_CHAINS : [balActiveChain || DEFAULT_CHAIN]).map((c) => {
                   const row = balByChain?.[c] || {};
                   const nativeLabel = c; // ETH / POL / BNB
                   return (

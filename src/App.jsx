@@ -453,7 +453,7 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
         method,
         signal: merged.signal,
         headers: makeHeaders(withBearer),
-        credentials: "omit",
+        credentials: "include",
         body: body ? JSON.stringify(body) : undefined,
       });
     } finally {
@@ -3064,7 +3064,7 @@ const [aiLoading, setAiLoading] = useState(false);
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
       const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(fetchRange)}`;
-      const r = await fetch(url, { method: "GET", credentials: "omit", headers: { Accept: "application/json" }, signal: ac.signal });
+      const r = await fetch(url, { method: "GET", credentials: "include", headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal: ac.signal });
 
       let data = null;
       try { data = await r.json(); } catch { data = null; }
@@ -5978,7 +5978,8 @@ function optimisticRemoveWatch(symbol) {
   // best-effort backend sync
   fetch(`${API_BASE}/api/watchlist/remove`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ symbol })
   }).catch(() => {});
 }

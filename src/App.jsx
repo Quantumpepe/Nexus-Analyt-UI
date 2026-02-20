@@ -1556,6 +1556,8 @@ const [errorMsg, setErrorMsg] = useState("");
   const [showAllWalletChains, setShowAllWalletChains] = useState(true);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
+  const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, items: [], ts: null });
+  const [gridBudgetsErr, setGridBudgetsErr] = useState("");
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
   const [walletUsdLoading, setWalletUsdLoading] = useState(false);
@@ -2017,6 +2019,20 @@ const byChain = {};
         } catch {
           // keep silent; balances still show
           setWalletUsd((prev) => ({ ...(prev || {}), total: prev?.total ?? null, ts: Date.now() }));
+
+      // Grid budget locks (USD-based) so wallet can show "Available vs In bots"
+      try {
+        setGridBudgetsErr("");
+        const bud = await api("/api/grid/budgets", { method: "GET", token });
+        const bdata = bud?.data || bud; // api() returns parsed json; some calls wrap
+        const totals = (bdata && bdata.totals) ? bdata.totals : { locked_usd: 0, available_usd: 0 };
+        const items = (bdata && bdata.items) ? bdata.items : [];
+        setGridBudgets({ totals, items, ts: Date.now() });
+      } catch (e) {
+        setGridBudgetsErr(String(e?.message || e || "Failed to load grid budgets"));
+        // keep last good value
+      }
+
         } finally {
           setWalletUsdLoading(false);
         }
@@ -2737,7 +2753,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
-  const [highlightSym, setHighlightSym] = useState(null);
+  const \[highlightSym, setHighlightSym\] = useState\(null\);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
@@ -4227,6 +4243,18 @@ async function runAi() {
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Balances</div>
+
+                <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>
+                  <span>In bots (reserved): </span>
+                  <b>${Number(gridBudgets?.totals?.locked_usd || 0).toFixed(2)}</b>
+                  <span style={{ marginInline: 8, opacity: 0.6 }}>|</span>
+                  <span>Available (info): </span>
+                  <b>${Number(gridBudgets?.totals?.available_usd || 0).toFixed(2)}</b>
+                  {gridBudgetsErr ? (
+                    <span style={{ marginLeft: 8, color: "#ff8a8a" }}>({gridBudgetsErr})</span>
+                  ) : null}
+                </div>
+
 
                   {/* Active chain for wallet + grid */}
                   <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>

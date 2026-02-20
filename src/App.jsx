@@ -1201,6 +1201,78 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
 // ------------------------
 // Best pairs
 // ------------------------
+// Build aligned daily lines from raw series map: {SYM: [{t,v}, ...]}
+// This avoids "union timestamp" artifacts and ensures every pair compares over real overlapping days.
+function buildAlignedDailyLines(seriesBySym, opts = {}) {
+  const minDays = Number(opts.minDays ?? 20); // require at least this many overlapping days
+  const syms = Object.keys(seriesBySym || {}).filter(Boolean);
+  if (syms.length < 2) return { dates: [], lines: {} };
+
+  // 1) Build per-symbol map: YYYY-MM-DD -> close price (last point of the day)
+  const maps = {};
+  const dateSets = [];
+
+  for (const sym of syms) {
+    const pts = Array.isArray(seriesBySym?.[sym]) ? seriesBySym[sym] : [];
+    const m = new Map();
+    for (const p of pts) {
+      const t = Number(p?.t ?? p?.[0] ?? 0);
+      const v = Number(p?.v ?? p?.[1] ?? NaN);
+      if (!Number.isFinite(t) || !Number.isFinite(v) || t <= 0) continue;
+
+      const d = new Date(t);
+      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+      // overwrite -> last value of that UTC day becomes the close
+      m.set(key, v);
+    }
+    maps[sym] = m;
+    dateSets.push(new Set(m.keys()));
+  }
+
+  // 2) Intersection of dates across all symbols (common overlap window)
+  let common = null;
+  for (const s of dateSets) {
+    if (!common) common = new Set(s);
+    else {
+      for (const k of Array.from(common)) if (!s.has(k)) common.delete(k);
+    }
+  }
+  const dates = Array.from(common || []).sort();
+  if (dates.length < minDays) return { dates: [], lines: {} };
+
+  // 3) Build aligned arrays (same length for all syms)
+  const lines = {};
+  for (const sym of syms) {
+    const m = maps[sym];
+    const arr = dates.map((d) => {
+      const v = m.get(d);
+      return Number.isFinite(v) ? v : null;
+    });
+    lines[sym] = arr;
+  }
+  return { dates, lines };
+}
+
+function computeBestPairsFromSeries(seriesBySym, limit = 30) {
+  const { lines } = buildAlignedDailyLines(seriesBySym, { minDays: 20 });
+  const syms = Object.keys(lines || {});
+  if (syms.length < 2) return [];
+  const normLines = normalizeToIndex(lines);
+
+  const res = [];
+  for (let i = 0; i < syms.length; i++) {
+    for (let j = i + 1; j < syms.length; j++) {
+      const a = syms[i], b = syms[j];
+      const r = pearson(normLines[a] || [], normLines[b] || []);
+      if (r === null) continue;
+      const score = Math.round(Math.abs(r) * 100);
+      res.push({ pair: `${a}/${b}`, corr: r, score });
+    }
+  }
+  res.sort((x, y) => y.score - x.score);
+  return res.slice(0, limit);
+}
+
 function pearson(a, b) {
   const n = Math.min(a.length, b.length);
   if (n < 10) return null;
@@ -2670,7 +2742,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/2Y)
   const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
   const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
-  const bestPairsTop = useMemo(() => computeBestPairs(chartRawFull, 30).slice(0, 10), [chartRawFull]);
+  const bestPairsTop = useMemo(() => computeBestPairsFromSeries(compareSeries, 30).slice(0, 10), [compareSeries]);
 
   // grid (manual)
   const [gridItem, setGridItem] = useState("BTC");

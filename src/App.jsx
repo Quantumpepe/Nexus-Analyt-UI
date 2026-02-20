@@ -3299,7 +3299,7 @@ const [aiLoading, setAiLoading] = useState(false);
         body.qty = qty;
       }
       // Some backend versions expose different manual-add paths; try a small fallback set on 404.
-      const tryPaths = ["/api/grid/manual/add", "/api/grid/add", "/api/grid/manual_add"];
+      const tryPaths = ["/api/grid/manual/add"];
       let r = null;
       let lastErr = null;
       for (const p of tryPaths) {

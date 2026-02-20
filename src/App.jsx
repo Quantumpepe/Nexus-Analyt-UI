@@ -96,7 +96,8 @@ const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
 const TREASURY_ADDRESS = (import.meta.env.VITE_TREASURY_ADDRESS ?? "").trim();
 const API_KEY = (import.meta.env.VITE_NEXUS_API_KEY ?? "").trim();
-
+console.log("API_KEY loaded?", API_KEY ? "YES" : "NO");
+window.__API_KEY_OK__ = !!API_KEY;
 const TOKEN_WHITELIST = {
   ETH: [
     { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },

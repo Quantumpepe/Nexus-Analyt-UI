@@ -2753,7 +2753,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
-  const \[highlightSym, setHighlightSym\] = useState\(null\);
+  const [highlightSym, setHighlightSym] = useState(null);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);

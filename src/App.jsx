@@ -420,14 +420,32 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
   //   3) If the backend rejects Bearer tokens (401), retry once without the Bearer
   //      header (so public/cookie-only endpoints still work).
 
-  const makeHeaders = (withBearer) => {
+    const makeHeaders = (withBearer) => {
     const headers = { Accept: "application/json" };
-    // Only send Content-Type when we actually send a JSON body (avoids CORS preflight on GET)
-    if (body != null && method !== "GET") headers["Content-Type"] = "application/json";
+
+    // Only send Content-Type when we actually send a JSON body
+    if (body != null && method !== "GET") {
+      headers["Content-Type"] = "application/json";
+    }
+
+    // Auth
     if (withBearer) {
       if (token) headers["Authorization"] = `Bearer ${token}`;
       else if (API_KEY) headers["Authorization"] = `Bearer ${API_KEY}`;
     }
+
+    // ✅ WALLET ADDRESS (required by wallet-bound endpoints)
+    try {
+      const wa =
+        localStorage.getItem("nexus_wallet") ||
+        localStorage.getItem("wallet") ||
+        "";
+
+      if (wa) {
+        headers["X-Wallet-Address"] = wa;
+      }
+    } catch {}
+
     return headers;
   };
 

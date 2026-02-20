@@ -306,6 +306,15 @@ const fmtUsd = (n) => {
   });
 };
 
+const fmtQty = (n, maxDp = 6) => {
+  if (n == null || !Number.isFinite(n)) return "—";
+  // show more decimals for tiny values
+  const abs = Math.abs(n);
+  const dp = abs > 0 && abs < 0.0001 ? 10 : (abs < 0.01 ? 8 : maxDp);
+  return stripTrailingZeros(n.toFixed(dp));
+};
+
+
 
 // ------------------------
 // CoinGecko price helpers (Wallet total value)
@@ -4256,19 +4265,6 @@ async function runAi() {
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Balances</div>
-
-                <div style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>
-                  <span>In bots (reserved): </span>
-                  <b>${Number(gridBudgets?.totals?.locked_usd || 0).toFixed(2)}</b>
-                  <span style={{ marginInline: 8, opacity: 0.6 }}>|</span>
-                  <span>Available (info): </span>
-                  <b>${Number(gridBudgets?.totals?.available_usd || 0).toFixed(2)}</b>
-                  {gridBudgetsErr ? (
-                    <span style={{ marginLeft: 8, color: "#ff8a8a" }}>({gridBudgetsErr})</span>
-                  ) : null}
-                </div>
-
-
                   {/* Active chain for wallet + grid */}
                   <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                     <button
@@ -4355,6 +4351,16 @@ async function runAi() {
                 {(showAllWalletChains ? ENABLED_CHAINS : [balActiveChain || DEFAULT_CHAIN]).map((c) => {
                   const row = balByChain?.[c] || {};
                   const nativeLabel = c; // ETH / POL / BNB
+
+                  // Show FREE balance (total - reserved) directly in the chain header.
+                  // Reserved is derived from per-chain locked USD budget, converted to native using USD price.
+                  const nativeBalNum = Number(row?.native);
+                  const nPxUsd = Number(walletPx?.native?.[c]);
+                  const lockedUsd = Number(gridBudgets?.by_chain?.[c]?.locked_usd ?? 0);
+                  const reservedNative = (Number.isFinite(nPxUsd) && nPxUsd > 0) ? (lockedUsd / nPxUsd) : 0;
+                  const freeNativeNum = Number.isFinite(nativeBalNum) ? Math.max(0, nativeBalNum - reservedNative) : null;
+                  const freeUsdVal = (Number.isFinite(freeNativeNum) && Number.isFinite(nPxUsd)) ? (freeNativeNum * nPxUsd) : null;
+
                   return (
                     <div
                       key={c}
@@ -4368,7 +4374,7 @@ async function runAi() {
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                         <div style={{ fontWeight: 800 }}>{c}</div>
                         <div style={{ fontVariantNumeric: "tabular-nums" }}>
-                          {nativeLabel}: {row.native ?? "—"}{Number.isFinite(walletPx?.native?.[c]) ? ` • ${fmtUsd(walletPx.native[c])}` : ""}
+                          {nativeLabel}: {freeNativeNum == null ? (row.native ?? "—") : fmtQty(freeNativeNum)}{Number.isFinite(freeUsdVal) ? ` • ${fmtUsd(freeUsdVal)}` : ""}
                         </div>
                       </div>
 

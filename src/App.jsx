@@ -2735,14 +2735,16 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
-  const [highlightSym, setHighlightSym] = useState(null);
+  const \[highlightSym, setHighlightSym\] = useState\(null\);
+  const [showTop10Pairs, setShowTop10Pairs] = useState(true);
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
 
   // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/2Y)
   const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
   const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
-  const bestPairsTop = useMemo(() => computeBestPairsFromSeries(compareSeries, 30).slice(0, 10), [compareSeries]);
+    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000), [compareSeries]);
+  const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsAll.slice(0, 10) : bestPairsAll), [showTop10Pairs, bestPairsAll]);
 
   // grid (manual)
   const [gridItem, setGridItem] = useState("BTC");
@@ -5076,9 +5078,16 @@ async function runAi() {
                   </div>
                 </div>
 
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10 }}>
+                  <div className="muted tiny">Showing {bestPairsToShow.length} / {bestPairsAll.length} pairs</div>
+                  <button className="ghostBtn tiny" onClick={() => setShowTop10Pairs(v => !v)}>
+                    {showTop10Pairs ? "Show all pairs" : "Show top 10"}
+                  </button>
+                </div>
+
                 <div className="pairsScroll">
-                  {bestPairsTop.length ? (
-                    bestPairsTop.map((p, i) => (
+                  {bestPairsToShow.length ? (
+                    bestPairsToShow.map((p, i) => (
                       <div key={p.pair} className="pairRow" style={{ gap: 12, cursor: "pointer" }} onClick={() => openPairExplain(p)}>
                         <span className="muted" style={{ width: 30, textAlign: "right" }}>#{i + 1}</span>
                         <span className="pairName" style={{ flex: 1 }}>{p.pair}</span>

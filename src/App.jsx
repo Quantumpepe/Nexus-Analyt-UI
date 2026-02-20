@@ -95,6 +95,7 @@ const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (
 );
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
 const TREASURY_ADDRESS = (import.meta.env.VITE_TREASURY_ADDRESS ?? "").trim();
+const API_KEY = (import.meta.env.VITE_NEXUS_API_KEY ?? "").trim();
 
 const TOKEN_WHITELIST = {
   ETH: [
@@ -422,7 +423,10 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
     const headers = { Accept: "application/json" };
     // Only send Content-Type when we actually send a JSON body (avoids CORS preflight on GET)
     if (body != null && method !== "GET") headers["Content-Type"] = "application/json";
-    if (withBearer && token) headers["Authorization"] = `Bearer ${token}`;
+    if (withBearer) {
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      else if (API_KEY) headers["Authorization"] = `Bearer ${API_KEY}`;
+    }
     return headers;
   };
 

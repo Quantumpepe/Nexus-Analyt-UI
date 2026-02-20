@@ -1556,7 +1556,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const [showAllWalletChains, setShowAllWalletChains] = useState(true);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
-  const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, items: [], ts: null });
+  const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
   const [gridBudgetsErr, setGridBudgetsErr] = useState("");
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
@@ -2023,14 +2023,27 @@ const byChain = {};
       // Grid budget locks (USD-based) so wallet can show "Available vs In bots"
       try {
         setGridBudgetsErr("");
-        const bud = await api("/api/grid/budgets", { method: "GET", token });
-        const bdata = bud?.data || bud; // api() returns parsed json; some calls wrap
+
+        // Prefer per-chain budgets if backend supports it.
+        // Fallback to legacy totals-only endpoint.
+        let bdata = null;
+        try {
+          const budByChain = await api("/api/grid/budgets_by_chain", { method: "GET", token });
+          bdata = budByChain?.data || budByChain;
+        } catch (_) {
+          const bud = await api("/api/grid/budgets", { method: "GET", token });
+          bdata = bud?.data || bud;
+        }
+
         const totals = (bdata && bdata.totals) ? bdata.totals : { locked_usd: 0, available_usd: 0 };
+        const by_chain = (bdata && bdata.by_chain) ? bdata.by_chain : {};
         const items = (bdata && bdata.items) ? bdata.items : [];
-        setGridBudgets({ totals, items, ts: Date.now() });
+
+        setGridBudgets({ totals, by_chain, items, ts: Date.now() });
       } catch (e) {
+        // Don't break wallet balances if budgets fail
         setGridBudgetsErr(String(e?.message || e || "Failed to load grid budgets"));
-        // keep last good value
+        setGridBudgets((prev) => ({ ...(prev || {}), totals: prev?.totals ?? { locked_usd: 0, available_usd: 0 }, by_chain: prev?.by_chain ?? {}, items: prev?.items ?? [], ts: Date.now() }));
       }
 
         } finally {
@@ -2753,7 +2766,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
-  const [highlightSym, setHighlightSym] = useState(null);
+  const \[highlightSym, setHighlightSym\] = useState\(null\);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
@@ -4360,6 +4373,16 @@ async function runAi() {
                       </div>
 
                       
+                      
+                      {/* Grid budget info (per-chain, if available) */}
+                      {gridBudgets?.by_chain && Object.keys(gridBudgets.by_chain).length ? (
+                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.82, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <span>In bots: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.locked_usd || 0))}</b></span>
+                          <span style={{ opacity: 0.6 }}>|</span>
+                          <span>Free: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.available_usd || 0))}</b></span>
+                        </div>
+                      ) : null}
+
                       {/* Stablecoins (whitelist) */}
                       <div
                         style={{

@@ -6149,8 +6149,7 @@ async function runAi() {
     </div>
   );
 }
-export default function App() {
-  return <AppInner />;
+export default AppInner;
 }
 
 function optimisticRemoveWatch(symbol) {

@@ -1495,7 +1495,7 @@ const [errorMsg, setErrorMsg] = useState("");
       if (!_isAddr(sendTo)) throw new Error("Recipient address invalid.");
       const amt = String(sendAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Amount invalid.");
-      const chainKey = (chainKeyOverride || balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
 
       setTxBusy(true);
@@ -1538,7 +1538,7 @@ const [errorMsg, setErrorMsg] = useState("");
       const amt = String(withdrawAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Withdraw amount invalid.");
 
-      const chainKey = (chainKeyOverride || balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr =
         (contracts?.chains?.[chainKey]?.vault || "").trim() ||

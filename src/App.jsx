@@ -3372,26 +3372,12 @@ try {
         body.qty = qty;
       }
       // Some backend versions expose different manual-add paths; try a small fallback set on 404.
-      const tryPaths = [
-        "/api/grid/manual",        // aktueller Backend-Endpoint
-        "/api/grid/manual/add",    // Fallback (alte Versionen)
-        "/api/grid/order/add",     // optional
-        "/api/grid/add"            // optional
-      ];
-      let r = null;
-      let lastErr = null;
-      for (const p of tryPaths) {
-        try {
-          r = await api(p, { method: "POST", token, body });
-          lastErr = null;
-          break;
-        } catch (e) {
-          lastErr = e;
-          if (Number(e?.status) === 404) continue;
-          throw e;
-        }
-      }
-      if (!r && lastErr) throw lastErr;
+      const r = await api("/api/grid/manual/add", {
+        method: "POST",
+        token,
+        body,
+     });
+      
       setGridOrders(r?.orders || []);
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       fetchGridOrders();

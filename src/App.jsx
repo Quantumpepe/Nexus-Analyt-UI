@@ -4965,16 +4965,12 @@ async function runAi() {
   onClick={async () => {
     if (!token) return;
     try {
-      await fetch(`${API_BASE}/api/policy`, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${token}`,
-    "X-Wallet-Address": walletAddress,
-  },
-  body: JSON.stringify({ trading_enabled: true }),
-});
-setPolicy((p) => ({ ...(p || {}), trading_enabled: true }));
+      await api("/api/policy", {
+        method: "POST",
+        body: JSON.stringify({ trading_enabled: true }),
+      });
+      setPolicy((p) => ({ ...(p || {}), trading_enabled: true }));
+    } catch (e) {
       console.error(e);
       alert("Failed to enable trading (backend). Check console/network.");
     }
@@ -4989,16 +4985,11 @@ setPolicy((p) => ({ ...(p || {}), trading_enabled: true }));
   onClick={async () => {
     if (!token) return;
     try {
-    await fetch(`${API_BASE}/api/policy`, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${token}`,
-    "X-Wallet-Address": walletAddress,
-  },
-  body: JSON.stringify({ trading_enabled: false }),
-});
-setPolicy((p) => ({ ...(p || {}), trading_enabled: false }));
+      await api("/api/policy", {
+        method: "POST",
+        body: JSON.stringify({ trading_enabled: false }),
+      });
+      setPolicy((p) => ({ ...(p || {}), trading_enabled: false }));
     } catch (e) {
       console.error(e);
       alert("Failed to disable trading (backend). Check console/network.");

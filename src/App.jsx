@@ -430,8 +430,34 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
 
     // Auth
     if (withBearer) {
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      else if (API_KEY) headers["Authorization"] = `Bearer ${API_KEY}`;
+      // Prefer a real session token (JWT or itsdangerous). If token looks invalid/opaque,
+      // fall back to wallet-address bearer (demo mode) so /api/policy etc. can authorize.
+      let bearer = null;
+
+      const wa =
+        (() => {
+          try {
+            return (
+              localStorage.getItem("nexus_wallet") ||
+              localStorage.getItem("wallet") ||
+              ""
+            );
+          } catch {
+            return "";
+          }
+        })() || "";
+
+      const t = (token || "").trim();
+
+      const looksLikeJwt = t.includes(".");
+      const looksLikeWallet = t.startsWith("0x") && t.length === 42;
+      const looksLikeSigned = t.length > 40; // itsdangerous tokens are usually long
+
+      if (t && (looksLikeJwt || looksLikeWallet || looksLikeSigned)) bearer = t;
+      else if (wa && wa.startsWith("0x") && wa.length === 42) bearer = wa;
+      else if (API_KEY) bearer = API_KEY;
+
+      if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
     }
 
     // ✅ WALLET ADDRESS (required by wallet-bound endpoints)

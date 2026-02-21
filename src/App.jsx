@@ -411,7 +411,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function api(path, { method = "GET", token, body, signal } = {}) {
   // Backend auth note:
-  // Your Flask backend currently returns 401 for /api/policy and /api/grid/* when
   // the request lacks the expected auth context. Depending on your backend setup,
   // this may be cookie-session based (needs credentials: token ? "include" : "omit") or token based.
   // We support both:
@@ -431,7 +430,6 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
     // Auth
     if (withBearer) {
       // Prefer a real session token (JWT or itsdangerous). If token looks invalid/opaque,
-      // fall back to wallet-address bearer (demo mode) so /api/policy etc. can authorize.
       let bearer = null;
 
       const wa =
@@ -1432,10 +1430,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const [privyJwt, setPrivyJwt] = useState("");
   const [token, setToken] = useLocalStorageState("nexus_token", ""); // backend token
   const [wallet, setWallet] = useLocalStorageState("nexus_wallet", "");
-  const walletAddress = wallet; // alias for older handlers / debug
-  // Trading policy is UI-only for now (no Vault/Allowance yet).
-  // Keep it local to avoid backend auth/CORS coupling during early UX work.
-const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
   const [wsChainKey, setWsChainKey] = useState(DEFAULT_CHAIN);
   const [wsInfoOpen, setWsInfoOpen] = useState(false);
@@ -1445,7 +1440,6 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [txBusy, setTxBusy] = useState(false);
   const [txMsg, setTxMsg] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState(""); // in native units (e.g., POL)
-  const [depositAmt, setDepositAmt] = useState(""); // deposit into vault (native units, e.g., POL)
   const [sendTo, setSendTo] = useState("");
   const [sendAmt, setSendAmt] = useState(""); // in native units
   // Withdraw & Send info tooltip
@@ -1513,32 +1507,6 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
     return hex.padStart(64, "0");
   };
 
-
-// -------------------------
-// Funding helpers (Privy Embedded Wallet)
-// -------------------------
-// Qty semantics (confirmed):
-// - If COIN is native of the selected chain (POL/BNB/ETH): qty is native amount
-// - If COIN is USDC/USDT: qty is token amount (USD-like)
-const _toUnits = (amountStr, decimals = 18) => {
-  const s = String(amountStr ?? "").trim();
-  if (!s) return 0n;
-  const neg = s.startsWith("-");
-  const x = neg ? s.slice(1) : s;
-  const [a, b = ""] = x.split(".");
-  const whole = (a || "0").replace(/[^\d]/g, "") || "0";
-  const frac = (b.replace(/[^\d]/g, "") + "0".repeat(decimals)).slice(0, decimals);
-  const out = BigInt(whole + frac);
-  return neg ? -out : out;
-};
-
-const _erc20TransferData = (toAddr, amountUnitsBigInt) => {
-  // transfer(address,uint256) selector: a9059cbb
-  const to = String(toAddr || "").replace(/^0x/, "").padStart(64, "0");
-  const amt = _encodeUint256(amountUnitsBigInt);
-  return "0xa9059cbb" + to + amt;
-};
-
   const _isAddr = (a) => /^0x[a-fA-F0-9]{40}$/.test(String(a || "").trim());
 
   const sendNative = async () => {
@@ -1579,58 +1547,6 @@ const _erc20TransferData = (toAddr, amountUnitsBigInt) => {
       setTimeout(() => refreshBalances(), 200);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Send failed"));
-    } finally {
-      setTxBusy(false);
-    }
-  };
-
-  const depositToVault = async () => {
-    try {
-      setTxMsg("");
-      if (!wallet) throw new Error("Wallet not connected.");
-      const amt = String(depositAmt || "").trim();
-      if (!amt || Number(amt) <= 0) throw new Error("Deposit amount invalid.");
-
-      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
-      const chainId = CHAIN_ID?.[chainKey] || 137;
-      const vaultAddr =
-        (contracts?.chains?.[chainKey]?.vault || "").trim() ||
-        (contracts?.chains?.[String(chainKey).toLowerCase()]?.vault || "").trim();
-      if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
-
-      setTxBusy(true);
-      const provider = await _getEmbeddedProvider();
-      await _trySwitchChain(provider, chainId);
-
-      // Hard safety check: ensure we are on the expected chain before sending a tx.
-      const currentHex = await provider.request({ method: "eth_chainId" });
-      const wantHex = "0x" + Number(chainId).toString(16);
-      if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
-        throw new Error(`Wrong network. Please switch your wallet to ${chainKey} (chainId ${wantHex}).`);
-      }
-
-      const valueHex = Utils.hexValue(Utils.parseEther(amt));
-
-      // Try calling deposit() (WETH-style). If vault only has receive(), fallback to empty data.
-      const trySend = async (data) => {
-        return await provider.request({
-          method: "eth_sendTransaction",
-          params: [{ from: wallet, to: vaultAddr, value: valueHex, data }],
-        });
-      };
-
-      let txHash = null;
-      try {
-        txHash = await trySend("0xd0e30db0"); // deposit()
-      } catch (e) {
-        txHash = await trySend("0x");
-      }
-
-      setTxMsg(`Deposit submitted. Tx: ${txHash}`);
-      setDepositAmt("");
-      setTimeout(() => refreshBalances(), 1200);
-    } catch (e) {
-      setTxMsg(String(e?.message || e || "Deposit failed"));
     } finally {
       setTxBusy(false);
     }
@@ -1896,7 +1812,8 @@ const _erc20TransferData = (toAddr, amountUnitsBigInt) => {
         setWallet("");
         setToken("");
         setPrivyJwt("");
-return;
+        setPolicy(null);
+        return;
       }
 
       // Prefer the embedded wallet address from Privy (avoid external wallets).
@@ -2377,7 +2294,7 @@ const byChain = {};
   }, [refreshAccess]);
 
   // Pro access: subscription or redeem code
-  const isPro = !!(access?.active);
+  const isPro = !!(access?.active && String(access?.plan || "").toLowerCase() === "pro");
 
   const requirePro = useCallback((actionLabel = "This action") => {
     if (isPro) return true;
@@ -3324,8 +3241,6 @@ const [aiLoading, setAiLoading] = useState(false);
 
   useInterval(fetchCompare, 120000, compareSymbols.length > 0);
 
-  // policy (UI-only for now)
-
   // grid
   const fetchGridOrders = async () => {
     // Allow read without token (some backends are public for GET /orders)
@@ -3343,97 +3258,21 @@ const [aiLoading, setAiLoading] = useState(false);
     }
   };
 
-  
-async function gridStart() {
-  setErrorMsg("");
-  if (!requirePro("Starting a new grid session")) return;
-
-  try {
-    if (!wallet) throw new Error("Connect wallet first.");
-    if (!contracts?.chains) throw new Error("Contracts config not loaded (/api/contracts).");
-
-    const coin = String(gridItem || "").toUpperCase();
-    const qtyStr = String(gridInvestUsd || "").trim(); // NOTE: reused input (now acts as Qty)
-    if (!qtyStr || Number(qtyStr) <= 0) throw new Error("Qty invalid.");
-
-    // Chain selection:
-    // - If coin is native (POL/BNB/ETH), chainKey = coin
-    // - If coin is stable (USDC/USDT), chainKey = currently active wallet chain (balActiveChain)
-    const isNativeCoin = coin in CHAIN_ID;
-    const chainKey = isNativeCoin ? coin : String(balActiveChain || DEFAULT_CHAIN || "POL").toUpperCase();
-    const chainId = CHAIN_ID?.[chainKey] || 137;
-
-    const vaultAddr =
-      (contracts?.chains?.[chainKey]?.vault || "").trim() ||
-      (contracts?.chains?.[String(chainKey).toLowerCase()]?.vault || "").trim();
-    if (!_isAddr(vaultAddr)) throw new Error(`Vault address not available for ${chainKey}.`);
-
-    // 1) FUNDING (Privy confirm happens here)
-    const provider = await _getEmbeddedProvider();
-    await _trySwitchChain(provider, chainId);
-
-    // Hard network check
-    const currentHex = await provider.request({ method: "eth_chainId" });
-    const wantHex = "0x" + Number(chainId).toString(16);
-    if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
-      throw new Error(`Wrong network. Switch your wallet to ${chainKey} (chainId ${wantHex}).`);
+  async function gridStart() {
+    setErrorMsg("");
+    if (!requirePro("Starting a new grid session")) return;
+    try {
+      const body = { item: gridItem, mode: gridMode, order_mode: "MANUAL", invest_usd: Number(gridInvestUsd) || 0, auto_path: !!gridAutoPath };
+      const r = await api("/api/grid/start", { method: "POST", token: token || undefined, body });
+      setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
+      setGridOrders(r?.orders || []);
+      fetchGridOrders();
+    } catch (e) {
+      setErrorMsg(`Grid start: ${e.message}`);
     }
-
-    let fundingTx = null;
-
-    if (isNativeCoin) {
-      // Native funding: send POL/BNB/ETH directly to vault
-      const valueHex = Utils.hexValue(Utils.parseEther(qtyStr));
-      fundingTx = await provider.request({
-        method: "eth_sendTransaction",
-        params: [{ from: wallet, to: vaultAddr, value: valueHex, data: "0x" }],
-      });
-    } else {
-      // ERC20 funding: USDC/USDT -> transfer to vault
-      const meta = (TOKEN_WHITELIST?.[chainKey] || []).find(
-        (t) => String(t?.symbol || "").toUpperCase() === coin
-      );
-      if (!meta?.address) throw new Error(`${coin} token not configured for ${chainKey}.`);
-      const decimals = Number(meta.decimals ?? 6);
-      const amountUnits = _toUnits(qtyStr, decimals);
-      if (amountUnits <= 0n) throw new Error("Qty too small.");
-
-      const data = _erc20TransferData(vaultAddr, amountUnits);
-      fundingTx = await provider.request({
-        method: "eth_sendTransaction",
-        params: [{ from: wallet, to: meta.address, value: "0x0", data }],
-      });
-    }
-
-    // 2) BACKEND START
-    const invest_usd = (coin === "USDC" || coin === "USDT") ? (Number(qtyStr) || 0) : 0;
-
-    const body = {
-      item: gridItem,
-      mode: gridMode,
-      order_mode: "MANUAL",
-      invest_usd,
-      auto_path: !!gridAutoPath,
-
-      // extra context (backend can ignore safely)
-      chain_id: chainId,
-      chain: chainKey,
-      funding_coin: coin,
-      funding_qty: qtyStr,
-      funding_tx: fundingTx,
-      vault: vaultAddr,
-    };
-
-    const r = await api("/api/grid/start", { method: "POST", token: token || undefined, body });
-    setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
-    setGridOrders(r?.orders || []);
-    fetchGridOrders();
-  } catch (e) {
-    setErrorMsg(`Grid start: ${e.message}`);
   }
-}
 
-  async function gridStop() { {
+  async function gridStop() {
     setErrorMsg("");
     try {
       const r = await api("/api/grid/stop", { method: "POST", token: token || undefined, body: { item: gridItem } });
@@ -3448,7 +3287,7 @@ async function gridStart() {
     setErrorMsg("");
     if (!token) return setErrorMsg("Connect wallet first.");
     if (!requirePro("Placing a new order")) return;
-try {
+    try {
       const price = Number(manualPrice);
       if (!Number.isFinite(price) || price <= 0) throw new Error("Invalid price.");
 
@@ -3474,12 +3313,21 @@ try {
         body.qty = qty;
       }
       // Some backend versions expose different manual-add paths; try a small fallback set on 404.
-      const r = await api("/api/grid/manual/add", {
-        method: "POST",
-        token,
-        body,
-     });
-      
+      const tryPaths = ["/api/grid/manual/add"];
+      let r = null;
+      let lastErr = null;
+      for (const p of tryPaths) {
+        try {
+          r = await api(p, { method: "POST", token, body });
+          lastErr = null;
+          break;
+        } catch (e) {
+          lastErr = e;
+          if (Number(e?.status) === 404) continue;
+          throw e;
+        }
+      }
+      if (!r && lastErr) throw lastErr;
       setGridOrders(r?.orders || []);
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       fetchGridOrders();
@@ -4049,19 +3897,6 @@ async function runAi() {
     return compareSymbols.map((sym) => ({ sym, row: bySym.get(sym) || null }));
   }, [watchRows, compareSymbols]);
 
-  function optimisticRemoveWatch(symbol) {
-    const removed = loadSetLS(LS_WATCH_REMOVED);
-    removed.add(symbol);
-    saveSetLS(LS_WATCH_REMOVED, removed);
-
-    setWatchItems((prev) => prev.filter((x) => x.symbol !== symbol));
-    setCompareSet((prev) => prev.filter((s) => s !== symbol));
-
-    // best-effort backend sync (ignore errors)
-    fetch(`${API_BASE}/api/watch/remove?symbol=${encodeURIComponent(symbol)}`).catch(() => {});
-  }
-
-
   return (
     <div className="app">
       
@@ -4150,1016 +3985,24 @@ async function runAi() {
 
         <div className="walletBox" style={{ position: "relative" }}>
           <div className="walletRow">
-            {/* Wallet pill is DISPLAY-ONLY: opens modal, must never trigger external wallet connect */}
-            <button
-              type="button"
-              className="pill silver"
-              style={{ cursor: "pointer" }}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setWalletModalOpen((v) => !v);
-              }}
-              aria-label="Open wallet details"
-              title="Open wallet details"
-            >
-              {wallet
-                ? `Wallet: ${wallet.slice(0, 6)}…${wallet.slice(-4)}`
-                : authenticated
-                  ? "Wallet: loading…"
-                  : "Wallet not connected"}
-            </button>
-
-            {/* External connect is EXPLICIT: only this button may open MetaMask */}
-            <button
-              type="button"
-              className="btn"
-              onMouseDown={(e) => {
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                // Use Privy auth state (wallet can be briefly empty while Privy initializes)
-                if (authenticated) disconnectWallet();
-                else connectWallet();
-              }}
-            >
-              {authenticated ? "Disconnect" : "Connect"}
-            </button>
-          </div>
-
-          
-
-          {/* Access (Redeem / Subscribe) */}
-          {wallet && (
-            <div className="flex items-center gap-2">
-              <button
-                className="btnGhost"
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setAccessTab("redeem");
-                  setRedeemMsg("");
-                  setAccessModalOpen(true);
-                }}
-                title="Redeem Code"
-              >
-                Redeem Code
-              </button>
-
-
-              <button
-                className="btnGhost"
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setAccessTab("subscribe");
-                  setSubMsg("");
-                  setAccessModalOpen(true);
-                }}
-                title="Subscribe (USDC/USDT on ETH)"
-              >
-                Subscribe
-              </button>
-
-              <div className="text-xs" style={{ opacity: 0.75, marginLeft: 6 }}>
-                {isPro ? (
+            <div className={`pill ${isPro ? "good" : "bad"}`}>Access: {isPro ? "ACTIVE" : "OFF"}</div>
+            <InfoButton title="Wallet & Access">
+              <Help showClose dismissable
+                de={
                   <>
-                    Access: <span className="pillOn">ACTIVE</span>
-                    {access?.until ? (
-                      <span style={{ marginLeft: 6 }}>
-                        until {new Date(access.until).toLocaleDateString()}
-                      </span>
-                    ) : null}
+                    <p><b>Connect</b> verbindet deine Wallet (Sign-In) und holt ein Session-Token.</p>
+                    <p><b>Access</b> (Redeem oder Abo) schaltet das Platzieren von Orders frei.</p>
                   </>
-                ) : (
+                }
+                en={
                   <>
-                    Access: <span className="pillOff">OFF</span>
+                    <p><b>Connect</b> signs in with your wallet and obtains a session token.</p>
+                    <p><b>Access</b> (Redeem oder Abo) schaltet Trading & Grid frei. Es gibt keinen separaten Trading ON/OFF Schalter mehr.</p>
                   </>
-                )}
-              </div>
-
-              {/* Access modal */}
-              
-          {accessModalOpen && (
-            <>
-              {/* click-outside catcher */}
-              <div
-                onClick={() => setAccessModalOpen(false)}
-                style={{ position: "fixed", inset: 0, background: "transparent", zIndex: 3000 }}
+                }
               />
-
-              {/* top-right panel */}
-              <div
-                role="dialog"
-                aria-label="Access / Redeem"
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                }}
-                style={{
-                  position: "fixed",
-                  top: 78,
-                  right: 24,
-                  width: 380,
-                  maxWidth: "calc(100vw - 24px)",
-                  background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                  border: "none",
-                  borderRadius: 14,
-                  padding: 14,
-                  zIndex: 4000,
-                  boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                  <div className="cardTitle" style={{ margin: 0 }}>Access</div>
-                  <button
-                    className="iconBtn"
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setAccessModalOpen(false);
-                    }}
-                    aria-label="Close"
-                  >
-                    ×
-                  </button>
-                </div>
-
-                <div className="muted" style={{ marginTop: 8 }}>
-                Redeem a permanent code, or subscribe to unlock <b>Trading + AI</b>.
-                </div>
-
-                <div className="hr" style={{ margin: "12px 0" }} />
-
-{accessTab === "redeem" ? (
-                  <div>
-                    <div className="hint">Enter your permanent code:</div>
-                    <div className="row" style={{ gap: 8, marginTop: 8 }}>
-                      <input
-                        className="input"
-                        value={redeemCode}
-                        onChange={(e) => setRedeemCode(e.target.value)}
-                        placeholder="XXXX-XXXX"
-                      />
-                      <button className="btn" disabled={redeemBusy} onClick={redeemAccess}>
-                        {redeemBusy ? "..." : "Redeem"}
-                      </button>
-                    </div>
-                    {redeemMsg ? <div className="hint" style={{ marginTop: 8 }}>{redeemMsg}</div> : null}
-                  </div>
-                ) : (
-                  <div>
-                                        <div className="hint" style={{ marginBottom: 8 }}>
-                      Subscribe for <b>Nexus Pro</b> (${SUB_PRICE_USD}/30 days). Pay with <b>ETH / BNB / POL</b> (native) or <b>USDC/USDT</b>.
-                    </div>
-
-                    <div className="row" style={{ gap: 8, marginBottom: 10, alignItems: "center" }}>
-                      <div className="hint" style={{ margin: 0, opacity: 0.9 }}>Network:</div>
-                      <select
-                        className="select"
-                        value={subChain}
-                        onChange={(e) => setSubChain(e.target.value)}
-                        style={{ flex: 1 }}
-                      >
-                        <option value="ETH">Ethereum (ETH)</option>
-                        <option value="BNB">BNB Chain (BNB)</option>
-                        <option value="POL">Polygon (POL)</option>
-                      </select>
-                    </div>
-
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      <div style={{ flex: 1 }} />
-                      <button
-                        type="button"
-                        className={`pill ${subToken === "NATIVE" ? "active" : ""}`}
-                        style={{ color: "#fff", background: subToken === "NATIVE" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
-                        onClick={() => setSubToken("NATIVE")}
-                      >
-                        {subChain}
-                      </button>
-                      <button
-                        type="button"
-                        className={`pill ${subToken === "USDC" ? "active" : ""}`}
-                        style={{ color: "#fff", background: subToken === "USDC" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
-                        onClick={() => setSubToken("USDC")}
-                      >
-                        USDC
-                      </button>
-                      <button
-                        type="button"
-                        className={`pill ${subToken === "USDT" ? "active" : ""}`}
-                        style={{ color: "#fff", background: subToken === "USDT" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
-                        onClick={() => setSubToken("USDT")}
-                      >
-                        USDT
-                      </button>
-                    </div><div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
-                      Selected: <b>Nexus Pro ${SUB_PRICE_USD}</b> · <b>{subToken}</b>
-                    </div>
-
-                    <div className="row" style={{ gap: 8, marginTop: 8 }}>
-                      <button className="btn" disabled={subBusy} onClick={subscribePay}>
-                        {subBusy ? "..." : "Pay & Activate"}
-                      </button>
-                      <button
-                        className="btnGhost"
-                        type="button"
-                        onClick={() => {
-                          setSubMsg("");
-                          refreshAccess();
-                        }}
-                      >
-                        Refresh
-                      </button>
-                    </div>
-
-                    {subMsg ? <div className="hint" style={{ marginTop: 8 }}>{subMsg}</div> : null}
-
-                    <div className="hint" style={{ marginTop: 10, opacity: 0.8 }}>
-                      Note: You must have enough funds for the plan amount plus <b>{subChain}</b> gas.
-                    </div>
-                  </div>
-                )}
-
-                <div className="hint" style={{ marginTop: 14 }}>
-                  Status: {isPro ? "ACTIVE" : "OFF"}
-                  {access?.source ? ` • via ${access.source}` : ""}
-                </div>
-              </div>
-            </>
-          )}
-            </div>
-          )}
-
-{/* Wallet details panel (top-right dropdown) */}
-          {walletModalOpen && (
-            <>
-            <div
-              role="dialog"
-              aria-label="Wallet details"
-              onMouseDown={(e) => {
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
-              style={{
-                position: "absolute",
-                top: 52,
-                right: 0,
-                width: 340,
-                background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                border: "none",
-                borderRadius: 14,
-                padding: 14,
-                zIndex: 2000,
-                boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                <div className="cardTitle" style={{ margin: 0 }}>Wallet details</div>
-                <button
-                  className="iconBtn"
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setWalletModalOpen(false);
-                  }}
-                  aria-label="Close"
-                >
-                  ×
-                </button>
-              </div>
-
-              <div className="muted" style={{ marginTop: 10, wordBreak: "break-all" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <div><b>Address</b></div>
-                  <button
-                    className="btn"
-                    style={{ padding: "4px 10px", borderRadius: 10, fontSize: 12 }}
-                    onClick={() => wallet && navigator.clipboard?.writeText(wallet)}
-                    disabled={!wallet}
-                    title={wallet ? "Copy address" : "Wallet not connected"}
-                  >
-                    Copy
-                  </button>
-                </div>
-                <div style={{ userSelect: "text", fontFamily: "monospace" }}>{wallet || "Not connected"}</div>
-              </div>
-
-              <div className="hr" style={{ margin: "12px 0" }} />
-
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Balances</div>
-                  {/* Active chain for wallet + grid */}
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                    <button
-                      key="ALL"
-                      type="button"
-                      onClick={() => setShowAllWalletChains(true)}
-                      title="Show balances for all chains"
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 999,
-                        fontWeight: 800,
-                        fontSize: 12,
-                        cursor: "pointer",
-                        background: showAllWalletChains ? "rgba(34,197,94,0.9)" : "transparent",
-                        color: showAllWalletChains ? "#0b1411" : "#e5e7eb",
-                        border: showAllWalletChains ? "1px solid rgba(34,197,94,0.9)" : "1px solid rgba(229,231,235,0.25)",
-                      }}
-                    >
-                      ALL
-                    </button>
-
-                    {ENABLED_CHAINS.map((c) => {
-                      const active = !showAllWalletChains && (balActiveChain || DEFAULT_CHAIN) === c;
-                      return (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() => {
-                            setShowAllWalletChains(false);
-                            setBalActiveChain(c);
-                          }}
-                          title={`Show balances on ${c}`}
-                          style={{
-                            padding: "6px 10px",
-                            borderRadius: 999,
-                            fontWeight: 800,
-                            fontSize: 12,
-                            cursor: "pointer",
-                            background: active ? "rgba(34,197,94,0.9)" : "transparent",
-                            color: active ? "#0b1411" : "#e5e7eb",
-                            border: active ? "1px solid rgba(34,197,94,0.9)" : "1px solid rgba(229,231,235,0.25)",
-                          }}
-                        >
-                          {c}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                <button
-                  className="btnGhost"
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    refreshBalances();
-                  }}
-                  disabled={balLoading || !wallet}
-                >
-                  {balLoading ? "Loading…" : "Refresh"}
-                </button>
-              </div>
-
-              {/* Wallet total value (USD) */}
-              <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  Total value (USD)
-                  {walletUsd?.unpriced ? (
-                    <span className="muted" style={{ marginLeft: 8 }}>
-                      · {walletUsd.unpriced} unpriced
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mono" style={{ fontWeight: 900 }}>
-                  {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}
-                </div>
-              </div>
-
-              {balError && (
-                <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>{"Could not load balances."}</div>
-              )}
-
-              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                {(showAllWalletChains ? ENABLED_CHAINS : [balActiveChain || DEFAULT_CHAIN]).map((c) => {
-                  const row = balByChain?.[c] || {};
-                  const nativeLabel = c; // ETH / POL / BNB
-
-                  // Show FREE balance (total - reserved) directly in the chain header.
-                  // Reserved is derived from per-chain locked USD budget, converted to native using USD price.
-                  const nativeBalNum = Number(row?.native);
-                  const nPxUsd = Number(walletPx?.native?.[c]);
-                  const lockedUsd = Number(gridBudgets?.by_chain?.[c]?.locked_usd ?? 0);
-                  const reservedNative = (Number.isFinite(nPxUsd) && nPxUsd > 0) ? (lockedUsd / nPxUsd) : 0;
-                  const freeNativeNum = Number.isFinite(nativeBalNum) ? Math.max(0, nativeBalNum - reservedNative) : null;
-                  const freeUsdVal = (Number.isFinite(freeNativeNum) && Number.isFinite(nPxUsd)) ? (freeNativeNum * nPxUsd) : null;
-
-                  return (
-                    <div
-                      key={c}
-                      style={{
-                        border: "none",
-                        padding: "10px",
-                        borderRadius: 12,
-                        background: "rgba(255,255,255,0.04)",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                        <div style={{ fontWeight: 800 }}>{c}</div>
-                        <div style={{ fontVariantNumeric: "tabular-nums" }}>
-                          {nativeLabel}: {freeNativeNum == null ? (row.native ?? "—") : fmtQty(freeNativeNum)}{Number.isFinite(freeUsdVal) ? ` • ${fmtUsd(freeUsdVal)}` : ""}
-                        </div>
-                      </div>
-
-                      
-                      
-                      {/* Grid budget info (per-chain, if available) */}
-                      {gridBudgets?.by_chain && Object.keys(gridBudgets.by_chain).length ? (
-                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.82, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <span>In bots: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.locked_usd || 0))}</b></span>
-                          <span style={{ opacity: 0.6 }}>|</span>
-                          <span>Free: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.available_usd || 0))}</b></span>
-                        </div>
-                      ) : null}
-
-                      {/* Stablecoins (whitelist) */}
-                      <div
-                        style={{
-                          marginTop: 8,
-                          display: "grid",
-                          gridTemplateColumns: "1fr auto",
-                          gap: 6,
-                          fontSize: 13,
-                        }}
-                      >
-                        {Object.keys(row.stables || { USDC: 0, USDT: 0 }).map((sym) => (
-                          <React.Fragment key={sym}>
-                            <div>
-                              <div className="muted">{sym}</div>
-                              <div style={{ fontSize: 12, opacity: 0.75 }}>{fmtUsd(1)}</div>
-                            </div>
-                            <div style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>
-                              {(row.stables && row.stables[sym]) ?? "0"}
-                            </div>
-                          </React.Fragment>
-                        ))}
-                      </div>
-
-                      {/* User-added tokens (unlimited) */}
-                      {(row.custom && row.custom.length > 0) && (
-                        <div style={{ marginTop: 10 }}>
-                          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Added by you</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, fontSize: 13 }}>
-                            {row.custom.map((t) => (
-                              <React.Fragment key={t.address}>
-                                <div title={t.address} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                                  <div>{t.symbol}</div>
-                                  <div style={{ fontSize: 12, opacity: 0.75 }}>
-                                    {(() => {
-                                      const addr = String(t?.address || "").toLowerCase();
-                                      const px = walletPx?.tokenByChain?.[c]?.[addr];
-                                      return Number.isFinite(px) ? fmtUsd(px) : "—";
-                                    })()}
-                                  </div>
-                                </div>
-                                <div style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>
-                                  {t.balance || "0"}
-                                </div>
-                                <button
-                                  type="button"
-                                  className="iconBtn"
-                                  style={{ width: 26, height: 26, lineHeight: "26px" }}
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    removeWalletToken(c, t.address);
-                                    setTimeout(() => refreshBalances(), 0);
-                                  }}
-                                  aria-label="Remove token"
-                                  title="Remove"
-                                >
-                                  ×
-                                </button>
-                              </React.Fragment>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div style={{ marginTop: 10 }}>
-                        <button
-                          type="button"
-                          className="btnGhost"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openAddToken(c);
-                          }}
-                          disabled={!wallet}
-                        >
-                          + Add token
-                        </button>
-                      </div>
-
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="hr" style={{ margin: "12px 0" }} />
-
-              <div style={{
-                  marginTop: 10,
-                  background: "rgba(255,255,255,0.03)",
-                  border: "none",
-                  borderRadius: 14,
-                  padding: 12
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Withdraw &amp; Send</div>
-                    <div className="pill" style={{ fontSize: 12, padding: "4px 10px" }}>
-                      {balActiveChain || DEFAULT_CHAIN}
-                    </div>
-                  </div>
-
-                  <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.25 }}>
-                    Open the transfer panel to withdraw from the Vault or send native coins to another wallet.
-                  </div>
-
-                  <button
-                    type="button"
-                    className="btnPill"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(true); }}
-                    disabled={!wallet}
-                    title={!wallet ? "Connect wallet first" : "Open Withdraw & Send"}
-                    className="btn" style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14 }}
-                  >
-                    Open Withdraw &amp; Send
-                  </button>
-
-                  {txMsg ? (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        fontSize: 12,
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        background: txMsg.toLowerCase().includes("fail")
-                          ? "rgba(255,80,80,0.10)"
-                          : "rgba(80,255,160,0.10)",
-                        border: txMsg.toLowerCase().includes("fail")
-                          ? "1px solid rgba(255,80,80,0.20)"
-                          : "1px solid rgba(80,255,160,0.18)",
-                        color: txMsg.toLowerCase().includes("fail") ? "#ffb3b3" : "#bfffd6",
-                        lineHeight: 1.25
-                      }}
-                    >
-                      {txMsg}
-                    </div>
-                  ) : null}
-                </div>
-
-            </div>
-
-
-                    {/* Withdraw & Send modal */}
-          {withdrawSendOpen && (
-            <div
-              role="dialog"
-              aria-label="Withdraw & Send"
-              onMouseDown={(e) => { e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); }}
-              style={{
-                position: "fixed",
-                inset: 0,
-                zIndex: 2400,
-                background: "rgba(0,0,0,0.55)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 16,
-              }}
-            >
-              <div
-                style={{
-                  width: "min(520px, 92vw)",
-                  background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                  border: "none",
-                  borderRadius: 16,
-                  padding: 14,
-                  boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
-                }}
-                onMouseDown={(e) => { e.stopPropagation(); }}
-                onClick={(e) => { e.stopPropagation(); }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                  <div className="cardTitle" style={{ margin: 0 }}>Withdraw &amp; Send</div>
-                  <button
-                    className="iconBtn"
-                    type="button"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }}
-                    aria-label="Close"
-                  >
-                    ×
-                  </button>
-                </div>
-
-                <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.25 }}>
-                  Chain:
-                <select
-                  value={wsChainKey}
-                  onChange={(e) => setWsChainKey(e.target.value)}
-                  style={{ marginLeft: 8, padding: "6px 10px", borderRadius: 10 }}
-                >
-                  {[
-                    { k: "BNB", label: "BNB (BNB Chain)", enabled: true },
-                    { k: "POL", label: "POL (Polygon)", enabled: true },
-                    { k: "ETH", label: "ETH (Ethereum)", enabled: true },
-                    { k: "SOL", label: "SOL (soon)", enabled: false },
-                    { k: "BTC", label: "BTC (soon)", enabled: false },
-                  ].map((c) => (
-                    <option key={c.k} value={c.k} disabled={!ENABLED_CHAINS.includes(c.k)}>
-                      {c.label}{!ENABLED_CHAINS.includes(c.k) ? " — soon" : ""}
-                    </option>
-                  ))}
-                </select>
-                <span ref={wsInfoRef} style={{ position: "relative", display: "inline-block", marginLeft: 10 }}>
-                  <span
-                    className="infoDot"
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Withdraw & Send info"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWsInfoOpen((v) => !v); }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setWsInfoOpen((v) => !v);
-                      }
-                    }}
-                    title=""
-                    style={{ cursor: "pointer" }}
-                  >
-                    i
-                  </span>
-
-                  {wsInfoOpen && (
-                    <div
-                      onClick={() => setWsInfoOpen(false)}
-                      style={{
-                        position: "fixed",
-                        inset: 0,
-                        background: "rgba(0,0,0,0.6)",
-                        zIndex: 10000,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: 12,
-                      }}
-                    >
-                      <div
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                        style={{
-                          width: "min(520px, 96vw)",
-                          maxHeight: "80vh",
-                          overflow: "hidden",
-                          background: "rgba(6, 18, 14, 0.98)",
-                          border: "1px solid rgba(40, 255, 160, 0.35)",
-                          borderRadius: 14,
-                          padding: 14,
-                          boxShadow: "0 0 26px rgba(40, 255, 160, 0.18)",
-                          position: "relative",
-                        }}
-                      >
-                        <button
-                          type="button"
-                          aria-label="Close"
-                          onClick={() => setWsInfoOpen(false)}
-                          style={{
-                            position: "absolute",
-                            top: 8,
-                            right: 10,
-                            background: "transparent",
-                            border: "none",
-                            color: "rgba(235, 255, 245, 0.95)",
-                            fontSize: 18,
-                            cursor: "pointer",
-                            lineHeight: 1,
-                          }}
-                        >
-                          ×
-                        </button>
-
-                        <div style={{ overflowY: "auto", maxHeight: "calc(80vh - 28px)", paddingRight: 6 }}>
-                          {/* ENGLISH */}
-                          <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – How it works</div>
-                          <div style={{ marginBottom: 8 }}>
-                            <b>1) Withdraw:</b> Funds are withdrawn from the Vault back to your connected Privy wallet first.
-                            The Vault always pays the connected wallet (<code style={{ fontSize: 11 }}>msg.sender</code>).
-                          </div>
-                          <div style={{ marginBottom: 10 }}>
-                            <b>2) Send:</b> After the withdrawal is completed, you can optionally send the funds from your wallet to any other address.
-                          </div>
-                          <div style={{ opacity: 0.95 }}>
-                            <b>Important:</b><br />
-                            • Make sure you are on the correct blockchain (BNB or POL)<br />
-                            • Withdraw and Send are two separate steps<br />
-                            • Gas fees are paid in the native coin (BNB / POL)
-                          </div>
-
-                          <hr style={{ margin: "12px 0", borderColor: "rgba(40, 255, 160, 0.35)" }} />
-
-                          {/* DEUTSCH */}
-                          <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – So funktioniert es</div>
-                          <div style={{ marginBottom: 8 }}>
-                            <b>1) Withdraw:</b> Das Guthaben wird zuerst aus dem Vault zurück in dein verbundenes Privy-Wallet ausgezahlt.
-                            Der Vault zahlt immer an das verbundene Wallet (<code style={{ fontSize: 11 }}>msg.sender</code>).
-                          </div>
-                          <div style={{ marginBottom: 10 }}>
-                            <b>2) Send:</b> Nach dem Withdraw kannst du die Coins optional von deinem Wallet an eine beliebige Adresse weiterleiten.
-                          </div>
-                          <div style={{ opacity: 0.95 }}>
-                            <b>Wichtig:</b><br />
-                            • Du musst auf der richtigen Blockchain sein (BNB oder POL)<br />
-                            • Withdraw und Send sind zwei getrennte Schritte<br />
-                            • Gas-Gebühren werden in der Native Coin bezahlt (BNB / POL)
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </span>
-                  <div style={{ marginTop: 4 }}>
-                    Withdraw returns funds to this Privy wallet first (vault pays msg.sender). Then you can send to any address.
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
-                    <div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Deposit to Vault (native)</div>
-                      <input
-                        className="input"
-                        value={depositAmt}
-                        onChange={(e) => setDepositAmt(e.target.value)}
-                        placeholder="0.25"
-                        inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); depositToVault(); }}
-                      disabled={txBusy || !wallet}
-                      className="btn" style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
-                    >
-                      {txBusy ? "…" : "Deposit"}
-                    </button>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
-                    <div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Withdraw amount</div>
-                      <input
-                        className="input"
-                        value={withdrawAmt}
-                        onChange={(e) => setWithdrawAmt(e.target.value)}
-                        placeholder="0.25"
-                        inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="btnPill"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
-                      disabled={txBusy || !wallet}
-                      className="btn" style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
-                    >
-                      {txBusy ? "…" : "Withdraw"}
-                    </button>
-                  </div>
-
-                  <div>
-                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Send to address</div>
-                    <input
-                      className="input"
-                      value={sendTo}
-                      onChange={(e) => setSendTo(e.target.value)}
-                      placeholder="0x…"
-                      style={{ width: "100%", height: 44, fontSize: 14, fontFamily: "monospace", background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
-                    />
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
-                    <div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Amount</div>
-                      <input
-                        className="input"
-                        value={sendAmt}
-                        onChange={(e) => setSendAmt(e.target.value)}
-                        placeholder="0.10"
-                        inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="btnPill"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
-                      disabled={txBusy || !wallet}
-                      className="btn" style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap" }}
-                    >
-                      {txBusy ? "…" : "Send"}
-                    </button>
-                  </div>
-
-                  {txMsg ? (
-                    <div
-                      style={{
-                        marginTop: 2,
-                        fontSize: 12,
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        background: txMsg.toLowerCase().includes("fail")
-                          ? "rgba(255,80,80,0.10)"
-                          : "rgba(80,255,160,0.10)",
-                        border: txMsg.toLowerCase().includes("fail")
-                          ? "1px solid rgba(255,80,80,0.20)"
-                          : "1px solid rgba(80,255,160,0.18)",
-                        color: txMsg.toLowerCase().includes("fail") ? "#ffb3b3" : "#bfffd6",
-                        lineHeight: 1.25
-                      }}
-                    >
-                      {txMsg}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-                  <button
-                    type="button"
-                    className="btnPill"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }}
-                    className="btn" style={{ height: 42, flex: 1 }}
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}{/* Add token modal (saved per wallet; unlimited). */}
-          {addTokenOpen && (
-            <div
-              role="dialog"
-              aria-label="Add token"
-              onMouseDown={(e) => { e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); }}
-              style={{
-                position: "absolute",
-                top: 52,
-                right: 0,
-                width: 340,
-                background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                border: "none",
-                borderRadius: 14,
-                padding: 14,
-                zIndex: 2100,
-                boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                <div className="cardTitle" style={{ margin: 0 }}>Add token</div>
-                <button
-                  className="iconBtn"
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAddTokenOpen(false); }}
-                  aria-label="Close"
-                >
-                  ×
-                </button>
-              </div>
-
-              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                <div>
-                  <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Chain</div>
-                  <div
-                    className="input"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
-                      padding: "10px 12px",
-                      opacity: 0.9,
-                      cursor: "default",
-                      userSelect: "none",
-                    }}
-                  >
-                    <span>
-                      "Polygon"
-                    </span>
-                    <span className="muted" style={{ fontSize: 12 }}>{addTokenChain}</span>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Search (symbol/name)</div>
-                  <input
-                    className="input"
-                    value={addTokenQuery}
-                    onChange={(e) => setAddTokenQuery(e.target.value)}
-                    placeholder="e.g. PEPE, CAKE, XRP"
-                  />
-                </div>
-
-                <div className="muted" style={{ textAlign: "center", fontSize: 12 }}>or</div>
-
-                <div>
-                  <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Contract address</div>
-                  <input
-                    className="input"
-                    value={addTokenContract}
-                    onChange={(e) => setAddTokenContract(e.target.value)}
-                    placeholder="0x…"
-                  />
-                </div>
-
-                {addTokenErr && (
-                  <div style={{ color: "#ffb3b3", fontSize: 12 }}>{addTokenErr}</div>
-                )}
-
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); addWalletToken(); }}
-                  disabled={!wallet || addTokenBusy}
-                >
-                  {addTokenBusy ? "Adding…" : "Add"}
-                </button>
-
-                {/* Search results */}
-                {String(addTokenQuery || "").trim() && (
-                  <div style={{ marginTop: 6 }}>
-                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Results (click to add)</div>
-                    <div style={{ maxHeight: 220, overflow: "auto", border: "none", borderRadius: 12 }}>
-                      {(() => {
-                        const q = String(addTokenQuery || "").trim().toLowerCase();
-                        const pool = tokenListCache?.[addTokenChain] || [];
-                        const out = pool
-                          .filter((t) => (t.symbol || "").toLowerCase().includes(q) || (t.name || "").toLowerCase().includes(q))
-                          .slice(0, 80);
-                        if (!out.length) return <div className="muted" style={{ padding: 10, fontSize: 12 }}>No matches. Paste contract address instead.</div>;
-                        return out.map((t) => (
-                          <button
-                            key={t.address}
-                            type="button"
-                            className="rowBtn"
-                            style={{
-                              width: "100%",
-                              textAlign: "left",
-                              padding: "10px 12px",
-                              border: "none",
-                              background: "transparent",
-                              color: "rgba(255,255,255,0.92)",
-                              borderBottom: "1px solid rgba(255,255,255,0.06)",
-                              cursor: "pointer",
-                            }}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setAddTokenContract(t.address);
-                              setAddTokenQuery(t.symbol);
-                              setAddTokenErr("");
-                            }}
-                            title={t.address}
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                              <div style={{ fontWeight: 700 }}>{t.symbol}</div>
-                              <div className="muted" style={{ fontSize: 12 }}>{t.address.slice(0, 6)}…{t.address.slice(-4)}</div>
-                            </div>
-                            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{t.name}</div>
-                          </button>
-                        ));
-                      })()}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-            </>
-          )}
-
+            </InfoButton>
+          </div>
         </div>
       
 
@@ -5616,7 +4459,7 @@ async function runAi() {
 
 
               <div className="formRow">
-                <label>Qty</label>
+                <label>Budget (USD)</label>
                 <input value={gridInvestUsd} onChange={(e) => setGridInvestUsd(e.target.value)} placeholder="250" />
               </div>
 
@@ -5820,14 +4663,14 @@ async function runAi() {
               <button
                 className="btn"
                 onClick={addManualOrder}
-                disabled={!token}
+                disabled={!token || !isPro}
                 title={!isPro ? "Subscribe to Nexus Pro to trade" : ""}
               >
                 {"Add Order"}
               </button>
 
               {!token && <div className="muted tiny">Connect wallet to place orders.</div>}
-</div>
+            </div>
 
             <div className="gridOrders">
               <div className="ordersHead">
@@ -6105,7 +4948,7 @@ async function runAi() {
             ) : null}
 
             {(addResults || []).map((coin) => (
-              <div key={coin.id} className="watchRow" style={{ alignItems: "center" }}>
+<div key={coin.id} className="watchRow" style={{ alignItems: "center" }}>
                 <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {coin.name} <span className="muted">({String(coin.symbol || "").toUpperCase()})</span>
@@ -6117,12 +4960,13 @@ async function runAi() {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <button className="btn" onClick={() => addMarketCoin(coin)}>
+	                <button className="btn" onClick={() => addMarketCoin(coin)}>
                     Add
                   </button>
                 </div>
               </div>
-            ))}
+            
+))}
           </div>
         </>
       )}
@@ -6160,7 +5004,27 @@ async function runAi() {
       </div>
     </div>
   </div>
-  )}
+)}
+    </div>
   );
 }
-export default AppInner;
+export default function App() {
+  return <AppInner />;
+}
+
+function optimisticRemoveWatch(symbol) {
+  const removed = loadSetLS(LS_WATCH_REMOVED);
+  removed.add(symbol);
+  saveSetLS(LS_WATCH_REMOVED, removed);
+
+  setWatchItems(prev => prev.filter(x => x.symbol !== symbol));
+  setCompareSet(prev => prev.filter(s => s !== symbol));
+
+  // best-effort backend sync
+  fetch(`${API_BASE}/api/watchlist/remove`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ symbol })
+  }).catch(() => {});
+}

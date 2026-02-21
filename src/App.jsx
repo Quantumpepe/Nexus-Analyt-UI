@@ -1434,8 +1434,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const [wallet, setWallet] = useLocalStorageState("nexus_wallet", "");
   // Trading policy is UI-only for now (no Vault/Allowance yet).
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
-  const [policy, setPolicy] = useState({ trading_enabled: false });
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
+const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
   const [wsChainKey, setWsChainKey] = useState(DEFAULT_CHAIN);
   const [wsInfoOpen, setWsInfoOpen] = useState(false);
@@ -1817,8 +1816,7 @@ const [errorMsg, setErrorMsg] = useState("");
         setWallet("");
         setToken("");
         setPrivyJwt("");
-        setPolicy(null);
-        return;
+return;
       }
 
       // Prefer the embedded wallet address from Privy (avoid external wallets).
@@ -3247,10 +3245,6 @@ const [aiLoading, setAiLoading] = useState(false);
   useInterval(fetchCompare, 120000, compareSymbols.length > 0);
 
   // policy (UI-only for now)
-  function setTradingEnabled(enabled) {
-    setErrorMsg("");
-    setPolicy((p) => ({ ...(p || {}), trading_enabled: !!enabled }));
-  }
 
   // grid
   const fetchGridOrders = async () => {
@@ -3298,8 +3292,7 @@ const [aiLoading, setAiLoading] = useState(false);
     setErrorMsg("");
     if (!token) return setErrorMsg("Connect wallet first.");
     if (!requirePro("Placing a new order")) return;
-    if (!policy?.trading_enabled) return setErrorMsg("Trading is OFF. Enable trading first.");
-    try {
+try {
       const price = Number(manualPrice);
       if (!Number.isFinite(price) || price <= 0) throw new Error("Invalid price.");
 
@@ -4984,79 +4977,6 @@ async function runAi() {
             </>
           )}
 
-          <div className="walletRow">
-            <div className={`pill ${policy?.trading_enabled ? "good" : "bad"}`}>Trading: {policy?.trading_enabled ? "ON" : "OFF"}</div>
-            <button
-  className="btnGhost"
-  onClick={async () => {
-    if (!token) return;
-
-    try {
-      await fetch("https://nexus-analyt-pro.onrender.com/api/policy", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-          "X-Wallet-Address": walletAddress
-        },
-        body: JSON.stringify({ trading_enabled: true }),
-      });
-
-      setPolicy((p) => ({ ...(p || {}), trading_enabled: true }));
-    } catch (e) {
-      console.error(e);
-      alert("Failed to enable trading (backend). Check console/network.");
-    }
-  }}
-  disabled={!token}
->
-  Enable
-</button>
-
-<button
-  className="btnGhost"
-  onClick={async () => {
-    if (!token) return;
-
-    try {
-      await fetch("https://nexus-analyt-pro.onrender.com/api/policy", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-          "X-Wallet-Address": walletAddress
-        },
-        body: JSON.stringify({ trading_enabled: false }),
-      });
-
-      setPolicy((p) => ({ ...(p || {}), trading_enabled: false }));
-    } catch (e) {
-      console.error(e);
-      alert("Failed to disable trading (backend). Check console/network.");
-    }
-  }}
-  disabled={!token}
->
-  Disable
-</button>
-
-            <InfoButton title="Wallet & Trading">
-              <Help showClose dismissable
-                de={
-                  <>
-                    <p><b>Connect</b> verbindet deine Wallet (Sign-In) und holt ein Session-Token.</p>
-                    <p><b>Trading ON/OFF</b> schaltet das Platzieren von echten Manual-Orders frei (Policy).</p>
-                  </>
-                }
-                en={
-                  <>
-                    <p><b>Connect</b> signs in with your wallet and obtains a session token.</p>
-                    <p><b>Trading ON/OFF</b> enables real manual order placement (policy gate).</p>
-                  </>
-                }
-              />
-            </InfoButton>
-          </div>
         </div>
       
 
@@ -5717,15 +5637,14 @@ async function runAi() {
               <button
                 className="btn"
                 onClick={addManualOrder}
-                disabled={!token || !policy?.trading_enabled}
+                disabled={!token}
                 title={!isPro ? "Subscribe to Nexus Pro to trade" : ""}
               >
                 {"Add Order"}
               </button>
 
               {!token && <div className="muted tiny">Connect wallet to place orders.</div>}
-              {token && !policy?.trading_enabled && <div className="muted tiny">Enable trading (policy) to place orders.</div>}
-            </div>
+</div>
 
             <div className="gridOrders">
               <div className="ordersHead">

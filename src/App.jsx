@@ -6150,7 +6150,6 @@ async function runAi() {
   );
 }
 export default AppInner;
-}
 
 function optimisticRemoveWatch(symbol) {
   const removed = loadSetLS(LS_WATCH_REMOVED);

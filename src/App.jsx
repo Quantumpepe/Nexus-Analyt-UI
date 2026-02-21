@@ -6147,9 +6147,14 @@ async function runAi() {
         Tip: coins already cached on backend appear instantly; new ones may take a moment to fetch.
       </div>
     </div>
+   </div>
+)}
+    </div>
   );
 }
-export default AppInner;
+export default function App() {
+  return <AppInner />;
+}
 
 function optimisticRemoveWatch(symbol) {
   const removed = loadSetLS(LS_WATCH_REMOVED);

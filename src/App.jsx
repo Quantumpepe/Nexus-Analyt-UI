@@ -3372,7 +3372,12 @@ try {
         body.qty = qty;
       }
       // Some backend versions expose different manual-add paths; try a small fallback set on 404.
-      const tryPaths = ["/api/grid/manual/add"];
+      const tryPaths = [
+        "/api/grid/manual",        // aktueller Backend-Endpoint
+        "/api/grid/manual/add",    // Fallback (alte Versionen)
+        "/api/grid/order/add",     // optional
+        "/api/grid/add"            // optional
+      ];
       let r = null;
       let lastErr = null;
       for (const p of tryPaths) {

@@ -4960,8 +4960,47 @@ async function runAi() {
 
           <div className="walletRow">
             <div className={`pill ${policy?.trading_enabled ? "good" : "bad"}`}>Trading: {policy?.trading_enabled ? "ON" : "OFF"}</div>
-            <button className="btnGhost" onClick={() => setTradingEnabled(true)} disabled={!token}>Enable</button>
-            <button className="btnGhost" onClick={() => setTradingEnabled(false)} disabled={!token}>Disable</button>
+            <button
+  className="btnGhost"
+  onClick={async () => {
+    if (!token) return;
+    try {
+      await api("/api/policy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trading_enabled: true }),
+      });
+      setPolicy((p) => ({ ...(p || {}), trading_enabled: true }));
+    } catch (e) {
+      console.error(e);
+      alert("Failed to enable trading (backend). Check console/network.");
+    }
+  }}
+  disabled={!token}
+>
+  Enable
+</button>
+
+<button
+  className="btnGhost"
+  onClick={async () => {
+    if (!token) return;
+    try {
+      await api("/api/policy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trading_enabled: false }),
+      });
+      setPolicy((p) => ({ ...(p || {}), trading_enabled: false }));
+    } catch (e) {
+      console.error(e);
+      alert("Failed to disable trading (backend). Check console/network.");
+    }
+  }}
+  disabled={!token}
+>
+  Disable
+</button>
 
             <InfoButton title="Wallet & Trading">
               <Help showClose dismissable

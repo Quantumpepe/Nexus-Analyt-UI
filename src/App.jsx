@@ -6147,28 +6147,8 @@ async function runAi() {
         Tip: coins already cached on backend appear instantly; new ones may take a moment to fetch.
       </div>
     </div>
-   </div>
-)}
-    </div>
+  </div>
   );
 }
-export default function App() {
-  return <AppInner />;
-}
 
-function optimisticRemoveWatch(symbol) {
-  const removed = loadSetLS(LS_WATCH_REMOVED);
-  removed.add(symbol);
-  saveSetLS(LS_WATCH_REMOVED, removed);
-
-  setWatchItems(prev => prev.filter(x => x.symbol !== symbol));
-  setCompareSet(prev => prev.filter(s => s !== symbol));
-
-  // best-effort backend sync
-  fetch(`${API_BASE}/api/watchlist/remove`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ symbol })
-  }).catch(() => {});
-}
+export default AppInner;

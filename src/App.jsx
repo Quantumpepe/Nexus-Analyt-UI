@@ -1513,6 +1513,32 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
     return hex.padStart(64, "0");
   };
 
+
+// -------------------------
+// Funding helpers (Privy Embedded Wallet)
+// -------------------------
+// Qty semantics (confirmed):
+// - If COIN is native of the selected chain (POL/BNB/ETH): qty is native amount
+// - If COIN is USDC/USDT: qty is token amount (USD-like)
+const _toUnits = (amountStr, decimals = 18) => {
+  const s = String(amountStr ?? "").trim();
+  if (!s) return 0n;
+  const neg = s.startsWith("-");
+  const x = neg ? s.slice(1) : s;
+  const [a, b = ""] = x.split(".");
+  const whole = (a || "0").replace(/[^\d]/g, "") || "0";
+  const frac = (b.replace(/[^\d]/g, "") + "0".repeat(decimals)).slice(0, decimals);
+  const out = BigInt(whole + frac);
+  return neg ? -out : out;
+};
+
+const _erc20TransferData = (toAddr, amountUnitsBigInt) => {
+  // transfer(address,uint256) selector: a9059cbb
+  const to = String(toAddr || "").replace(/^0x/, "").padStart(64, "0");
+  const amt = _encodeUint256(amountUnitsBigInt);
+  return "0xa9059cbb" + to + amt;
+};
+
   const _isAddr = (a) => /^0x[a-fA-F0-9]{40}$/.test(String(a || "").trim());
 
   const sendNative = async () => {
@@ -3317,21 +3343,97 @@ const [aiLoading, setAiLoading] = useState(false);
     }
   };
 
-  async function gridStart() {
-    setErrorMsg("");
-    if (!requirePro("Starting a new grid session")) return;
-    try {
-      const body = { item: gridItem, mode: gridMode, order_mode: "MANUAL", invest_usd: Number(gridInvestUsd) || 0, auto_path: !!gridAutoPath };
-      const r = await api("/api/grid/start", { method: "POST", token: token || undefined, body });
-      setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
-      setGridOrders(r?.orders || []);
-      fetchGridOrders();
-    } catch (e) {
-      setErrorMsg(`Grid start: ${e.message}`);
-    }
-  }
+  
+async function gridStart() {
+  setErrorMsg("");
+  if (!requirePro("Starting a new grid session")) return;
 
-  async function gridStop() {
+  try {
+    if (!wallet) throw new Error("Connect wallet first.");
+    if (!contracts?.chains) throw new Error("Contracts config not loaded (/api/contracts).");
+
+    const coin = String(gridItem || "").toUpperCase();
+    const qtyStr = String(gridInvestUsd || "").trim(); // NOTE: reused input (now acts as Qty)
+    if (!qtyStr || Number(qtyStr) <= 0) throw new Error("Qty invalid.");
+
+    // Chain selection:
+    // - If coin is native (POL/BNB/ETH), chainKey = coin
+    // - If coin is stable (USDC/USDT), chainKey = currently active wallet chain (balActiveChain)
+    const isNativeCoin = coin in CHAIN_ID;
+    const chainKey = isNativeCoin ? coin : String(balActiveChain || DEFAULT_CHAIN || "POL").toUpperCase();
+    const chainId = CHAIN_ID?.[chainKey] || 137;
+
+    const vaultAddr =
+      (contracts?.chains?.[chainKey]?.vault || "").trim() ||
+      (contracts?.chains?.[String(chainKey).toLowerCase()]?.vault || "").trim();
+    if (!_isAddr(vaultAddr)) throw new Error(`Vault address not available for ${chainKey}.`);
+
+    // 1) FUNDING (Privy confirm happens here)
+    const provider = await _getEmbeddedProvider();
+    await _trySwitchChain(provider, chainId);
+
+    // Hard network check
+    const currentHex = await provider.request({ method: "eth_chainId" });
+    const wantHex = "0x" + Number(chainId).toString(16);
+    if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
+      throw new Error(`Wrong network. Switch your wallet to ${chainKey} (chainId ${wantHex}).`);
+    }
+
+    let fundingTx = null;
+
+    if (isNativeCoin) {
+      // Native funding: send POL/BNB/ETH directly to vault
+      const valueHex = Utils.hexValue(Utils.parseEther(qtyStr));
+      fundingTx = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: wallet, to: vaultAddr, value: valueHex, data: "0x" }],
+      });
+    } else {
+      // ERC20 funding: USDC/USDT -> transfer to vault
+      const meta = (TOKEN_WHITELIST?.[chainKey] || []).find(
+        (t) => String(t?.symbol || "").toUpperCase() === coin
+      );
+      if (!meta?.address) throw new Error(`${coin} token not configured for ${chainKey}.`);
+      const decimals = Number(meta.decimals ?? 6);
+      const amountUnits = _toUnits(qtyStr, decimals);
+      if (amountUnits <= 0n) throw new Error("Qty too small.");
+
+      const data = _erc20TransferData(vaultAddr, amountUnits);
+      fundingTx = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: wallet, to: meta.address, value: "0x0", data }],
+      });
+    }
+
+    // 2) BACKEND START
+    const invest_usd = (coin === "USDC" || coin === "USDT") ? (Number(qtyStr) || 0) : 0;
+
+    const body = {
+      item: gridItem,
+      mode: gridMode,
+      order_mode: "MANUAL",
+      invest_usd,
+      auto_path: !!gridAutoPath,
+
+      // extra context (backend can ignore safely)
+      chain_id: chainId,
+      chain: chainKey,
+      funding_coin: coin,
+      funding_qty: qtyStr,
+      funding_tx: fundingTx,
+      vault: vaultAddr,
+    };
+
+    const r = await api("/api/grid/start", { method: "POST", token: token || undefined, body });
+    setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
+    setGridOrders(r?.orders || []);
+    fetchGridOrders();
+  } catch (e) {
+    setErrorMsg(`Grid start: ${e.message}`);
+  }
+}
+
+  async function gridStop() { {
     setErrorMsg("");
     try {
       const r = await api("/api/grid/stop", { method: "POST", token: token || undefined, body: { item: gridItem } });
@@ -5501,7 +5603,7 @@ async function runAi() {
 
 
               <div className="formRow">
-                <label>Budget (USD)</label>
+                <label>Qty</label>
                 <input value={gridInvestUsd} onChange={(e) => setGridInvestUsd(e.target.value)} placeholder="250" />
               </div>
 

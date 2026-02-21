@@ -6150,5 +6150,23 @@ async function runAi() {
   </div>
   );
 }
+export default function App() {
+  return <AppInner />;
+}
 
-export default AppInner;
+function optimisticRemoveWatch(symbol) {
+  const removed = loadSetLS(LS_WATCH_REMOVED);
+  removed.add(symbol);
+  saveSetLS(LS_WATCH_REMOVED, removed);
+
+  setWatchItems(prev => prev.filter(x => x.symbol !== symbol));
+  setCompareSet(prev => prev.filter(s => s !== symbol));
+
+  // best-effort backend sync
+  fetch(`${API_BASE}/api/watchlist/remove`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ symbol })
+  }).catch(() => {});
+}

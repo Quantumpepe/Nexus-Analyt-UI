@@ -6148,8 +6148,6 @@ async function runAi() {
       </div>
     </div>
   </div>
-)}
-    </div>
   );
 }
 export default function App() {

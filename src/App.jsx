@@ -3318,7 +3318,7 @@ try {
         body.qty = qty;
       }
       // Some backend versions expose different manual-add paths; try a small fallback set on 404.
-      const tryPaths = ["/api/grid/manual/add"];
+      const tryPaths = ["/api/grid/add"];
       let r = null;
       let lastErr = null;
       for (const p of tryPaths) {

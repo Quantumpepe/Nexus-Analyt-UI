@@ -6147,7 +6147,6 @@ async function runAi() {
         Tip: coins already cached on backend appear instantly; new ones may take a moment to fetch.
       </div>
     </div>
-  </div>
   );
 }
 export default function App() {

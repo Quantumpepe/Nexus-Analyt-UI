@@ -1432,6 +1432,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const [privyJwt, setPrivyJwt] = useState("");
   const [token, setToken] = useLocalStorageState("nexus_token", ""); // backend token
   const [wallet, setWallet] = useLocalStorageState("nexus_wallet", "");
+  const walletAddress = wallet; // alias for older handlers / debug
   // Trading policy is UI-only for now (no Vault/Allowance yet).
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
 const [walletModalOpen, setWalletModalOpen] = useState(false);
@@ -1444,6 +1445,7 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [txBusy, setTxBusy] = useState(false);
   const [txMsg, setTxMsg] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState(""); // in native units (e.g., POL)
+  const [depositAmt, setDepositAmt] = useState(""); // deposit into vault (native units, e.g., POL)
   const [sendTo, setSendTo] = useState("");
   const [sendAmt, setSendAmt] = useState(""); // in native units
   // Withdraw & Send info tooltip
@@ -1551,6 +1553,58 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
       setTimeout(() => refreshBalances(), 200);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Send failed"));
+    } finally {
+      setTxBusy(false);
+    }
+  };
+
+  const depositToVault = async () => {
+    try {
+      setTxMsg("");
+      if (!wallet) throw new Error("Wallet not connected.");
+      const amt = String(depositAmt || "").trim();
+      if (!amt || Number(amt) <= 0) throw new Error("Deposit amount invalid.");
+
+      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainId = CHAIN_ID?.[chainKey] || 137;
+      const vaultAddr =
+        (contracts?.chains?.[chainKey]?.vault || "").trim() ||
+        (contracts?.chains?.[String(chainKey).toLowerCase()]?.vault || "").trim();
+      if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
+
+      setTxBusy(true);
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, chainId);
+
+      // Hard safety check: ensure we are on the expected chain before sending a tx.
+      const currentHex = await provider.request({ method: "eth_chainId" });
+      const wantHex = "0x" + Number(chainId).toString(16);
+      if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
+        throw new Error(`Wrong network. Please switch your wallet to ${chainKey} (chainId ${wantHex}).`);
+      }
+
+      const valueHex = Utils.hexValue(Utils.parseEther(amt));
+
+      // Try calling deposit() (WETH-style). If vault only has receive(), fallback to empty data.
+      const trySend = async (data) => {
+        return await provider.request({
+          method: "eth_sendTransaction",
+          params: [{ from: wallet, to: vaultAddr, value: valueHex, data }],
+        });
+      };
+
+      let txHash = null;
+      try {
+        txHash = await trySend("0xd0e30db0"); // deposit()
+      } catch (e) {
+        txHash = await trySend("0x");
+      }
+
+      setTxMsg(`Deposit submitted. Tx: ${txHash}`);
+      setDepositAmt("");
+      setTimeout(() => refreshBalances(), 1200);
+    } catch (e) {
+      setTxMsg(String(e?.message || e || "Deposit failed"));
     } finally {
       setTxBusy(false);
     }
@@ -2297,7 +2351,7 @@ const byChain = {};
   }, [refreshAccess]);
 
   // Pro access: subscription or redeem code
-  const isPro = !!(access?.active && String(access?.plan || "").toLowerCase() === "pro");
+  const isPro = !!(access?.active);
 
   const requirePro = useCallback((actionLabel = "This action") => {
     if (isPro) return true;
@@ -3318,7 +3372,7 @@ try {
         body.qty = qty;
       }
       // Some backend versions expose different manual-add paths; try a small fallback set on 404.
-      const tryPaths = ["/api/grid/add"];
+      const tryPaths = ["/api/grid/manual/add"];
       let r = null;
       let lastErr = null;
       for (const p of tryPaths) {
@@ -4743,6 +4797,29 @@ async function runAi() {
                 </div>
 
                 <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
+                    <div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Deposit to Vault (native)</div>
+                      <input
+                        className="input"
+                        value={depositAmt}
+                        onChange={(e) => setDepositAmt(e.target.value)}
+                        placeholder="0.25"
+                        inputMode="decimal"
+                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); depositToVault(); }}
+                      disabled={txBusy || !wallet}
+                      className="btn" style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
+                    >
+                      {txBusy ? "…" : "Deposit"}
+                    </button>
+                  </div>
+
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
                     <div>
                       <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Withdraw amount</div>

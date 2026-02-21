@@ -6092,7 +6092,7 @@ async function runAi() {
             ) : null}
 
             {(addResults || []).map((coin) => (
-<div key={coin.id} className="watchRow" style={{ alignItems: "center" }}>
+              <div key={coin.id} className="watchRow" style={{ alignItems: "center" }}>
                 <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {coin.name} <span className="muted">({String(coin.symbol || "").toUpperCase()})</span>
@@ -6104,13 +6104,12 @@ async function runAi() {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-	                <button className="btn" onClick={() => addMarketCoin(coin)}>
+                  <button className="btn" onClick={() => addMarketCoin(coin)}>
                     Add
                   </button>
                 </div>
               </div>
-            
-))}
+            ))}
           </div>
         </>
       )}
@@ -6148,13 +6147,10 @@ async function runAi() {
       </div>
     </div>
   </div>
-)}
-    </div>
+  )}
   );
 }
-export default function App() {
-  return <AppInner />;
-}
+export default AppInner;
 
 function optimisticRemoveWatch(symbol) {
   const removed = loadSetLS(LS_WATCH_REMOVED);

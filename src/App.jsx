@@ -4964,11 +4964,18 @@ async function runAi() {
   className="btnGhost"
   onClick={async () => {
     if (!token) return;
+
     try {
-      await api("/api/policy", {
+      await fetch("https://nexus-analyt-pro.onrender.com/api/policy", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+          "X-Wallet-Address": walletAddress
+        },
         body: JSON.stringify({ trading_enabled: true }),
       });
+
       setPolicy((p) => ({ ...(p || {}), trading_enabled: true }));
     } catch (e) {
       console.error(e);
@@ -4984,11 +4991,18 @@ async function runAi() {
   className="btnGhost"
   onClick={async () => {
     if (!token) return;
+
     try {
-      await api("/api/policy", {
+      await fetch("https://nexus-analyt-pro.onrender.com/api/policy", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+          "X-Wallet-Address": walletAddress
+        },
         body: JSON.stringify({ trading_enabled: false }),
       });
+
       setPolicy((p) => ({ ...(p || {}), trading_enabled: false }));
     } catch (e) {
       console.error(e);

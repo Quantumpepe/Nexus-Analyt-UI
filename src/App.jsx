@@ -191,7 +191,7 @@ function hexToBigInt(hex) {
 
 function formatNativeFromWei(weiBig, decimals = 18, maxFrac = 6) {
   // Convert BigInt wei to a decimal string without depending on big number libs.
-  const base = 10n  BigInt(decimals);
+  const base = 10n ** BigInt(decimals);
   const whole = weiBig / base;
   const frac = weiBig % base;
   if (frac === 0n) return whole.toString();

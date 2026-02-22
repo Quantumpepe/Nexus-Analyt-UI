@@ -151,7 +151,7 @@ const ALCHEMY_RPC = {
 function maskAlchemyUrl(url) {
   if (!url) return "";
   // hide API key segment if present
-  return url.replace(/\/v2\/[^/?#]+/i, "/v2/");
+  return url.replace(/\/v2\/[^/?#]+/i, "/v2/****");
 }
 
 async function alchemyRpc(chainKey, method, params = []) {
@@ -2703,7 +2703,7 @@ const byChain = {};
         const spec = specs.find((t) => t.symbol === subToken);
         if (!spec?.address) throw new Error("Token not supported on this chain.");
 
-        const amountUnits = BigInt(SUB_PRICE_USD) * (10n  BigInt(spec.decimals || 6));
+        const amountUnits = BigInt(SUB_PRICE_USD) * (10n ** BigInt(spec.decimals || 6));
         const data = _erc20TransferData(TREASURY_ADDRESS, amountUnits);
 
         txHash = await window.ethereum.request({
@@ -4184,7 +4184,7 @@ async function runAi() {
           if (a && b && a !== 0) rets.push((b / a) - 1);
         }
         const mean = rets.length ? rets.reduce((s, x) => s + x, 0) / rets.length : 0;
-        const variance = rets.length ? rets.reduce((s, x) => s + (x - mean)  2, 0) / rets.length : 0;
+        const variance = rets.length ? rets.reduce((s, x) => s + (x - mean) ** 2, 0) / rets.length : 0;
         const volPct = Math.sqrt(variance) * 100;
 
         let peak = vals[0];

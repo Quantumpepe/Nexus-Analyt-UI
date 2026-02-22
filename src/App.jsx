@@ -2290,10 +2290,10 @@ const byChain = {};
             const nativeVal = (Number.isFinite(nativeBal) && Number.isFinite(nPx)) ? nativeBal * nPx : 0;
 
             // stables (assume $1)
-            const st = row?.stables || {};
+            const stablesMap = row?.stables || {};
             let stableVal = 0;
-            for (const k of Object.keys(st || {})) {
-              const b = Number(st?.[k]);
+            for (const k of Object.keys(stablesMap || {})) {
+              const b = Number(stablesMap?.[k]);
               if (Number.isFinite(b)) stableVal += b * 1.0;
             }
 
@@ -3112,8 +3112,8 @@ useEffect(() => {
     out.push(chain);
 
     // stables present on this chain (USDC/USDT etc.)
-    const st = row?.stables || {};
-    for (const k of Object.keys(st)) out.push(String(k).toUpperCase());
+    const stablesMap = row?.stables || {};
+    for (const k of Object.keys(stablesMap)) out.push(String(k).toUpperCase());
 
     // user-added tokens
     const custom = row?.custom || [];
@@ -4055,12 +4055,12 @@ if (data?.cached != null) setWatchCached(Boolean(data.cached));
     const headTitle = isGerman ? `Zeitraum-Stats (${TF})` : `Timeframe stats (${TF})`;
 
     const fmt = (n) => (n == null || !Number.isFinite(n) ? "—" : n.toFixed(2));
-    const bullets = entries.map(([sym, st]) => {
-      const ch = st?.changePct;
-      const vol = st?.volPct;
-      const mdd = st?.maxDDPct;
-      const last = st?.last;
-      const first = st?.first;
+    const bullets = entries.map(([sym, stats]) => {
+      const ch = stats?.changePct;
+      const vol = stats?.volPct;
+      const mdd = stats?.maxDDPct;
+      const last = stats?.last;
+      const first = stats?.first;
       if (isGerman) {
         return `- ${sym}: Start ${fmtUsd(first)}, Ende ${fmtUsd(last)}, Veränderung ${fmt(ch)}%, Volatilität ${fmt(vol)}%, MaxDD ${fmt(mdd)}%`;
       }
@@ -4122,12 +4122,12 @@ async function runAi() {
 
       const seriesStats = {};
       for (const s of syms) {
-        const st = statsForSym(s);
-        if (st) seriesStats[s] = st;
+        const stats = statsForSym(s);
+        if (stats) seriesStats[s] = stats;
       }
 
       const statsText = Object.entries(seriesStats)
-        .map(([s, st]) => `${s}: change=${(st.changePct ?? 0).toFixed(2)}%, vol=${(st.volPct ?? 0).toFixed(2)}%, maxDD=${(st.maxDDPct ?? 0).toFixed(2)}%, range=[${st.min}, ${st.max}], points=${st.points}`)
+        .map(([s, stats]) => `${s}: change=${(stats.changePct ?? 0).toFixed(2)}%, vol=${(stats.volPct ?? 0).toFixed(2)}%, maxDD=${(stats.maxDDPct ?? 0).toFixed(2)}%, range=[${stats.min}, ${stats.max}], points=${stats.points}`)
         .join("\\n");
 
 

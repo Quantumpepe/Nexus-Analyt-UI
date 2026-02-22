@@ -13,6 +13,14 @@ function saveSetLS(key, setVal) {
   localStorage.setItem(key, JSON.stringify(Array.from(setVal)));
 }
 
+
+function tB(de, en) {
+  // simple bilingual label: shows DE + EN (user requested both)
+  if (!de) return en || "";
+  if (!en) return de || "";
+  return `${de} / ${en}`;
+}
+
 const LS_WATCH_REMOVED = "nexus_watch_removed";
 
 function _watchKeyFromItem(it) {
@@ -1702,6 +1710,7 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
   const VAULT_SIG = {
     setOperator: "0x558a7297",        // setOperator(address,bool)
     startCycle:  "0x0a20e8c0",        // startCycle(address)
+    endCycle:   "0x85588ce8",        // endCycle(address)
     isOperatorFor: "0xd95b6371",      // isOperatorFor(address,address)
     inCycle: "0x7870293e",            // inCycle(address)
     polBalance: "0x7754e652",         // polBalance(address)
@@ -1845,6 +1854,46 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
       setTimeout(() => refreshVaultState(), 1400);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Start cycle failed"));
+    } finally {
+      setTxBusy(false);
+    }
+  };
+
+
+  const endVaultCycle = async () => {
+    try {
+      setTxMsg("");
+      if (!wallet) throw new Error("Wallet not connected.");
+      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainId = CHAIN_ID?.[chainKey] || 137;
+      const vaultAddr = _getVaultAddrForChain(chainKey);
+      if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
+
+      const data = VAULT_SIG.endCycle + _encodeAddress(wallet);
+
+      setTxBusy(true);
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, chainId);
+
+      const currentHex = await provider.request({ method: "eth_chainId" });
+      const wantHex = "0x" + Number(chainId).toString(16);
+      if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
+        throw new Error(`Wrong network. Please switch your wallet to ${chainKey} (chainId ${chainId}).`);
+      }
+
+      const tx = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: wallet, to: vaultAddr, data }],
+      });
+
+      setTxMsg(`Cycle end submitted. Tx: ${tx}`);
+      // refresh vault state (inCycle should turn to NO after confirmation; refresh anyway)
+      setTimeout(() => { try { refreshVaultState(); } catch {} }, 1200);
+      setTimeout(() => { try { refreshVaultState(); } catch {} }, 4500);
+      return tx;
+    } catch (e) {
+      setTxMsg(String(e?.message || e || "End cycle tx failed"));
+      throw e;
     } finally {
       setTxBusy(false);
     }
@@ -5094,9 +5143,35 @@ async function runAi() {
 
                   {/* Vault status + Operator (one-time enable for autonomous grid) */}
                   <div className="muted tiny" style={{ marginTop: 6 }}>
-                    Vault balance: <b>{vaultState?.polBalance != null ? String(vaultState.polBalance) : "—"}</b>{" "}
-                    | inCycle: <b>{vaultState?.inCycle ? "YES" : "NO"}</b>{" "}
-                    | Operator: <b>{vaultState?.operatorEnabled ? "ENABLED" : "OFF"}</b>
+                    <div>
+                      {tB("Vault Balance", "Vault balance")}: <b>{vaultState?.polBalance != null ? String(vaultState.polBalance) : "—"}</b>{" "}
+                      | {tB("Cycle", "Cycle")}: <b>{vaultState?.inCycle ? tB("LÄUFT", "RUNNING") : tB("STOP", "STOPPED")}</b>{" "}
+                      | {tB("Operator", "Operator")}: <b>{vaultState?.operatorEnabled ? tB("AKTIV", "ENABLED") : tB("INAKTIV", "DISABLED")}</b>
+                    </div>
+
+                    {!vaultState?.operatorEnabled && (
+                      <div style={{ marginTop: 4 }}>
+                        ⚠️ {tB("Schritt 1: Operator aktivieren. Danach kann der Grid autonom handeln.", "Step 1: Enable operator. After that the grid can trade autonomously.")}
+                      </div>
+                    )}
+
+                    {vaultState?.operatorEnabled && !(Number(vaultState?.polBalance || 0) > 0) && (
+                      <div style={{ marginTop: 4 }}>
+                        ⚠️ {tB("Schritt 2: Bitte zuerst in den Vault einzahlen (Deposit).", "Step 2: Please deposit funds into the Vault first.")}
+                      </div>
+                    )}
+
+                    {vaultState?.operatorEnabled && (Number(vaultState?.polBalance || 0) > 0) && !vaultState?.inCycle && (
+                      <div style={{ marginTop: 4 }}>
+                        ✅ {tB("Schritt 3: Cycle starten. Danach kannst du Orders anlegen, ohne jedes Mal zu signieren (nur bis zum Vault-Budget).", "Step 3: Start the cycle. Then you can place orders without signing every time (up to your Vault budget).")}
+                      </div>
+                    )}
+
+                    {vaultState?.inCycle && (
+                      <div style={{ marginTop: 4 }}>
+                        ✅ {tB("Cycle läuft. Du kannst Orders stoppen/löschen. Für neue Parameter: Cycle beenden und neu starten.", "Cycle is running. You can stop/delete orders. For new parameters: end the cycle and start again.")}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
@@ -5124,13 +5199,57 @@ async function runAi() {
 
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); startVaultCycle(); }}
-                      disabled={txBusy || !wallet || vaultState?.inCycle}
+                      onClick={async (e) => {
+                        e.preventDefault(); e.stopPropagation();
+                        try {
+                          const bal = Number(vaultState?.polBalance || 0);
+                          const op = !!vaultState?.operatorEnabled;
+                          const inC = !!vaultState?.inCycle;
+
+                          if (inC) {
+                            const ok = window.confirm(tB(
+                              "Cycle läuft bereits. Möchtest du den Cycle beenden?",
+                              "Cycle is already running. Do you want to end the cycle?"
+                            ));
+                            if (!ok) return;
+                            await endVaultCycle();
+                            return;
+                          }
+
+                          if (!op) {
+                            alert(tB(
+                              "Operator ist nicht aktiviert. Bitte zuerst 'Enable Operator' klicken.",
+                              "Operator is not enabled. Please click 'Enable Operator' first."
+                            ));
+                            return;
+                          }
+
+                          if (!(bal > 0)) {
+                            alert(tB(
+                              "Vault ist leer. Bitte zuerst einen Betrag in den Vault einzahlen (Deposit).",
+                              "Vault is empty. Please deposit funds into the Vault first."
+                            ));
+                            return;
+                          }
+
+                          await startVaultCycle();
+                        } catch (err) {
+                          // errors are shown via txMsg; keep UI stable
+                          console.warn(err);
+                        }
+                      }}
+                      disabled={txBusy || !wallet || (!vaultState?.inCycle && (!vaultState?.operatorEnabled || !(Number(vaultState?.polBalance || 0) > 0)))}
                       className="btn"
                       style={{ height: 40, paddingInline: 14, fontSize: 13 }}
-                      title="Opens a trading cycle on the Vault. Usually only needed once per session."
+                      title={vaultState?.inCycle
+                        ? tB("Beendet den laufenden Cycle (Stop).", "Ends the running cycle (stop).")
+                        : tB("Startet einen Trading-Cycle im Vault (einmal pro Session).", "Starts a trading cycle in the Vault (once per session).")
+                      }
                     >
-                      {vaultState?.inCycle ? "Cycle Open" : (txBusy ? "…" : "Start Cycle")}
+                      {vaultState?.inCycle
+                        ? tB("Cycle läuft", "Cycle running")
+                        : (txBusy ? "…" : tB("Cycle starten", "Start cycle"))
+                      }
                     </button>
 
                     <button

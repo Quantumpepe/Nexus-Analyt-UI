@@ -4184,7 +4184,7 @@ async function runAi() {
           if (a && b && a !== 0) rets.push((b / a) - 1);
         }
         const mean = rets.length ? rets.reduce((s, x) => s + x, 0) / rets.length : 0;
-        const variance = rets.length ? rets.reduce((s, x) => s + (x - mean)  2, 0) / rets.length : 0;
+        const variance = rets.length ? rets.reduce((s, x) => s + (x - mean) ** 2, 0) / rets.length : 0;
         const volPct = Math.sqrt(variance) * 100;
 
         let peak = vals[0];

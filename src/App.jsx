@@ -1790,7 +1790,7 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
       const currentHex = await provider.request({ method: "eth_chainId" });
       const wantHex = "0x" + Number(chainId).toString(16);
       if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
-        throw new Error(\`Wrong network. Please switch your wallet to \${chainKey} (chainId \${wantHex}).\`);
+        throw new Error(`Wrong network. Please switch your wallet to ${chainKey} (chainId ${wantHex}).`);
       }
 
       const txHash = await provider.request({
@@ -1798,7 +1798,7 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
         params: [{ from: wallet, to: vaultAddr, value: "0x0", data }],
       });
 
-      setTxMsg(\`\${allowed ? "Operator enabled" : "Operator disabled"}. Tx: \${txHash}\`);
+      setTxMsg(`${allowed ? "Operator enabled" : "Operator disabled"}. Tx: ${txHash}`);
       setTimeout(() => refreshVaultState(), 1400);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Operator tx failed"));
@@ -1825,7 +1825,7 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
       const currentHex = await provider.request({ method: "eth_chainId" });
       const wantHex = "0x" + Number(chainId).toString(16);
       if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
-        throw new Error(\`Wrong network. Please switch your wallet to \${chainKey} (chainId \${wantHex}).\`);
+        throw new Error(`Wrong network. Please switch your wallet to ${chainKey} (chainId ${wantHex}).`);
       }
 
       const txHash = await provider.request({
@@ -1833,7 +1833,7 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
         params: [{ from: wallet, to: vaultAddr, value: "0x0", data }],
       });
 
-      setTxMsg(\`Cycle start submitted. Tx: \${txHash}\`);
+      setTxMsg(`Cycle start submitted. Tx: ${txHash}`);
       setTimeout(() => refreshVaultState(), 1400);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Start cycle failed"));

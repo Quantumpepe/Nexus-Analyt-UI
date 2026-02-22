@@ -3649,23 +3649,13 @@ try {
       const deadline = Math.floor(Date.now() / 1000) + Math.floor(dlm * 60);
       const body = { item: gridItem, side: manualSide, price, slippage_bps: Math.round(slp * 100), deadline_sec: deadline };
 
-      if (manualSide === "BUY") {
-        if (manualBuyMode === "USD") {
-          const usd = manualUsd === "" ? undefined : Number(manualUsd);
-          if (usd === undefined || !Number.isFinite(usd) || usd <= 0) throw new Error("Invalid USD amount.");
-          body.usd = usd;
-        } else {
-          const qty = manualQty === "" ? undefined : Number(manualQty);
-          if (qty === undefined || !Number.isFinite(qty) || qty <= 0) throw new Error("Invalid qty.");
-          body.qty = qty;
-        }
-      } else {
-        // SELL always by qty
-        const qty = manualQty === "" ? undefined : Number(manualQty);
-        if (qty === undefined || !Number.isFinite(qty) || qty <= 0) throw new Error("Invalid qty.");
-        body.qty = qty;
-      }
-      // Source of truth endpoint (must match backend): /api/grid/manual/add (no fallbacks).
+      
+// Qty-only: all coins/tokens are entered as quantity (also USDC/USDT)
+const qty = manualQty === "" ? undefined : Number(manualQty);
+if (qty === undefined || !Number.isFinite(qty) || qty <= 0) throw new Error("Invalid Qty amount.");
+body.qty = qty;
+
+// Source of truth endpoint (must match backend): /api/grid/manual/add (no fallbacks).
       const r = await api("/api/grid/manual/add", {
         method: "POST",
         token,
@@ -4275,6 +4265,27 @@ async function runAi() {
     }
     return compareSymbols.map((sym) => ({ sym, row: bySym.get(sym) || null }));
   }, [watchRows, compareSymbols]);
+
+
+// --- Vault usage (Qty-based) ---
+const reservedQtyOpen = useMemo(() => {
+  try {
+    return (gridOrders || [])
+      .filter((o) => o && o.status === "OPEN")
+      .reduce((s, o) => s + (Number(o.qty) || 0), 0);
+  } catch {
+    return 0;
+  }
+}, [gridOrders]);
+
+const vaultNativeBal = useMemo(() => {
+  const vs = vaultState || {};
+  if (balActiveChain === "BNB") return Number(vs.bnbBalance) || 0;
+  if (balActiveChain === "ETH") return Number(vs.ethBalance) || 0;
+  return Number(vs.polBalance) || 0;
+}, [vaultState, balActiveChain]);
+
+const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reservedQtyOpen) || 0));
 
   return (
     <div className="app">
@@ -5957,6 +5968,9 @@ async function runAi() {
                 <label>Budget (Qty)</label>
                 <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
               </div>
+<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
+  {tB("Vault:")} <b>{vaultNativeBal.toFixed(6)}</b> · {tB("Reserved (OPEN):")} <b>{reservedQtyOpen.toFixed(6)}</b> · {tB("Free:")} <b>{vaultFreeQty.toFixed(6)}</b>
+</div>
 
               <div className="formRow" style={{ marginTop: 6 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 10 }}>

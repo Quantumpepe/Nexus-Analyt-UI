@@ -1448,6 +1448,17 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [depositAmt, setDepositAmt] = useState(""); // deposit into vault (native units, e.g., POL)
   const [sendTo, setSendTo] = useState("");
   const [sendAmt, setSendAmt] = useState(""); // in native units
+
+  // Vault state (on-chain) + operator authorization
+  const [vaultState, setVaultState] = useState({
+    polBalanceWei: null,
+    polBalance: null,
+    inCycle: false,
+    heldToken: null,
+    heldTokenBalWei: null,
+    heldTokenBal: null,
+    operatorEnabled: false,
+  });
   // Withdraw & Send info tooltip
   useEffect(() => {
     if (!withdrawSendOpen) setWsInfoOpen(false);
@@ -1512,6 +1523,25 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
     if (!hex) hex = "0";
     return hex.padStart(64, "0");
   };
+  const _encodeAddress = (addr) => {
+    const a = String(addr || "").trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(a)) throw new Error("Bad address for ABI encode.");
+    return a.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+  };
+
+  const _encodeBool = (b) => {
+    return (b ? "1" : "0").padStart(64, "0");
+  };
+
+  const _hexToAddress = (hex) => {
+    const h = String(hex || "0x").replace(/^0x/, "").padStart(64, "0");
+    return "0x" + h.slice(24); // last 20 bytes
+  };
+
+  const _hexToBool = (hex) => {
+    try { return BigInt(hex || "0x0") !== 0n; } catch { return false; }
+  };
+
 
   const _isAddr = (a) => /^0x[a-fA-F0-9]{40}$/.test(String(a || "").trim());
 
@@ -1656,6 +1686,168 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
       setTxBusy(false);
     }
   };
+
+  // ---------
+  // Vault on-chain reads (polBalance / inCycle / heldToken / heldTokenBal / operatorEnabled)
+  // NOTE: This reads directly from the Vault contract using eth_call (no backend needed).
+  // ---------
+  const VAULT_SIG = {
+    setOperator: "0x558a7297",        // setOperator(address,bool)
+    startCycle:  "0x0a20e8c0",        // startCycle(address)
+    isOperatorFor: "0xd95b6371",      // isOperatorFor(address,address)
+    inCycle: "0x7870293e",            // inCycle(address)
+    polBalance: "0x7754e652",         // polBalance(address)
+    heldToken: "0x90ba1a44",          // heldToken(address)
+    heldTokenBal: "0x4ad59fe9",       // heldTokenBal(address)
+  };
+
+  const _getVaultAddrForChain = (chainKey) => {
+    return (
+      (contracts?.chains?.[chainKey]?.vault || "").trim() ||
+      (contracts?.chains?.[String(chainKey).toLowerCase()]?.vault || "").trim()
+    );
+  };
+
+  const _getBotOperatorForChain = (chainKey) => {
+    // backend can expose operator/executor address in /api/contracts
+    return (
+      (contracts?.chains?.[chainKey]?.operator || "").trim() ||
+      (contracts?.chains?.[chainKey]?.executor || "").trim() ||
+      (contracts?.chains?.[chainKey]?.bot || "").trim() ||
+      (contracts?.chains?.[String(chainKey).toLowerCase()]?.operator || "").trim() ||
+      (contracts?.chains?.[String(chainKey).toLowerCase()]?.executor || "").trim()
+    );
+  };
+
+  const refreshVaultState = async () => {
+    try {
+      if (!wallet) return;
+      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainId = CHAIN_ID?.[chainKey] || 137;
+      const vaultAddr = _getVaultAddrForChain(chainKey);
+      if (!_isAddr(vaultAddr)) return;
+
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, chainId);
+
+      const botOp = _getBotOperatorForChain(chainKey);
+      const hasBotOp = _isAddr(botOp);
+
+      const call = async (data) => {
+        return await provider.request({
+          method: "eth_call",
+          params: [{ to: vaultAddr, data }, "latest"],
+        });
+      };
+
+      const polHex = await call(VAULT_SIG.polBalance + _encodeAddress(wallet));
+      const inCycleHex = await call(VAULT_SIG.inCycle + _encodeAddress(wallet));
+      const heldTokHex = await call(VAULT_SIG.heldToken + _encodeAddress(wallet));
+      const heldBalHex = await call(VAULT_SIG.heldTokenBal + _encodeAddress(wallet));
+
+      let operatorEnabled = false;
+      if (hasBotOp) {
+        const opHex = await call(
+          VAULT_SIG.isOperatorFor + _encodeAddress(wallet) + _encodeAddress(botOp)
+        );
+        operatorEnabled = _hexToBool(opHex);
+      }
+
+      const polWei = hexToBigInt(polHex);
+      const heldWei = hexToBigInt(heldBalHex);
+
+      setVaultState({
+        polBalanceWei: polWei,
+        polBalance: Number(Utils.formatEther(polWei)),
+        inCycle: _hexToBool(inCycleHex),
+        heldToken: _hexToAddress(heldTokHex),
+        heldTokenBalWei: heldWei,
+        heldTokenBal: Number(Utils.formatUnits(heldWei, 18)), // assumes token 18; display-only
+        operatorEnabled,
+      });
+    } catch (e) {
+      // keep UI alive; vault state is best-effort
+    }
+  };
+
+  const setVaultOperator = async (allowed) => {
+    try {
+      setTxMsg("");
+      if (!wallet) throw new Error("Wallet not connected.");
+      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainId = CHAIN_ID?.[chainKey] || 137;
+      const vaultAddr = _getVaultAddrForChain(chainKey);
+      if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
+      const botOp = _getBotOperatorForChain(chainKey);
+      if (!_isAddr(botOp)) throw new Error("Backend bot operator address is missing in /api/contracts.");
+
+      const data = VAULT_SIG.setOperator + _encodeAddress(botOp) + _encodeBool(!!allowed);
+
+      setTxBusy(true);
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, chainId);
+
+      const currentHex = await provider.request({ method: "eth_chainId" });
+      const wantHex = "0x" + Number(chainId).toString(16);
+      if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
+        throw new Error(\`Wrong network. Please switch your wallet to \${chainKey} (chainId \${wantHex}).\`);
+      }
+
+      const txHash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: wallet, to: vaultAddr, value: "0x0", data }],
+      });
+
+      setTxMsg(\`\${allowed ? "Operator enabled" : "Operator disabled"}. Tx: \${txHash}\`);
+      setTimeout(() => refreshVaultState(), 1400);
+    } catch (e) {
+      setTxMsg(String(e?.message || e || "Operator tx failed"));
+    } finally {
+      setTxBusy(false);
+    }
+  };
+
+  const startVaultCycle = async () => {
+    try {
+      setTxMsg("");
+      if (!wallet) throw new Error("Wallet not connected.");
+      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainId = CHAIN_ID?.[chainKey] || 137;
+      const vaultAddr = _getVaultAddrForChain(chainKey);
+      if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
+
+      const data = VAULT_SIG.startCycle + _encodeAddress(wallet);
+
+      setTxBusy(true);
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, chainId);
+
+      const currentHex = await provider.request({ method: "eth_chainId" });
+      const wantHex = "0x" + Number(chainId).toString(16);
+      if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
+        throw new Error(\`Wrong network. Please switch your wallet to \${chainKey} (chainId \${wantHex}).\`);
+      }
+
+      const txHash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: wallet, to: vaultAddr, value: "0x0", data }],
+      });
+
+      setTxMsg(\`Cycle start submitted. Tx: \${txHash}\`);
+      setTimeout(() => refreshVaultState(), 1400);
+    } catch (e) {
+      setTxMsg(String(e?.message || e || "Start cycle failed"));
+    } finally {
+      setTxBusy(false);
+    }
+  };
+
+  // keep vault state fresh
+  useEffect(() => {
+    refreshVaultState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet, wsChainKey, balActiveChain, contracts]);
+
 
 
   // Alchemy balances (native per chain, optionally tokens later)
@@ -3320,8 +3512,30 @@ const [aiLoading, setAiLoading] = useState(false);
   async function gridStart() {
     setErrorMsg("");
     if (!requirePro("Starting a new grid session")) return;
+
+    // Safety: Grid runs autonomously via backend operator + Vault funds.
+    // Require: Vault has budget deposited and operator is enabled (so backend can trade without further user signatures).
+    if (!vaultState?.operatorEnabled) {
+      throw new Error("Enable the Grid Operator first (Vault → Enable Operator).");
+    }
+    const want = Number(gridInvestUsd) || 0;
+    const have = Number(vaultState?.polBalance || 0);
+    if (!want || want <= 0) throw new Error("Set a vault budget amount > 0.");
+    if (have <= 0) throw new Error("Deposit funds into the Vault first.");
+    if (want > have + 1e-12) throw new Error(`Budget exceeds Vault balance. Vault: ${have} native.`);
+
     try {
-      const body = { item: gridItem, mode: gridMode, order_mode: "MANUAL", invest_usd: Number(gridInvestUsd) || 0, auto_path: !!gridAutoPath };
+      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const body = {
+        item: gridItem,
+        mode: gridMode,
+        order_mode: "MANUAL",
+        // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd for backwards compatibility.
+        invest_native: Number(gridInvestUsd) || 0,
+        invest_usd: Number(gridInvestUsd) || 0,
+        chain: chainKey,
+        auto_path: !!gridAutoPath,
+      };
       const r = await api("/api/grid/start", { method: "POST", token: token || undefined, body });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
@@ -3371,7 +3585,7 @@ try {
         if (qty === undefined || !Number.isFinite(qty) || qty <= 0) throw new Error("Invalid qty.");
         body.qty = qty;
       }
-      // Some backend versions expose different manual-add paths; try a small fallback set on 404.
+      // Source of truth endpoint (must match backend): /api/grid/manual/add (no fallbacks).
       const r = await api("/api/grid/manual/add", {
         method: "POST",
         token,
@@ -3385,6 +3599,41 @@ try {
       setErrorMsg(`Manual add: ${e.message}`);
     }
   }
+  async function stopGridOrder(orderId) {
+    setErrorMsg("");
+    if (!token) return setErrorMsg("Connect wallet first.");
+    if (!gridItem) return;
+    try {
+      const r = await api("/api/grid/order/stop", {
+        method: "POST",
+        token,
+        body: { item: gridItem, order_id: orderId },
+      });
+      setGridOrders(r?.orders || r?.data?.orders || gridOrders);
+      fetchGridOrders();
+    } catch (e) {
+      setErrorMsg(`Stop order: ${e.message}`);
+    }
+  }
+
+  async function deleteGridOrder(orderId) {
+    setErrorMsg("");
+    if (!token) return setErrorMsg("Connect wallet first.");
+    if (!gridItem) return;
+    try {
+      const r = await api("/api/grid/order/delete", {
+        method: "POST",
+        token,
+        body: { item: gridItem, order_id: orderId },
+      });
+      setGridOrders(r?.orders || r?.data?.orders || []);
+      fetchGridOrders();
+    } catch (e) {
+      // if backend doesn't support delete yet, just hide locally
+      setGridOrders((prev) => prev.filter((x) => (x?.id || x?._id) !== orderId));
+    }
+  }
+
 
   useInterval(fetchGridOrders, 15000, !!gridItem);
 
@@ -4811,6 +5060,59 @@ async function runAi() {
                     </button>
                   </div>
 
+                  {/* Vault status + Operator (one-time enable for autonomous grid) */}
+                  <div className="muted tiny" style={{ marginTop: 6 }}>
+                    Vault balance: <b>{vaultState?.polBalance != null ? String(vaultState.polBalance) : "—"}</b>{" "}
+                    | inCycle: <b>{vaultState?.inCycle ? "YES" : "NO"}</b>{" "}
+                    | Operator: <b>{vaultState?.operatorEnabled ? "ENABLED" : "OFF"}</b>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setVaultOperator(true); }}
+                      disabled={txBusy || !wallet || vaultState?.operatorEnabled}
+                      className="btn"
+                      style={{ height: 40, paddingInline: 14, fontSize: 13 }}
+                      title="Allow the backend Grid Bot to trade from your Vault balance without further signatures."
+                    >
+                      {vaultState?.operatorEnabled ? "Operator Enabled" : (txBusy ? "…" : "Enable Operator")}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setVaultOperator(false); }}
+                      disabled={txBusy || !wallet || !vaultState?.operatorEnabled}
+                      className="btn secondary"
+                      style={{ height: 40, paddingInline: 14, fontSize: 13 }}
+                      title="Revoke operator permission (stops autonomous trading)."
+                    >
+                      {txBusy ? "…" : "Disable Operator"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); startVaultCycle(); }}
+                      disabled={txBusy || !wallet || vaultState?.inCycle}
+                      className="btn"
+                      style={{ height: 40, paddingInline: 14, fontSize: 13 }}
+                      title="Opens a trading cycle on the Vault. Usually only needed once per session."
+                    >
+                      {vaultState?.inCycle ? "Cycle Open" : (txBusy ? "…" : "Start Cycle")}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); refreshVaultState(); }}
+                      disabled={txBusy || !wallet}
+                      className="btn ghost"
+                      style={{ height: 40, paddingInline: 14, fontSize: 13 }}
+                      title="Refresh Vault state"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
                     <div>
                       <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Withdraw amount</div>
@@ -5431,7 +5733,7 @@ async function runAi() {
                   de={
                     <>
                       <p><b>Grid Trader</b> platziert mehrere BUY- und SELL-Orders für den gewählten Coin.</p>
-                      <p>Du definierst ein <b>maximales USD-Budget (USDC / USDT)</b>. Dieses Budget ist ein <b>globales Limit</b> für den gesamten Grid.</p>
+                      <p>Du definierst ein <b>maximales Budget in der nativen Chain-Währung (POL/BNB/ETH)</b>. Dieses Budget ist ein <b>globales Limit</b> für den gesamten Grid und liegt im <b>Vault</b>.</p>
                       <p>Das Budget gilt <b>nicht pro Order</b>, sondern für alle Orders zusammen.</p>
                       <p><b>BUY</b>-Orders kaufen Tokens, <b>SELL</b>-Orders verkaufen bereits gekaufte Tokens.</p>
                       <p><b>SAFE</b>: weniger Orders, geringeres Risiko.<br/>
@@ -5723,11 +6025,34 @@ async function runAi() {
               {gridOrders.length ? (
                 <div className="ordersList" style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
                   {gridOrders.map((o) => (
-                    <div key={o.id || `${o.side}-${o.price}-${o.created_ts}`} className="orderRow">
+                    <div key={o.id || `${o.side}-${o.price}-${o.created_ts}`} className="orderRow" style={{ display: "grid", gridTemplateColumns: "auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
                       <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
                       <span className="orderPx">{fmtUsd(o.price)}</span>
                       <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
                       <span className="pill silver">{o.status || "OPEN"}</span>
+
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        <button
+                          type="button"
+                          className="btn ghost"
+                          style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                          disabled={!o?.id}
+                          onClick={() => stopGridOrder(o.id)}
+                          title="Stop this single order (backend will mark it as STOPPED)."
+                        >
+                          Stop
+                        </button>
+                        <button
+                          type="button"
+                          className="btn ghost"
+                          style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                          disabled={!o?.id}
+                          onClick={() => deleteGridOrder(o.id)}
+                          title="Delete this order from DB (only if backend supports it)."
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

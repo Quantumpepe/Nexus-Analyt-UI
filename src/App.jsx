@@ -1842,12 +1842,6 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
     }
   };
 
-  // keep vault state fresh
-  useEffect(() => {
-    refreshVaultState();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, wsChainKey, balActiveChain, contracts]);
-
 
 
   // Alchemy balances (native per chain, optionally tokens later)
@@ -1857,6 +1851,13 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [balActiveChain, setBalActiveChain] = useState("BNB");
 
   const [showAllWalletChains, setShowAllWalletChains] = useState(true);
+
+
+  // keep vault state fresh
+  useEffect(() => {
+    refreshVaultState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet, wsChainKey, balActiveChain, contracts]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });

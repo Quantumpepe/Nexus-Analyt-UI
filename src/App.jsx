@@ -1842,6 +1842,12 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
     }
   };
 
+  // keep vault state fresh
+  useEffect(() => {
+    refreshVaultState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet, wsChainKey, balActiveChain, contracts]);
+
 
 
   // Alchemy balances (native per chain, optionally tokens later)
@@ -1851,13 +1857,6 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [balActiveChain, setBalActiveChain] = useState("BNB");
 
   const [showAllWalletChains, setShowAllWalletChains] = useState(true);
-
-
-  // keep vault state fresh
-  useEffect(() => {
-    refreshVaultState();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, wsChainKey, balActiveChain, contracts]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -3148,7 +3147,7 @@ useEffect(() => {
   const [gridMode, setGridMode] = useState("SAFE");
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
 
-  const [gridInvestUsd, setGridInvestUsd] = useState(250);
+  const [gridInvestQty, setGridInvestQty] = useState(50); // Qty in selected base asset (POL/BNB/ETH/USDC/USDT)
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
   const [manualSide, setManualSide] = useState("BUY");
@@ -3519,7 +3518,7 @@ const [aiLoading, setAiLoading] = useState(false);
     if (!vaultState?.operatorEnabled) {
       throw new Error("Enable the Grid Operator first (Vault → Enable Operator).");
     }
-    const want = Number(gridInvestUsd) || 0;
+    const want = Number(gridInvestQty) || 0;
     const have = Number(vaultState?.polBalance || 0);
     if (!want || want <= 0) throw new Error("Set a vault budget amount > 0.");
     if (have <= 0) throw new Error("Deposit funds into the Vault first.");
@@ -3531,9 +3530,10 @@ const [aiLoading, setAiLoading] = useState(false);
         item: gridItem,
         mode: gridMode,
         order_mode: "MANUAL",
-        // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd for backwards compatibility.
-        invest_native: Number(gridInvestUsd) || 0,
-        invest_usd: Number(gridInvestUsd) || 0,
+        // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd kept for backwards compatibility (value mirrors Qty).
+        invest_qty: Number(gridInvestQty) || 0,
+        invest_native: Number(gridInvestQty) || 0,
+        invest_usd: Number(gridInvestQty) || 0,
         chain: chainKey,
         auto_path: !!gridAutoPath,
       };
@@ -5804,8 +5804,8 @@ async function runAi() {
 
 
               <div className="formRow">
-                <label>Budget (USD)</label>
-                <input value={gridInvestUsd} onChange={(e) => setGridInvestUsd(e.target.value)} placeholder="250" />
+                <label>Budget (Qty)</label>
+                <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="50" />
               </div>
 
               <div className="formRow" style={{ marginTop: 6 }}>

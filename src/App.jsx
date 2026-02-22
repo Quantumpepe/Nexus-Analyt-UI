@@ -1459,7 +1459,14 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
     heldTokenBal: null,
     operatorEnabled: false,
   });
-  // Withdraw & Send info tooltip
+  // Sync Withdraw&Send chain with Wallet chain selection
+  useEffect(() => {
+    if (!withdrawSendOpen) return;
+    if (!balActiveChain) return;
+    setWsChainKey((prev) => (prev === balActiveChain ? prev : balActiveChain));
+  }, [balActiveChain, withdrawSendOpen]);
+
+// Withdraw & Send info tooltip
   useEffect(() => {
     if (!withdrawSendOpen) setWsInfoOpen(false);
   }, [withdrawSendOpen]);
@@ -3516,14 +3523,37 @@ const [aiLoading, setAiLoading] = useState(false);
 
     // Safety: Grid runs autonomously via backend operator + Vault funds.
     // Require: Vault has budget deposited and operator is enabled (so backend can trade without further user signatures).
-    if (!vaultState?.operatorEnabled) {
-      throw new Error("Enable the Grid Operator first (Vault → Enable Operator).");
-    }
+    const chainKeyPre = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
     const want = Number(gridInvestQty) || 0;
     const have = Number(vaultState?.polBalance || 0);
-    if (!want || want <= 0) throw new Error("Set a vault budget amount > 0.");
-    if (have <= 0) throw new Error("Deposit funds into the Vault first.");
-    if (want > have + 1e-12) throw new Error(`Budget exceeds Vault balance. Vault: ${have} native.`);
+
+    // Friendly UI guidance instead of crashing:
+    // If prerequisites are missing, open the Vault modal and pre-fill the required deposit amount.
+    if (!vaultState?.operatorEnabled) {
+      setErrorMsg("Vault setup required: Please enable the Grid Operator (Vault → Enable Operator) once.");
+      setWsChainKey(chainKeyPre);
+      setWithdrawSendOpen(true);
+      return;
+    }
+    if (!want || want <= 0) {
+      setErrorMsg("Set a Budget (Qty) amount > 0.");
+      return;
+    }
+    if (have <= 0) {
+      setErrorMsg("Vault has 0 balance. Please deposit funds into the Vault first.");
+      setWsChainKey(chainKeyPre);
+      setDepositAmt(String(want));
+      setWithdrawSendOpen(true);
+      return;
+    }
+    if (want > have + 1e-12) {
+      const needed = Math.max(0, want - have);
+      setErrorMsg(`Not enough Vault funds. Deposit +${needed.toFixed(6)} native into the Vault to start.`);
+      setWsChainKey(chainKeyPre);
+      setDepositAmt(String(needed));
+      setWithdrawSendOpen(true);
+      return;
+    }
 
     try {
       const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
@@ -4633,6 +4663,7 @@ async function runAi() {
                           onClick={() => {
                             setShowAllWalletChains(false);
                             setBalActiveChain(c);
+                            setWsChainKey(c);
                           }}
                           title={`Show balances on ${c}`}
                           style={{

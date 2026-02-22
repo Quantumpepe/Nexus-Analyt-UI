@@ -1842,12 +1842,6 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
     }
   };
 
-  // keep vault state fresh
-  useEffect(() => {
-    refreshVaultState();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, wsChainKey, balActiveChain, contracts]);
-
 
 
   // Alchemy balances (native per chain, optionally tokens later)
@@ -1857,6 +1851,13 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [balActiveChain, setBalActiveChain] = useState("BNB");
 
   const [showAllWalletChains, setShowAllWalletChains] = useState(true);
+
+
+  // keep vault state fresh
+  useEffect(() => {
+    refreshVaultState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet, wsChainKey, balActiveChain, contracts]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -3147,12 +3148,12 @@ useEffect(() => {
   const [gridMode, setGridMode] = useState("SAFE");
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
 
-  const [gridInvestQty, setGridInvestQty] = useState(50); // Qty in selected base asset (POL/BNB/ETH/USDC/USDT)
+  const [gridInvestQty, setGridInvestQty] = useState(250);
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
   const [manualSide, setManualSide] = useState("BUY");
   const [manualPrice, setManualPrice] = useState("");
-  const [manualBuyMode, setManualBuyMode] = useState("USD"); // USD | QTY (only used for BUY)
+  const [manualBuyMode, setManualBuyMode] = useState("QTY"); // USD | QTY (only used for BUY)
   const [manualUsd, setManualUsd] = useState("");
   const [manualSlippagePct, setManualSlippagePct] = useState(5); // %
   const [manualDeadlineMin, setManualDeadlineMin] = useState(20); // minutes
@@ -3530,9 +3531,9 @@ const [aiLoading, setAiLoading] = useState(false);
         item: gridItem,
         mode: gridMode,
         order_mode: "MANUAL",
-        // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd kept for backwards compatibility (value mirrors Qty).
-        invest_qty: Number(gridInvestQty) || 0,
+        // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd for backwards compatibility; invest_qty is the new canonical key.
         invest_native: Number(gridInvestQty) || 0,
+        invest_qty: Number(gridInvestQty) || 0,
         invest_usd: Number(gridInvestQty) || 0,
         chain: chainKey,
         auto_path: !!gridAutoPath,
@@ -5805,7 +5806,7 @@ async function runAi() {
 
               <div className="formRow">
                 <label>Budget (Qty)</label>
-                <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="50" />
+                <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
               </div>
 
               <div className="formRow" style={{ marginTop: 6 }}>
@@ -5975,15 +5976,13 @@ async function runAi() {
                 <>
                   <div className="formRow">
                     <label>Buy mode</label>
-                    <select value={manualBuyMode} onChange={(e) => setManualBuyMode(e.target.value)}>
-                      <option value="USD">USD</option>
-                      <option value="QTY">Token qty</option>
+                    <select value={manualBuyMode} onChange={(e) => setManualBuyMode(e.target.value)}>                      <option value="QTY">Token qty</option>
                     </select>
                   </div>
 
                   {manualBuyMode === "USD" ? (
                     <div className="formRow">
-                      <label>Spend (USD)</label>
+                      <label>Spend (Qty)</label>
                       <input value={manualUsd} onChange={(e) => setManualUsd(e.target.value)} placeholder="e.g. 300" />
                       {manualUsd && manualPrice ? (
                         <div className="muted tiny" style={{ marginTop: 4 }}>

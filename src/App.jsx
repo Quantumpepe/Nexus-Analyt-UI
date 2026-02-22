@@ -1437,6 +1437,7 @@ const [errorMsg, setErrorMsg] = useState("");
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
 const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
+  const [balActiveChain, setBalActiveChain] = useState("BNB");
   const [wsChainKey, setWsChainKey] = useState(DEFAULT_CHAIN);
   const [wsInfoOpen, setWsInfoOpen] = useState(false);
   const wsInfoRef = useRef(null);
@@ -1855,8 +1856,6 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [balLoading, setBalLoading] = useState(false);
   const [balError, setBalError] = useState("");
   const [balByChain, setBalByChain] = useState({}); // { ETH: { native: "0.0" }, ... }
-  const [balActiveChain, setBalActiveChain] = useState("BNB");
-
   const [showAllWalletChains, setShowAllWalletChains] = useState(true);
 
 

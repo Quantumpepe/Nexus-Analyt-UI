@@ -461,11 +461,13 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
       const looksLikeWallet = t.startsWith("0x") && t.length === 42;
       const looksLikeSigned = t.length > 40; // itsdangerous tokens are usually long
 
-      if (t && (looksLikeJwt || looksLikeWallet || looksLikeSigned)) bearer = t;
+      // IMPORTANT: backend expects the server API key as bearer (not the Privy JWT).
+      if (API_KEY) bearer = API_KEY;
+      else if (t && (looksLikeJwt || looksLikeWallet || looksLikeSigned)) bearer = t;
       else if (wa && wa.startsWith("0x") && wa.length === 42) bearer = wa;
-      else if (API_KEY) bearer = API_KEY;
 
       if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
+      if (API_KEY) { headers["X-API-Key"] = API_KEY; headers["x-api-key"] = API_KEY; }
     }
 
     // ✅ WALLET ADDRESS (required by wallet-bound endpoints)

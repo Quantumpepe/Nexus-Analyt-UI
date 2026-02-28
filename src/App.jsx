@@ -417,18 +417,39 @@ const fmtPct = (n) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function api(path, { method = "GET", token, body, signal } = {}) {
-  // Backend auth note:
-  // Your Flask backend currently returns 401 for /api/policy and /api/grid/* when
-  // the request lacks the expected auth context. Depending on your backend setup,
-  // this may be cookie-session based (needs credentials: token ? "include" : "omit") or token based.
-  // We support both:
-  //   1) Always include cookies.
-  //   2) If a token is provided, send it as a Bearer token.
-  //   3) If the backend rejects Bearer tokens (401), retry once without the Bearer
-  //      header (so public/cookie-only endpoints still work).
+async function api(
+  path,
+  { method = "GET", token, body, signal, wallet } = {}
+) {
+  // Always send the wallet context (backend binds sessions to wallet).
+  let wa = "";
+  try {
+    wa =
+      (wallet || "").trim() ||
+      (localStorage.getItem("nexus_wallet") || "").trim() ||
+      (localStorage.getItem("wallet") || "").trim() ||
+      "";
+  } catch {}
 
-    const makeHeaders = (withBearer) => {
+  // Auth strategy:
+  // - Prefer the user/session token (JWT / itsdangerous) when available.
+  // - Fall back to the server API key (VITE_NEXUS_API_KEY) if present.
+  // Backend accepts both forms as Bearer tokens.
+  const candidates = [];
+  const t = (token || "").trim();
+  if (t) candidates.push(t);
+  if (API_KEY) candidates.push(API_KEY);
+
+  // Deduplicate while preserving order
+  const seen = new Set();
+  const bearers = candidates.filter((x) => {
+    const k = String(x || "").trim();
+    if (!k || seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+
+  const makeHeaders = (bearer) => {
     const headers = { Accept: "application/json" };
 
     // Only send Content-Type when we actually send a JSON body
@@ -436,71 +457,41 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
       headers["Content-Type"] = "application/json";
     }
 
-    // Auth
-    if (withBearer) {
-      // Prefer a real session token (JWT or itsdangerous). If token looks invalid/opaque,
-      // fall back to wallet-address bearer (demo mode) so /api/policy etc. can authorize.
-      let bearer = null;
+    if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
 
-      const wa =
-        (() => {
-          try {
-            return (
-              localStorage.getItem("nexus_wallet") ||
-              localStorage.getItem("wallet") ||
-              ""
-            );
-          } catch {
-            return "";
-          }
-        })() || "";
-
-      const t = (token || "").trim();
-
-      const looksLikeJwt = t.includes(".");
-      const looksLikeWallet = t.startsWith("0x") && t.length === 42;
-      const looksLikeSigned = t.length > 40; // itsdangerous tokens are usually long
-
-      // IMPORTANT: backend expects the server API key as bearer (not the Privy JWT).
-      if (API_KEY) bearer = API_KEY;
-      else if (t && (looksLikeJwt || looksLikeWallet || looksLikeSigned)) bearer = t;
-      else if (wa && wa.startsWith("0x") && wa.length === 42) bearer = wa;
-
-      if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
-      if (API_KEY) { headers["X-API-Key"] = API_KEY; headers["x-api-key"] = API_KEY; }
+    // Keep for backward compatibility / debugging (backend doesn't rely on it)
+    if (API_KEY) {
+      headers["X-API-Key"] = API_KEY;
+      headers["x-api-key"] = API_KEY;
     }
 
-    // ✅ WALLET ADDRESS (required by wallet-bound endpoints)
-    try {
-      const wa =
-        localStorage.getItem("nexus_wallet") ||
-        localStorage.getItem("wallet") ||
-        "";
-
-      if (wa) {
-        headers["X-Wallet-Address"] = wa;
-      }
-    } catch {}
+    if (wa) {
+      headers["X-Wallet-Address"] = wa;
+      headers["x-wallet-address"] = wa;
+    }
 
     return headers;
   };
 
-  const doFetch = async (withBearer) => {
-    // Hard safety timeout so UI never gets stuck in "Searching..." due to
-    // Render sleep / hanging connections.
+  const doFetch = async (bearer) => {
+    // Hard safety timeout so UI never gets stuck due to Render sleep/hanging connections.
     const ctrl = new AbortController();
     const timeoutMs =
-     path?.includes("/api/access/redeem") ? 60000 :
-     method === "GET" ? 15000 : 60000;
-    const t = setTimeout(() => {
-      try { ctrl.abort(); } catch {}
+      path?.includes("/api/access/redeem") ? 60000 : method === "GET" ? 15000 : 60000;
+
+    const tm = setTimeout(() => {
+      try {
+        ctrl.abort();
+      } catch {}
     }, timeoutMs);
 
-    // Merge external signal (e.g. AbortController from search) with our timeout.
-    // Important: if the passed-in signal is already aborted, we must abort immediately,
-    // otherwise fetch() may never resolve on some browsers.
+    // Merge external signal with our timeout.
     const merged = new AbortController();
-    const onAbort = () => { try { merged.abort(); } catch {} };
+    const onAbort = () => {
+      try {
+        merged.abort();
+      } catch {}
+    };
     try {
       if (signal?.aborted) onAbort();
       if (signal) signal.addEventListener("abort", onAbort, { once: true });
@@ -511,43 +502,62 @@ async function api(path, { method = "GET", token, body, signal } = {}) {
       return await fetch(`${API_BASE}${path}`, {
         method,
         signal: merged.signal,
-        headers: makeHeaders(withBearer),
+        headers: makeHeaders(bearer),
         credentials: "include",
         body: body ? JSON.stringify(body) : undefined,
       });
     } finally {
-      clearTimeout(t);
-      try { if (signal) signal.removeEventListener("abort", onAbort); } catch {}
+      clearTimeout(tm);
+      try {
+        if (signal) signal.removeEventListener("abort", onAbort);
+      } catch {}
     }
   };
 
-  // First try with Bearer (if provided).
-  let res = await doFetch(true);
+  // Try bearer candidates in order. This avoids the old behavior where we dropped Authorization
+  // entirely on retry (which caused repeated 401s).
+  let lastRes = null;
+  let lastText = "";
+  let lastData = null;
 
-  // If backend rejects Bearer but would accept cookie/public, retry once without it.
-  if (res.status === 401 && token) {
-    res = await doFetch(false);
+  const attempts = bearers.length ? bearers : [null];
+  for (const b of attempts) {
+    const res = await doFetch(b);
+    lastRes = res;
+
+    const txt = await res.text();
+    lastText = txt;
+
+    let data = null;
+    try {
+      data = txt ? JSON.parse(txt) : null;
+    } catch {
+      data = { raw: txt };
+    }
+    lastData = data;
+
+    if (res.ok) return data;
+
+    // If unauthorized and we have more candidates, try next.
+    if (res.status === 401 || res.status === 403) {
+      continue;
+    }
+
+    // For non-auth errors, break early.
+    break;
   }
 
-  const text = await res.text();
-  let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { raw: text };
-  }
-
-  if (!res.ok) {
-    const msg = (data && (data.error || data.message)) || `HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.status = res.status;
-    err.data = data;
-    throw err;
-  }
-  return data;
+  const status = lastRes ? lastRes.status : 0;
+  const data = lastData;
+  const msg = (data && (data.error || data.message)) || `HTTP ${status}`;
+  const err = new Error(msg);
+  err.status = status;
+  err.data = data ?? { raw: lastText };
+  throw err;
 }
 
 // Search helper: backend endpoint name may differ across deployments.
+ backend endpoint name may differ across deployments.
 // We try a small set of compatible routes and return the first successful response.
 async function apiSearchCoins(query, { signal } = {}) {
   const q = String(query || "").trim();

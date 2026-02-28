@@ -3553,7 +3553,12 @@ const [aiLoading, setAiLoading] = useState(false);
     // Allow read without token (some backends are public for GET /orders)
     if (!gridItem) return;
     try {
-      const qs = new URLSearchParams({ item: gridItem }).toString();
+      // If backend runs with GRID_ALLOW_ANON=1 it requires a wallet in query/body
+      // for /api/grid/* requests.
+      const qs = new URLSearchParams({
+        item: gridItem,
+        ...(walletAddress ? { wallet: walletAddress } : {}),
+      }).toString();
       const r = await api(`/api/grid/orders?${qs}`, { method: "GET", token: token || undefined });
       const orders = r?.orders || r?.data?.orders || [];
       setGridOrders(Array.isArray(orders) ? orders : []);
@@ -3607,6 +3612,8 @@ const [aiLoading, setAiLoading] = useState(false);
       const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
       const body = {
         item: gridItem,
+        // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
+        wallet: walletAddress || undefined,
         mode: gridMode,
         order_mode: "MANUAL",
         // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd for backwards compatibility; invest_qty is the new canonical key.
@@ -3628,7 +3635,11 @@ const [aiLoading, setAiLoading] = useState(false);
   async function gridStop() {
     setErrorMsg("");
     try {
-      const r = await api("/api/grid/stop", { method: "POST", token: token || undefined, body: { item: gridItem } });
+      const r = await api("/api/grid/stop", {
+        method: "POST",
+        token: token || undefined,
+        body: { item: gridItem, wallet: walletAddress || undefined },
+      });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
     } catch (e) {
@@ -3647,7 +3658,14 @@ try {
       const slp = Math.min(20, Math.max(0.1, Number(manualSlippagePct) || 5));
       const dlm = Math.min(120, Math.max(5, Number(manualDeadlineMin) || 20));
       const deadline = Math.floor(Date.now() / 1000) + Math.floor(dlm * 60);
-      const body = { item: gridItem, side: manualSide, price, slippage_bps: Math.round(slp * 100), deadline_sec: deadline };
+      const body = {
+        item: gridItem,
+        wallet: walletAddress || undefined,
+        side: manualSide,
+        price,
+        slippage_bps: Math.round(slp * 100),
+        deadline_sec: deadline,
+      };
 
       
 // Qty-only: all coins/tokens are entered as quantity (also USDC/USDT)
@@ -3677,7 +3695,7 @@ body.qty = qty;
       const r = await api("/api/grid/order/stop", {
         method: "POST",
         token,
-        body: { item: gridItem, order_id: orderId },
+        body: { item: gridItem, wallet: walletAddress || undefined, order_id: orderId },
       });
       setGridOrders(r?.orders || r?.data?.orders || gridOrders);
       fetchGridOrders();
@@ -3694,7 +3712,7 @@ body.qty = qty;
       const r = await api("/api/grid/order/delete", {
         method: "POST",
         token,
-        body: { item: gridItem, order_id: orderId },
+        body: { item: gridItem, wallet: walletAddress || undefined, order_id: orderId },
       });
       setGridOrders(r?.orders || r?.data?.orders || []);
       fetchGridOrders();

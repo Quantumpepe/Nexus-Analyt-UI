@@ -3572,7 +3572,7 @@ const [aiLoading, setAiLoading] = useState(false);
       const qs = new URLSearchParams({ item: gridItem }).toString();
       // Backend expects wallet via header (X-Wallet-Address), not query param
       const r = await api(`/api/grid/orders?${qs}`, { method: "GET" });
-const orders = r?.orders || r?.data?.orders || [];
+  const orders = r?.orders || r?.data?.orders || [];
       setGridOrders(Array.isArray(orders) ? orders : []);
       const tick = r?.tick ?? r?.data?.tick ?? null;
       const price = r?.price ?? r?.data?.price ?? null;

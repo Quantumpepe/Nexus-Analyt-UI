@@ -3610,6 +3610,9 @@ const [aiLoading, setAiLoading] = useState(false);
 
     try {
       const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const curPriceNum = Number(gridPrice ?? gridMeta?.price ?? 0) || 0;
+      const investQty = Number(gridInvestQty) || 0;
+      const investUsd = (investQty > 0 && curPriceNum > 0) ? (investQty * curPriceNum) : investQty;
       const body = {
         item: gridItem,
         // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
@@ -3617,9 +3620,11 @@ const [aiLoading, setAiLoading] = useState(false);
         mode: gridMode,
         order_mode: "MANUAL",
         // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd for backwards compatibility; invest_qty is the new canonical key.
-        invest_native: Number(gridInvestQty) || 0,
-        invest_qty: Number(gridInvestQty) || 0,
-        invest_usd: Number(gridInvestQty) || 0,
+        invest_native: investQty,
+        invest_qty: investQty,
+        invest_usd: investUsd,
+        budget_qty: investQty,
+        budget_usd: investUsd,
         chain: chainKey,
         auto_path: !!gridAutoPath,
       };
@@ -3657,14 +3662,14 @@ try {
 
       const slp = Math.min(20, Math.max(0.1, Number(manualSlippagePct) || 5));
       const dlm = Math.min(120, Math.max(5, Number(manualDeadlineMin) || 20));
-      const deadline = Math.floor(Date.now() / 1000) + Math.floor(dlm * 60);
+      const deadlineSec = Math.floor(dlm * 60);
       const body = {
         item: gridItem,
         wallet: walletAddress || undefined,
         side: manualSide,
         price,
         slippage_bps: Math.round(slp * 100),
-        deadline_sec: deadline,
+        deadline_sec: deadlineSec,
       };
 
       

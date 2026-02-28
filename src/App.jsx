@@ -3555,12 +3555,10 @@ const [aiLoading, setAiLoading] = useState(false);
     try {
       // If backend runs with GRID_ALLOW_ANON=1 it requires a wallet in query/body
       // for /api/grid/* requests.
-      const qs = new URLSearchParams({
-        item: gridItem,
-        ...(walletAddress ? { wallet: walletAddress } : {}),
-      }).toString();
-      const r = await api(`/api/grid/orders?${qs}`, { method: "GET", token: token || undefined });
-      const orders = r?.orders || r?.data?.orders || [];
+      const qs = new URLSearchParams({ item: gridItem }).toString();
+      // Backend expects wallet via header (X-Wallet-Address), not query param
+      const r = await api(`/api/grid/orders?${qs}`, { method: "GET" });
+const orders = r?.orders || r?.data?.orders || [];
       setGridOrders(Array.isArray(orders) ? orders : []);
       const tick = r?.tick ?? r?.data?.tick ?? null;
       const price = r?.price ?? r?.data?.price ?? null;
@@ -3628,7 +3626,7 @@ const [aiLoading, setAiLoading] = useState(false);
         chain: chainKey,
         auto_path: !!gridAutoPath,
       };
-      const r = await api("/api/grid/start", { method: "POST", token: token || undefined, body });
+      const r = await api("/api/grid/cycle/start", { method: "POST", body });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
       fetchGridOrders();
@@ -3642,7 +3640,6 @@ const [aiLoading, setAiLoading] = useState(false);
     try {
       const r = await api("/api/grid/stop", {
         method: "POST",
-        token: token || undefined,
         body: { item: gridItem, wallet: walletAddress || undefined },
       });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });

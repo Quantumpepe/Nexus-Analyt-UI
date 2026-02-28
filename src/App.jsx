@@ -435,10 +435,12 @@ async function api(
   // - Prefer the user/session token (JWT / itsdangerous) when available.
   // - Fall back to the server API key (VITE_NEXUS_API_KEY) if present.
   // Backend accepts both forms as Bearer tokens.
+  const normalizeBearer = (v) => String(v || "").trim().replace(/^bearer\s+/i, "");
   const candidates = [];
-  const t = (token || "").trim();
+  const t = normalizeBearer(token);
   if (t) candidates.push(t);
-  if (API_KEY) candidates.push(API_KEY);
+  const k = normalizeBearer(API_KEY);
+  if (k) candidates.push(k);
 
   // Deduplicate while preserving order
   const seen = new Set();
@@ -557,7 +559,7 @@ async function api(
 }
 
 // Search helper: backend endpoint name may differ across deployments.
- backend endpoint name may differ across deployments.
+// backend endpoint name may differ across deployments.
 // We try a small set of compatible routes and return the first successful response.
 async function apiSearchCoins(query, { signal } = {}) {
   const q = String(query || "").trim();
@@ -2975,7 +2977,7 @@ function _writePairExplainCache(pairStr, tf, series) {
     setPairExplainLoading(true);
     try {
       const qs = new URLSearchParams({ symbols: `${a},${b}`, range: PAIR_EXPLAIN_TF }).toString();
-      const r = await api(`/api/compare?${qs}`, { method: "GET" });
+      const r = await api(`/api/compare?${qs}`, { method: "GET", token: (token || privyJwt || "") });
 
 // Prefer backend-provided daily series for "Daily moves (last 30 days)".
 // If backend doesn't send daily (or it's empty), derive it from the price series.
@@ -3424,14 +3426,14 @@ const [aiLoading, setAiLoading] = useState(false);
     setCompareLoading(true);
     try {
       const syms = compareSymbols.slice(0, 10).join(",");
-      const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(fetchRange)}`;
-      const r = await fetch(url, { method: "GET", credentials: "include", headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal: ac.signal });
+      const qs = new URLSearchParams({ symbols: syms, range: fetchRange }).toString();
+      const data = await api(`/api/compare?${qs}`, {
+        method: "GET",
+        token: (token || privyJwt || ""),
+        signal: ac.signal,
+      });
 
-      let data = null;
-      try { data = await r.json(); } catch { data = null; }
-
-      if (!r.ok) {
-        const msg = (data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${r.status}`;
+`;
         throw new Error(msg);
       }
 
@@ -4258,9 +4260,11 @@ async function runAi() {
         series_stats: seriesStats,
       };
 
-      // AI endpoint requires BACKEND token (issued by /api/auth/verify).
-      if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
-      const r = await api("/api/ai/run", { method: "POST", token, body });
+      // AI endpoint requires auth. We prefer backend token (issued by /api/auth/verify),
+      // but the backend can also accept a JWT (Privy) to extract the wallet address.
+      const authToken = (token || privyJwt || "").trim();
+      if (!authToken) throw new Error("Please connect your wallet to authorize AI.");
+      const r = await api("/api/ai/run", { method: "POST", token: authToken, body });
 
       let text =
         r?.answer ??
@@ -6574,19 +6578,3 @@ export default function App() {
   return <AppInner />;
 }
 
-function optimisticRemoveWatch(symbol) {
-  const removed = loadSetLS(LS_WATCH_REMOVED);
-  removed.add(symbol);
-  saveSetLS(LS_WATCH_REMOVED, removed);
-
-  setWatchItems(prev => prev.filter(x => x.symbol !== symbol));
-  setCompareSet(prev => prev.filter(s => s !== symbol));
-
-  // best-effort backend sync
-  fetch(`${API_BASE}/api/watchlist/remove`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ symbol })
-  }).catch(() => {});
-}

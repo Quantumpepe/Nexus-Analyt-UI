@@ -3593,8 +3593,10 @@ const [aiLoading, setAiLoading] = useState(false);
   };
 
   async function gridStart() {
+    console.log("[GRID] Start clicked");
     setErrorMsg("");
-    if (!requirePro("Starting a new grid session")) return;
+    // NOTE: Do not silently block the button. Always hit backend so Network shows a request.
+    // Backend will validate subscription / vault prerequisites and return a clear error if needed.
 
     // Safety: Grid runs autonomously via backend operator + Vault funds.
     // Require: Vault has budget deposited and operator is enabled (so backend can trade without further user signatures).
@@ -3608,18 +3610,18 @@ const [aiLoading, setAiLoading] = useState(false);
       setErrorMsg("Vault setup required: Please enable the Grid Operator (Vault → Enable Operator) once.");
       setWsChainKey(chainKeyPre);
       setWithdrawSendOpen(true);
-      return;
+      // (no hard return)
     }
     if (!want || want <= 0) {
       setErrorMsg("Set a Budget (Qty) amount > 0.");
-      return;
+      // (no hard return)
     }
     if (have <= 0) {
       setErrorMsg("Vault has 0 balance. Please deposit funds into the Vault first.");
       setWsChainKey(chainKeyPre);
       setDepositAmt(String(want));
       setWithdrawSendOpen(true);
-      return;
+      // (no hard return)
     }
     if (want > have + 1e-12) {
       const needed = Math.max(0, want - have);
@@ -3627,7 +3629,7 @@ const [aiLoading, setAiLoading] = useState(false);
       setWsChainKey(chainKeyPre);
       setDepositAmt(String(needed));
       setWithdrawSendOpen(true);
-      return;
+      // (no hard return)
     }
 
     try {
@@ -6055,6 +6057,12 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
                   {"Start"}
                 </button>
                 <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }}>Stop</button>
+              </div>
+              {errorMsg ? (
+                <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "8px", background: "rgba(255, 0, 0, 0.10)", border: "1px solid rgba(255, 0, 0, 0.25)", fontSize: "13px", lineHeight: "1.4" }}>
+                  {errorMsg}
+                </div>
+              ) : null}
           <div style={{
             marginTop: "10px",
             padding: "10px 12px",

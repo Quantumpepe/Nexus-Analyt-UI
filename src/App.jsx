@@ -96,11 +96,15 @@ const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
 
-const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (
-  (typeof window !== "undefined" && !["localhost","127.0.0.1"].includes(window.location.hostname) && window.location.hostname.includes("nexus-analyt-ui"))
-    ? "https://nexus-analyt-pro.onrender.com"
-    : ""
-);
+const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
+  // Default backend for production builds.
+  // - In local dev (localhost), keep it empty so Vite proxy can handle /api/*.
+  // - In production, route /api/* to the backend (Render) unless explicitly overridden by VITE_API_BASE.
+  if (typeof window === "undefined") return "";
+  const host = window.location.hostname;
+  if (["localhost", "127.0.0.1"].includes(host)) return "";
+  return "https://nexus-analyt-pro.onrender.com";
+})();
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
 const TREASURY_ADDRESS = (import.meta.env.VITE_TREASURY_ADDRESS ?? "").trim();
 const API_KEY = (import.meta.env.VITE_NEXUS_API_KEY ?? "").trim();

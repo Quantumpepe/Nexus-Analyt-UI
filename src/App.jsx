@@ -4442,6 +4442,19 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
           align-items: start;
         }
         .gridLeft{min-width:0;}
+        .gridLeft{justify-self:start;}
+
+        /* Ensure controls stack and never center */
+        .gridLeft .gridWrap,
+        .gridLeft .gridControls{
+          width: 100%;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        .gridLeft .gridControls > *{ width: 100%; }
+        .gridLeft .formRow{ width: 100%; display: flex; flex-direction: column; align-items: flex-start; }
+
 
         /* --- Force manual/grid inputs to align left (no centering) --- */
         .gridLeft .formRow select,
@@ -4468,6 +4481,8 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
         .gridRight{
           position: sticky;
           top: 16px;
+          justify-self: end;
+          width: min(420px, 100%);
         }
         @media (max-width: 980px){
           .gridLayout{

@@ -3634,7 +3634,7 @@ const [aiLoading, setAiLoading] = useState(false);
 
     try {
       const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
-      const curPriceNum = Number(gridPrice ?? gridMeta?.price ?? 0) || 0;
+      const curPriceNum = Number(gridMeta?.price ?? 0) || 0;
       const investQty = Number(gridInvestQty) || 0;
       const investUsd = (investQty > 0 && curPriceNum > 0) ? (investQty * curPriceNum) : investQty;
       const body = {

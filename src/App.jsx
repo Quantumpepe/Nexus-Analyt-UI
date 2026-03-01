@@ -3575,8 +3575,10 @@ const [aiLoading, setAiLoading] = useState(false);
 	      const qs = new URLSearchParams({ item: gridItemId }).toString();
       // Backend expects wallet via header (X-Wallet-Address), not query param
       const r = await api(`/api/grid/orders?${qs}`, { method: "GET" });
-      const orders = r?.orders || r?.data?.orders || [];
-      setGridOrders(Array.isArray(orders) ? orders : []);
+      const nextOrders = r?.orders ?? r?.data?.orders;
+      if (Array.isArray(nextOrders)) {
+        setGridOrders(nextOrders);
+      }
       const tick = r?.tick ?? r?.data?.tick ?? null;
       const price = r?.price ?? r?.data?.price ?? null;
       setGridMeta({ tick, price });
@@ -3584,9 +3586,9 @@ const [aiLoading, setAiLoading] = useState(false);
 	      const msg = String(e?.message || e);
 	      if (msg.toLowerCase().includes("no grid session")) {
 	        // Expected before pressing Start
-	        setGridOrders([]);
-	        setGridMeta({ tick: null, price: null });
-	        return;
+	        // Don't clear orders on transient "no session" responses; keep UI stable.
+        setGridMeta({ tick: null, price: null });
+        return;
 	      }
 	      setErrorMsg((m) => (m ? m : `Grid orders: ${msg}`));
 	    }
@@ -3660,8 +3662,8 @@ const [aiLoading, setAiLoading] = useState(false);
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
-      fetchGridOrders();
-    } catch (e) {
+      setTimeout(fetchGridOrders, 300);
+} catch (e) {
       setErrorMsg(`Grid start: ${e.message}`);
     }
   }
@@ -3733,8 +3735,8 @@ body.qty = qty;
       
       setGridOrders(r?.orders || []);
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
-      fetchGridOrders();
-    } catch (e) {
+      setTimeout(fetchGridOrders, 300);
+} catch (e) {
       setErrorMsg(`Manual add: ${e.message}`);
     }
   }
@@ -3749,8 +3751,8 @@ body.qty = qty;
         body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId },
       });
       setGridOrders(r?.orders || r?.data?.orders || gridOrders);
-      fetchGridOrders();
-    } catch (e) {
+      setTimeout(fetchGridOrders, 300);
+} catch (e) {
       setErrorMsg(`Stop order: ${e.message}`);
     }
   }
@@ -3766,8 +3768,8 @@ body.qty = qty;
         body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId },
       });
       setGridOrders(r?.orders || r?.data?.orders || []);
-      fetchGridOrders();
-    } catch (e) {
+      setTimeout(fetchGridOrders, 300);
+} catch (e) {
       // if backend doesn't support delete yet, just hide locally
       setGridOrders((prev) => prev.filter((x) => (x?.id || x?._id) !== orderId));
     }
@@ -4426,6 +4428,27 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
             overflow-x: hidden;
           }
           .cardActions .chip { white-space: nowrap; }
+        }
+
+
+        /* --- Grid layout: left controls, right orders --- */
+        .gridLayout{
+          display: grid;
+          grid-template-columns: 1.15fr 0.85fr;
+          gap: 16px;
+          align-items: start;
+        }
+        .gridRight{
+          position: sticky;
+          top: 16px;
+        }
+        @media (max-width: 980px){
+          .gridLayout{
+            grid-template-columns: 1fr;
+          }
+          .gridRight{
+            position: static;
+          }
         }
 `}</style>
 <header className="topbar">
@@ -5991,6 +6014,9 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
             </div>
           </div>
 
+          <div className="gridLayout">
+            <div className="gridLeft">
+
           <div className="gridWrap">
             <div className="gridControls">
               <div className="formRow">
@@ -6256,7 +6282,10 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
               {!token && <div className="muted tiny">Connect wallet to place orders.</div>}
 </div>
 
-            <div className="gridOrders">
+            </div>
+
+            <div className="gridRight">
+              <div className="gridOrders">
               <div className="ordersHead">
                 <div className="label">Orders</div>
                 <span className="pill silver">{gridOrders.length} orders</span>
@@ -6300,6 +6329,8 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
                 <div className="muted">No orders yet. Press Start then Add Order.</div>
               )}
             </div>
+            </div>
+          </div>
         </section>
 
         {/* Watchlist */}

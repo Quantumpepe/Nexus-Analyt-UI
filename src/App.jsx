@@ -3772,7 +3772,8 @@ body.qty = qty;
       setGridOrders((prev) => prev.filter((x) => (x?.id || x?._id) !== orderId));
     }
   }
-
+  const chainKeyNow = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+  const gridItemId = `${chainKeyNow}:${gridItem}`;
 
   useInterval(fetchGridOrders, 15000, !!gridItem);
 

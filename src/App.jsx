@@ -6333,10 +6333,13 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
                 <button
                   className="btn"
                   type="button"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStart(); }}
-                  title={!isPro ? "Subscribe to Nexus Pro to start trading" : ""}
-                >
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    gridStart();
+                  }}
                   disabled={!isGridReady || gridBusy.start || gridBusy.stop}
+                  title={!isPro ? "Subscribe to Nexus Pro to start trading" : ""}
                 >
                   {gridBusy.start ? "Starting..." : "Start"}
                 </button>

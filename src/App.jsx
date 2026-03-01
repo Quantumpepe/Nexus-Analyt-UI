@@ -6288,7 +6288,6 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
                 <div className="muted">No orders yet. Press Start then Add Order.</div>
               )}
             </div>
-          </div>
         </section>
 
         {/* Watchlist */}

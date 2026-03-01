@@ -3744,41 +3744,123 @@ body.qty = qty;
     }
   }
   async function stopGridOrder(orderId) {
-    setErrorMsg("");
-    if (!token) return setErrorMsg("Connect wallet first.");
-    if (!gridItem) return;
-    try {
-      const r = await api("/api/grid/order/stop", {
-        method: "POST",
-        token,
-        body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId },
-      });
-      setGridOrders(r?.orders || r?.data?.orders || gridOrders);
-      setTimeout(fetchGridOrders, 300);
-} catch (e) {
-      setErrorMsg(`Stop order: ${e.message}`);
-    }
-  }
+  setErrorMsg("");
+  if (!token) return setErrorMsg("Connect wallet first.");
+  if (!gridItem) return;
 
-  async function deleteGridOrder(orderId) {
-    setErrorMsg("");
-    if (!token) return setErrorMsg("Connect wallet first.");
-    if (!gridItem) return;
-    try {
-      const r = await api("/api/grid/order/delete", {
-        method: "POST",
-        token,
-        body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId },
-      });
-      setGridOrders(r?.orders || r?.data?.orders || []);
-      setTimeout(fetchGridOrders, 300);
-} catch (e) {
-      // if backend doesn't support delete yet, just hide locally
-      setGridOrders((prev) => prev.filter((x) => (x?.id || x?._id) !== orderId));
+  // Optimistic UI: mark as CANCELLED immediately (backend may remove from OPEN list on next poll)
+  setGridOrders((prev) =>
+    (prev || []).map((o) => {
+      const id = String(o?.id ?? o?._id ?? o?.order_id ?? "");
+      if (id !== String(orderId)) return o;
+      return { ...o, status: "CANCELLED" };
+    })
+  );
+
+  try {
+    const endpoints = ["/api/grid/order/stop", "/api/grid/order/cancel", "/api/grid/stop-order"];
+    let r = null;
+    let lastErr = null;
+
+    for (const ep of endpoints) {
+      try {
+        r = await api(ep, {
+          method: "POST",
+          token,
+          body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId },
+        });
+        break;
+      } catch (err) {
+        lastErr = err;
+        const m = String(err?.message || "");
+        // try next alias on 404
+        if (m.includes("404") || m.toLowerCase().includes("not found")) continue;
+        throw err;
+      }
     }
+    if (!r && lastErr) throw lastErr;
+
+    // Refresh from backend, but keep CANCELLED locally (fetchGridOrders merge handles this)
+    fetchGridOrders();
+  } catch (e) {
+    const msg = String(e?.message || e || "");
+    // If backend says it's not open / not found, treat as already stopped
+    if (msg.toLowerCase().includes("not open") || msg.toLowerCase().includes("not found")) {
+      fetchGridOrders();
+      return;
+    }
+    setErrorMsg(`Stop order: ${msg}`);
   }
-  const chainKeyNow = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
-  const gridItemId = `${chainKeyNow}:${gridItem}`;
+}
+
+async function deleteGridOrder(orderId) {
+  setErrorMsg("");
+  if (!token) return setErrorMsg("Connect wallet first.");
+  if (!gridItem) return;
+
+  // Always remove locally (even if backend doesn't support delete), so UI feels consistent.
+  const removeLocal = () =>
+    setGridOrders((prev) => (prev || []).filter((o) => String(o?.id ?? o?._id ?? o?.order_id ?? "") !== String(orderId)));
+
+  try {
+    const endpoints = ["/api/grid/order/delete", "/api/grid/order/remove", "/api/grid/order/purge"];
+    let r = null;
+    let lastErr = null;
+
+    for (const ep of endpoints) {
+      try {
+        r = await api(ep, {
+          method: "POST",
+          token,
+          body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId },
+        });
+        break;
+      } catch (err) {
+        lastErr = err;
+        const m = String(err?.message || "");
+        // backend may not implement delete => 404. Or may already have removed it => not found.
+        if (m.includes("404") || m.toLowerCase().includes("not found")) continue;
+        throw err;
+      }
+    }
+
+    // If backend returned updated list, merge it; otherwise just remove locally.
+    if (r?.orders || r?.data?.orders) {
+      setGridOrders((prev) => {
+        const incoming = (r?.orders || r?.data?.orders || []);
+        const idOf = (o) => String(o?.id ?? o?._id ?? o?.order_id ?? "");
+        const map = new Map();
+        for (const o of incoming) {
+          const id = idOf(o);
+          if (id) map.set(id, o);
+        }
+        // Keep any other non-OPEN orders from prev that backend doesn't return
+        const isOpen = (o) => String(o?.status || o?.state || "").toUpperCase() === "OPEN";
+        for (const o of (prev || [])) {
+          const id = idOf(o);
+          if (!id) continue;
+          if (id === String(orderId)) continue; // deleted
+          if (!isOpen(o) && !map.has(id)) map.set(id, o);
+        }
+        return Array.from(map.values());
+      });
+    } else {
+      removeLocal();
+    }
+
+    fetchGridOrders();
+  } catch (e) {
+    const msg = String(e?.message || e || "");
+    // If delete isn't supported or order already gone, just remove locally
+    if (msg.includes("404") || msg.toLowerCase().includes("not found")) {
+      removeLocal();
+      fetchGridOrders();
+      return;
+    }
+    setErrorMsg(`Delete order: ${msg}`);
+  }
+}
+
 
   useInterval(fetchGridOrders, 15000, !!gridItem);
 

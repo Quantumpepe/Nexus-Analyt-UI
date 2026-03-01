@@ -3670,7 +3670,7 @@ const [aiLoading, setAiLoading] = useState(false);
         gridMeta?.id ||
         `${chainKey}:${String(gridItem || "").toUpperCase()}`; // fallback
       const body = {
-        item: itemId,
+        item: gridItemId,
         // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
         addr: walletAddress || undefined,
         mode: gridMode,
@@ -3706,7 +3706,7 @@ const [aiLoading, setAiLoading] = useState(false);
       const r = await api("/api/grid/stop", {
         method: "POST",
         token,
-        body: { item: itemId, addr: walletAddress || undefined },
+        body: { item: gridItemId, addr: walletAddress || undefined },
       });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
@@ -3719,6 +3719,7 @@ const [aiLoading, setAiLoading] = useState(false);
     setErrorMsg("");
     if (!token) return setErrorMsg("Connect wallet first.");
     if (!requirePro("Placing a new order")) return;
+    if (!gridItemId) return setErrorMsg('Select coin first.');
 try {
       const price = Number(manualPrice);
       if (!Number.isFinite(price) || price <= 0) throw new Error("Invalid price.");
@@ -3727,7 +3728,7 @@ try {
       const dlm = Math.min(120, Math.max(5, Number(manualDeadlineMin) || 20));
       const deadlineSec = Math.floor(dlm * 60);
       const body = {
-        item: itemId,
+        item: gridItemId,
         addr: walletAddress || undefined,
         side: manualSide,
         price,

@@ -3220,8 +3220,8 @@ useEffect(() => {
   const [gridMode, setGridMode] = useState("SAFE");
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
 
-    const uiChainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
-    const isEthChain = String(uiChainKey || \"\").toUpperCase().includes(\"ETH\");
+  const uiChainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+  const isEthChain = String(uiChainKey || "").toUpperCase().includes("ETH");
 
   const [gridInvestQty, setGridInvestQty] = useState(250);
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });

@@ -3220,6 +3220,9 @@ useEffect(() => {
   const [gridMode, setGridMode] = useState("SAFE");
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
 
+    const uiChainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+    const isEthChain = String(uiChainKey || \"\").toUpperCase().includes(\"ETH\");
+
   const [gridInvestQty, setGridInvestQty] = useState(250);
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
@@ -4438,6 +4441,9 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
           gap: 16px;
           align-items: start;
         }
+        .gridLeft{min-width:0;}
+        .gridLeft .row{justify-content:flex-start;}
+        
         .gridRight{
           position: sticky;
           top: 16px;
@@ -6066,7 +6072,8 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
               </div>
 <div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
   {tB("Vault:")} <b>{vaultNativeBal.toFixed(6)}</b> · {tB("Reserved (OPEN):")} <b>{reservedQtyOpen.toFixed(6)}</b> · {tB("Free:")} <b>{vaultFreeQty.toFixed(6)}</b>
-</div>
+</div>{isEthChain ? (
+
 
               <div className="formRow" style={{ marginTop: 6 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -6085,7 +6092,8 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
                 </label>
               </div>
 
-              <div className="btnRow">
+              ) : null}
+<div className="btnRow">
                 <button
                   className="btn"
                   type="button"
@@ -6143,7 +6151,7 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
               </div>
 
 
-              <div className="row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -6, marginBottom: 12 }}>
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -6, marginBottom: 12 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>
                 <input
                   value={manualSlippagePct}
@@ -6170,7 +6178,7 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
                 </div>
               </div>
 
-              <div className="row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 10 }}>
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 10 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Quick steps %:</div>
                 <select
                   value=""

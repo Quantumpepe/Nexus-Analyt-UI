@@ -3606,6 +3606,21 @@ const [aiLoading, setAiLoading] = useState(false);
     } catch {}
   };
 
+
+const [gridBusy, setGridBusy] = useState({
+  start: false,
+  stop: false,
+  add: false,
+  stopOrderId: null,
+  deleteOrderId: null,
+});
+
+const isGridReady = useMemo(() => {
+  return !!token && !!walletAddress && !!gridItemId;
+}, [token, walletAddress, gridItemId]);
+
+
+
 const fetchGridOrders = async () => {
     // Keep orders visible across refresh; don't clear on transient errors.
     if (!gridItemId) return;
@@ -3654,6 +3669,14 @@ const fetchGridOrders = async () => {
   async function gridStart() {
     console.log("[GRID] Start clicked");
     setErrorMsg("");
+
+if (gridBusy.start) return;
+if (!isGridReady) {
+  setErrorMsg("Grid not ready yet (connect wallet + select coin).");
+  return;
+}
+setGridBusy((s) => ({ ...s, start: true }));
+
     // NOTE: Do not silently block the button. Always hit backend so Network shows a request.
     // Backend will validate subscription / vault prerequisites and return a clear error if needed.
 
@@ -3720,14 +3743,25 @@ const fetchGridOrders = async () => {
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
-      setTimeout(fetchGridOrders, 300);
+      
+      setGridBusy((s) => ({ ...s, stop: false }));setTimeout(fetchGridOrders, 300);
+      setGridBusy((s) => ({ ...s, start: false }));
 } catch (e) {
       setErrorMsg(`Grid start: ${e.message}`);
+      setGridBusy((s) => ({ ...s, start: false }));
     }
   }
 
   async function gridStop() {
     setErrorMsg("");
+
+if (gridBusy.stop) return;
+if (!isGridReady) {
+  setErrorMsg("Grid not ready yet (connect wallet + select coin).");
+  return;
+}
+setGridBusy((s) => ({ ...s, stop: true }));
+
     try {
 	  const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
       const itemId =
@@ -3745,7 +3779,8 @@ const fetchGridOrders = async () => {
       setGridOrders(r?.orders || []);
     } catch (e) {
       setErrorMsg(`Grid stop: ${e.message}`);
-    }
+    
+      setGridBusy((s) => ({ ...s, stop: false }));}
   }
 
   async function addManualOrder() {
@@ -3753,6 +3788,12 @@ const fetchGridOrders = async () => {
     if (!token) return setErrorMsg("Connect wallet first.");
     if (!requirePro("Placing a new order")) return;
     if (!gridItemId) return setErrorMsg('Select coin first.');
+    if (gridBusy.add) return;
+    if (!isGridReady) {
+      setErrorMsg(\"Grid not ready yet (connect wallet + select coin).\" );
+      return;
+    }
+    setGridBusy((s) => ({ ...s, add: true }));
 try {
       const price = Number(manualPrice);
       if (!Number.isFinite(price) || price <= 0) throw new Error("Invalid price.");
@@ -3796,9 +3837,11 @@ body.qty = qty;
       setGridOrders(r?.orders || []);
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setTimeout(fetchGridOrders, 300);
+      setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
       setErrorMsg(`Manual add: ${e.message}`);
-    }
+    
+      setGridBusy((s) => ({ ...s, add: false }));}
   }
   
   
@@ -3806,6 +3849,15 @@ body.qty = qty;
     setErrorMsg("");
     if (!token) return setErrorMsg("Connect wallet first.");
     if (!gridItem) return;
+
+
+    const _oid = String(orderId);
+    if (gridBusy.stopOrderId === _oid) return;
+    if (!isGridReady) {
+      setErrorMsg(\"Grid not ready yet (connect wallet + select coin).\" );
+      return;
+    }
+    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
 
     const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
@@ -3820,6 +3872,8 @@ body.qty = qty;
     ];
 
     // Optimistic UI: mark CANCELLED locally, but keep in list until backend confirms
+    setGridBusy((s) => ({ ...s, stopOrderId: null }));
+
     setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "CANCELLING" } : o)));
 
     let lastErr = null;
@@ -3829,6 +3883,7 @@ body.qty = qty;
         setGridOrders(r?.orders || r?.data?.orders || gridOrders);
         setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
         fetchGridOrders();
+        setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;
       } catch (e) {
         lastErr = e;
@@ -3846,6 +3901,14 @@ body.qty = qty;
     setErrorMsg("");
     if (!token) return setErrorMsg("Connect wallet first.");
     if (!gridItem) return;
+
+    const _oid = String(orderId);
+    if (gridBusy.deleteOrderId === _oid) return;
+    if (!isGridReady) {
+      setErrorMsg(\"Grid not ready yet (connect wallet + select coin).\" );
+      return;
+    }
+    setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));
 
     const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
@@ -3884,12 +3947,14 @@ body.qty = qty;
           setGridOrders(r?.orders || r?.data?.orders || []);
           setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           fetchGridOrders();
+          setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
         } else {
           const r = await api(a.url, { method: a.method, token, body: a.body });
           setGridOrders(r?.orders || r?.data?.orders || []);
           setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           fetchGridOrders();
+          setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
         }
       } catch (e) {
@@ -3909,11 +3974,13 @@ body.qty = qty;
       }
     }
 
+    setGridBusy((s) => ({ ...s, deleteOrderId: null }));
+
     // Revert if all failed
     setGridOrders(prevOrders);
     setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
-useInterval(fetchGridOrders, 15000, !gridItemId);
+useInterval(fetchGridOrders, 15000, !!gridItemId);
 
   const gridLiveFallback = useMemo(() => {
   const tgt = String(gridItem || "").toUpperCase();
@@ -6269,9 +6336,11 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStart(); }}
                   title={!isPro ? "Subscribe to Nexus Pro to start trading" : ""}
                 >
-                  {"Start"}
+                  disabled={!isGridReady || gridBusy.start || gridBusy.stop}
+                >
+                  {gridBusy.start ? "Starting..." : "Start"}
                 </button>
-                <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }}>Stop</button>
+                <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start}>{gridBusy.stop ? "Stopping..." : "Stop"}</button>
               </div>
               {errorMsg ? (
                 <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "8px", background: "rgba(255, 0, 0, 0.10)", border: "1px solid rgba(255, 0, 0, 0.25)", fontSize: "13px", lineHeight: "1.4" }}>
@@ -6450,10 +6519,10 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
               <button
                 className="btn"
                 onClick={addManualOrder}
-                disabled={!token}
+                disabled={!isGridReady || gridBusy.add}
                 title={!isPro ? "Subscribe to Nexus Pro to trade" : ""}
               >
-                {"Add Order"}
+                {gridBusy.add ? "Adding..." : "Add Order"}
               </button>
 
               {!token && <div className="muted tiny">Connect wallet to place orders.</div>}
@@ -6482,7 +6551,7 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
                           type="button"
                           className="btn ghost"
                           style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                          disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN"}
+                          disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
                           onClick={() => stopGridOrder(idOf(o))}
                           title="Stop this single order (backend will mark it as STOPPED)."
                         >
@@ -6492,7 +6561,7 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
                           type="button"
                           className="btn ghost"
                           style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                          disabled={!idOf(o)}
+                          disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
                           onClick={() => deleteGridOrder(idOf(o))}
                           title="Delete this order from DB (only if backend supports it)."
                         >

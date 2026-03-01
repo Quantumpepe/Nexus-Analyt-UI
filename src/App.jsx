@@ -3790,7 +3790,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
     if (!gridItemId) return setErrorMsg('Select coin first.');
     if (gridBusy.add) return;
     if (!isGridReady) {
-      setErrorMsg(\"Grid not ready yet (connect wallet + select coin).\" );
+      setErrorMsg("Grid not ready yet (connect wallet + select coin).");
       return;
     }
     setGridBusy((s) => ({ ...s, add: true }));
@@ -3854,7 +3854,7 @@ body.qty = qty;
     const _oid = String(orderId);
     if (gridBusy.stopOrderId === _oid) return;
     if (!isGridReady) {
-      setErrorMsg(\"Grid not ready yet (connect wallet + select coin).\" );
+      setErrorMsg("Grid not ready yet (connect wallet + select coin).");
       return;
     }
     setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
@@ -3905,7 +3905,7 @@ body.qty = qty;
     const _oid = String(orderId);
     if (gridBusy.deleteOrderId === _oid) return;
     if (!isGridReady) {
-      setErrorMsg(\"Grid not ready yet (connect wallet + select coin).\" );
+      setErrorMsg("Grid not ready yet (connect wallet + select coin).");
       return;
     }
     setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));

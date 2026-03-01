@@ -3805,177 +3805,107 @@ body.qty = qty;
   async function stopGridOrder(orderId) {
     setErrorMsg("");
     if (!token) return setErrorMsg("Connect wallet first.");
-    if (!gridItem) return;
+    if (!gridItemId) return;
 
-    const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
-    const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
+    // Accept either a raw id or an order object
+    const oid =
+      (orderId && typeof orderId === "object")
+        ? (orderId.order_id ?? orderId.id ?? orderId._id ?? orderId.orderId)
+        : orderId;
 
-    // Try several known endpoints/methods (backend revisions differ)
-    const attempts = [
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/cancel", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/stop", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, id: orderId } },
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, orderId } },
-    ];
-
-    // Optimistic UI: mark CANCELLED locally, but keep in list until backend confirms
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "CANCELLING" } : o)));
-
-    let lastErr = null;
-    for (const a of attempts) {
-      try {
-        const r = await api(a.url, { method: a.method, token, body: a.body });
-        setGridOrders(r?.orders || r?.data?.orders || gridOrders);
-        setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
-        fetchGridOrders();
-        return;
-      } catch (e) {
-        lastErr = e;
-        const msg = String(e?.message || "");
-        // If 404/ not found -> try next endpoint (older/newer backend)
-        if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) throw e;
-      }
-    }
-
-    // If all failed, revert optimistic status
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o)));
-    setErrorMsg(`Stop order: ${lastErr?.message || "failed"}`);
-  }
-;
-
-    const endpoints = ["/api/grid/order/stop", "/api/grid/order/cancel", "/api/grid/order/close"];
+    if (!oid) return setErrorMsg("Stop order: missing order id.");
 
     try {
+      // Canonical endpoint is /api/grid/order/stop (POST)
+      // If backend is older/newer, fall back to known aliases.
+      const endpoints = ["/api/grid/order/stop", "/api/grid/stop", "/api/grid/order/cancel", "/api/stop"];
+      let r = null;
       let lastErr = null;
 
       for (const ep of endpoints) {
         try {
-          await api(ep, { method: "POST", token, body });
-          // Optimistic UI: mark cancelled
-          setGridOrders((prev) =>
-            (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "CANCELLED" } : o))
-          );
-          fetchGridOrders();
-          return;
+          r = await api(ep, {
+            method: "POST",
+            token,
+            body: { item: gridItemId, addr: walletAddress || undefined, order_id: oid },
+          });
+          lastErr = null;
+          break;
         } catch (err) {
           lastErr = err;
-          const msg = String(err?.message || err || "");
-          // Some backends expose DELETE instead of POST
-          if (msg.includes("405") || msg.toLowerCase().includes("method not allowed")) {
-            try {
-              await api(ep, { method: "DELETE", token, body });
-              setGridOrders((prev) =>
-                (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "CANCELLED" } : o))
-              );
-              fetchGridOrders();
-              return;
-            } catch (e2) {
-              lastErr = e2;
-            }
-          }
-          // try next endpoint only on "not found / not open / method"
-          if (
-            !(
-              msg.includes("404") ||
-              msg.toLowerCase().includes("not found") ||
-              msg.toLowerCase().includes("not open") ||
-              msg.toLowerCase().includes("method")
-            )
-          ) {
-            break;
-          }
+          const m = String(err?.message || "");
+          // Try next alias only on 404/not found
+          if (!m.includes("404") && !m.toLowerCase().includes("not found")) throw err;
         }
       }
+      if (lastErr) throw lastErr;
 
-      const msg = String(lastErr?.message || lastErr || "");
-      if (msg.includes("404") || msg.toLowerCase().includes("not found") || msg.toLowerCase().includes("not open")) {
-        // backend already removed it - reflect in UI
-        setGridOrders((prev) =>
-          (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "CANCELLED" } : o))
-        );
-        fetchGridOrders();
-        return;
-      }
-
-      setErrorMsg(`Stop order: ${msg}`);
+      setGridOrders(r?.orders || r?.data?.orders || gridOrders);
+      setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
+      fetchGridOrders();
     } catch (e) {
-      setErrorMsg(`Stop order: ${String(e?.message || e || "")}`);
+      setErrorMsg(`Stop order: ${e.message}`);
     }
   }
-
-
-  
   async function deleteGridOrder(orderId) {
     setErrorMsg("");
     if (!token) return setErrorMsg("Connect wallet first.");
-    if (!gridItem) return;
+    if (!gridItemId) return;
 
-    const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
-    const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
+    // Accept either a raw id or an order object
+    const oid =
+      (orderId && typeof orderId === "object")
+        ? (orderId.order_id ?? orderId.id ?? orderId._id ?? orderId.orderId)
+        : orderId;
 
-    // Some backends support POST /delete, others require DELETE, others use /remove
-    const attempts = [
-      { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/remove", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/delete", method: "DELETE", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/remove", method: "DELETE", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, id: orderId } },
-    ];
+    if (!oid) return setErrorMsg("Delete order: missing order id.");
 
-    // Optimistic UI: hide immediately
-    const prevOrders = gridOrders;
-    setGridOrders((prev) => (prev || []).filter((o) => String(idOf(o)) !== String(orderId)));
+    try {
+      // Some backends implement DELETE, others POST. Try DELETE first.
+      const attempts = [
+        { url: "/api/grid/order/delete", method: "DELETE" },
+        { url: "/api/grid/order/delete", method: "POST" },
+        { url: "/api/grid/order/remove", method: "DELETE" },
+        { url: "/api/grid/order/remove", method: "POST" },
+      ];
 
-    let lastErr = null;
-    for (const a of attempts) {
-      try {
-        // api() may not allow DELETE bodies on some fetch impls; fall back to raw fetch if needed
-        if (a.method === "DELETE") {
-          const res = await fetch(a.url, {
-            method: "DELETE",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify(a.body),
+      let r = null;
+      let lastErr = null;
+
+      for (const a of attempts) {
+        try {
+          r = await api(a.url, {
+            method: a.method,
+            token,
+            body: { item: gridItemId, addr: walletAddress || undefined, order_id: oid },
           });
-          if (!res.ok) {
-            const t = await res.text();
-            throw new Error(`${res.status} ${res.statusText}: ${t}`);
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          const m = String(err?.message || "");
+          // 405 Method Not Allowed or 404 Not Found => try next attempt
+          if (
+            m.includes("405") ||
+            m.toLowerCase().includes("method not allowed") ||
+            m.includes("404") ||
+            m.toLowerCase().includes("not found")
+          ) {
+            continue;
           }
-          const r = await res.json().catch(() => ({}));
-          setGridOrders(r?.orders || r?.data?.orders || []);
-          setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
-          fetchGridOrders();
-          return;
-        } else {
-          const r = await api(a.url, { method: a.method, token, body: a.body });
-          setGridOrders(r?.orders || r?.data?.orders || []);
-          setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
-          fetchGridOrders();
-          return;
+          throw err;
         }
-      } catch (e) {
-        lastErr = e;
-        const msg = String(e?.message || "");
-        // Method not allowed / 404 -> try next
-        if (
-          msg.includes("405") ||
-          msg.toLowerCase().includes("method not allowed") ||
-          msg.includes("404") ||
-          msg.toLowerCase().includes("not found")
-        ) {
-          continue;
-        }
-        // Server error 500 might be transient; try next alias once
-        continue;
       }
-    }
+      if (lastErr) throw lastErr;
 
-    // Revert if all failed
-    setGridOrders(prevOrders);
-    setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
+      setGridOrders(r?.orders || r?.data?.orders || []);
+      setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
+      fetchGridOrders();
+    } catch (e) {
+      // If backend doesn't support delete, just hide locally (UX), but warn
+      setGridOrders((prev) => prev.filter((x) => (x?.id || x?._id || x?.order_id) !== oid));
+      setErrorMsg(`Delete order: ${e.message}`);
+    }
   }
 ;
 

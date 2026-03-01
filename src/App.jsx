@@ -3626,7 +3626,7 @@ const [aiLoading, setAiLoading] = useState(false);
       const body = {
         item: gridItem,
         // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
-        wallet: walletAddress || undefined,
+        addr: walletAddress || undefined,
         mode: gridMode,
         order_mode: "MANUAL",
         // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd for backwards compatibility; invest_qty is the new canonical key.
@@ -3638,7 +3638,7 @@ const [aiLoading, setAiLoading] = useState(false);
         chain: chainKey,
         auto_path: !!gridAutoPath,
       };
-      const r = await api("/api/grid/cycle/start", { method: "POST", body });
+      const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
       fetchGridOrders();
@@ -3652,7 +3652,8 @@ const [aiLoading, setAiLoading] = useState(false);
     try {
       const r = await api("/api/grid/stop", {
         method: "POST",
-        body: { item: gridItem, wallet: walletAddress || undefined },
+        token,
+        body: { item: gridItem, addr: walletAddress || undefined },
       });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
@@ -3674,7 +3675,7 @@ try {
       const deadlineSec = Math.floor(dlm * 60);
       const body = {
         item: gridItem,
-        wallet: walletAddress || undefined,
+        addr: walletAddress || undefined,
         side: manualSide,
         price,
         slippage_bps: Math.round(slp * 100),
@@ -3709,7 +3710,7 @@ body.qty = qty;
       const r = await api("/api/grid/order/stop", {
         method: "POST",
         token,
-        body: { item: gridItem, wallet: walletAddress || undefined, order_id: orderId },
+        body: { item: gridItem, addr: walletAddress || undefined, order_id: orderId },
       });
       setGridOrders(r?.orders || r?.data?.orders || gridOrders);
       fetchGridOrders();
@@ -3726,7 +3727,7 @@ body.qty = qty;
       const r = await api("/api/grid/order/delete", {
         method: "POST",
         token,
-        body: { item: gridItem, wallet: walletAddress || undefined, order_id: orderId },
+        body: { item: gridItem, addr: walletAddress || undefined, order_id: orderId },
       });
       setGridOrders(r?.orders || r?.data?.orders || []);
       fetchGridOrders();

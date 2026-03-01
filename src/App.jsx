@@ -3641,7 +3641,7 @@ const [aiLoading, setAiLoading] = useState(false);
         gridMeta?.gridItemId ??
         gridMeta?.itemId ??
         gridMeta?.id ??
-        `${chainKey}:${coin}`; // Fallback
+       `${chainKey}:${balActiveCoin}`; // Fallback
       const body = {
         item: gridItemId,
         // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
@@ -3674,7 +3674,7 @@ const [aiLoading, setAiLoading] = useState(false);
         gridMeta?.gridItemId ??
         gridMeta?.itemId ??
         gridMeta?.id ??
-        `${chainKey}:${coin}`;
+        `${chainKey}:${balActiveCoin}`;
       const r = await api("/api/grid/stop", {
         method: "POST",
         token,

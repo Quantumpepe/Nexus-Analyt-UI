@@ -3637,6 +3637,11 @@ const [aiLoading, setAiLoading] = useState(false);
       const curPriceNum = Number(gridMeta?.price ?? 0) || 0;
       const investQty = Number(gridInvestQty) || 0;
       const investUsd = (investQty > 0 && curPriceNum > 0) ? (investQty * curPriceNum) : investQty;
+	  const gridItemId =
+        gridMeta?.gridItemId ??
+        gridMeta?.itemId ??
+        gridMeta?.id ??
+        `${chainKey}:${coin}`; // Fallback
       const body = {
         item: gridItemId,
         // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
@@ -3664,6 +3669,12 @@ const [aiLoading, setAiLoading] = useState(false);
   async function gridStop() {
     setErrorMsg("");
     try {
+	  const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const gridItemId =
+        gridMeta?.gridItemId ??
+        gridMeta?.itemId ??
+        gridMeta?.id ??
+        `${chainKey}:${coin}`;
       const r = await api("/api/grid/stop", {
         method: "POST",
         token,

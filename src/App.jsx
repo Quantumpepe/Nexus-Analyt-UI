@@ -1461,8 +1461,15 @@ const [errorMsg, setErrorMsg] = useState("");
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
 const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
-  const [balActiveChain, setBalActiveChain] = useState("BNB");
-  const [wsChainKey, setWsChainKey] = useState(DEFAULT_CHAIN);
+  const [balActiveChain, setBalActiveChain] = useState(() => {
+    try { return localStorage.getItem("nexus_wallet_bal_chain") || "BNB"; } catch (_) { return "BNB"; }
+  });
+  
+
+useEffect(() => {
+    try { localStorage.setItem("nexus_wallet_bal_chain", balActiveChain || "BNB"); } catch (_) {}
+  }, [balActiveChain]);
+const [wsChainKey, setWsChainKey] = useState(DEFAULT_CHAIN);
   const [wsInfoOpen, setWsInfoOpen] = useState(false);
   const wsInfoRef = useRef(null);
 
@@ -1921,10 +1928,17 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [balLoading, setBalLoading] = useState(false);
   const [balError, setBalError] = useState("");
   const [balByChain, setBalByChain] = useState({}); // { ETH: { native: "0.0" }, ... }
-  const [showAllWalletChains, setShowAllWalletChains] = useState(true);
+  const [showAllWalletChains, setShowAllWalletChains] = useState(() => {
+    try { return localStorage.getItem("nexus_wallet_bal_all") !== "0"; } catch (_) { return true; }
+  });
 
 
-  // keep vault state fresh
+  
+
+useEffect(() => {
+    try { localStorage.setItem("nexus_wallet_bal_all", showAllWalletChains ? "1" : "0"); } catch (_) {}
+  }, [showAllWalletChains]);
+// keep vault state fresh
   useEffect(() => {
     refreshVaultState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5509,7 +5523,6 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
 
                     {vaultState?.operatorEnabled && (Number(vaultState?.polBalance || 0) > 0) && !vaultState?.inCycle && (
                       <div style={{ marginTop: 4 }}>
-                        ✅ {tB("Schritt 3: Cycle starten. Danach kannst du Orders anlegen, ohne jedes Mal zu signieren (nur bis zum Vault-Budget).", "Step 3: Start the cycle. Then you can place orders without signing every time (up to your Vault budget).")}
                       </div>
                     )}
 

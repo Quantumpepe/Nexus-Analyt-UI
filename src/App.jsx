@@ -3154,6 +3154,15 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // grid (manual)
   // Grid UI works with symbols; backend grid endpoints are keyed by item_id.
   const [gridItem, setGridItem] = useState("BTC");
+  // Derived identifiers for backend grid endpoints (stable across refreshes)
+  const uiChainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+  const gridItemId = useMemo(() => {
+    const sym = String(gridItem || "").toUpperCase().trim();
+    if (!sym) return "";
+    return `${uiChainKey}:${sym}`;
+  }, [uiChainKey, gridItem]);
+
+
 
 const [gridNativeUsd, setGridNativeUsd] = useState({});
 
@@ -3570,31 +3579,42 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // grid
   const fetchGridOrders = async () => {
-    // Allow read without token (some backends are public for GET /orders)
-    if (!gridItem) return;
+    // Keep orders visible across refresh; don't clear on transient errors.
+    if (!gridItemId) return;
     try {
-      // If backend runs with GRID_ALLOW_ANON=1 it requires a wallet in query/body
-      // for /api/grid/* requests.
-	      const qs = new URLSearchParams({ item: gridItemId }).toString();
-      // Backend expects wallet via header (X-Wallet-Address), not query param
-      const r = await api(`/api/grid/orders?${qs}`, { method: "GET" });
-      const nextOrders = r?.orders ?? r?.data?.orders;
+      const params = new URLSearchParams({ item: gridItemId });
+      if (walletAddress) params.set("addr", walletAddress);
+      const r = await api(`/api/grid/orders?${params.toString()}`, {
+        method: "GET",
+        token,
+      });
+
+      const nextOrders = r?.orders ?? r?.data?.orders ?? [];
       if (Array.isArray(nextOrders)) {
-        setGridOrders(nextOrders);
+        // Merge to keep any locally-cached cancelled rows until user refreshes.
+        setGridOrders((prev) => {
+          const byId = new Map();
+          for (const o of nextOrders) {
+            const id = o?.id ?? o?._id;
+            if (id != null) byId.set(String(id), o);
+          }
+          for (const o of prev || []) {
+            const st = String(o?.status || "").toUpperCase();
+            if (st === "CANCELLED" || st === "CANCELED") {
+              const id = o?.id ?? o?._id;
+              if (id != null && !byId.has(String(id))) byId.set(String(id), o);
+            }
+          }
+          return Array.from(byId.values());
+        });
       }
+
       const tick = r?.tick ?? r?.data?.tick ?? null;
       const price = r?.price ?? r?.data?.price ?? null;
       setGridMeta({ tick, price });
-	    } catch (e) {
-	      const msg = String(e?.message || e);
-	      if (msg.toLowerCase().includes("no grid session")) {
-	        // Expected before pressing Start
-	        // Don't clear orders on transient "no session" responses; keep UI stable.
-        setGridMeta({ tick: null, price: null });
-        return;
-	      }
-	      setErrorMsg((m) => (m ? m : `Grid orders: ${msg}`));
-	    }
+    } catch (e) {
+      setErrorMsg(`Grid orders: ${e.message}`);
+    }
   };
 
   async function gridStart() {
@@ -3642,13 +3662,14 @@ const [aiLoading, setAiLoading] = useState(false);
       const curPriceNum = Number(gridMeta?.price ?? 0) || 0;
       const investQty = Number(gridInvestQty) || 0;
       const investUsd = (investQty > 0 && curPriceNum > 0) ? (investQty * curPriceNum) : investQty;
-	  const gridItemId =
-        gridMeta?.gridItemId ??
-        gridMeta?.itemId ??
-        gridMeta?.id ??
-       `${chainKey}:${gridItem}`; // Fallback
+      const itemId =
+        gridItemId ||
+        gridMeta?.gridItemId ||
+        gridMeta?.itemId ||
+        gridMeta?.id ||
+        `${chainKey}:${String(gridItem || "").toUpperCase()}`; // fallback
       const body = {
-        item: gridItemId,
+        item: itemId,
         // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
         addr: walletAddress || undefined,
         mode: gridMode,
@@ -3675,15 +3696,16 @@ const [aiLoading, setAiLoading] = useState(false);
     setErrorMsg("");
     try {
 	  const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
-      const gridItemId =
-        gridMeta?.gridItemId ??
-        gridMeta?.itemId ??
-        gridMeta?.id ??
-        `${chainKey}:${gridItem}`;
+      const itemId =
+        gridItemId ||
+        gridMeta?.gridItemId ||
+        gridMeta?.itemId ||
+        gridMeta?.id ||
+        `${chainKey}:${String(gridItem || "").toUpperCase()}`;
       const r = await api("/api/grid/stop", {
         method: "POST",
         token,
-        body: { item: gridItemId, addr: walletAddress || undefined },
+        body: { item: itemId, addr: walletAddress || undefined },
       });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
@@ -3704,7 +3726,7 @@ try {
       const dlm = Math.min(120, Math.max(5, Number(manualDeadlineMin) || 20));
       const deadlineSec = Math.floor(dlm * 60);
       const body = {
-        item: gridItemId,
+        item: itemId,
         addr: walletAddress || undefined,
         side: manualSide,
         price,
@@ -3744,54 +3766,58 @@ body.qty = qty;
     }
   }
   async function stopGridOrder(orderId) {
-  setErrorMsg("");
-  if (!token) return setErrorMsg("Connect wallet first.");
-  if (!gridItem) return;
+    setErrorMsg("");
+    if (!token) return setErrorMsg("Connect wallet first.");
+    if (!gridItemId) return;
 
-  // Optimistic UI: mark as CANCELLED immediately (backend may remove from OPEN list on next poll)
-  setGridOrders((prev) =>
-    (prev || []).map((o) => {
-      const id = String(o?.id ?? o?._id ?? o?.order_id ?? "");
-      if (id !== String(orderId)) return o;
-      return { ...o, status: "CANCELLED" };
-    })
-  );
+    // Optimistic UI: mark as cancelled immediately
+    setGridOrders((prev) =>
+      (prev || []).map((o) => {
+        const id = o?.id ?? o?._id;
+        if (String(id) !== String(orderId)) return o;
+        return { ...o, status: "CANCELLED" };
+      })
+    );
 
-  try {
-    const endpoints = ["/api/grid/order/stop", "/api/grid/order/cancel", "/api/grid/stop-order"];
-    let r = null;
-    let lastErr = null;
+    try {
+      const r = await api("/api/grid/order/stop", {
+        method: "POST",
+        token,
+        body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId },
+      });
 
-    for (const ep of endpoints) {
-      try {
-        r = await api(ep, {
-          method: "POST",
-          token,
-          body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId },
+      // If backend returns updated orders, apply them (but keep cancelled rows if backend omits them)
+      const incoming = r?.orders ?? r?.data?.orders;
+      if (Array.isArray(incoming)) {
+        setGridOrders((prev) => {
+          const map = new Map();
+          const idOf = (x) => (x?.id ?? x?._id) != null ? String(x?.id ?? x?._id) : null;
+
+          for (const o of incoming) {
+            const id = idOf(o);
+            if (id) map.set(id, o);
+          }
+          for (const o of prev || []) {
+            const st = String(o?.status || o?.state || "").toUpperCase();
+            if (st === "CANCELLED" || st === "CANCELED") {
+              const id = idOf(o);
+              if (id && !map.has(id)) map.set(id, o);
+            }
+          }
+          return Array.from(map.values());
         });
-        break;
-      } catch (err) {
-        lastErr = err;
-        const m = String(err?.message || "");
-        // try next alias on 404
-        if (m.includes("404") || m.toLowerCase().includes("not found")) continue;
-        throw err;
       }
-    }
-    if (!r && lastErr) throw lastErr;
-
-    // Refresh from backend, but keep CANCELLED locally (fetchGridOrders merge handles this)
-    fetchGridOrders();
-  } catch (e) {
-    const msg = String(e?.message || e || "");
-    // If backend says it's not open / not found, treat as already stopped
-    if (msg.toLowerCase().includes("not open") || msg.toLowerCase().includes("not found")) {
       fetchGridOrders();
-      return;
+    } catch (e) {
+      const msg = String(e?.message || e || "");
+      // If order is already gone/not open, keep it cancelled locally and refresh
+      if (msg.includes("404") || msg.toLowerCase().includes("not found") || msg.toLowerCase().includes("not open")) {
+        fetchGridOrders();
+        return;
+      }
+      setErrorMsg(`Stop order: ${msg}`);
     }
-    setErrorMsg(`Stop order: ${msg}`);
   }
-}
 
 async function deleteGridOrder(orderId) {
   setErrorMsg("");
@@ -3862,7 +3888,7 @@ async function deleteGridOrder(orderId) {
 }
 
 
-  useInterval(fetchGridOrders, 15000, !!gridItem);
+  useInterval(fetchGridOrders, 15000, !gridItemId);
 
   const gridLiveFallback = useMemo(() => {
   const tgt = String(gridItem || "").toUpperCase();

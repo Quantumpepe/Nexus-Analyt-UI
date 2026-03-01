@@ -3148,6 +3148,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsAll.slice(0, 10) : bestPairsAll), [showTop10Pairs, bestPairsAll]);
 
   // grid (manual)
+  // Grid UI works with symbols; backend grid endpoints are keyed by item_id.
   const [gridItem, setGridItem] = useState("BTC");
 
 const [gridNativeUsd, setGridNativeUsd] = useState({});
@@ -3567,7 +3568,7 @@ const [aiLoading, setAiLoading] = useState(false);
     try {
       // If backend runs with GRID_ALLOW_ANON=1 it requires a wallet in query/body
       // for /api/grid/* requests.
-      const qs = new URLSearchParams({ item: gridItem }).toString();
+	      const qs = new URLSearchParams({ item: gridItemId }).toString();
       // Backend expects wallet via header (X-Wallet-Address), not query param
       const r = await api(`/api/grid/orders?${qs}`, { method: "GET" });
       const orders = r?.orders || r?.data?.orders || [];
@@ -3575,9 +3576,16 @@ const [aiLoading, setAiLoading] = useState(false);
       const tick = r?.tick ?? r?.data?.tick ?? null;
       const price = r?.price ?? r?.data?.price ?? null;
       setGridMeta({ tick, price });
-    } catch (e) {
-      setErrorMsg((m) => (m ? m : `Grid orders: ${e.message}`));
-    }
+	    } catch (e) {
+	      const msg = String(e?.message || e);
+	      if (msg.toLowerCase().includes("no grid session")) {
+	        // Expected before pressing Start
+	        setGridOrders([]);
+	        setGridMeta({ tick: null, price: null });
+	        return;
+	      }
+	      setErrorMsg((m) => (m ? m : `Grid orders: ${msg}`));
+	    }
   };
 
   async function gridStart() {
@@ -3624,7 +3632,7 @@ const [aiLoading, setAiLoading] = useState(false);
       const investQty = Number(gridInvestQty) || 0;
       const investUsd = (investQty > 0 && curPriceNum > 0) ? (investQty * curPriceNum) : investQty;
       const body = {
-        item: gridItem,
+        item: gridItemId,
         // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
         addr: walletAddress || undefined,
         mode: gridMode,
@@ -3653,7 +3661,7 @@ const [aiLoading, setAiLoading] = useState(false);
       const r = await api("/api/grid/stop", {
         method: "POST",
         token,
-        body: { item: gridItem, addr: walletAddress || undefined },
+        body: { item: gridItemId, addr: walletAddress || undefined },
       });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setGridOrders(r?.orders || []);
@@ -3674,7 +3682,7 @@ try {
       const dlm = Math.min(120, Math.max(5, Number(manualDeadlineMin) || 20));
       const deadlineSec = Math.floor(dlm * 60);
       const body = {
-        item: gridItem,
+        item: gridItemId,
         addr: walletAddress || undefined,
         side: manualSide,
         price,
@@ -3688,12 +3696,23 @@ const qty = manualQty === "" ? undefined : Number(manualQty);
 if (qty === undefined || !Number.isFinite(qty) || qty <= 0) throw new Error("Invalid Qty amount.");
 body.qty = qty;
 
-// Source of truth endpoint (must match backend): /api/grid/manual/add (no fallbacks).
-      const r = await api("/api/grid/manual/add", {
-        method: "POST",
-        token,
-        body,
-     });
+	// Canonical endpoint is /api/grid/manual/add.
+	// If the backend is on an older deployed revision, fall back to known aliases.
+	      const endpoints = ["/api/grid/manual/add", "/api/grid/add", "/api/grid/order/add", "/api/add"]; 
+	      let r = null;
+	      let lastErr = null;
+	      for (const ep of endpoints) {
+	        try {
+	          r = await api(ep, { method: "POST", token, body });
+	          lastErr = null;
+	          break;
+	        } catch (err) {
+	          lastErr = err;
+	          const m = String(err?.message || "");
+	          if (!m.includes("404") && !m.toLowerCase().includes("not found")) throw err;
+	        }
+	      }
+	      if (lastErr) throw lastErr;
       
       setGridOrders(r?.orders || []);
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
@@ -3710,7 +3729,7 @@ body.qty = qty;
       const r = await api("/api/grid/order/stop", {
         method: "POST",
         token,
-        body: { item: gridItem, addr: walletAddress || undefined, order_id: orderId },
+        body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId },
       });
       setGridOrders(r?.orders || r?.data?.orders || gridOrders);
       fetchGridOrders();
@@ -3727,7 +3746,7 @@ body.qty = qty;
       const r = await api("/api/grid/order/delete", {
         method: "POST",
         token,
-        body: { item: gridItem, addr: walletAddress || undefined, order_id: orderId },
+        body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId },
       });
       setGridOrders(r?.orders || r?.data?.orders || []);
       fetchGridOrders();

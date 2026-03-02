@@ -3263,6 +3263,21 @@ useEffect(() => {
   const [gridInvestQty, setGridInvestQty] = useState(250);
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
+  // Cache orders per gridItemId so transient empty polls (cold starts / eventual consistency / addr mismatch) don't blank the UI.
+  const gridOrdersCacheRef = useRef({});
+  const rememberGridOrders = useCallback((itemId, ordersArr) => {
+    if (!itemId) return;
+    if (!Array.isArray(ordersArr)) return;
+    // Cache even empty arrays, but keep last non-empty for fallback decisions
+    const prev = gridOrdersCacheRef.current[itemId];
+    const now = Date.now();
+    gridOrdersCacheRef.current[itemId] = {
+      ts: now,
+      orders: ordersArr,
+      lastNonEmptyOrders: (ordersArr.length ? ordersArr : (prev?.lastNonEmptyOrders || [])),
+      lastNonEmptyTs: (ordersArr.length ? now : (prev?.lastNonEmptyTs || 0)),
+    };
+  }, []);
   // Helper: extract order id from different backend schemas
   const idOf = (o) => o?.order_id ?? o?.orderId ?? o?.id ?? o?._id ?? o?.uuid ?? null;
 
@@ -3673,6 +3688,20 @@ const fetchGridOrders = async () => {
       return;
     }
 
+    // If backend returns empty but we recently had non-empty orders for THIS item, keep the last non-empty list
+    // to avoid the UI blinking to 0 orders (common with cold starts / eventual consistency / addr-param mismatch).
+    if (nextOrders.length === 0) {
+      const cached = gridOrdersCacheRef.current[gridItemId];
+      const lastNonEmpty = cached?.lastNonEmptyOrders || [];
+      const lastNonEmptyTs = cached?.lastNonEmptyTs || 0;
+      const stillFresh = lastNonEmpty.length > 0 && (Date.now() - lastNonEmptyTs) < 2 * 60 * 1000; // 2 minutes
+      if (stillFresh) {
+        setGridOrders(lastNonEmpty);
+        return;
+      }
+    }
+
+    rememberGridOrders(gridItemId, nextOrders);
     setGridOrders(nextOrders);
 
     if (nextOrders.length > 0) {
@@ -3856,6 +3885,7 @@ body.qty = qty;
 	      if (lastErr) throw lastErr;
       
       safeSetGridOrdersFromResponse(r, setGridOrders);
+      rememberGridOrders(gridItemId, r?.orders ?? r?.data?.orders ?? []);
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setTimeout(fetchGridOrders, 300);
       setGridBusy((s) => ({ ...s, add: false }));
@@ -3901,7 +3931,11 @@ body.qty = qty;
     for (const a of attempts) {
       try {
         const r = await api(a.url, { method: a.method, token, body: a.body });
-        setGridOrders(r?.orders || r?.data?.orders || gridOrders);
+        {
+          const _arr = r?.orders || r?.data?.orders;
+          if (Array.isArray(_arr)) rememberGridOrders(gridItemId, _arr);
+          setGridOrders(_arr || gridOrders);
+        }
               lastGridActionRef.current = { type: "add", ts: Date.now() };
 setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
         fetchGridOrders();

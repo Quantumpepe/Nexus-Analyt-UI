@@ -1,4 +1,4 @@
- 
+
 
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr = r?.orders ?? r?.data?.orders;
@@ -656,6 +656,9 @@ async function _ensureChain(chainKey) {
 
 function useInterval(fn, ms, enabled = true) {
   const fnRef = useRef(fn);
+  // Prevent "order flicker" when backend GET lags behind POST/DB writes.
+  const lastGridActionRef = useRef({ type: null, ts: 0 });
+  const lastNonEmptyOrdersRef = useRef({ ts: 0, count: 0 });
   useEffect(() => {
     fnRef.current = fn;
   }, [fn]);
@@ -3662,9 +3665,23 @@ const fetchGridOrders = async () => {
       }
       if (Array.isArray(nextOrders)) {
         // Merge to keep any locally-cached cancelled rows until user refreshes.
-        setGridOrders((prev) => {
-          const hidden = loadHiddenOrderIds();
-          const byId = new Map();
+      const serverArr = r?.orders ?? r?.data?.orders;
+      if (Array.isArray(serverArr)) {
+        // If server says empty right after an Add, don't wipe UI (backend may be eventually consistent).
+        const now = Date.now();
+        const last = lastGridActionRef.current || { type: null, ts: 0 };
+        const recentAdd = last.type === "add" && (now - (last.ts || 0) < 5000);
+
+        if (serverArr.length === 0 && recentAdd && gridOrders.length > 0) {
+          // keep current UI orders for a short grace window
+        } else {
+          setGridOrders(serverArr);
+          if (serverArr.length > 0) {
+            lastNonEmptyOrdersRef.current = { ts: now, count: serverArr.length };
+          }
+        }
+      }
+const byId = new Map();
           for (const o of nextOrders) {
             const id = o?.id ?? o?._id;
             const key = id != null ? String(id) : null;
@@ -3770,6 +3787,7 @@ setGridBusy((s) => ({ ...s, start: true }));
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       safeSetGridOrdersFromResponse(r, setGridOrders);
+      lastGridActionRef.current = { type: "add", ts: Date.now() };
       
       setGridBusy((s) => ({ ...s, stop: false }));setTimeout(fetchGridOrders, 300);
       setGridBusy((s) => ({ ...s, start: false }));

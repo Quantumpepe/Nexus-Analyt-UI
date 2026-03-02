@@ -3654,7 +3654,12 @@ const fetchGridOrders = async () => {
         token,
       });
 
-      const nextOrders = r?.orders ?? r?.data?.orders ?? [];
+      const nextOrders = r?.orders ?? r?.data?.orders;
+
+      if (nextOrders == null) {
+        // Do not clear orders if backend did not return orders (transient errors/HTML/etc.)
+        return;
+      }
       if (Array.isArray(nextOrders)) {
         // Merge to keep any locally-cached cancelled rows until user refreshes.
         setGridOrders((prev) => {

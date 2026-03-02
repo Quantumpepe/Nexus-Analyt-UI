@@ -1,3 +1,12 @@
+
+
+function safeSetGridOrdersFromResponse(r) {
+  const arr = r?.orders ?? r?.data?.orders;
+  if (Array.isArray(arr)) {
+    setGridOrders(arr);
+  } // else: keep previous orders (do NOT clear on endpoints that don't return orders)
+}
+
 import { Buffer } from "buffer";
 
 if (typeof window !== "undefined") {
@@ -3756,7 +3765,7 @@ setGridBusy((s) => ({ ...s, start: true }));
       };
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
-      setGridOrders(r?.orders || []);
+      safeSetGridOrdersFromResponse(r);
       
       setGridBusy((s) => ({ ...s, stop: false }));setTimeout(fetchGridOrders, 300);
       setGridBusy((s) => ({ ...s, start: false }));
@@ -3790,7 +3799,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         body: { item: gridItemId, addr: walletAddress || undefined },
       });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
-      setGridOrders(r?.orders || []);
+      safeSetGridOrdersFromResponse(r);
     } catch (e) {
       setErrorMsg(`Grid stop: ${e.message}`);
     
@@ -3848,7 +3857,7 @@ body.qty = qty;
 	      }
 	      if (lastErr) throw lastErr;
       
-      setGridOrders(r?.orders || []);
+      safeSetGridOrdersFromResponse(r);
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setTimeout(fetchGridOrders, 300);
       setGridBusy((s) => ({ ...s, add: false }));
@@ -3958,14 +3967,14 @@ body.qty = qty;
             throw new Error(`${res.status} ${res.statusText}: ${t}`);
           }
           const r = await res.json().catch(() => ({}));
-          setGridOrders(r?.orders || r?.data?.orders || []);
+          safeSetGridOrdersFromResponse(r);
           setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           fetchGridOrders();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
         } else {
           const r = await api(a.url, { method: a.method, token, body: a.body });
-          setGridOrders(r?.orders || r?.data?.orders || []);
+          safeSetGridOrdersFromResponse(r);
           setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           fetchGridOrders();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));

@@ -656,9 +656,6 @@ async function _ensureChain(chainKey) {
 
 function useInterval(fn, ms, enabled = true) {
   const fnRef = useRef(fn);
-  // Prevent "order flicker" when backend GET lags behind POST/DB writes.
-  const lastGridActionRef = useRef({ type: null, ts: 0 });
-  const lastNonEmptyOrdersRef = useRef({ ts: 0, count: 0 });
   useEffect(() => {
     fnRef.current = fn;
   }, [fn]);
@@ -1458,6 +1455,11 @@ const [errorMsg, setErrorMsg] = useState("");
 
   // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
   const _loginInFlight = useRef(false);
+
+  // Prevent order flicker when backend GET lags behind POST/DB writes
+  const lastGridActionRef = useRef({ type: null, ts: 0 });
+  const lastNonEmptyOrdersRef = useRef({ ts: 0, count: 0 });
+
   const _loginRetryUsed = useRef(false);
   const _backendAuthInFlight = useRef(false);
 
@@ -3685,46 +3687,6 @@ const fetchGridOrders = async () => {
   }
 };
 
-        const recentAdd = last.type === "add" && (now - (last.ts || 0) < 5000);
-
-        if (serverArr.length === 0 && recentAdd && gridOrders.length > 0) {
-          // keep current UI orders for a short grace window
-        } else {
-          setGridOrders(serverArr);
-          if (serverArr.length > 0) {
-            lastNonEmptyOrdersRef.current = { ts: now, count: serverArr.length };
-          }
-        }
-      }
-const byId = new Map();
-          for (const o of nextOrders) {
-            const id = o?.id ?? o?._id;
-            const key = id != null ? String(id) : null;
-            if (key && hidden.has(key)) continue;
-            if (key) byId.set(key, o);
-          }
-          // keep previously shown CANCELLED orders for a short time (unless user deleted/hid them)
-          for (const o of prev || []) {
-            const id = o?.id ?? o?._id;
-            const key = id != null ? String(id) : null;
-            if (key && hidden.has(key)) continue;
-            const st = String(o?.status || o?.state || "").toUpperCase();
-            if (st === "CANCELLED" || st === "CANCELED") {
-              if (key && !byId.has(key)) byId.set(key, o);
-            }
-          }
-          return Array.from(byId.values());
-        });
-      }
-
-      const tick = r?.tick ?? r?.data?.tick ?? null;
-      const price = r?.price ?? r?.data?.price ?? null;
-      setGridMeta({ tick, price });
-    } catch (e) {
-      setErrorMsg(`Grid orders: ${e.message}`);
-    }
-  };
-
   async function gridStart() {
     console.log("[GRID] Start clicked");
     setErrorMsg("");
@@ -3802,7 +3764,6 @@ setGridBusy((s) => ({ ...s, start: true }));
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       safeSetGridOrdersFromResponse(r, setGridOrders);
-      lastGridActionRef.current = { type: "add", ts: Date.now() };
       
       setGridBusy((s) => ({ ...s, stop: false }));setTimeout(fetchGridOrders, 300);
       setGridBusy((s) => ({ ...s, start: false }));
@@ -3941,7 +3902,8 @@ body.qty = qty;
       try {
         const r = await api(a.url, { method: a.method, token, body: a.body });
         setGridOrders(r?.orders || r?.data?.orders || gridOrders);
-        setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
+              lastGridActionRef.current = { type: "add", ts: Date.now() };
+setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
         fetchGridOrders();
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;

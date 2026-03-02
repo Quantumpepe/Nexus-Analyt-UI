@@ -3647,29 +3647,44 @@ const isGridReady = useMemo(() => {
 
 
 const fetchGridOrders = async () => {
-    // Keep orders visible across refresh; don't clear on transient errors.
-    if (!gridItemId) return;
-    try {
-      const params = new URLSearchParams({ item: gridItemId });
-      if (walletAddress) params.set("addr", walletAddress);
-      const r = await api(`/api/grid/orders?${params.toString()}`, {
-        method: "GET",
-        token,
-      });
+  if (!gridItemId) return;
+  try {
+    const params = new URLSearchParams({ item: gridItemId });
+    if (walletAddress) params.set("addr", walletAddress);
 
-      const nextOrders = r?.orders ?? r?.data?.orders;
+    const r = await api(`/api/grid/orders?${params.toString()}`, {
+      method: "GET",
+      token,
+    });
 
-      if (nextOrders == null) {
-        // Do not clear orders if backend did not return orders (transient errors/HTML/etc.)
-        return;
-      }
-      if (Array.isArray(nextOrders)) {
-        // Merge to keep any locally-cached cancelled rows until user refreshes.
-      const serverArr = r?.orders ?? r?.data?.orders;
-      if (Array.isArray(serverArr)) {
-        // If server says empty right after an Add, don't wipe UI (backend may be eventually consistent).
-        const now = Date.now();
-        const last = lastGridActionRef.current || { type: null, ts: 0 };
+    const nextOrders = r?.orders ?? r?.data?.orders;
+
+    // Do not clear orders if backend didn't return an orders array (transient HTML/errors/etc.)
+    if (!Array.isArray(nextOrders)) return;
+
+    // If server says empty right after an Add, don't wipe UI (backend may be eventually consistent).
+    const now = Date.now();
+    const last = lastGridActionRef.current || { type: null, ts: 0 };
+    const recentAdd = last.type === "add" && now - (last.ts || 0) < 5000;
+
+    if (nextOrders.length === 0 && recentAdd && gridOrders.length > 0) {
+      return;
+    }
+
+    setGridOrders(nextOrders);
+
+    if (nextOrders.length > 0) {
+      lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
+    }
+
+    const tick = r?.tick ?? r?.data?.tick ?? null;
+    const price = r?.price ?? r?.data?.price ?? null;
+    setGridMeta({ tick, price });
+  } catch (e) {
+    setErrorMsg(`Grid orders: ${e.message}`);
+  }
+};
+
         const recentAdd = last.type === "add" && (now - (last.ts || 0) < 5000);
 
         if (serverArr.length === 0 && recentAdd && gridOrders.length > 0) {

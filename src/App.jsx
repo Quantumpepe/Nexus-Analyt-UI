@@ -3281,6 +3281,25 @@ useEffect(() => {
   // Helper: extract order id from different backend schemas
   const idOf = (o) => o?.order_id ?? o?.orderId ?? o?.id ?? o?._id ?? o?.uuid ?? null;
 
+  // Normalize orders coming from backend/polling so the UI can't show duplicates.
+  // (Some backend revisions may return the same order twice during eventual consistency.)
+  const normalizeGridOrders = useCallback(
+    (arr) => {
+      if (!Array.isArray(arr)) return [];
+      const seen = new Set();
+      const out = [];
+      for (const o of arr) {
+        const id = idOf(o);
+        const key = id != null ? String(id) : JSON.stringify(o);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(o);
+      }
+      return out;
+    },
+    [idOf]
+  );
+
 
   const [manualSide, setManualSide] = useState("BUY");
   const [manualPrice, setManualPrice] = useState("");
@@ -3669,7 +3688,9 @@ const fetchGridOrders = useCallback(async () => {
   if (!gridItemId || !walletAddress || !token) return;
 
   try {
-    const params = new URLSearchParams({ item: gridItemId, addr: walletAddress });
+    // Be permissive with query param naming across backend revisions.
+    // Some deployments use `addr`, others `wallet`.
+    const params = new URLSearchParams({ item: gridItemId, addr: walletAddress, wallet: walletAddress });
 
     const r = await api(`/api/grid/orders?${params.toString()}`, {
       method: "GET",
@@ -3681,10 +3702,12 @@ const fetchGridOrders = useCallback(async () => {
       return;
     }
 
-    const nextOrders = r?.orders ?? r?.data?.orders;
+    const nextOrdersRaw = r?.orders ?? r?.data?.orders;
 
     // Do not clear orders if backend didn't return an orders array (transient HTML/errors/etc.)
-    if (!Array.isArray(nextOrders)) return;
+    if (!Array.isArray(nextOrdersRaw)) return;
+
+    const nextOrders = normalizeGridOrders(nextOrdersRaw);
 
     // If server says empty right after an Add, don't wipe UI (backend may be eventually consistent).
     const now = Date.now();
@@ -3722,7 +3745,7 @@ const fetchGridOrders = useCallback(async () => {
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-}, [gridItemId, walletAddress, token, gridOrders]);
+}, [gridItemId, walletAddress, token, gridOrders, normalizeGridOrders]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -3898,8 +3921,13 @@ body.qty = qty;
 	      }
 	      if (lastErr) throw lastErr;
       
-      safeSetGridOrdersFromResponse(r, setGridOrders);
-      rememberGridOrders(gridItemId, r?.orders ?? r?.data?.orders ?? []);
+      // Mark recent add so a transient empty poll right after add can't wipe the UI.
+      lastGridActionRef.current = { type: "add", ts: Date.now() };
+
+      // Some backend revisions return duplicates; normalize before setting.
+      const _arr = normalizeGridOrders(r?.orders ?? r?.data?.orders ?? []);
+      if (_arr.length) setGridOrders(_arr);
+      rememberGridOrders(gridItemId, _arr);
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setTimeout(fetchGridOrders, 300);
       setGridBusy((s) => ({ ...s, add: false }));
@@ -3928,12 +3956,13 @@ body.qty = qty;
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
 
     // Try several known endpoints/methods (backend revisions differ)
+    const addrPayload = walletAddress || undefined;
     const attempts = [
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/cancel", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/stop", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, id: orderId } },
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, orderId } },
+      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/cancel", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
+      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
     ];
 
     // Optimistic UI: mark CANCELLED locally, but keep in list until backend confirms
@@ -3946,11 +3975,14 @@ body.qty = qty;
       try {
         const r = await api(a.url, { method: a.method, token, body: a.body });
         {
-          const _arr = r?.orders || r?.data?.orders;
-          if (Array.isArray(_arr)) rememberGridOrders(gridItemId, _arr);
-          setGridOrders(_arr || gridOrders);
+          const _arrRaw = r?.orders || r?.data?.orders;
+          const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
+          if (_arr.length) {
+            rememberGridOrders(gridItemId, _arr);
+            setGridOrders(_arr);
+          }
         }
-              lastGridActionRef.current = { type: "add", ts: Date.now() };
+        // Do not mark as "add" here; stopping an order must not trigger the recent-add guard.
 setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
         fetchGridOrders();
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
@@ -3984,12 +4016,13 @@ setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
 
     // Some backends support POST /delete, others require DELETE, others use /remove
+    const addrPayload = walletAddress || undefined;
     const attempts = [
-      { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/remove", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/delete", method: "DELETE", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/remove", method: "DELETE", body: { item: gridItemId, addr: walletAddress || undefined, order_id: orderId } },
-      { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: walletAddress || undefined, id: orderId } },
+      { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/remove", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/delete", method: "DELETE", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/remove", method: "DELETE", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
     ];
 
     // Optimistic UI: hide immediately

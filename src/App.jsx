@@ -3695,6 +3695,7 @@ const fetchGridOrders = useCallback(async () => {
     const r = await api(`/api/grid/orders?${params.toString()}`, {
       method: "GET",
       token,
+    wallet: walletAddress,
     });
 
     // If auth isn't ready yet, NEVER overwrite current UI state
@@ -3857,11 +3858,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         gridMeta?.itemId ||
         gridMeta?.id ||
         `${chainKey}:${String(gridItem || "").toUpperCase()}`;
-      const r = await api("/api/grid/stop", {
-        method: "POST",
-        token,
-        body: { item: gridItemId, addr: walletAddress || undefined },
-      });
+      const r = await api("/api/grid/stop", { method: "POST", token, wallet: walletAddress, body: { item: gridItemId, addr: walletAddress || undefined }, });
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       safeSetGridOrdersFromResponse(r, setGridOrders);
     } catch (e) {
@@ -3910,7 +3907,7 @@ body.qty = qty;
 	      let lastErr = null;
 	      for (const ep of endpoints) {
 	        try {
-	          r = await api(ep, { method: "POST", token, body });
+	          r = await api(ep, { method: "POST", token, body, wallet: walletAddress });
 	          lastErr = null;
 	          break;
 	        } catch (err) {
@@ -3919,18 +3916,20 @@ body.qty = qty;
 	          if (!m.includes("404") && !m.toLowerCase().includes("not found")) throw err;
 	        }
 	      }
-	      if (lastErr) throw lastErr;      // Mark recent add so a transient empty poll right after add can't wipe the UI.
+	      if (lastErr) throw lastErr;
+      
+      // Mark recent add so a transient empty poll right after add can't wipe the UI.
       lastGridActionRef.current = { type: "add", ts: Date.now() };
 
-      // Do NOT set orders directly here (can cause duplicates / race with polling).
-      // Always re-fetch from backend as the single source of truth.
+            // Do NOT set orders directly (avoids duplicates / race with polling).
+      // Always reload from backend after a short delay so the server can commit the order.
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
-
-      // Small delay so backend can commit the order before we reload.
       setTimeout(() => {
         fetchGridOrders();
-      }, 500);
-setGridBusy((s) => ({ ...s, add: false }));
+        // Retry once more in case the backend commits asynchronously
+        setTimeout(fetchGridOrders, 1200);
+      }, 600);
+      setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
       setErrorMsg(`Manual add: ${e.message}`);
     
@@ -3973,7 +3972,7 @@ setGridBusy((s) => ({ ...s, add: false }));
     let lastErr = null;
     for (const a of attempts) {
       try {
-        const r = await api(a.url, { method: a.method, token, body: a.body });
+        const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
         {
           const _arrRaw = r?.orders || r?.data?.orders;
           const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
@@ -4053,7 +4052,7 @@ setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
         } else {
-          const r = await api(a.url, { method: a.method, token, body: a.body });
+          const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
           safeSetGridOrdersFromResponse(r, setGridOrders);
           setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           fetchGridOrders();

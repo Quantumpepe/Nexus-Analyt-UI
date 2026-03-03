@@ -3663,16 +3663,23 @@ const isGridReady = useMemo(() => {
 
 
 
-const fetchGridOrders = async () => {
-  if (!gridItemId) return;
+const fetchGridOrders = useCallback(async () => {
+  // Only fetch when wallet/auth is actually ready.
+  // This prevents the UI from wiping orders during the brief "unauthenticated" window after refresh.
+  if (!gridItemId || !walletAddress || !token) return;
+
   try {
-    const params = new URLSearchParams({ item: gridItemId });
-    if (walletAddress) params.set("addr", walletAddress);
+    const params = new URLSearchParams({ item: gridItemId, addr: walletAddress });
 
     const r = await api(`/api/grid/orders?${params.toString()}`, {
       method: "GET",
       token,
     });
+
+    // If auth isn't ready yet, NEVER overwrite current UI state
+    if (r?.unauthenticated || r?.data?.unauthenticated) {
+      return;
+    }
 
     const nextOrders = r?.orders ?? r?.data?.orders;
 
@@ -3712,9 +3719,16 @@ const fetchGridOrders = async () => {
     const price = r?.price ?? r?.data?.price ?? null;
     setGridMeta({ tick, price });
   } catch (e) {
+    // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-};
+}, [gridItemId, walletAddress, token, gridOrders]);
+
+// Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
+useEffect(() => {
+  if (!isGridReady) return;
+  fetchGridOrders();
+}, [isGridReady, fetchGridOrders]);
 
   async function gridStart() {
     console.log("[GRID] Start clicked");
@@ -4036,7 +4050,7 @@ setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
     setGridOrders(prevOrders);
     setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
-useInterval(fetchGridOrders, 15000, !!gridItemId);
+useInterval(fetchGridOrders, 15000, isGridReady);
 
   const gridLiveFallback = useMemo(() => {
   const tgt = String(gridItem || "").toUpperCase();

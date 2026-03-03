@@ -3745,7 +3745,7 @@ const fetchGridOrders = useCallback(async () => {
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-}, [gridItemId, walletAddress, token, gridOrders, normalizeGridOrders]);
+}, [gridItemId, walletAddress, token, normalizeGridOrders]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -3919,18 +3919,18 @@ body.qty = qty;
 	          if (!m.includes("404") && !m.toLowerCase().includes("not found")) throw err;
 	        }
 	      }
-	      if (lastErr) throw lastErr;
-      
-      // Mark recent add so a transient empty poll right after add can't wipe the UI.
+	      if (lastErr) throw lastErr;      // Mark recent add so a transient empty poll right after add can't wipe the UI.
       lastGridActionRef.current = { type: "add", ts: Date.now() };
 
-      // Some backend revisions return duplicates; normalize before setting.
-      const _arr = normalizeGridOrders(r?.orders ?? r?.data?.orders ?? []);
-      if (_arr.length) setGridOrders(_arr);
-      rememberGridOrders(gridItemId, _arr);
+      // Do NOT set orders directly here (can cause duplicates / race with polling).
+      // Always re-fetch from backend as the single source of truth.
       setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
-      setTimeout(fetchGridOrders, 300);
-      setGridBusy((s) => ({ ...s, add: false }));
+
+      // Small delay so backend can commit the order before we reload.
+      setTimeout(() => {
+        fetchGridOrders();
+      }, 500);
+setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
       setErrorMsg(`Manual add: ${e.message}`);
     

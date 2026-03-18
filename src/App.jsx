@@ -1883,6 +1883,37 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       if (!wallet) return;
       const forcedChain = String(preferredChainKey || "").toUpperCase().trim();
       const chainKey = (forcedChain || balActiveChain || wsChainKey || DEFAULT_CHAIN);
+
+      // Primary path: backend RPC endpoint.
+      // This avoids the embedded-wallet/provider race after F5.
+      try {
+        const qs = new URLSearchParams({ wallet, chain: chainKey }).toString();
+        const r = await api(`/api/vault/state?${qs}`, { method: "GET", token, wallet });
+        if (r && (r.status === "ok" || r.vault_balance !== undefined)) {
+          const vaultBal = Number(r?.vault_balance ?? 0) || 0;
+          const vaultWei = r?.vault_balance_wei != null ? hexToBigInt(r.vault_balance_wei) : BigInt(Math.round(vaultBal * 1e18));
+          const heldTok = String(r?.heldToken || r?.held_token || "") || null;
+          const heldBal = Number(r?.heldTokenBal ?? r?.held_token_bal ?? 0) || 0;
+          const heldWei = r?.heldTokenBalWei != null ? hexToBigInt(r.heldTokenBalWei) : null;
+          const operatorEnabled = !!(r?.operatorEnabled ?? r?.operator_enabled);
+          const inCycle = !!(r?.inCycle ?? r?.in_cycle);
+
+          setVaultState({
+            polBalanceWei: vaultWei,
+            polBalance: vaultBal,
+            inCycle,
+            heldToken: heldTok,
+            heldTokenBalWei: heldWei,
+            heldTokenBal: heldBal,
+            operatorEnabled,
+          });
+          return;
+        }
+      } catch (_) {
+        // fallback below
+      }
+
+      // Legacy fallback: direct provider eth_call
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) return;
@@ -1922,7 +1953,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
         inCycle: _hexToBool(inCycleHex),
         heldToken: _hexToAddress(heldTokHex),
         heldTokenBalWei: heldWei,
-        heldTokenBal: Number(Utils.formatUnits(heldWei, 18)), // assumes token 18; display-only
+        heldTokenBal: Number(Utils.formatUnits(heldWei, 18)),
         operatorEnabled,
       });
     } catch (e) {

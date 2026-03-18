@@ -1,10 +1,85 @@
 
 
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
-  const arr = r?.orders ?? r?.data?.orders;
+  const arr =
+    r?.orders ??
+    r?.data?.orders ??
+    r?.grid?.orders ??
+    r?.gridMeta?.orders ??
+    r?.data?.grid?.orders ??
+    r?.data?.gridMeta?.orders;
   if (Array.isArray(arr) && typeof setOrdersFn === "function") {
     setOrdersFn(arr);
   }
+}
+
+function getGridOrdersFromResponse(r) {
+  return (
+    r?.orders ??
+    r?.data?.orders ??
+    r?.grid?.orders ??
+    r?.gridMeta?.orders ??
+    r?.data?.grid?.orders ??
+    r?.data?.gridMeta?.orders ??
+    null
+  );
+}
+
+function getGridSingleOrderFromResponse(r) {
+  return (
+    r?.order ??
+    r?.data?.order ??
+    r?.grid?.order ??
+    r?.gridMeta?.order ??
+    r?.data?.grid?.order ??
+    r?.data?.gridMeta?.order ??
+    null
+  );
+}
+
+function getGridMetaFromResponse(r, fallback = {}) {
+  const gm =
+    r?.gridMeta ??
+    r?.grid_meta ??
+    r?.grid ??
+    r?.data?.gridMeta ??
+    r?.data?.grid_meta ??
+    r?.data?.grid ??
+    {};
+
+  return {
+    tick:
+      r?.tick ??
+      r?.data?.tick ??
+      gm?.tick ??
+      gm?.current_tick ??
+      fallback?.tick ??
+      null,
+    price:
+      r?.price ??
+      r?.data?.price ??
+      gm?.price ??
+      gm?.current_price ??
+      gm?.last_price ??
+      fallback?.price ??
+      null,
+    gridItemId:
+      r?.gridItemId ??
+      r?.itemId ??
+      r?.item ??
+      gm?.gridItemId ??
+      gm?.itemId ??
+      gm?.item ??
+      gm?.id ??
+      r?.data?.gridItemId ??
+      r?.data?.itemId ??
+      r?.data?.item ??
+      fallback?.gridItemId ??
+      fallback?.itemId ??
+      fallback?.item ??
+      fallback?.id ??
+      null,
+  };
 }
 import { Buffer } from "buffer";
 
@@ -3265,6 +3340,26 @@ useEffect(() => {
   const [gridOrders, setGridOrders] = useState([]);
   // Cache orders per gridItemId so transient empty polls (cold starts / eventual consistency / addr mismatch) don't blank the UI.
   const gridOrdersCacheRef = useRef({});
+  const gridOrdersStorageKey = useCallback(
+    (itemId) => `na:gridOrders:${walletAddress || "anon"}:${itemId || "none"}`,
+    [walletAddress]
+  );
+  const loadPersistedGridOrders = useCallback((itemId) => {
+    if (!itemId) return [];
+    try {
+      const raw = localStorage.getItem(gridOrdersStorageKey(itemId));
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, [gridOrdersStorageKey]);
+  const savePersistedGridOrders = useCallback((itemId, ordersArr) => {
+    if (!itemId || !Array.isArray(ordersArr)) return;
+    try {
+      localStorage.setItem(gridOrdersStorageKey(itemId), JSON.stringify(ordersArr));
+    } catch {}
+  }, [gridOrdersStorageKey]);
   const rememberGridOrders = useCallback((itemId, ordersArr) => {
     if (!itemId) return;
     if (!Array.isArray(ordersArr)) return;
@@ -3277,7 +3372,8 @@ useEffect(() => {
       lastNonEmptyOrders: (ordersArr.length ? ordersArr : (prev?.lastNonEmptyOrders || [])),
       lastNonEmptyTs: (ordersArr.length ? now : (prev?.lastNonEmptyTs || 0)),
     };
-  }, []);
+    savePersistedGridOrders(itemId, ordersArr);
+  }, [savePersistedGridOrders]);
   // Helper: extract order id from different backend schemas
   const idOf = (o) => o?.order_id ?? o?.orderId ?? o?.id ?? o?._id ?? o?.uuid ?? null;
 
@@ -3681,6 +3777,39 @@ const isGridReady = useMemo(() => {
 }, [token, walletAddress, gridItemId]);
 
 
+const mergeGridOrders = useCallback((baseArr, incomingArr) => {
+  const base = Array.isArray(baseArr) ? baseArr : [];
+  const incoming = Array.isArray(incomingArr) ? incomingArr : [];
+  const out = [];
+  const seen = new Set();
+  for (const o of [...incoming, ...base]) {
+    if (!o) continue;
+    const id = idOf(o);
+    const key = id != null ? String(id) : JSON.stringify(o);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(o);
+  }
+  return normalizeGridOrders(out);
+}, [normalizeGridOrders]);
+
+useEffect(() => {
+  if (!gridItemId) return;
+  const cached = gridOrdersCacheRef.current[gridItemId]?.orders;
+  if (Array.isArray(cached) && cached.length) {
+    setGridOrders(cached);
+    return;
+  }
+  const persisted = loadPersistedGridOrders(gridItemId);
+  if (persisted.length) {
+    rememberGridOrders(gridItemId, persisted);
+    setGridOrders(persisted);
+    return;
+  }
+  setGridOrders([]);
+}, [gridItemId, loadPersistedGridOrders, rememberGridOrders]);
+
+
 
 const fetchGridOrders = useCallback(async () => {
   // Only fetch when wallet/auth is actually ready.
@@ -3730,6 +3859,13 @@ const fetchGridOrders = useCallback(async () => {
         setGridOrders(lastNonEmpty);
         return;
       }
+
+      const persisted = loadPersistedGridOrders(gridItemId);
+      if (persisted.length > 0) {
+        rememberGridOrders(gridItemId, persisted);
+        setGridOrders(persisted);
+        return;
+      }
     }
 
     rememberGridOrders(gridItemId, nextOrders);
@@ -3739,14 +3875,12 @@ const fetchGridOrders = useCallback(async () => {
       lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
     }
 
-    const tick = r?.tick ?? r?.data?.tick ?? null;
-    const price = r?.price ?? r?.data?.price ?? null;
-    setGridMeta({ tick, price });
+    setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
   } catch (e) {
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-}, [gridItemId, walletAddress, token, normalizeGridOrders]);
+}, [gridItemId, walletAddress, token, normalizeGridOrders, loadPersistedGridOrders, rememberGridOrders]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -3829,8 +3963,14 @@ setGridBusy((s) => ({ ...s, start: true }));
         auto_path: !!gridAutoPath,
       };
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
-      setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
-      safeSetGridOrdersFromResponse(r, setGridOrders);
+      const startMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId: itemId });
+      setGridMeta((prev) => ({ ...prev, ...startMeta }));
+      const startOrdersRaw = getGridOrdersFromResponse(r);
+      if (Array.isArray(startOrdersRaw)) {
+        const startOrders = normalizeGridOrders(startOrdersRaw);
+        rememberGridOrders(itemId, startOrders);
+        setGridOrders(startOrders);
+      }
       
       setGridBusy((s) => ({ ...s, stop: false }));setTimeout(fetchGridOrders, 300);
       setGridBusy((s) => ({ ...s, start: false }));
@@ -3859,12 +3999,18 @@ setGridBusy((s) => ({ ...s, stop: true }));
         gridMeta?.id ||
         `${chainKey}:${String(gridItem || "").toUpperCase()}`;
       const r = await api("/api/grid/stop", { method: "POST", token, wallet: walletAddress, body: { item: gridItemId, addr: walletAddress || undefined }, });
-      setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
-      safeSetGridOrdersFromResponse(r, setGridOrders);
+      setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: itemId }) }));
+      const stopOrdersRaw = getGridOrdersFromResponse(r);
+      if (Array.isArray(stopOrdersRaw)) {
+        const stopOrders = normalizeGridOrders(stopOrdersRaw);
+        rememberGridOrders(itemId, stopOrders);
+        setGridOrders(stopOrders);
+      }
+      setGridBusy((s) => ({ ...s, stop: false }));
     } catch (e) {
       setErrorMsg(`Grid stop: ${e.message}`);
-    
-      setGridBusy((s) => ({ ...s, stop: false }));}
+      setGridBusy((s) => ({ ...s, stop: false }));
+    }
   }
 
   async function addManualOrder() {
@@ -3921,9 +4067,24 @@ body.qty = qty;
       // Mark recent add so a transient empty poll right after add can't wipe the UI.
       lastGridActionRef.current = { type: "add", ts: Date.now() };
 
-            // Do NOT set orders directly (avoids duplicates / race with polling).
+      const addMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
+      setGridMeta((prev) => ({ ...prev, ...addMeta }));
+
+      const addOrdersRaw = getGridOrdersFromResponse(r);
+      const addSingleOrder = getGridSingleOrderFromResponse(r);
+      if (Array.isArray(addOrdersRaw)) {
+        const addOrders = normalizeGridOrders(addOrdersRaw);
+        rememberGridOrders(gridItemId, addOrders);
+        setGridOrders(addOrders);
+      } else if (addSingleOrder) {
+        setGridOrders((prev) => {
+          const merged = mergeGridOrders(prev, [addSingleOrder]);
+          rememberGridOrders(gridItemId, merged);
+          return merged;
+        });
+      }
+
       // Always reload from backend after a short delay so the server can commit the order.
-      setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null });
       setTimeout(() => {
         fetchGridOrders();
         // Retry once more in case the backend commits asynchronously
@@ -3982,7 +4143,7 @@ body.qty = qty;
           }
         }
         // Do not mark as "add" here; stopping an order must not trigger the recent-add guard.
-setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
+setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
         fetchGridOrders();
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;
@@ -4046,8 +4207,13 @@ setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
             throw new Error(`${res.status} ${res.statusText}: ${t}`);
           }
           const r = await res.json().catch(() => ({}));
-          safeSetGridOrdersFromResponse(r, setGridOrders);
-          setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
+          const delOrdersRaw = getGridOrdersFromResponse(r);
+          if (Array.isArray(delOrdersRaw)) {
+            const delOrders = normalizeGridOrders(delOrdersRaw);
+            rememberGridOrders(gridItemId, delOrders);
+            setGridOrders(delOrders);
+          }
+          setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
           fetchGridOrders();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
@@ -6644,7 +6810,7 @@ const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reserve
               {gridOrders.length ? (
                 <div className="ordersList" style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
                   {gridOrders.map((o) => (
-                    <div key={o.id || `${o.side}-${o.price}-${o.created_ts}`} className="orderRow" style={{ display: "grid", gridTemplateColumns: "auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
+                    <div key={idOf(o) || `${o.side}-${o.price}-${o.created_ts}`} className="orderRow" style={{ display: "grid", gridTemplateColumns: "auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
                       <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
                       <span className="orderPx">{fmtUsd(o.price)}</span>
                       <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>

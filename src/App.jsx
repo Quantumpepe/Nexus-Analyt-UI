@@ -4009,7 +4009,7 @@ const fetchGridOrders = useCallback(async () => {
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-}, [gridItemId, walletAddress, token, normalizeGridOrders, loadPersistedGridOrders, rememberGridOrders]);
+}, [gridItemId, walletAddress, token, normalizeGridOrders, loadPersistedGridOrders, rememberGridOrders, gridItem, refreshVaultState]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {

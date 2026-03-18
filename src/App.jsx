@@ -4011,97 +4011,11 @@ const fetchGridOrders = useCallback(async () => {
   }
 }, [gridItemId, walletAddress, token, normalizeGridOrders, loadPersistedGridOrders, rememberGridOrders, gridItem, refreshVaultState]);
 
-const loadGridInit = useCallback(async () => {
-  if (!walletAddress || !token) return false;
-  try {
-    const params = new URLSearchParams({
-      wallet: walletAddress,
-      addr: walletAddress,
-    });
-    const r = await api(`/api/grid/init?${params.toString()}`, {
-      method: "GET",
-      token,
-      wallet: walletAddress,
-    });
-
-    if (r?.unauthenticated || r?.data?.unauthenticated) return false;
-
-    const activeChain = String(r?.active_chain || r?.data?.active_chain || "").toUpperCase().trim();
-    const activeItem =
-      String(r?.active_item || r?.data?.active_item || r?.gridItemId || r?.item || "").trim();
-    const activeCoin =
-      String(r?.active_coin || r?.data?.active_coin || (activeItem.includes(":") ? activeItem.split(":").slice(1).join(":") : activeItem) || "").toUpperCase().trim();
-
-    if (activeChain && activeChain !== String(balActiveChain || "").toUpperCase()) {
-      setBalActiveChain(activeChain);
-    }
-    if (activeChain && activeChain !== String(wsChainKey || "").toUpperCase()) {
-      setWsChainKey(activeChain);
-    }
-    if (activeCoin && activeCoin !== String(gridItem || "").toUpperCase()) {
-      setGridItem(activeCoin);
-    }
-
-    setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-
-    const initOrdersRaw = getGridOrdersFromResponse(r);
-    if (Array.isArray(initOrdersRaw)) {
-      const initItemId = activeItem || gridItemId || (activeChain && activeCoin ? `${activeChain}:${activeCoin}` : "");
-      const initOrders = normalizeGridOrders(initOrdersRaw);
-      if (initItemId) rememberGridOrders(initItemId, initOrders);
-      setGridOrders(initOrders);
-    }
-
-    const metaFallback = {
-      ...gridMeta,
-      gridItemId: activeItem || gridItemId || gridMeta?.gridItemId || null,
-      tick: r?.tick ?? r?.current_tick ?? gridMeta?.tick ?? null,
-      price: r?.price ?? r?.current_price ?? gridMeta?.price ?? null,
-    };
-    setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, metaFallback) }));
-
-    const nativeSym = activeCoin || String(gridItem || "").toUpperCase().trim();
-    if (["POL", "BNB", "ETH"].includes(nativeSym)) {
-      setTimeout(() => { try { refreshVaultState(nativeSym); } catch (_) {} }, 300);
-    }
-    return true;
-  } catch (_) {
-    return false;
-  }
-}, [walletAddress, token, balActiveChain, wsChainKey, gridItem, gridItemId, gridMeta, normalizeGridOrders, rememberGridOrders, refreshVaultState]);
-
-// Auto-load wallet-centered grid state as soon as auth is ready (backend is source of truth).
+// Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
-  if (!walletAddress || !token) return;
-  (async () => {
-    const ok = await loadGridInit();
-    if (!ok && isGridReady) fetchGridOrders();
-  })();
-}, [walletAddress, token, isGridReady, loadGridInit, fetchGridOrders]);
-
-// Persist active chain/coin to backend so desktop + mobile stay in sync for the same wallet.
-useEffect(() => {
-  if (!walletAddress || !token) return;
-  const activeChain = String(activeGridChainKey || balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
-  const activeCoin = String(gridItem || "").toUpperCase().trim();
-  if (!activeChain || !activeCoin) return;
-  const itemId = gridItemId || `${activeChain}:${activeCoin}`;
-  const t = setTimeout(() => {
-    api("/api/grid/ui/state", {
-      method: "POST",
-      token,
-      wallet: walletAddress,
-      body: {
-        wallet: walletAddress,
-        addr: walletAddress,
-        chain: activeChain,
-        item: itemId,
-        coin: activeCoin,
-      },
-    }).catch(() => {});
-  }, 250);
-  return () => clearTimeout(t);
-}, [walletAddress, token, activeGridChainKey, balActiveChain, wsChainKey, gridItem, gridItemId]);
+  if (!isGridReady) return;
+  fetchGridOrders();
+}, [isGridReady, fetchGridOrders]);
 
   async function gridStart() {
     console.log("[GRID] Start clicked");

@@ -1881,7 +1881,13 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const refreshVaultState = async () => {
     try {
       if (!wallet) return;
-      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+      let persistedPreferredNative = "";
+      try {
+        const persistedChain = String(localStorage.getItem("nexus_wallet_bal_chain") || balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+        const persistedCoin = String(localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${persistedChain}`) || "").toUpperCase().trim();
+        if (["POL", "BNB", "ETH"].includes(persistedCoin)) persistedPreferredNative = persistedCoin;
+      } catch (_) {}
+      const chainKey = (persistedPreferredNative || balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) return;
@@ -3319,7 +3325,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     if (!["POL", "BNB", "ETH"].includes(sym)) return;
     if (wsChainKey !== sym) setWsChainKey(sym);
     if (balActiveChain !== sym) setBalActiveChain(sym);
-  }, [gridItem]);
+    try { localStorage.setItem("nexus_wallet_bal_chain", sym); } catch (_) {}
+  }, [gridItem, wsChainKey, balActiveChain]);
 
 
 

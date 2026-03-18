@@ -175,6 +175,7 @@ const LS_WATCH_ROWS_CACHE = "na_watch_rows_cache_v1";
 const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
 const LS_APP_VERSION = "na_app_version";
 const LS_COMPARE_STORE = "na_compare_store_v2";
+const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
@@ -1557,7 +1558,9 @@ const [walletModalOpen, setWalletModalOpen] = useState(false);
 useEffect(() => {
     try { localStorage.setItem("nexus_wallet_bal_chain", balActiveChain || "BNB"); } catch (_) {}
   }, [balActiveChain]);
-const [wsChainKey, setWsChainKey] = useState(DEFAULT_CHAIN);
+const [wsChainKey, setWsChainKey] = useState(() => {
+    try { return localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN; } catch (_) { return DEFAULT_CHAIN; }
+  });
   const [wsInfoOpen, setWsInfoOpen] = useState(false);
   const wsInfoRef = useRef(null);
 
@@ -3255,9 +3258,16 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   // grid (manual)
   // Grid UI works with symbols; backend grid endpoints are keyed by item_id.
-  const [gridItem, setGridItem] = useState("BTC");
+  const [gridItem, setGridItem] = useState(() => {
+    try {
+      const chain = (localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN || "BNB").toUpperCase();
+      return localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || chain;
+    } catch (_) {
+      return DEFAULT_CHAIN;
+    }
+  });
   // Derived identifiers for backend grid endpoints (stable across refreshes)
-  const uiChainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+  const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
   const gridItemId = useMemo(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
     if (!sym) return "";
@@ -3326,6 +3336,32 @@ useEffect(() => {
       setGridItem(gridWalletCoins[0]);
     }
   }, [gridWalletCoins, gridItem]);
+
+  // Restore the last used grid coin for the active wallet chain immediately after refresh.
+  // Without this, the wallet tab can show the right chain (e.g. POL) while the Grid still
+  // points to the default chain/coin until the user clicks the chain again.
+  useEffect(() => {
+    const chain = String(balActiveChain || DEFAULT_CHAIN).toUpperCase();
+    if (!chain) return;
+    try {
+      const saved = String(localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || "").toUpperCase();
+      if (saved && saved !== String(gridItem || "").toUpperCase()) {
+        setGridItem(saved);
+        return;
+      }
+    } catch (_) {}
+    if (["ETH", "POL", "BNB"].includes(chain) && String(gridItem || "").toUpperCase() !== chain) {
+      setGridItem(chain);
+    }
+  }, [balActiveChain]);
+
+  // Persist the selected grid coin per chain so refresh restores the same working context.
+  useEffect(() => {
+    const chain = String(balActiveChain || DEFAULT_CHAIN).toUpperCase();
+    const sym = String(gridItem || "").toUpperCase();
+    if (!chain || !sym) return;
+    try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${chain}`, sym); } catch (_) {}
+  }, [balActiveChain, gridItem]);
 
 
   const [gridMode, setGridMode] = useState("SAFE");

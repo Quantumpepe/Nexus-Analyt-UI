@@ -1878,10 +1878,11 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     );
   };
 
-  const refreshVaultState = async () => {
+  const refreshVaultState = async (preferredChainKey = "") => {
     try {
       if (!wallet) return;
-      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+      const forcedChain = String(preferredChainKey || "").toUpperCase().trim();
+      const chainKey = (forcedChain || balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) return;
@@ -3311,15 +3312,18 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     return String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [gridItem, balActiveChain, wsChainKey]);
 
-  // If the selected grid coin is a native coin, keep the wallet/vault chain context in sync.
-  // This fixes the case where POL is already selected after refresh, but the vault still reads
-  // the old chain until the user manually clicks the chain again.
+  // If the selected grid coin is a native coin, re-read the Vault on that chain after refresh.
+  // Important: do NOT mutate wallet chain state here. We only force the vault read itself.
   useEffect(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
+    if (!wallet) return;
+    if (!contracts?.chains) return;
     if (!["POL", "BNB", "ETH"].includes(sym)) return;
-    if (wsChainKey !== sym) setWsChainKey(sym);
-    if (balActiveChain !== sym) setBalActiveChain(sym);
-  }, [gridItem]);
+
+    const t1 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 250);
+    const t2 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 1200);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [wallet, contracts, gridItem]);
 
 
 

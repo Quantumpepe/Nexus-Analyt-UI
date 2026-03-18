@@ -1710,7 +1710,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       if (!_isAddr(sendTo)) throw new Error("Recipient address invalid.");
       const amt = String(sendAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Amount invalid.");
-      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (activeGridChainKey || wsChainKey || balActiveChain || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
 
       setTxBusy(true);
@@ -2060,8 +2060,10 @@ useEffect(() => {
 // keep vault state fresh
   useEffect(() => {
     refreshVaultState();
+    const t = setTimeout(() => { try { refreshVaultState(); } catch (_) {} }, 350);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, wsChainKey, balActiveChain, contracts]);
+  }, [wallet, wsChainKey, balActiveChain, contracts, gridItem]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -3301,6 +3303,22 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     if (!sym) return "";
     return `${uiChainKey}:${sym}`;
   }, [uiChainKey, gridItem]);
+
+  const activeGridChainKey = useMemo(() => {
+    const sym = String(gridItem || "").toUpperCase().trim();
+    if (["POL", "BNB", "ETH"].includes(sym)) return sym;
+    return String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+  }, [gridItem, balActiveChain, wsChainKey]);
+
+  // If the selected grid coin is a native coin, keep the wallet/vault chain context in sync.
+  // This fixes the case where POL is already selected after refresh, but the vault still reads
+  // the old chain until the user manually clicks the chain again.
+  useEffect(() => {
+    const sym = String(gridItem || "").toUpperCase().trim();
+    if (!["POL", "BNB", "ETH"].includes(sym)) return;
+    if (wsChainKey !== sym) setWsChainKey(sym);
+    if (balActiveChain !== sym) setBalActiveChain(sym);
+  }, [gridItem]);
 
 
 
@@ -4898,11 +4916,10 @@ const reservedQtyOpen = useMemo(() => {
 }, [gridOrders]);
 
 const vaultNativeBal = useMemo(() => {
-  const vs = vaultState || {};
-  if (balActiveChain === "BNB") return Number(vs.bnbBalance) || 0;
-  if (balActiveChain === "ETH") return Number(vs.ethBalance) || 0;
-  return Number(vs.polBalance) || 0;
-}, [vaultState, balActiveChain]);
+  // The vault contract reader stores the current chain's native balance in `polBalance`
+  // for historical reasons. Do NOT branch to bnbBalance/ethBalance here.
+  return Number(vaultState?.polBalance) || 0;
+}, [vaultState]);
 
 const vaultFreeQty = useMemo(
   () => Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reservedQtyOpen) || 0)),

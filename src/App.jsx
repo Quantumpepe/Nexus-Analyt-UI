@@ -3993,6 +3993,13 @@ const fetchGridOrders = useCallback(async () => {
     rememberGridOrders(gridItemId, nextOrders);
     setGridOrders(nextOrders);
 
+	try {
+      const sym = String(gridItem || "").toUpperCase().trim();
+      if (["POL", "BNB", "ETH"].includes(sym)) {
+        setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
+      }
+    } catch (_) {}
+
     if (nextOrders.length > 0) {
       lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
     }

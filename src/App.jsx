@@ -1753,7 +1753,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       const amt = String(depositAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Deposit amount invalid.");
 
-      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr =
         (contracts?.chains?.[chainKey]?.vault || "").trim() ||
@@ -1805,7 +1805,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       const amt = String(withdrawAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Withdraw amount invalid.");
 
-      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr =
         (contracts?.chains?.[chainKey]?.vault || "").trim() ||
@@ -1881,7 +1881,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const refreshVaultState = async () => {
     try {
       if (!wallet) return;
-      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) return;
@@ -1933,7 +1933,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
-      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
@@ -1970,7 +1970,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
-      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
@@ -2006,7 +2006,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
-      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
@@ -2060,8 +2060,9 @@ useEffect(() => {
 // keep vault state fresh
   useEffect(() => {
     refreshVaultState();
-    const t = setTimeout(() => { try { refreshVaultState(); } catch (_) {} }, 350);
-    return () => clearTimeout(t);
+    const t1 = setTimeout(() => { try { refreshVaultState(); } catch (_) {} }, 350);
+    const t2 = setTimeout(() => { try { refreshVaultState(); } catch (_) {} }, 1400);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet, wsChainKey, balActiveChain, contracts]);
 
@@ -3990,7 +3991,7 @@ setGridBusy((s) => ({ ...s, start: true }));
 
     // Safety: Grid runs autonomously via backend operator + Vault funds.
     // Require: Vault has budget deposited and operator is enabled (so backend can trade without further user signatures).
-    const chainKeyPre = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+    const chainKeyPre = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const want = Number(gridInvestQty) || 0;
     const have = Number(vaultState?.polBalance || 0);
 
@@ -4023,7 +4024,7 @@ setGridBusy((s) => ({ ...s, start: true }));
     }
 
     try {
-      const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const curPriceNum = Number(gridMeta?.price ?? 0) || 0;
       const investQty = Number(gridInvestQty) || 0;
       const investUsd = (investQty > 0 && curPriceNum > 0) ? (investQty * curPriceNum) : investQty;
@@ -4078,7 +4079,7 @@ if (!isGridReady) {
 setGridBusy((s) => ({ ...s, stop: true }));
 
     try {
-	  const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+	  const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const itemId =
         gridItemId ||
         gridMeta?.gridItemId ||
@@ -4201,7 +4202,7 @@ body.qty = qty;
     }
     setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
 
-    const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
 
     // Try several known endpoints/methods (backend revisions differ)
@@ -4262,7 +4263,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
     }
     setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));
 
-    const chainKey = (wsChainKey || balActiveChain || DEFAULT_CHAIN);
+    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
 
     // Some backends support POST /delete, others require DELETE, others use /remove

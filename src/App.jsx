@@ -81,6 +81,34 @@ function getGridMetaFromResponse(r, fallback = {}) {
       null,
   };
 }
+
+function getGridVaultStatsFromResponse(r, fallback = {}) {
+  const data = r?.data ?? {};
+  const vaultTotal =
+    r?.vault_total ??
+    r?.vaultTotal ??
+    data?.vault_total ??
+    data?.vaultTotal ??
+    fallback?.vault_total ??
+    fallback?.vault ??
+    0;
+  const reserved =
+    r?.reserved ??
+    data?.reserved ??
+    fallback?.reserved ??
+    0;
+  const free =
+    r?.free ??
+    data?.free ??
+    fallback?.free ??
+    Math.max(0, Number(vaultTotal || 0) - Number(reserved || 0));
+
+  return {
+    vault: Number(vaultTotal) || 0,
+    reserved: Number(reserved) || 0,
+    free: Number(free) || 0,
+  };
+}
 import { Buffer } from "buffer";
 
 if (typeof window !== "undefined") {
@@ -3374,6 +3402,7 @@ useEffect(() => {
   const [gridInvestQty, setGridInvestQty] = useState(250);
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
+  const [gridVaultStats, setGridVaultStats] = useState({ vault: 0, reserved: 0, free: 0 });
   // Cache orders per gridItemId so transient empty polls (cold starts / eventual consistency / addr mismatch) don't blank the UI.
   const gridOrdersCacheRef = useRef({});
   const gridOrdersStorageKey = useCallback(
@@ -3843,6 +3872,7 @@ useEffect(() => {
     return;
   }
   setGridOrders([]);
+  setGridVaultStats({ vault: 0, reserved: 0, free: 0 });
 }, [gridItemId, loadPersistedGridOrders, rememberGridOrders]);
 
 
@@ -3867,6 +3897,8 @@ const fetchGridOrders = useCallback(async () => {
     if (r?.unauthenticated || r?.data?.unauthenticated) {
       return;
     }
+
+    setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
     const nextOrdersRaw = r?.orders ?? r?.data?.orders;
 
@@ -4001,6 +4033,7 @@ setGridBusy((s) => ({ ...s, start: true }));
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
       const startMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId: itemId });
       setGridMeta((prev) => ({ ...prev, ...startMeta }));
+      setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const startOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(startOrdersRaw)) {
         const startOrders = normalizeGridOrders(startOrdersRaw);
@@ -4036,6 +4069,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         `${chainKey}:${String(gridItem || "").toUpperCase()}`;
       const r = await api("/api/grid/stop", { method: "POST", token, wallet: walletAddress, body: { item: gridItemId, addr: walletAddress || undefined }, });
       setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: itemId }) }));
+      setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const stopOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(stopOrdersRaw)) {
         const stopOrders = normalizeGridOrders(stopOrdersRaw);
@@ -4105,6 +4139,7 @@ body.qty = qty;
 
       const addMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
       setGridMeta((prev) => ({ ...prev, ...addMeta }));
+      setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
       const addOrdersRaw = getGridOrdersFromResponse(r);
       const addSingleOrder = getGridSingleOrderFromResponse(r);
@@ -4178,6 +4213,7 @@ body.qty = qty;
             setGridOrders(_arr);
           }
         }
+        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         // Do not mark as "add" here; stopping an order must not trigger the recent-add guard.
 setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
         fetchGridOrders();
@@ -4249,6 +4285,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
             rememberGridOrders(gridItemId, delOrders);
             setGridOrders(delOrders);
           }
+          setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
           fetchGridOrders();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
@@ -4256,6 +4293,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
         } else {
           const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
           safeSetGridOrdersFromResponse(r, setGridOrders);
+          setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           fetchGridOrders();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
@@ -4846,25 +4884,10 @@ async function runAi() {
   }, [watchRows, compareSymbols]);
 
 
-// --- Vault usage (Qty-based) ---
-const reservedQtyOpen = useMemo(() => {
-  try {
-    return (gridOrders || [])
-      .filter((o) => o && o.status === "OPEN")
-      .reduce((s, o) => s + (Number(o.qty) || 0), 0);
-  } catch {
-    return 0;
-  }
-}, [gridOrders]);
-
-const vaultNativeBal = useMemo(() => {
-  const vs = vaultState || {};
-  if (balActiveChain === "BNB") return Number(vs.bnbBalance) || 0;
-  if (balActiveChain === "ETH") return Number(vs.ethBalance) || 0;
-  return Number(vs.polBalance) || 0;
-}, [vaultState, balActiveChain]);
-
-const vaultFreeQty = Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reservedQtyOpen) || 0));
+// --- Grid Vault stats (authoritative backend DB values) ---
+const reservedQtyOpen = Number(gridVaultStats?.reserved) || 0;
+const vaultNativeBal = Number(gridVaultStats?.vault) || 0;
+const vaultFreeQty = Number(gridVaultStats?.free) || Math.max(0, vaultNativeBal - reservedQtyOpen);
 
   return (
     <div className="app">

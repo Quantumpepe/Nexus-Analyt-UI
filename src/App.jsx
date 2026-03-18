@@ -4884,8 +4884,10 @@ async function runAi() {
   }, [watchRows, compareSymbols]);
 
 
-// --- Grid Vault stats (prefer backend DB values; fallback to local wallet/orders if backend is still cold) ---
-const localReservedQtyOpen = useMemo(() => {
+// --- Grid Vault usage (vault-contract only) ---
+// Vault must come ONLY from the on-chain Vault contract balance, never from wallet balance.
+// Reserved stays based on OPEN grid orders. Free = vault contract balance - reserved.
+const reservedQtyOpen = useMemo(() => {
   try {
     return (gridOrders || [])
       .filter((o) => o && String(o.status || "").toUpperCase() === "OPEN")
@@ -4895,25 +4897,17 @@ const localReservedQtyOpen = useMemo(() => {
   }
 }, [gridOrders]);
 
-const localWalletNativeBal = useMemo(() => {
-  try {
-    const row = balByChain?.[balActiveChain || DEFAULT_CHAIN] || {};
-    return Number(row?.native) || 0;
-  } catch {
-    return 0;
-  }
-}, [balByChain, balActiveChain]);
+const vaultNativeBal = useMemo(() => {
+  const vs = vaultState || {};
+  if (balActiveChain === "BNB") return Number(vs.bnbBalance) || 0;
+  if (balActiveChain === "ETH") return Number(vs.ethBalance) || 0;
+  return Number(vs.polBalance) || 0;
+}, [vaultState, balActiveChain]);
 
-const backendVaultLooksEmpty =
-  Number(gridVaultStats?.vault || 0) <= 0 &&
-  Number(gridVaultStats?.reserved || 0) <= 0 &&
-  Number(gridVaultStats?.free || 0) <= 0;
-
-const reservedQtyOpen = backendVaultLooksEmpty ? localReservedQtyOpen : (Number(gridVaultStats?.reserved) || 0);
-const vaultNativeBal = backendVaultLooksEmpty ? localWalletNativeBal : (Number(gridVaultStats?.vault) || 0);
-const vaultFreeQty = backendVaultLooksEmpty
-  ? Math.max(0, localWalletNativeBal - localReservedQtyOpen)
-  : (Number(gridVaultStats?.free) || Math.max(0, vaultNativeBal - reservedQtyOpen));
+const vaultFreeQty = useMemo(
+  () => Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reservedQtyOpen) || 0)),
+  [vaultNativeBal, reservedQtyOpen]
+);
 
   return (
     <div className="app">

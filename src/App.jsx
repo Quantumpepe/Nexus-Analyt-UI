@@ -4884,10 +4884,36 @@ async function runAi() {
   }, [watchRows, compareSymbols]);
 
 
-// --- Grid Vault stats (authoritative backend DB values) ---
-const reservedQtyOpen = Number(gridVaultStats?.reserved) || 0;
-const vaultNativeBal = Number(gridVaultStats?.vault) || 0;
-const vaultFreeQty = Number(gridVaultStats?.free) || Math.max(0, vaultNativeBal - reservedQtyOpen);
+// --- Grid Vault stats (prefer backend DB values; fallback to local wallet/orders if backend is still cold) ---
+const localReservedQtyOpen = useMemo(() => {
+  try {
+    return (gridOrders || [])
+      .filter((o) => o && String(o.status || "").toUpperCase() === "OPEN")
+      .reduce((s, o) => s + (Number(o.qty) || 0), 0);
+  } catch {
+    return 0;
+  }
+}, [gridOrders]);
+
+const localWalletNativeBal = useMemo(() => {
+  try {
+    const row = balByChain?.[balActiveChain || DEFAULT_CHAIN] || {};
+    return Number(row?.native) || 0;
+  } catch {
+    return 0;
+  }
+}, [balByChain, balActiveChain]);
+
+const backendVaultLooksEmpty =
+  Number(gridVaultStats?.vault || 0) <= 0 &&
+  Number(gridVaultStats?.reserved || 0) <= 0 &&
+  Number(gridVaultStats?.free || 0) <= 0;
+
+const reservedQtyOpen = backendVaultLooksEmpty ? localReservedQtyOpen : (Number(gridVaultStats?.reserved) || 0);
+const vaultNativeBal = backendVaultLooksEmpty ? localWalletNativeBal : (Number(gridVaultStats?.vault) || 0);
+const vaultFreeQty = backendVaultLooksEmpty
+  ? Math.max(0, localWalletNativeBal - localReservedQtyOpen)
+  : (Number(gridVaultStats?.free) || Math.max(0, vaultNativeBal - reservedQtyOpen));
 
   return (
     <div className="app">

@@ -2092,14 +2092,19 @@ useEffect(() => {
 // keep vault state fresh
   useEffect(() => {
     if (!wallet) return;
-    const sym = String(gridItem || "").toUpperCase().trim();
-    const forcedChain =
-      ["POL", "BNB", "ETH"].includes(sym)
-        ? sym
-        : String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+    const chain = String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+    let forcedChain = chain;
+    try {
+      const savedCoin = String(
+        localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || ""
+      ).toUpperCase().trim();
+      if (["POL", "BNB", "ETH"].includes(savedCoin)) {
+        forcedChain = savedCoin;
+      }
+    } catch (_) {}
     refreshVaultState(forcedChain);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, gridItem, wsChainKey, balActiveChain, contracts]);
+  }, [wallet, wsChainKey, balActiveChain, contracts]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -3334,17 +3339,17 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   });
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
-  const gridItemId = useMemo(() => {
-    const sym = String(gridItem || "").toUpperCase().trim();
-    if (!sym) return "";
-    return `${uiChainKey}:${sym}`;
-  }, [uiChainKey, gridItem]);
-
   const activeGridChainKey = useMemo(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
     if (["POL", "BNB", "ETH"].includes(sym)) return sym;
     return String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [gridItem, balActiveChain, wsChainKey]);
+
+  const gridItemId = useMemo(() => {
+    const sym = String(gridItem || "").toUpperCase().trim();
+    if (!sym) return "";
+    return `${activeGridChainKey}:${sym}`;
+  }, [activeGridChainKey, gridItem]);
 
   // If the selected grid coin is a native coin, re-read the Vault on that chain after refresh.
   // Important: do NOT mutate wallet chain state here. We only force the vault read itself.
@@ -3356,7 +3361,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     const t1 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 250);
     const t2 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 1200);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [wallet, contracts, gridItem]);
+  }, [wallet, gridItem]);
 
 
 

@@ -2092,9 +2092,6 @@ useEffect(() => {
 // keep vault state fresh
   useEffect(() => {
     refreshVaultState();
-    const t1 = setTimeout(() => { try { refreshVaultState(); } catch (_) {} }, 350);
-    const t2 = setTimeout(() => { try { refreshVaultState(); } catch (_) {} }, 1400);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet, wsChainKey, balActiveChain, contracts]);
 

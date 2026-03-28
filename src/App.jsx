@@ -3883,7 +3883,25 @@ const mergeGridOrders = useCallback((baseArr, incomingArr) => {
   return normalizeGridOrders(out);
 }, [normalizeGridOrders]);
 
+useEffect(() => {
+  if (!gridItemId) return;
 
+  const cached = gridOrdersCacheRef.current[gridItemId]?.orders;
+  if (Array.isArray(cached) && cached.length) {
+    setGridOrders(cached);
+    return;
+  }
+
+  const persisted = loadPersistedGridOrders(gridItemId);
+  if (persisted.length) {
+    rememberGridOrders(gridItemId, persisted);
+    setGridOrders(persisted);
+    return;
+  }
+
+  setGridOrders([]);
+  setGridVaultStats({ vault: 0, reserved: 0, free: 0 });
+}, [gridItemId, loadPersistedGridOrders, rememberGridOrders]);
 
 
 

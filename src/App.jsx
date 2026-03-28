@@ -3457,42 +3457,6 @@ useEffect(() => {
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
   const [gridVaultStats, setGridVaultStats] = useState({ vault: 0, reserved: 0, free: 0 });
-  // Cache orders per gridItemId so transient empty polls (cold starts / eventual consistency / addr mismatch) don't blank the UI.
-  const gridOrdersCacheRef = useRef({});
-  const gridOrdersStorageKey = useCallback(
-    (itemId) => `na:gridOrders:${walletAddress || "anon"}:${itemId || "none"}`,
-    [walletAddress]
-  );
-  const loadPersistedGridOrders = useCallback((itemId) => {
-    if (!itemId) return [];
-    try {
-      const raw = localStorage.getItem(gridOrdersStorageKey(itemId));
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }, [gridOrdersStorageKey]);
-  const savePersistedGridOrders = useCallback((itemId, ordersArr) => {
-    if (!itemId || !Array.isArray(ordersArr)) return;
-    try {
-      localStorage.setItem(gridOrdersStorageKey(itemId), JSON.stringify(ordersArr));
-    } catch {}
-  }, [gridOrdersStorageKey]);
-  const rememberGridOrders = useCallback((itemId, ordersArr) => {
-    if (!itemId) return;
-    if (!Array.isArray(ordersArr)) return;
-    // Cache even empty arrays, but keep last non-empty for fallback decisions
-    const prev = gridOrdersCacheRef.current[itemId];
-    const now = Date.now();
-    gridOrdersCacheRef.current[itemId] = {
-      ts: now,
-      orders: ordersArr,
-      lastNonEmptyOrders: (ordersArr.length ? ordersArr : (prev?.lastNonEmptyOrders || [])),
-      lastNonEmptyTs: (ordersArr.length ? now : (prev?.lastNonEmptyTs || 0)),
-    };
-    savePersistedGridOrders(itemId, ordersArr);
-  }, [savePersistedGridOrders]);
   // Helper: extract order id from different backend schemas
   const idOf = (o) => o?.order_id ?? o?.orderId ?? o?.id ?? o?._id ?? o?.uuid ?? null;
 
@@ -3914,20 +3878,9 @@ const mergeGridOrders = useCallback((baseArr, incomingArr) => {
 
 useEffect(() => {
   if (!gridItemId) return;
-  const cached = gridOrdersCacheRef.current[gridItemId]?.orders;
-  if (Array.isArray(cached) && cached.length) {
-    setGridOrders(cached);
-    return;
-  }
-  const persisted = loadPersistedGridOrders(gridItemId);
-  if (persisted.length) {
-    rememberGridOrders(gridItemId, persisted);
-    setGridOrders(persisted);
-    return;
-  }
   setGridOrders([]);
   setGridVaultStats({ vault: 0, reserved: 0, free: 0 });
-}, [gridItemId, loadPersistedGridOrders, rememberGridOrders]);
+}, [gridItemId]);
 
 
 
@@ -3970,27 +3923,6 @@ const fetchGridOrders = useCallback(async () => {
       return;
     }
 
-    // If backend returns empty but we recently had non-empty orders for THIS item, keep the last non-empty list
-    // to avoid the UI blinking to 0 orders (common with cold starts / eventual consistency / addr-param mismatch).
-    if (nextOrders.length === 0) {
-      const cached = gridOrdersCacheRef.current[gridItemId];
-      const lastNonEmpty = cached?.lastNonEmptyOrders || [];
-      const lastNonEmptyTs = cached?.lastNonEmptyTs || 0;
-      const stillFresh = lastNonEmpty.length > 0 && (Date.now() - lastNonEmptyTs) < 2 * 60 * 1000; // 2 minutes
-      if (stillFresh) {
-        setGridOrders(lastNonEmpty);
-        return;
-      }
-
-      const persisted = loadPersistedGridOrders(gridItemId);
-      if (persisted.length > 0) {
-        rememberGridOrders(gridItemId, persisted);
-        setGridOrders(persisted);
-        return;
-      }
-    }
-
-    rememberGridOrders(gridItemId, nextOrders);
     setGridOrders(nextOrders);
 
 	try {
@@ -4009,7 +3941,7 @@ const fetchGridOrders = useCallback(async () => {
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-}, [gridItemId, walletAddress, token, normalizeGridOrders, loadPersistedGridOrders, rememberGridOrders, gridItem, refreshVaultState]);
+}, [gridItemId, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -4098,7 +4030,6 @@ setGridBusy((s) => ({ ...s, start: true }));
       const startOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(startOrdersRaw)) {
         const startOrders = normalizeGridOrders(startOrdersRaw);
-        rememberGridOrders(itemId, startOrders);
         setGridOrders(startOrders);
       }
       
@@ -4134,7 +4065,6 @@ setGridBusy((s) => ({ ...s, stop: true }));
       const stopOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(stopOrdersRaw)) {
         const stopOrders = normalizeGridOrders(stopOrdersRaw);
-        rememberGridOrders(itemId, stopOrders);
         setGridOrders(stopOrders);
       }
       setGridBusy((s) => ({ ...s, stop: false }));
@@ -4206,12 +4136,10 @@ body.qty = qty;
       const addSingleOrder = getGridSingleOrderFromResponse(r);
       if (Array.isArray(addOrdersRaw)) {
         const addOrders = normalizeGridOrders(addOrdersRaw);
-        rememberGridOrders(gridItemId, addOrders);
         setGridOrders(addOrders);
       } else if (addSingleOrder) {
         setGridOrders((prev) => {
           const merged = mergeGridOrders(prev, [addSingleOrder]);
-          rememberGridOrders(gridItemId, merged);
           return merged;
         });
       }
@@ -4270,7 +4198,6 @@ body.qty = qty;
           const _arrRaw = r?.orders || r?.data?.orders;
           const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
           if (_arr.length) {
-            rememberGridOrders(gridItemId, _arr);
             setGridOrders(_arr);
           }
         }
@@ -4343,7 +4270,6 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           const delOrdersRaw = getGridOrdersFromResponse(r);
           if (Array.isArray(delOrdersRaw)) {
             const delOrders = normalizeGridOrders(delOrdersRaw);
-            rememberGridOrders(gridItemId, delOrders);
             setGridOrders(delOrders);
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));

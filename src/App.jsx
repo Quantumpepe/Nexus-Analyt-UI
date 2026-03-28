@@ -3485,7 +3485,48 @@ useEffect(() => {
     },
     [idOf]
   );
+  // Persist grid orders (localStorage + in-memory cache)
+const gridOrdersCacheRef = useRef({});
 
+const gridOrdersStorageKey = useCallback(
+  (itemId) => `na:gridOrders:${walletAddress || "anon"}:${itemId || "none"}`,
+  [walletAddress]
+);
+
+const loadPersistedGridOrders = useCallback((itemId) => {
+  if (!itemId) return [];
+  try {
+    const raw = localStorage.getItem(gridOrdersStorageKey(itemId));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}, [gridOrdersStorageKey]);
+
+const savePersistedGridOrders = useCallback((itemId, ordersArr) => {
+  if (!itemId || !Array.isArray(ordersArr)) return;
+  try {
+    localStorage.setItem(gridOrdersStorageKey(itemId), JSON.stringify(ordersArr));
+  } catch {}
+}, [gridOrdersStorageKey]);
+
+const rememberGridOrders = useCallback((itemId, ordersArr) => {
+  if (!itemId) return;
+  if (!Array.isArray(ordersArr)) return;
+
+  const prev = gridOrdersCacheRef.current[itemId];
+  const now = Date.now();
+
+  gridOrdersCacheRef.current[itemId] = {
+    ts: now,
+    orders: ordersArr,
+    lastNonEmptyOrders: (ordersArr.length ? ordersArr : (prev?.lastNonEmptyOrders || [])),
+    lastNonEmptyTs: (ordersArr.length ? now : (prev?.lastNonEmptyTs || 0)),
+  };
+
+  savePersistedGridOrders(itemId, ordersArr);
+}, [savePersistedGridOrders]);
 
   const [manualSide, setManualSide] = useState("BUY");
   const [manualPrice, setManualPrice] = useState("");

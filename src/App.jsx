@@ -2089,11 +2089,12 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 useEffect(() => {
     try { localStorage.setItem("nexus_wallet_bal_all", showAllWalletChains ? "1" : "0"); } catch (_) {}
   }, [showAllWalletChains]);
-// keep vault state fresh
+// keep vault state fresh (force the effective grid/native chain on initial load + refresh)
   useEffect(() => {
-    refreshVaultState();
+    if (!wallet) return;
+    refreshVaultState(activeGridChainKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, wsChainKey, balActiveChain, contracts]);
+  }, [wallet, activeGridChainKey, contracts]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -3345,13 +3346,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   useEffect(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
     if (!wallet) return;
-    if (!contracts?.chains) return;
     if (!["POL", "BNB", "ETH"].includes(sym)) return;
 
     const t1 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 250);
     const t2 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 1200);
     return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [wallet, contracts, gridItem]);
+  }, [wallet, gridItem]);
 
 
 

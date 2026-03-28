@@ -3883,11 +3883,7 @@ const mergeGridOrders = useCallback((baseArr, incomingArr) => {
   return normalizeGridOrders(out);
 }, [normalizeGridOrders]);
 
-useEffect(() => {
-  if (!gridItemId) return;
-  setGridOrders([]);
-  setGridVaultStats({ vault: 0, reserved: 0, free: 0 });
-}, [gridItemId]);
+
 
 
 

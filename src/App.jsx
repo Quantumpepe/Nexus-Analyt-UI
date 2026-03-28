@@ -3982,10 +3982,35 @@ const fetchGridOrders = useCallback(async () => {
     const recentAdd = last.type === "add" && now - (last.ts || 0) < 5000;
 
     if (nextOrders.length === 0 && recentAdd && gridOrders.length > 0) {
-      return;
-    }
+  return;
+}
 
-    setGridOrders(nextOrders);
+// 🔥 WICHTIG: Fallback wenn Backend leer liefert
+if (nextOrders.length === 0) {
+  const cached = gridOrdersCacheRef.current[gridItemId];
+  const lastNonEmpty = cached?.lastNonEmptyOrders || [];
+  const lastNonEmptyTs = cached?.lastNonEmptyTs || 0;
+
+  const stillFresh =
+    lastNonEmpty.length > 0 &&
+    (Date.now() - lastNonEmptyTs) < 2 * 60 * 1000;
+
+  if (stillFresh) {
+    setGridOrders(lastNonEmpty);
+    return;
+  }
+
+  const persisted = loadPersistedGridOrders(gridItemId);
+  if (persisted.length > 0) {
+    rememberGridOrders(gridItemId, persisted);
+    setGridOrders(persisted);
+    return;
+  }
+}
+
+// 🔥 WICHTIG: Orders speichern + setzen
+rememberGridOrders(gridItemId, nextOrders);
+setGridOrders(nextOrders);
 
 	try {
       const sym = String(gridItem || "").toUpperCase().trim();

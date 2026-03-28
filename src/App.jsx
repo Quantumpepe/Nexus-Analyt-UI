@@ -3331,17 +3331,17 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   });
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
-  const gridItemId = useMemo(() => {
-    const sym = String(gridItem || "").toUpperCase().trim();
-    if (!sym) return "";
-    return `${activeGridChainKey}:${sym}`;
-  }, [activeGridChainKey, gridItem]);
-
   const activeGridChainKey = useMemo(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
     if (["POL", "BNB", "ETH"].includes(sym)) return sym;
     return String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [gridItem, balActiveChain, wsChainKey]);
+
+  const gridItemId = useMemo(() => {
+    const sym = String(gridItem || "").toUpperCase().trim();
+    if (!sym) return "";
+    return `${activeGridChainKey}:${sym}`;
+  }, [activeGridChainKey, gridItem]);
 
   // If the selected grid coin is a native coin, re-read the Vault on that chain after refresh.
   // Important: do NOT mutate wallet chain state here. We only force the vault read itself.

@@ -3334,8 +3334,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const gridItemId = useMemo(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
     if (!sym) return "";
-    return `${uiChainKey}:${sym}`;
-  }, [uiChainKey, gridItem]);
+    return `${activeGridChainKey}:${sym}`;
+  }, [activeGridChainKey, gridItem]);
 
   const activeGridChainKey = useMemo(() => {
     const sym = String(gridItem || "").toUpperCase().trim();

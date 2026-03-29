@@ -7089,11 +7089,29 @@ const vaultFreeQty = useMemo(
 
               {gridOrders.length ? (
                 <div className="ordersList" style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
-                  {gridOrders.map((o) => (
+                  {gridOrders.map((o) => {
+                    const currentPx = Number(shownGridPrice);
+                    const orderPx = Number(o?.price);
+                    const qty = Number(o?.qty);
+                    let estProfit = null;
+                    if (Number.isFinite(currentPx) && Number.isFinite(orderPx) && Number.isFinite(qty)) {
+                      if (String(o?.side || "").toUpperCase() === "BUY") {
+                        estProfit = (currentPx - orderPx) * qty;
+                      } else if (String(o?.side || "").toUpperCase() === "SELL") {
+                        estProfit = (orderPx - currentPx) * qty;
+                      }
+                    }
+                    const profitColor = estProfit == null ? "var(--muted)" : estProfit >= 0 ? "var(--green)" : "var(--red)";
+                    return (
                     <div key={idOf(o) || `${o.side}-${o.price}-${o.created_ts}`} className="orderRow" style={{ display: "grid", gridTemplateColumns: "auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
                       <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
                       <span className="orderPx">{fmtUsd(o.price)}</span>
-                      <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
+                      <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
+                        <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
+                        <span className="tiny" style={{ color: profitColor, fontWeight: 800 }}>
+                          {estProfit == null ? "Est. —" : `Est. ${estProfit >= 0 ? "+" : ""}${fmtQty(estProfit, 4)} $`}
+                        </span>
+                      </div>
                       <span className="pill silver">{o.status || "OPEN"}</span>
 
                       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
@@ -7119,7 +7137,8 @@ const vaultFreeQty = useMemo(
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="muted">No orders yet. Press Start then Add Order.</div>

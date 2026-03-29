@@ -1,3 +1,5 @@
+
+
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
@@ -1577,12 +1579,12 @@ const [errorMsg, setErrorMsg] = useState("");
 const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
   const [balActiveChain, setBalActiveChain] = useState(() => {
-    try { return localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN; } catch (_) { return DEFAULT_CHAIN; }
+    try { return localStorage.getItem("nexus_wallet_bal_chain") || "BNB"; } catch (_) { return "BNB"; }
   });
   
 
 useEffect(() => {
-    try { localStorage.setItem("nexus_wallet_bal_chain", balActiveChain || DEFAULT_CHAIN); } catch (_) {}
+    try { localStorage.setItem("nexus_wallet_bal_chain", balActiveChain || "BNB"); } catch (_) {}
   }, [balActiveChain]);
 const [wsChainKey, setWsChainKey] = useState(() => {
     try { return localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN; } catch (_) { return DEFAULT_CHAIN; }
@@ -1751,7 +1753,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       const amt = String(depositAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Deposit amount invalid.");
 
-      const chainKey = getEffectiveVaultChainKey();
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr =
         (contracts?.chains?.[chainKey]?.vault || "").trim() ||
@@ -1803,7 +1805,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       const amt = String(withdrawAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Withdraw amount invalid.");
 
-      const chainKey = getEffectiveVaultChainKey();
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr =
         (contracts?.chains?.[chainKey]?.vault || "").trim() ||
@@ -1876,29 +1878,11 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     );
   };
 
-  function getEffectiveVaultChainKey(preferredChainKey = "") {
-    const forcedChain = String(preferredChainKey || "").toUpperCase().trim();
-    if (["POL", "BNB", "ETH"].includes(forcedChain)) return forcedChain;
-
-    const sym = String(gridItem || "").toUpperCase().trim();
-    if (["POL", "BNB", "ETH"].includes(sym)) return sym;
-
-    const active = String(activeGridChainKey || "").toUpperCase().trim();
-    if (["POL", "BNB", "ETH"].includes(active)) return active;
-
-    const bal = String(balActiveChain || "").toUpperCase().trim();
-    if (["POL", "BNB", "ETH"].includes(bal)) return bal;
-
-    const ws = String(wsChainKey || "").toUpperCase().trim();
-    if (["POL", "BNB", "ETH"].includes(ws)) return ws;
-
-    return String(DEFAULT_CHAIN || "POL").toUpperCase().trim() || "POL";
-  }
-
   const refreshVaultState = async (preferredChainKey = "") => {
     try {
       if (!wallet) return;
-      const chainKey = getEffectiveVaultChainKey(preferredChainKey);
+      const forcedChain = String(preferredChainKey || "").toUpperCase().trim();
+      const chainKey = (forcedChain || balActiveChain || wsChainKey || DEFAULT_CHAIN);
 
       // Primary path: backend RPC endpoint.
       // This avoids the embedded-wallet/provider race after F5.
@@ -1981,7 +1965,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
-      const chainKey = getEffectiveVaultChainKey();
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
@@ -2006,7 +1990,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       });
 
       setTxMsg(`${allowed ? "Operator enabled" : "Operator disabled"}. Tx: ${txHash}`);
-      setTimeout(() => refreshVaultState(getEffectiveVaultChainKey()), 1400);
+      setTimeout(() => refreshVaultState(), 1400);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Operator tx failed"));
     } finally {
@@ -2018,7 +2002,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
-      const chainKey = getEffectiveVaultChainKey();
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
@@ -2041,7 +2025,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       });
 
       setTxMsg(`Cycle start submitted. Tx: ${txHash}`);
-      setTimeout(() => refreshVaultState(getEffectiveVaultChainKey()), 1400);
+      setTimeout(() => refreshVaultState(), 1400);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Start cycle failed"));
     } finally {
@@ -2054,7 +2038,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
-      const chainKey = getEffectiveVaultChainKey();
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
@@ -2078,8 +2062,8 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 
       setTxMsg(`Cycle end submitted. Tx: ${tx}`);
       // refresh vault state (inCycle should turn to NO after confirmation; refresh anyway)
-      setTimeout(() => { try { refreshVaultState(getEffectiveVaultChainKey()); } catch {} }, 1200);
-      setTimeout(() => { try { refreshVaultState(getEffectiveVaultChainKey()); } catch {} }, 4500);
+      setTimeout(() => { try { refreshVaultState(); } catch {} }, 1200);
+      setTimeout(() => { try { refreshVaultState(); } catch {} }, 4500);
       return tx;
     } catch (e) {
       setTxMsg(String(e?.message || e || "End cycle tx failed"));
@@ -2105,6 +2089,22 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 useEffect(() => {
     try { localStorage.setItem("nexus_wallet_bal_all", showAllWalletChains ? "1" : "0"); } catch (_) {}
   }, [showAllWalletChains]);
+// keep vault state fresh
+  useEffect(() => {
+    if (!wallet) return;
+    const chain = String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+    let forcedChain = chain;
+    try {
+      const savedCoin = String(
+        localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || ""
+      ).toUpperCase().trim();
+      if (["POL", "BNB", "ETH"].includes(savedCoin)) {
+        forcedChain = savedCoin;
+      }
+    } catch (_) {}
+    refreshVaultState(forcedChain);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet, wsChainKey, balActiveChain, contracts]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -3456,33 +3456,7 @@ useEffect(() => {
     try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${chain}`, sym); } catch (_) {}
   }, [gridUiHydrated, balActiveChain, gridItem]);
 
-  // Authoritative vault refresh AFTER grid/backend hydration.
-  // This is the refresh that should win after F5.
-  useEffect(() => {
-    if (!wallet) return;
-    if (!contracts) return;
-    if (!gridUiHydrated) return;
 
-    const nativeSym = String(gridItem || "").toUpperCase().trim();
-    const hydratedChain =
-      ["POL", "BNB", "ETH"].includes(nativeSym)
-        ? nativeSym
-        : String(activeGridChainKey || balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase().trim();
-
-    if (!hydratedChain) return;
-
-    const t1 = setTimeout(() => { try { refreshVaultState(hydratedChain); } catch (_) {} }, 80);
-    const t2 = setTimeout(() => { try { refreshVaultState(hydratedChain); } catch (_) {} }, 500);
-    const t3 = setTimeout(() => { try { refreshVaultState(hydratedChain); } catch (_) {} }, 1200);
-
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-    };
-  }, [wallet, contracts, gridUiHydrated, activeGridChainKey, gridItem, balActiveChain, wsChainKey]);
-
-  const [gridMode, setGridMode] = useState("SAFE");
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
 
   // const uiChainKey defined above (useMemo) 
@@ -4009,6 +3983,7 @@ useEffect(() => {
 
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: srvItemId || gridItemId }) }));
+      if (r?.vault_state) setVaultState((prev) => ({ ...(prev || {}), ...(r.vault_state || {}) }));
     } catch (e) {
       setErrorMsg((prev) => prev || `Grid init: ${e?.message || e}`);
     }
@@ -4180,7 +4155,7 @@ setGridBusy((s) => ({ ...s, start: true }));
 
     // Safety: Grid runs autonomously via backend operator + Vault funds.
     // Require: Vault has budget deposited and operator is enabled (so backend can trade without further user signatures).
-    const chainKeyPre = getEffectiveVaultChainKey();
+    const chainKeyPre = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const want = Number(gridInvestQty) || 0;
     const have = Number(vaultState?.polBalance || 0);
 
@@ -4213,7 +4188,7 @@ setGridBusy((s) => ({ ...s, start: true }));
     }
 
     try {
-      const chainKey = getEffectiveVaultChainKey();
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const curPriceNum = Number(gridMeta?.price ?? 0) || 0;
       const investQty = Number(gridInvestQty) || 0;
       const investUsd = (investQty > 0 && curPriceNum > 0) ? (investQty * curPriceNum) : investQty;
@@ -4227,7 +4202,6 @@ setGridBusy((s) => ({ ...s, start: true }));
         item: gridItemId,
         // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
         addr: walletAddress || undefined,
-        mode: gridMode,
         order_mode: "MANUAL",
         // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd for backwards compatibility; invest_qty is the new canonical key.
         invest_native: investQty,
@@ -4267,7 +4241,7 @@ if (!isGridReady) {
 setGridBusy((s) => ({ ...s, stop: true }));
 
     try {
-	  const chainKey = getEffectiveVaultChainKey();
+	  const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
       const itemId =
         gridItemId ||
         gridMeta?.gridItemId ||
@@ -4387,7 +4361,7 @@ body.qty = qty;
     }
     setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
 
-    const chainKey = getEffectiveVaultChainKey();
+    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
 
     // Try several known endpoints/methods (backend revisions differ)
@@ -4447,7 +4421,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
     }
     setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));
 
-    const chainKey = getEffectiveVaultChainKey();
+    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
 
     // Some backends support POST /delete, others require DELETE, others use /remove
@@ -6147,7 +6121,7 @@ const vaultFreeQty = useMemo(
 
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); refreshVaultState(getEffectiveVaultChainKey()); }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); refreshVaultState(); }}
                       disabled={txBusy || !wallet}
                       className="btn ghost"
                       style={{ height: 40, paddingInline: 14, fontSize: 13 }}
@@ -6780,8 +6754,7 @@ const vaultFreeQty = useMemo(
                       <p>Du definierst ein <b>maximales Budget in der nativen Chain-Währung (POL/BNB/ETH)</b>. Dieses Budget ist ein <b>globales Limit</b> für den gesamten Grid und liegt im <b>Vault</b>.</p>
                       <p>Das Budget gilt <b>nicht pro Order</b>, sondern für alle Orders zusammen.</p>
                       <p><b>BUY</b>-Orders kaufen Tokens, <b>SELL</b>-Orders verkaufen bereits gekaufte Tokens.</p>
-                      <p><b>SAFE</b>: weniger Orders, geringeres Risiko.<br/>
-                         <b>AGGRESSIVE</b>: mehr Orders, schnelleres Budget-Nutzen.</p>
+                      <p><b>Orders werden nur nach deinen Eingaben ausgeführt.</b> Es gibt keine automatische Strategie-Logik durch SAFE / AGGRESSIVE.</p>
                       <p><b>Manuelle Orders</b> sind einzelne Orders und nicht Teil der Grid-Strategie.</p>
                       <p>BUY kann per <b>USD</b> oder per <b>Token-Menge</b> erfolgen.</p>
                     </>
@@ -6792,8 +6765,7 @@ const vaultFreeQty = useMemo(
                       <p>You define a <b>maximum USD budget (USDC / USDT)</b>. This budget is a <b>global limit</b> for the entire grid.</p>
                       <p>The budget is <b>not per order</b>, but shared across all orders.</p>
                       <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell already acquired tokens.</p>
-                      <p><b>SAFE</b>: fewer orders, lower risk.<br/>
-                         <b>AGGRESSIVE</b>: more orders, faster budget usage.</p>
+                      <p><b>Orders are executed only from your inputs.</b> There is no automatic SAFE / AGGRESSIVE strategy logic.</p>
                       <p><b>Manual orders</b> are single orders and not part of the grid strategy.</p>
                       <p>BUY orders can be placed by <b>USD</b> or by <b>token quantity</b>.</p>
                     </>
@@ -6820,35 +6792,6 @@ const vaultFreeQty = useMemo(
               </div>
 
               
-              <div className="formRow">
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  Mode
-                  <InfoButton title="Grid Mode: SAFE vs AGGRESSIVE">
-                    <Help showClose dismissable
-                      de={
-                        <>
-                          <p><b>SAFE</b>: Größere Abstände zwischen Grid-Levels, weniger Orders, mehr Puffer gegen Volatilität.</p>
-                          <p><b>AGGRESSIVE</b>: Kleinere Abstände, mehr Orders, höhere Reaktionsfrequenz – höheres Risiko.</p>
-                          <p><b>Hinweis:</b> Beide Modi sind <b>MANUAL</b>. Keine automatischen Orders.</p>
-                        </>
-                      }
-                      en={
-                        <>
-                          <p><b>SAFE</b>: Wider grid spacing, fewer orders, more buffer against volatility.</p>
-                          <p><b>AGGRESSIVE</b>: Tighter spacing, more orders, faster reaction – higher risk.</p>
-                          <p><b>Note:</b> Both modes are <b>MANUAL</b>. No automatic order placement.</p>
-                        </>
-                      }
-                    />
-                  </InfoButton>
-                </label>
-                <select value={gridMode} onChange={(e) => setGridMode(e.target.value)}>
-                  <option value="SAFE">SAFE</option>
-                  <option value="AGGRESSIVE">AGGRESSIVE</option>
-                </select>
-              </div>
-
-
               <div className="formRow">
                 <label>Budget (Qty)</label>
                 <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />

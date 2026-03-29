@@ -1,3 +1,5 @@
+
+
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
@@ -2107,32 +2109,22 @@ useEffect(() => {
   }, [showAllWalletChains]);
 // keep vault state fresh using the hydrated grid/backend chain context
   useEffect(() => {
-    // IMPORTANT:
-    // Wait until the grid/backend UI state has been hydrated before the first vault read.
-    // Otherwise the initial refresh after F5 can still run against an old wallet-tab chain.
+    // Early best-effort vault refresh that must NOT depend on grid state declared later.
     if (!wallet) return;
     if (!contracts) return;
-    if (!gridUiHydrated) return;
 
-    const nativeSym = String(gridItem || "").toUpperCase().trim();
-    const hydratedChain =
-      ["POL", "BNB", "ETH"].includes(nativeSym)
-        ? nativeSym
-        : String(activeGridChainKey || getEffectiveVaultChainKey()).toUpperCase().trim();
+    const initialChain = String(getEffectiveVaultChainKey()).toUpperCase().trim();
+    if (!initialChain) return;
 
-    if (!hydratedChain) return;
-
-    const t1 = setTimeout(() => { try { refreshVaultState(hydratedChain); } catch (_) {} }, 80);
-    const t2 = setTimeout(() => { try { refreshVaultState(hydratedChain); } catch (_) {} }, 500);
-    const t3 = setTimeout(() => { try { refreshVaultState(hydratedChain); } catch (_) {} }, 1200);
+    const t1 = setTimeout(() => { try { refreshVaultState(initialChain); } catch (_) {} }, 120);
+    const t2 = setTimeout(() => { try { refreshVaultState(initialChain); } catch (_) {} }, 900);
 
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
-      clearTimeout(t3);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, contracts, gridUiHydrated, activeGridChainKey, gridItem]);
+  }, [wallet, contracts, balActiveChain, wsChainKey]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -3484,6 +3476,31 @@ useEffect(() => {
     try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${chain}`, sym); } catch (_) {}
   }, [gridUiHydrated, balActiveChain, gridItem]);
 
+  // Authoritative vault refresh AFTER grid/backend hydration.
+  // This is the refresh that should win after F5.
+  useEffect(() => {
+    if (!wallet) return;
+    if (!contracts) return;
+    if (!gridUiHydrated) return;
+
+    const nativeSym = String(gridItem || "").toUpperCase().trim();
+    const hydratedChain =
+      ["POL", "BNB", "ETH"].includes(nativeSym)
+        ? nativeSym
+        : String(activeGridChainKey || balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase().trim();
+
+    if (!hydratedChain) return;
+
+    const t1 = setTimeout(() => { try { refreshVaultState(hydratedChain); } catch (_) {} }, 80);
+    const t2 = setTimeout(() => { try { refreshVaultState(hydratedChain); } catch (_) {} }, 500);
+    const t3 = setTimeout(() => { try { refreshVaultState(hydratedChain); } catch (_) {} }, 1200);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [wallet, contracts, gridUiHydrated, activeGridChainKey, gridItem, balActiveChain, wsChainKey]);
 
   const [gridMode, setGridMode] = useState("SAFE");
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)

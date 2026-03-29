@@ -1,5 +1,3 @@
-
-
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
@@ -2107,24 +2105,6 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 useEffect(() => {
     try { localStorage.setItem("nexus_wallet_bal_all", showAllWalletChains ? "1" : "0"); } catch (_) {}
   }, [showAllWalletChains]);
-// keep vault state fresh using the hydrated grid/backend chain context
-  useEffect(() => {
-    // Early best-effort vault refresh that must NOT depend on grid state declared later.
-    if (!wallet) return;
-    if (!contracts) return;
-
-    const initialChain = String(getEffectiveVaultChainKey()).toUpperCase().trim();
-    if (!initialChain) return;
-
-    const t1 = setTimeout(() => { try { refreshVaultState(initialChain); } catch (_) {} }, 120);
-    const t2 = setTimeout(() => { try { refreshVaultState(initialChain); } catch (_) {} }, 900);
-
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, contracts, balActiveChain, wsChainKey]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -4029,7 +4009,6 @@ useEffect(() => {
 
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: srvItemId || gridItemId }) }));
-      if (r?.vault_state) setVaultState((prev) => ({ ...(prev || {}), ...(r.vault_state || {}) }));
     } catch (e) {
       setErrorMsg((prev) => prev || `Grid init: ${e?.message || e}`);
     }

@@ -4144,6 +4144,25 @@ useEffect(() => {
   fetchGridOrders();
 }, [isGridReady, fetchGridOrders]);
 
+const kickGridRefresh = useCallback(() => {
+  try { fetchGridOrders(); } catch (_) {}
+  setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 400);
+  setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 1400);
+}, [fetchGridOrders]);
+
+useInterval(
+  () => {
+    fetchGridOrders();
+  },
+  3000,
+  !!isGridReady &&
+    !gridBusy.start &&
+    !gridBusy.stop &&
+    !gridBusy.add &&
+    !gridBusy.stopOrderId &&
+    !gridBusy.deleteOrderId
+);
+
   async function gridStart() {
     console.log("[GRID] Start clicked");
     setErrorMsg("");
@@ -4227,7 +4246,8 @@ setGridBusy((s) => ({ ...s, start: true }));
         setGridOrders(startOrders);
       }
       
-      setGridBusy((s) => ({ ...s, stop: false }));setTimeout(fetchGridOrders, 300);
+      setGridBusy((s) => ({ ...s, stop: false }));
+      kickGridRefresh();
       setGridBusy((s) => ({ ...s, start: false }));
 } catch (e) {
       setErrorMsg(`Grid start: ${e.message}`);
@@ -4262,6 +4282,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         setGridOrders(stopOrders);
       }
       setGridBusy((s) => ({ ...s, stop: false }));
+      kickGridRefresh();
     } catch (e) {
       setErrorMsg(`Grid stop: ${e.message}`);
       setGridBusy((s) => ({ ...s, stop: false }));
@@ -4338,12 +4359,8 @@ body.qty = qty;
         });
       }
 
-      // Always reload from backend after a short delay so the server can commit the order.
-      setTimeout(() => {
-        fetchGridOrders();
-        // Retry once more in case the backend commits asynchronously
-        setTimeout(fetchGridOrders, 1200);
-      }, 600);
+      // Always reload from backend so the server can commit the order and the UI stays live.
+      kickGridRefresh();
       setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
       setErrorMsg(`Manual add: ${e.message}`);
@@ -4468,7 +4485,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
-          fetchGridOrders();
+          kickGridRefresh();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
         } else {
@@ -4476,7 +4493,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           safeSetGridOrdersFromResponse(r, setGridOrders);
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
-          fetchGridOrders();
+          kickGridRefresh();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
         }

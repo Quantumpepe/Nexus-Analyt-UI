@@ -1523,7 +1523,7 @@ function AppInner() {
   // Multi-chain config (UI is ready; test phase enables POL + BNB)
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
   const ENABLED_CHAINS = ["POL","BNB","ETH"];
-  const DEFAULT_CHAIN = "BNB";
+  const DEFAULT_CHAIN = "POL";
 
 // One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
 useEffect(() => {
@@ -3331,12 +3331,13 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // Grid UI works with symbols; backend grid endpoints are keyed by item_id.
   const [gridItem, setGridItem] = useState(() => {
     try {
-      const chain = (localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN || "BNB").toUpperCase();
+      const chain = (localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN || "POL").toUpperCase();
       return localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || chain;
     } catch (_) {
       return DEFAULT_CHAIN;
     }
   });
+  const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
   const activeGridChainKey = useMemo(() => {
@@ -3419,17 +3420,19 @@ useEffect(() => {
 
   // Keep selected grid coin valid when chain/balances change
   useEffect(() => {
+    if (!gridUiHydrated) return;
     if (!gridWalletCoins.length) return;
     const cur = String(gridItem || "").toUpperCase();
     if (!cur || !gridWalletCoins.includes(cur)) {
       setGridItem(gridWalletCoins[0]);
     }
-  }, [gridWalletCoins, gridItem]);
+  }, [gridUiHydrated, gridWalletCoins, gridItem]);
 
   // Restore the last used grid coin for the active wallet chain immediately after refresh.
   // Without this, the wallet tab can show the right chain (e.g. POL) while the Grid still
   // points to the default chain/coin until the user clicks the chain again.
   useEffect(() => {
+    if (!gridUiHydrated) return;
     const chain = String(balActiveChain || DEFAULT_CHAIN).toUpperCase();
     if (!chain) return;
     try {
@@ -3442,15 +3445,16 @@ useEffect(() => {
     if (["ETH", "POL", "BNB"].includes(chain) && String(gridItem || "").toUpperCase() !== chain) {
       setGridItem(chain);
     }
-  }, [balActiveChain]);
+  }, [gridUiHydrated, balActiveChain]);
 
   // Persist the selected grid coin per chain so refresh restores the same working context.
   useEffect(() => {
+    if (!gridUiHydrated) return;
     const chain = String(balActiveChain || DEFAULT_CHAIN).toUpperCase();
     const sym = String(gridItem || "").toUpperCase();
     if (!chain || !sym) return;
     try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${chain}`, sym); } catch (_) {}
-  }, [balActiveChain, gridItem]);
+  }, [gridUiHydrated, balActiveChain, gridItem]);
 
 
   const [gridMode, setGridMode] = useState("SAFE");
@@ -3895,6 +3899,100 @@ const [aiLoading, setAiLoading] = useState(false);
   };
 
 
+// Hydrate grid chain/item from backend once per wallet.
+// Backend is the source of truth across devices, so do not trust local defaults on refresh.
+useEffect(() => {
+  let cancelled = false;
+  if (!walletAddress) {
+    setGridUiHydrated(false);
+    return;
+  }
+
+  (async () => {
+    try {
+      const r = await api("/api/grid/ui/state", {
+        method: "GET",
+        token,
+        wallet: walletAddress,
+      });
+      if (cancelled) return;
+
+      const srvChain = String(r?.active_chain ?? r?.activeChain ?? "").toUpperCase().trim();
+      const srvItem = String(r?.active_item ?? r?.activeItem ?? "").trim();
+      const srvSym = srvItem ? String(srvItem.split(":").pop() || "").toUpperCase().trim() : "";
+
+      if (srvChain && ENABLED_CHAINS.includes(srvChain)) {
+        setBalActiveChain((prev) => (String(prev || "").toUpperCase() === srvChain ? prev : srvChain));
+        setWsChainKey((prev) => (String(prev || "").toUpperCase() === srvChain ? prev : srvChain));
+      }
+      if (srvSym) {
+        setGridItem((prev) => (String(prev || "").toUpperCase() === srvSym ? prev : srvSym));
+      }
+    } catch (_) {
+      // keep local fallback if backend UI state is unavailable
+    } finally {
+      if (!cancelled) setGridUiHydrated(true);
+    }
+  })();
+
+  return () => { cancelled = true; };
+}, [walletAddress, token]);
+
+// After hydration and on every chain/item switch, ask backend for the authoritative grid context.
+// This fixes the stale-chain issue where the UI only became correct after toggling BNB -> POL manually.
+useEffect(() => {
+  let cancelled = false;
+  if (!gridUiHydrated || !walletAddress || !gridItemId) return;
+
+  (async () => {
+    try {
+      const params = new URLSearchParams({
+        chain: activeGridChainKey,
+        item: gridItemId,
+        wallet: walletAddress,
+        addr: walletAddress,
+      });
+      const r = await api(`/api/grid/init?${params.toString()}`, {
+        method: "GET",
+        token,
+        wallet: walletAddress,
+      });
+      if (cancelled) return;
+      if (r?.status && String(r.status).toLowerCase() === "error") return;
+
+      const srvChain = String(r?.active_chain ?? r?.loaded_chain ?? activeGridChainKey).toUpperCase().trim();
+      const srvItemId = String(r?.active_item ?? r?.loaded_item_id ?? gridItemId).trim();
+      const srvSym = srvItemId ? String(srvItemId.split(":").pop() || "").toUpperCase().trim() : "";
+
+      if (srvChain && ENABLED_CHAINS.includes(srvChain)) {
+        setBalActiveChain((prev) => (String(prev || "").toUpperCase() === srvChain ? prev : srvChain));
+        setWsChainKey((prev) => (String(prev || "").toUpperCase() === srvChain ? prev : srvChain));
+      }
+      if (srvSym && srvSym !== String(gridItem || "").toUpperCase().trim()) {
+        setGridItem(srvSym);
+      }
+
+      const initOrdersRaw = getGridOrdersFromResponse(r);
+      if (Array.isArray(initOrdersRaw)) {
+        const initOrders = normalizeGridOrders(initOrdersRaw);
+        rememberGridOrders(srvItemId || gridItemId, initOrders);
+        setGridOrders(initOrders);
+        if (initOrders.length > 0) {
+          lastNonEmptyOrdersRef.current = { ts: Date.now(), count: initOrders.length };
+        }
+      }
+
+      setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+      setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: srvItemId || gridItemId }) }));
+      if (r?.vault_state) setVaultState((prev) => ({ ...(prev || {}), ...(r.vault_state || {}) }));
+    } catch (e) {
+      setErrorMsg((prev) => prev || `Grid init: ${e?.message || e}`);
+    }
+  })();
+
+  return () => { cancelled = true; };
+}, [gridUiHydrated, walletAddress, token, activeGridChainKey, gridItemId]);
+
 const [gridBusy, setGridBusy] = useState({
   start: false,
   stop: false,
@@ -3904,8 +4002,8 @@ const [gridBusy, setGridBusy] = useState({
 });
 
 const isGridReady = useMemo(() => {
-  return !!token && !!walletAddress && !!gridItemId;
-}, [token, walletAddress, gridItemId]);
+  return !!walletAddress && !!gridItemId && gridUiHydrated;
+}, [walletAddress, gridItemId, gridUiHydrated]);
 
 
 const mergeGridOrders = useCallback((baseArr, incomingArr) => {
@@ -3947,14 +4045,20 @@ useEffect(() => {
 
 
 const fetchGridOrders = useCallback(async () => {
-  // Only fetch when wallet/auth is actually ready.
-  // This prevents the UI from wiping orders during the brief "unauthenticated" window after refresh.
-  if (!gridItemId || !walletAddress || !token) return;
+  // Only fetch when wallet + backend grid context are ready.
+  // Do not require the backend auth token here: api() can fall back to API key + wallet header,
+  // and requiring token caused empty grid state after refresh on some devices until auth finished.
+  if (!gridUiHydrated || !gridItemId || !walletAddress) return;
 
   try {
     // Be permissive with query param naming across backend revisions.
     // Some deployments use `addr`, others `wallet`.
-    const params = new URLSearchParams({ item: gridItemId, addr: walletAddress, wallet: walletAddress });
+    const params = new URLSearchParams({
+      item: gridItemId,
+      chain: activeGridChainKey,
+      addr: walletAddress,
+      wallet: walletAddress,
+    });
 
     const r = await api(`/api/grid/orders?${params.toString()}`, {
       method: "GET",
@@ -4028,7 +4132,7 @@ setGridOrders(nextOrders);
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-}, [gridItemId, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
+}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {

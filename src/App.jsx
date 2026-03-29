@@ -6862,8 +6862,20 @@ const vaultFreeQty = useMemo(
                 Manual order
                 <InfoButton title="Manual Order">
                   <Help showClose dismissable
-                    de={<><p><b>Price</b> ist Limit-Preis. <b>Qty</b> optional.</p></>}
-                    en={<><p><b>Price</b> is your limit price. <b>Qty</b> is optional.</p></>}
+                    de={
+                      <>
+                        <p><b>Price</b> ist dein Limit-Preis. <b>Qty</b> ist optional.</p>
+                        <p><b>Price preset</b> füllt die Prozent-Stufen schnell vor. <b>Quick price</b> setzt den Preis mit einem Klick auf Markt oder auf einen Abstand über / unter dem Markt.</p>
+                        <p>Eine Order wird <b>erst</b> mit <b>Add Order</b> erstellt.</p>
+                      </>
+                    }
+                    en={
+                      <>
+                        <p><b>Price</b> is your limit price. <b>Qty</b> is optional.</p>
+                        <p><b>Price preset</b> fills the percentage steps quickly. <b>Quick price</b> sets the price in one click to market or to an offset above / below market.</p>
+                        <p>An order is created <b>only</b> when you press <b>Add Order</b>.</p>
+                      </>
+                    }
                   />
                 </InfoButton>
               </div>
@@ -6909,8 +6921,8 @@ const vaultFreeQty = useMemo(
                 </div>
               </div>
 
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 10 }}>
-                <div className="muted" style={{ fontSize: 12 }}>Quick steps %:</div>
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 8 }}>
+                <div className="muted" style={{ fontSize: 12, minWidth: 88 }}>Price preset:</div>
                 <select
                   value=""
                   onChange={(e) => {
@@ -6936,7 +6948,8 @@ const vaultFreeQty = useMemo(
                 <div className="muted" style={{ fontSize: 12 }}>comma separated</div>
               </div>
 
-              <div className="row" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -2, marginBottom: 10 }}>
+                <div className="muted" style={{ fontSize: 12, minWidth: 88 }}>Quick price:</div>
                 <button className="btnGhost" type="button" onClick={setManualPriceFromMarket} disabled={!shownGridPrice} title="Set price to current market">
                   Market
                 </button>

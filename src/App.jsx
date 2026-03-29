@@ -7122,7 +7122,11 @@ const vaultFreeQty = useMemo(
                       }
                       const profitColor = estProfit == null ? "rgba(232,242,240,.7)" : (estProfit >= 0 ? "#39d98a" : "#ff6b6b");
                       const profitText = estProfit == null ? "" : `${estProfit >= 0 ? "+" : ""}${Math.abs(estProfit).toFixed(4)} $`;
-                      const isMobileOrder = typeof window !== "undefined" ? window.innerWidth <= 980 : false;
+                      const isMobileOrder = typeof window !== "undefined" ? window.innerWidth <= 640 : false;
+                      const mobileTextSize = isMobileOrder ? 12 : 14;
+                      const mobileBtnFont = isMobileOrder ? 11 : 12;
+                      const mobileBtnHeight = isMobileOrder ? 24 : 28;
+                      const mobileBtnPad = isMobileOrder ? 8 : 10;
 
                       return (
                         <div
@@ -7134,39 +7138,43 @@ const vaultFreeQty = useMemo(
                           }}
                         >
                           {isMobileOrder ? (
-                            <>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 8 }}>
-                                <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
-                                <span className="orderPx">{fmtUsd(o.price)}</span>
-                                <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
-                              </div>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                                <span className="pill silver">{o.status || "OPEN"}</span>
-                                <button
-                                  type="button"
-                                  className="btn ghost"
-                                  style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                                  disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
-                                  onClick={() => stopGridOrder(idOf(o))}
-                                  title="Stop this single order (backend will mark it as STOPPED)."
-                                >
-                                  Stop
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn ghost"
-                                  style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                                  disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
-                                  onClick={() => deleteGridOrder(idOf(o))}
-                                  title="Delete this order from DB (only if backend supports it)."
-                                >
-                                  Delete
-                                </button>
-                                {profitText ? (
-                                  <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap" }}>{profitText}</span>
-                                ) : null}
-                              </div>
-                            </>
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "auto auto auto auto auto auto auto",
+                                gap: 6,
+                                alignItems: "center",
+                                fontSize: mobileTextSize,
+                              }}
+                            >
+                              <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`} style={{ fontSize: 11, padding: "4px 8px" }}>{o.side}</span>
+                              <span className="orderPx" style={{ fontSize: mobileTextSize }}>{fmtUsd(o.price)}</span>
+                              <span className="muted" style={{ fontSize: mobileTextSize }}>{o.qty ? `qty ${o.qty}` : ""}</span>
+                              <span className="pill silver" style={{ fontSize: 11, padding: "4px 8px" }}>{o.status || "OPEN"}</span>
+                              <button
+                                type="button"
+                                className="btn ghost"
+                                style={{ height: mobileBtnHeight, paddingInline: mobileBtnPad, fontSize: mobileBtnFont }}
+                                disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
+                                onClick={() => stopGridOrder(idOf(o))}
+                                title="Stop this single order (backend will mark it as STOPPED)."
+                              >
+                                Stop
+                              </button>
+                              <button
+                                type="button"
+                                className="btn ghost"
+                                style={{ height: mobileBtnHeight, paddingInline: mobileBtnPad, fontSize: mobileBtnFont }}
+                                disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
+                                onClick={() => deleteGridOrder(idOf(o))}
+                                title="Delete this order from DB (only if backend supports it)."
+                              >
+                                Delete
+                              </button>
+                              {profitText ? (
+                                <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: 11, justifySelf: "end" }}>{profitText}</span>
+                              ) : <span />}
+                            </div>
                           ) : (
                             <div
                               style={{
@@ -7183,7 +7191,7 @@ const vaultFreeQty = useMemo(
                               <button
                                 type="button"
                                 className="btn ghost"
-                                style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                style={{ height: mobileBtnHeight, paddingInline: mobileBtnPad, fontSize: mobileBtnFont }}
                                 disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
                                 onClick={() => stopGridOrder(idOf(o))}
                                 title="Stop this single order (backend will mark it as STOPPED)."
@@ -7193,7 +7201,7 @@ const vaultFreeQty = useMemo(
                               <button
                                 type="button"
                                 className="btn ghost"
-                                style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                style={{ height: mobileBtnHeight, paddingInline: mobileBtnPad, fontSize: mobileBtnFont }}
                                 disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
                                 onClick={() => deleteGridOrder(idOf(o))}
                                 title="Delete this order from DB (only if backend supports it)."

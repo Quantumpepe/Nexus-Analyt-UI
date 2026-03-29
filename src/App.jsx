@@ -1,3 +1,5 @@
+
+
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
@@ -7108,37 +7110,104 @@ const vaultFreeQty = useMemo(
               {gridOrders.length ? (
                 gridOrdersOpen ? (
                   <div className="ordersList" style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
-                    {gridOrders.map((o) => (
-                      <div key={idOf(o) || `${o.side}-${o.price}-${o.created_ts}`} className="orderRow" style={{ display: "grid", gridTemplateColumns: "auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
-                        <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
-                        <span className="orderPx">{fmtUsd(o.price)}</span>
-                        <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
-                        <span className="pill silver">{o.status || "OPEN"}</span>
+                    {gridOrders.map((o) => {
+                      const currentPrice = Number(shownGridPrice || 0);
+                      let estProfit = null;
+                      if (Number.isFinite(currentPrice) && currentPrice > 0) {
+                        if (String(o?.side || "").toUpperCase() === "BUY") {
+                          estProfit = (currentPrice - Number(o?.price || 0)) * Number(o?.qty || 0);
+                        } else if (String(o?.side || "").toUpperCase() === "SELL") {
+                          estProfit = (Number(o?.price || 0) - currentPrice) * Number(o?.qty || 0);
+                        }
+                      }
+                      const profitColor = estProfit == null ? "rgba(232,242,240,.7)" : (estProfit >= 0 ? "#39d98a" : "#ff6b6b");
+                      const profitText = estProfit == null ? "" : `${estProfit >= 0 ? "+" : ""}${Math.abs(estProfit).toFixed(4)} $`;
+                      const isMobileOrder = typeof window !== "undefined" ? window.innerWidth <= 980 : false;
 
-                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                          <button
-                            type="button"
-                            className="btn ghost"
-                            style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                            disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
-                            onClick={() => stopGridOrder(idOf(o))}
-                            title="Stop this single order (backend will mark it as STOPPED)."
-                          >
-                            Stop
-                          </button>
-                          <button
-                            type="button"
-                            className="btn ghost"
-                            style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                            disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
-                            onClick={() => deleteGridOrder(idOf(o))}
-                            title="Delete this order from DB (only if backend supports it)."
-                          >
-                            Delete
-                          </button>
+                      return (
+                        <div
+                          key={idOf(o) || `${o.side}-${o.price}-${o.created_ts}`}
+                          className="orderRow"
+                          style={{
+                            padding: "8px 0",
+                            borderBottom: "1px solid rgba(255,255,255,.06)",
+                          }}
+                        >
+                          {isMobileOrder ? (
+                            <>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 8 }}>
+                                <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
+                                <span className="orderPx">{fmtUsd(o.price)}</span>
+                                <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                                <span className="pill silver">{o.status || "OPEN"}</span>
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                  disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
+                                  onClick={() => stopGridOrder(idOf(o))}
+                                  title="Stop this single order (backend will mark it as STOPPED)."
+                                >
+                                  Stop
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn ghost"
+                                  style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                  disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
+                                  onClick={() => deleteGridOrder(idOf(o))}
+                                  title="Delete this order from DB (only if backend supports it)."
+                                >
+                                  Delete
+                                </button>
+                                {profitText ? (
+                                  <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap" }}>{profitText}</span>
+                                ) : null}
+                              </div>
+                            </>
+                          ) : (
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "auto auto auto auto auto auto auto",
+                                gap: 10,
+                                alignItems: "center",
+                              }}
+                            >
+                              <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
+                              <span className="orderPx">{fmtUsd(o.price)}</span>
+                              <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
+                              <span className="pill silver">{o.status || "OPEN"}</span>
+                              <button
+                                type="button"
+                                className="btn ghost"
+                                style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
+                                onClick={() => stopGridOrder(idOf(o))}
+                                title="Stop this single order (backend will mark it as STOPPED)."
+                              >
+                                Stop
+                              </button>
+                              <button
+                                type="button"
+                                className="btn ghost"
+                                style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
+                                onClick={() => deleteGridOrder(idOf(o))}
+                                title="Delete this order from DB (only if backend supports it)."
+                              >
+                                Delete
+                              </button>
+                              {profitText ? (
+                                <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", justifySelf: "end" }}>{profitText}</span>
+                              ) : <span />}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="muted tiny" style={{ marginTop: 8 }}>Orders hidden. Tap Orders to open.</div>

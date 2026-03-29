@@ -5234,6 +5234,60 @@ const vaultFreeQty = useMemo(
           }
           .gridRight{
             position: static;
+            width: 100%;
+            justify-self: stretch;
+          }
+        }
+
+        /* --- Grid mobile polish only (keep rest of app unchanged) --- */
+        .gridOrders, .ordersList, .orderRow { min-width: 0; }
+        @media (max-width: 640px){
+          .section-grid .gridRight{
+            width: 100%;
+            justify-self: stretch;
+          }
+          .section-grid .gridOrders{
+            width: 100%;
+            min-width: 0;
+          }
+          .section-grid .ordersList{
+            max-height: none !important;
+            overflow-x: hidden;
+            padding-right: 0 !important;
+          }
+          .section-grid .orderRowMobile{
+            grid-template-columns: auto minmax(0,1fr) !important;
+            gap: 8px !important;
+            align-items: start !important;
+          }
+          .section-grid .orderMetaMobile{
+            min-width: 0;
+            display: grid;
+            gap: 4px;
+          }
+          .section-grid .orderTopMobile{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            min-width: 0;
+          }
+          .section-grid .orderBottomMobile{
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            min-width: 0;
+          }
+          .section-grid .orderActionsMobile{
+            justify-content: flex-start !important;
+            flex-wrap: wrap;
+          }
+          .section-grid .orderProfitMobile{
+            margin-left: 0 !important;
+          }
+          .section-grid .gridLeft .row{
+            flex-wrap: wrap;
           }
         }
 `}</style>
@@ -7103,43 +7157,57 @@ const vaultFreeQty = useMemo(
                     }
                     const profitColor = estProfit == null ? "var(--muted)" : estProfit >= 0 ? "var(--green)" : "var(--red)";
                     return (
-                    <div key={idOf(o) || `${o.side}-${o.price}-${o.created_ts}`} className="orderRow" style={{ display: "grid", gridTemplateColumns: "auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
+                    <div
+                      key={idOf(o) || `${o.side}-${o.price}-${o.created_ts}`}
+                      className="orderRow orderRowMobile"
+                      style={{ display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", gap: 10, alignItems: "center" }}
+                    >
                       <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
-                      <span className="orderPx">{fmtUsd(o.price)}</span>
-                      <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
-                        <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
-                        <span className="tiny" style={{ color: profitColor, fontWeight: 800 }}>
-                          {estProfit == null ? "Est. —" : `Est. ${estProfit >= 0 ? "+" : ""}${fmtQty(estProfit, 4)} $`}
-                        </span>
-                      </div>
-                      <span className="pill silver">{o.status || "OPEN"}</span>
 
-                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                        <button
-                          type="button"
-                          className="btn ghost"
-                          style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                          disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
-                          onClick={() => stopGridOrder(idOf(o))}
-                          title="Stop this single order (backend will mark it as STOPPED)."
-                        >
-                          Stop
-                        </button>
-                        <button
-                          type="button"
-                          className="btn ghost"
-                          style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                          disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
-                          onClick={() => deleteGridOrder(idOf(o))}
-                          title="Delete this order from DB (only if backend supports it)."
-                        >
-                          Delete
-                        </button>
+                      <div className="orderMetaMobile">
+                        <div className="orderTopMobile">
+                          <span className="orderPx">{fmtUsd(o.price)}</span>
+                          <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
+                        </div>
+
+                        <div className="orderBottomMobile">
+                          <span className="pill silver">{o.status || "OPEN"}</span>
+
+                          <div className="orderActionsMobile" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                            <button
+                              type="button"
+                              className="btn ghost"
+                              style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                              disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
+                              onClick={() => stopGridOrder(idOf(o))}
+                              title="Stop this single order (backend will mark it as STOPPED)."
+                            >
+                              Stop
+                            </button>
+                            <button
+                              type="button"
+                              className="btn ghost"
+                              style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                              disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
+                              onClick={() => deleteGridOrder(idOf(o))}
+                              title="Delete this order"
+                            >
+                              Delete
+                            </button>
+
+                            <span
+                              className="tiny orderProfitMobile"
+                              style={{ color: profitColor, fontWeight: 800, marginLeft: 4, whiteSpace: "nowrap" }}
+                              title="Estimated PnL vs current price"
+                            >
+                              {estProfit == null ? "Est. —" : `${estProfit >= 0 ? "+" : ""}${fmtQty(estProfit, 4)} $`}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     );
-                  })}
-                </div>
+                  })}                </div>
               ) : (
                 <div className="muted">No orders yet. Press Start then Add Order.</div>
               )}

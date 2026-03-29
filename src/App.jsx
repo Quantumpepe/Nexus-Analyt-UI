@@ -1579,12 +1579,12 @@ const [errorMsg, setErrorMsg] = useState("");
 const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
   const [balActiveChain, setBalActiveChain] = useState(() => {
-    try { return localStorage.getItem("nexus_wallet_bal_chain") || "BNB"; } catch (_) { return "BNB"; }
+    try { return localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN; } catch (_) { return DEFAULT_CHAIN; }
   });
   
 
 useEffect(() => {
-    try { localStorage.setItem("nexus_wallet_bal_chain", balActiveChain || "BNB"); } catch (_) {}
+    try { localStorage.setItem("nexus_wallet_bal_chain", balActiveChain || DEFAULT_CHAIN); } catch (_) {}
   }, [balActiveChain]);
 const [wsChainKey, setWsChainKey] = useState(() => {
     try { return localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN; } catch (_) { return DEFAULT_CHAIN; }
@@ -1753,7 +1753,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       const amt = String(depositAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Deposit amount invalid.");
 
-      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+      const chainKey = getEffectiveVaultChainKey();
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr =
         (contracts?.chains?.[chainKey]?.vault || "").trim() ||
@@ -1805,7 +1805,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       const amt = String(withdrawAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Withdraw amount invalid.");
 
-      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+      const chainKey = getEffectiveVaultChainKey();
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr =
         (contracts?.chains?.[chainKey]?.vault || "").trim() ||
@@ -1878,11 +1878,29 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     );
   };
 
+  function getEffectiveVaultChainKey(preferredChainKey = "") {
+    const forcedChain = String(preferredChainKey || "").toUpperCase().trim();
+    if (["POL", "BNB", "ETH"].includes(forcedChain)) return forcedChain;
+
+    const sym = String(gridItem || "").toUpperCase().trim();
+    if (["POL", "BNB", "ETH"].includes(sym)) return sym;
+
+    const active = String(activeGridChainKey || "").toUpperCase().trim();
+    if (["POL", "BNB", "ETH"].includes(active)) return active;
+
+    const bal = String(balActiveChain || "").toUpperCase().trim();
+    if (["POL", "BNB", "ETH"].includes(bal)) return bal;
+
+    const ws = String(wsChainKey || "").toUpperCase().trim();
+    if (["POL", "BNB", "ETH"].includes(ws)) return ws;
+
+    return String(DEFAULT_CHAIN || "POL").toUpperCase().trim() || "POL";
+  }
+
   const refreshVaultState = async (preferredChainKey = "") => {
     try {
       if (!wallet) return;
-      const forcedChain = String(preferredChainKey || "").toUpperCase().trim();
-      const chainKey = (forcedChain || balActiveChain || wsChainKey || DEFAULT_CHAIN);
+      const chainKey = getEffectiveVaultChainKey(preferredChainKey);
 
       // Primary path: backend RPC endpoint.
       // This avoids the embedded-wallet/provider race after F5.
@@ -1965,7 +1983,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
-      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+      const chainKey = getEffectiveVaultChainKey();
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
@@ -1990,7 +2008,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       });
 
       setTxMsg(`${allowed ? "Operator enabled" : "Operator disabled"}. Tx: ${txHash}`);
-      setTimeout(() => refreshVaultState(), 1400);
+      setTimeout(() => refreshVaultState(getEffectiveVaultChainKey()), 1400);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Operator tx failed"));
     } finally {
@@ -2002,7 +2020,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
-      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+      const chainKey = getEffectiveVaultChainKey();
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
@@ -2025,7 +2043,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       });
 
       setTxMsg(`Cycle start submitted. Tx: ${txHash}`);
-      setTimeout(() => refreshVaultState(), 1400);
+      setTimeout(() => refreshVaultState(getEffectiveVaultChainKey()), 1400);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Start cycle failed"));
     } finally {
@@ -2038,7 +2056,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     try {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
-      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+      const chainKey = getEffectiveVaultChainKey();
       const chainId = CHAIN_ID?.[chainKey] || 137;
       const vaultAddr = _getVaultAddrForChain(chainKey);
       if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
@@ -2062,8 +2080,8 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 
       setTxMsg(`Cycle end submitted. Tx: ${tx}`);
       // refresh vault state (inCycle should turn to NO after confirmation; refresh anyway)
-      setTimeout(() => { try { refreshVaultState(); } catch {} }, 1200);
-      setTimeout(() => { try { refreshVaultState(); } catch {} }, 4500);
+      setTimeout(() => { try { refreshVaultState(getEffectiveVaultChainKey()); } catch {} }, 1200);
+      setTimeout(() => { try { refreshVaultState(getEffectiveVaultChainKey()); } catch {} }, 4500);
       return tx;
     } catch (e) {
       setTxMsg(String(e?.message || e || "End cycle tx failed"));
@@ -2089,22 +2107,14 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 useEffect(() => {
     try { localStorage.setItem("nexus_wallet_bal_all", showAllWalletChains ? "1" : "0"); } catch (_) {}
   }, [showAllWalletChains]);
-// keep vault state fresh
+// keep vault state fresh using the hydrated grid/backend chain context
   useEffect(() => {
     if (!wallet) return;
-    const chain = String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
-    let forcedChain = chain;
-    try {
-      const savedCoin = String(
-        localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || ""
-      ).toUpperCase().trim();
-      if (["POL", "BNB", "ETH"].includes(savedCoin)) {
-        forcedChain = savedCoin;
-      }
-    } catch (_) {}
-    refreshVaultState(forcedChain);
+    const chainKey = getEffectiveVaultChainKey();
+    if (!chainKey) return;
+    refreshVaultState(chainKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, wsChainKey, balActiveChain, contracts]);
+  }, [wallet, contracts, activeGridChainKey, gridItem, balActiveChain, wsChainKey]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -4156,7 +4166,7 @@ setGridBusy((s) => ({ ...s, start: true }));
 
     // Safety: Grid runs autonomously via backend operator + Vault funds.
     // Require: Vault has budget deposited and operator is enabled (so backend can trade without further user signatures).
-    const chainKeyPre = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+    const chainKeyPre = getEffectiveVaultChainKey();
     const want = Number(gridInvestQty) || 0;
     const have = Number(vaultState?.polBalance || 0);
 
@@ -4189,7 +4199,7 @@ setGridBusy((s) => ({ ...s, start: true }));
     }
 
     try {
-      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+      const chainKey = getEffectiveVaultChainKey();
       const curPriceNum = Number(gridMeta?.price ?? 0) || 0;
       const investQty = Number(gridInvestQty) || 0;
       const investUsd = (investQty > 0 && curPriceNum > 0) ? (investQty * curPriceNum) : investQty;
@@ -4243,7 +4253,7 @@ if (!isGridReady) {
 setGridBusy((s) => ({ ...s, stop: true }));
 
     try {
-	  const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+	  const chainKey = getEffectiveVaultChainKey();
       const itemId =
         gridItemId ||
         gridMeta?.gridItemId ||
@@ -4363,7 +4373,7 @@ body.qty = qty;
     }
     setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
 
-    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+    const chainKey = getEffectiveVaultChainKey();
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
 
     // Try several known endpoints/methods (backend revisions differ)
@@ -4423,7 +4433,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
     }
     setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));
 
-    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+    const chainKey = getEffectiveVaultChainKey();
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
 
     // Some backends support POST /delete, others require DELETE, others use /remove
@@ -6123,7 +6133,7 @@ const vaultFreeQty = useMemo(
 
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); refreshVaultState(); }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); refreshVaultState(getEffectiveVaultChainKey()); }}
                       disabled={txBusy || !wallet}
                       className="btn ghost"
                       style={{ height: 40, paddingInline: 14, fontSize: 13 }}

@@ -4557,7 +4557,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
 
   return null;
 }, [watchRows, gridItem]);
-  const shownGridPrice = gridMeta.price ?? gridLiveFallback ?? gridNativeUsd[String(gridItem || '').toUpperCase()] ?? null;
+  const shownGridPrice = gridLiveFallback ?? gridNativeUsd[String(gridItem || '').toUpperCase()] ?? gridMeta.price ?? null;
 
   const setManualPriceFromMarket = () => {
     if (!shownGridPrice || !Number.isFinite(Number(shownGridPrice))) return;

@@ -3537,15 +3537,20 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   const [manualUsd, setManualUsd] = useState("");
   const [manualSlippagePct, setManualSlippagePct] = useState(5); // %
   const [manualDeadlineMin, setManualDeadlineMin] = useState(20); // minutes
-  const [gridQuickStepsStr, setGridQuickStepsStr] = useState("0.5, 1, 2");
+  const GRID_PRICE_PRESETS = useMemo(
+    () => ({
+      FAST: [0.25, 0.5, 1],
+      STANDARD: [0.5, 1, 2],
+      WIDE: [1, 2, 3],
+      VERY_WIDE: [5, 10, 15],
+    }),
+    []
+  );
+  const [manualPricePreset, setManualPricePreset] = useState("STANDARD");
   const gridQuickSteps = useMemo(() => {
-    const arr = (gridQuickStepsStr || "")
-      .split(/[,\s]+/)
-      .map((s) => parseFloat(s))
-      .filter((n) => Number.isFinite(n) && n > 0)
-      .slice(0, 8);
-    return arr.length ? arr : [0.5, 1, 2];
-  }, [gridQuickStepsStr]);
+    const arr = GRID_PRICE_PRESETS?.[manualPricePreset] || GRID_PRICE_PRESETS?.STANDARD || [0.5, 1, 2];
+    return Array.isArray(arr) ? arr : [0.5, 1, 2];
+  }, [GRID_PRICE_PRESETS, manualPricePreset]);
   const [manualQty, setManualQty] = useState("");
 
   // AI
@@ -6864,16 +6869,20 @@ const vaultFreeQty = useMemo(
                   <Help showClose dismissable
                     de={
                       <>
-                        <p><b>Price</b> ist dein Limit-Preis. <b>Qty</b> ist optional.</p>
-                        <p><b>Price preset</b> füllt die Prozent-Stufen schnell vor. <b>Quick price</b> setzt den Preis mit einem Klick auf Markt oder auf einen Abstand über / unter dem Markt.</p>
-                        <p>Eine Order wird <b>erst</b> mit <b>Add Order</b> erstellt.</p>
+                        <p><b>Price</b> ist dein Limit-Preis.</p>
+                        <p><b>Price preset</b> wählt die Prozent-Gruppe: Fast, Standard, Wide oder Very Wide.</p>
+                        <p><b>Quick price</b> übernimmt auf Basis des aktuellen Marktpreises direkt den gewünschten Prozent-Abstand in das Price-Feld.</p>
+                        <p><b>Add Order</b> erstellt die Order erst nach deiner Bestätigung.</p>
+                        <p><b>Qty</b> ist optional.</p>
                       </>
                     }
                     en={
                       <>
-                        <p><b>Price</b> is your limit price. <b>Qty</b> is optional.</p>
-                        <p><b>Price preset</b> fills the percentage steps quickly. <b>Quick price</b> sets the price in one click to market or to an offset above / below market.</p>
-                        <p>An order is created <b>only</b> when you press <b>Add Order</b>.</p>
+                        <p><b>Price</b> is your limit price.</p>
+                        <p><b>Price preset</b> chooses the percentage group: Fast, Standard, Wide or Very Wide.</p>
+                        <p><b>Quick price</b> fills the Price field from the current market price using the selected percentage distance.</p>
+                        <p><b>Add Order</b> creates the order only after your confirmation.</p>
+                        <p><b>Qty</b> is optional.</p>
                       </>
                     }
                   />
@@ -6921,36 +6930,54 @@ const vaultFreeQty = useMemo(
                 </div>
               </div>
 
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 8 }}>
-                <div className="muted" style={{ fontSize: 12, minWidth: 88 }}>Price preset:</div>
-                <select
-                  value=""
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (!v) return;
-                    setGridQuickStepsStr(v);
-                    e.target.value = "";
-                  }}
-                  style={{ maxWidth: 200 }}
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 10 }}>
+                <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Price preset:</div>
+
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => setManualPricePreset("FAST")}
+                  style={{ padding: "6px 12px", opacity: manualPricePreset === "FAST" ? 1 : 0.88 }}
+                  title="Fast preset (0.25 / 0.5 / 1)"
                 >
-                  <option value="">Presets…</option>
-                  <option value="0.25, 0.5, 1">Fast (0.25 / 0.5 / 1)</option>
-                  <option value="0.5, 1, 2">Standard (0.5 / 1 / 2)</option>
-                  <option value="1, 2, 3">Wide (1 / 2 / 3)</option>
-                  <option value="2, 3, 5">Very wide (2 / 3 / 5)</option>
-                </select>
-                <input
-                  value={gridQuickStepsStr}
-                  onChange={(e) => setGridQuickStepsStr(e.target.value)}
-                  placeholder="e.g. 0.5, 1, 2"
-                  style={{ maxWidth: 240 }}
-                />
-                <div className="muted" style={{ fontSize: 12 }}>comma separated</div>
+                  Fast
+                </button>
+
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => setManualPricePreset("STANDARD")}
+                  style={{ padding: "6px 12px", opacity: manualPricePreset === "STANDARD" ? 1 : 0.88 }}
+                  title="Standard preset (0.5 / 1 / 2)"
+                >
+                  Standard
+                </button>
+
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => setManualPricePreset("WIDE")}
+                  style={{ padding: "6px 12px", opacity: manualPricePreset === "WIDE" ? 1 : 0.88 }}
+                  title="Wide preset (1 / 2 / 3)"
+                >
+                  Wide
+                </button>
+
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => setManualPricePreset("VERY_WIDE")}
+                  style={{ padding: "6px 12px", opacity: manualPricePreset === "VERY_WIDE" ? 1 : 0.88 }}
+                  title="Very Wide preset (5 / 10 / 15)"
+                >
+                  Very Wide
+                </button>
               </div>
 
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -2, marginBottom: 10 }}>
-                <div className="muted" style={{ fontSize: 12, minWidth: 88 }}>Quick price:</div>
-                <button className="btnGhost" type="button" onClick={setManualPriceFromMarket} disabled={!shownGridPrice} title="Set price to current market">
+              <div className="row" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Quick price:</div>
+
+                <button className="btn" type="button" onClick={setManualPriceFromMarket} disabled={!shownGridPrice} title="Set price to current market" style={{ padding: "6px 12px" }}>
                   Market
                 </button>
 
@@ -6959,12 +6986,12 @@ const vaultFreeQty = useMemo(
                     {gridQuickSteps.map((p) => (
                       <button
                         key={p}
-                        className="btnGhost"
+                        className="btn"
                         type="button"
                         onClick={() => nudgeManualPricePct(-p)}
                         disabled={!shownGridPrice}
                         title={`Set BUY limit ${p}% below market`}
-                        style={{ padding: "6px 10px" }}
+                        style={{ padding: "6px 12px" }}
                       >
                         -{p}%
                       </button>
@@ -6975,12 +7002,12 @@ const vaultFreeQty = useMemo(
                     {gridQuickSteps.map((p) => (
                       <button
                         key={p}
-                        className="btnGhost"
+                        className="btn"
                         type="button"
                         onClick={() => nudgeManualPricePct(p)}
                         disabled={!shownGridPrice}
                         title={`Set SELL limit ${p}% above market`}
-                        style={{ padding: "6px 10px" }}
+                        style={{ padding: "6px 12px" }}
                       >
                         +{p}%
                       </button>

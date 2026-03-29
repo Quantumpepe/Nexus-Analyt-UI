@@ -1,5 +1,3 @@
-
-
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
@@ -2114,7 +2112,7 @@ useEffect(() => {
     if (!chainKey) return;
     refreshVaultState(chainKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, contracts, gridItem, balActiveChain, wsChainKey]);
+  }, [wallet, contracts, balActiveChain, wsChainKey]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });

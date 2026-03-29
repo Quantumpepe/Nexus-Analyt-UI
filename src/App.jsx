@@ -1,3 +1,5 @@
+
+
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
@@ -2105,12 +2107,23 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 useEffect(() => {
     try { localStorage.setItem("nexus_wallet_bal_all", showAllWalletChains ? "1" : "0"); } catch (_) {}
   }, [showAllWalletChains]);
-// keep vault state fresh using the hydrated grid/backend chain context
+// keep vault state fresh, but do not trust pre-hydration local chain defaults.
+// Wait until the grid/backend context is hydrated; otherwise the first vault read
+// can hit the wrong chain and only become correct after a manual chain toggle.
   useEffect(() => {
     if (!wallet) return;
+    if (typeof gridUiHydrated !== "undefined" && !gridUiHydrated) return;
+
     const chainKey = getEffectiveVaultChainKey();
     if (!chainKey) return;
-    refreshVaultState(chainKey);
+
+    const t1 = setTimeout(() => { try { refreshVaultState(chainKey); } catch (_) {} }, 120);
+    const t2 = setTimeout(() => { try { refreshVaultState(chainKey); } catch (_) {} }, 900);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet, contracts, balActiveChain, wsChainKey]);
 
@@ -3359,6 +3372,30 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     if (!sym) return "";
     return `${activeGridChainKey}:${sym}`;
   }, [activeGridChainKey, gridItem]);
+
+  // Authoritative vault refresh after grid UI hydration.
+  // This is the key fix for the remaining "must switch chain once" bug:
+  // after refresh, use the hydrated grid/native context, not stale wallet-tab defaults.
+  useEffect(() => {
+    if (!wallet) return;
+    if (!gridUiHydrated) return;
+
+    const nativeSym = String(gridItem || "").toUpperCase().trim();
+    const effectiveChain =
+      ["POL", "BNB", "ETH"].includes(nativeSym)
+        ? nativeSym
+        : String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase().trim();
+
+    if (!effectiveChain) return;
+
+    const t1 = setTimeout(() => { try { refreshVaultState(effectiveChain); } catch (_) {} }, 150);
+    const t2 = setTimeout(() => { try { refreshVaultState(effectiveChain); } catch (_) {} }, 950);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [wallet, gridUiHydrated, gridItem, activeGridChainKey, contracts]);
 
   // If the selected grid coin is a native coin, re-read the Vault on that chain after refresh.
   // Important: do NOT mutate wallet chain state here. We only force the vault read itself.

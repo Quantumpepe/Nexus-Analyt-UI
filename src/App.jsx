@@ -1,5 +1,3 @@
-
-
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
@@ -3466,12 +3464,24 @@ useEffect(() => {
   const [gridInvestQty, setGridInvestQty] = useState(250);
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
+  const [gridOrdersOpen, setGridOrdersOpen] = useState(false);
   const [gridVaultStats, setGridVaultStats] = useState({ vault: 0, reserved: 0, free: 0 });
   // Helper: extract order id from different backend schemas
   const idOf = (o) => o?.order_id ?? o?.orderId ?? o?.id ?? o?._id ?? o?.uuid ?? null;
 
   // Normalize orders coming from backend/polling so the UI can't show duplicates.
   // (Some backend revisions may return the same order twice during eventual consistency.)
+
+  useEffect(() => {
+    if (gridOrders.length === 0) {
+      setGridOrdersOpen(false);
+      return;
+    }
+    if (gridOrders.length <= 3) {
+      setGridOrdersOpen(true);
+    }
+  }, [gridOrders.length]);
+
   const normalizeGridOrders = useCallback(
     (arr) => {
       if (!Array.isArray(arr)) return [];
@@ -5234,60 +5244,6 @@ const vaultFreeQty = useMemo(
           }
           .gridRight{
             position: static;
-            width: 100%;
-            justify-self: stretch;
-          }
-        }
-
-        /* --- Grid mobile polish only (keep rest of app unchanged) --- */
-        .gridOrders, .ordersList, .orderRow { min-width: 0; }
-        @media (max-width: 640px){
-          .section-grid .gridRight{
-            width: 100%;
-            justify-self: stretch;
-          }
-          .section-grid .gridOrders{
-            width: 100%;
-            min-width: 0;
-          }
-          .section-grid .ordersList{
-            max-height: none !important;
-            overflow-x: hidden;
-            padding-right: 0 !important;
-          }
-          .section-grid .orderRowMobile{
-            grid-template-columns: auto minmax(0,1fr) !important;
-            gap: 8px !important;
-            align-items: start !important;
-          }
-          .section-grid .orderMetaMobile{
-            min-width: 0;
-            display: grid;
-            gap: 4px;
-          }
-          .section-grid .orderTopMobile{
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-            min-width: 0;
-          }
-          .section-grid .orderBottomMobile{
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            flex-wrap: wrap;
-            min-width: 0;
-          }
-          .section-grid .orderActionsMobile{
-            justify-content: flex-start !important;
-            flex-wrap: wrap;
-          }
-          .section-grid .orderProfitMobile{
-            margin-left: 0 !important;
-          }
-          .section-grid .gridLeft .row{
-            flex-wrap: wrap;
           }
         }
 `}</style>
@@ -7136,78 +7092,57 @@ const vaultFreeQty = useMemo(
 
             <div className="gridRight">
               <div className="gridOrders">
-              <div className="ordersHead">
-                <div className="label">Orders</div>
+              <div className="ordersHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="btnGhost"
+                  onClick={() => gridOrders.length && setGridOrdersOpen((v) => !v)}
+                  style={{ height: 32, paddingInline: 12, fontSize: 13 }}
+                  title={gridOrders.length ? (gridOrdersOpen ? "Hide orders" : "Show orders") : "No orders"}
+                >
+                  Orders {gridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
+                </button>
                 <span className="pill silver">{gridOrders.length} orders</span>
               </div>
 
               {gridOrders.length ? (
-                <div className="ordersList" style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
-                  {gridOrders.map((o) => {
-                    const currentPx = Number(shownGridPrice);
-                    const orderPx = Number(o?.price);
-                    const qty = Number(o?.qty);
-                    let estProfit = null;
-                    if (Number.isFinite(currentPx) && Number.isFinite(orderPx) && Number.isFinite(qty)) {
-                      if (String(o?.side || "").toUpperCase() === "BUY") {
-                        estProfit = (currentPx - orderPx) * qty;
-                      } else if (String(o?.side || "").toUpperCase() === "SELL") {
-                        estProfit = (orderPx - currentPx) * qty;
-                      }
-                    }
-                    const profitColor = estProfit == null ? "var(--muted)" : estProfit >= 0 ? "var(--green)" : "var(--red)";
-                    return (
-                    <div
-                      key={idOf(o) || `${o.side}-${o.price}-${o.created_ts}`}
-                      className="orderRow orderRowMobile"
-                      style={{ display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", gap: 10, alignItems: "center" }}
-                    >
-                      <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
+                gridOrdersOpen ? (
+                  <div className="ordersList" style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
+                    {gridOrders.map((o) => (
+                      <div key={idOf(o) || `${o.side}-${o.price}-${o.created_ts}`} className="orderRow" style={{ display: "grid", gridTemplateColumns: "auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
+                        <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
+                        <span className="orderPx">{fmtUsd(o.price)}</span>
+                        <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
+                        <span className="pill silver">{o.status || "OPEN"}</span>
 
-                      <div className="orderMetaMobile">
-                        <div className="orderTopMobile">
-                          <span className="orderPx">{fmtUsd(o.price)}</span>
-                          <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
-                        </div>
-
-                        <div className="orderBottomMobile">
-                          <span className="pill silver">{o.status || "OPEN"}</span>
-
-                          <div className="orderActionsMobile" style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                            <button
-                              type="button"
-                              className="btn ghost"
-                              style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                              disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
-                              onClick={() => stopGridOrder(idOf(o))}
-                              title="Stop this single order (backend will mark it as STOPPED)."
-                            >
-                              Stop
-                            </button>
-                            <button
-                              type="button"
-                              className="btn ghost"
-                              style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                              disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
-                              onClick={() => deleteGridOrder(idOf(o))}
-                              title="Delete this order"
-                            >
-                              Delete
-                            </button>
-
-                            <span
-                              className="tiny orderProfitMobile"
-                              style={{ color: profitColor, fontWeight: 800, marginLeft: 4, whiteSpace: "nowrap" }}
-                              title="Estimated PnL vs current price"
-                            >
-                              {estProfit == null ? "Est. —" : `${estProfit >= 0 ? "+" : ""}${fmtQty(estProfit, 4)} $`}
-                            </span>
-                          </div>
+                        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            className="btn ghost"
+                            style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                            disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
+                            onClick={() => stopGridOrder(idOf(o))}
+                            title="Stop this single order (backend will mark it as STOPPED)."
+                          >
+                            Stop
+                          </button>
+                          <button
+                            type="button"
+                            className="btn ghost"
+                            style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                            disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
+                            onClick={() => deleteGridOrder(idOf(o))}
+                            title="Delete this order from DB (only if backend supports it)."
+                          >
+                            Delete
+                          </button>
                         </div>
                       </div>
-                    </div>
-                    );
-                  })}                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="muted tiny" style={{ marginTop: 8 }}>Orders hidden. Tap Orders to open.</div>
+                )
               ) : (
                 <div className="muted">No orders yet. Press Start then Add Order.</div>
               )}

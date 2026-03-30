@@ -3372,12 +3372,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         confidenceLabel,
         risk,
         action,
-        gridMode,
-        gridRange,
+        mode: gridMode,
+        range: gridRange,
         verdictText,
         winner,
         loser,
-        why,
+        bullets: Array.isArray(why) ? why : [],
       });
       setAiExplainText("• " + bullets.join("\n• "));
     } catch (e) {
@@ -6897,7 +6897,7 @@ const vaultFreeQty = useMemo(
                       disabled={aiExplainLoading}
                       title={!isPro ? "Subscribe to Nexus Pro to use AI" : ""}
                     >
-                      {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight new1" : "Pro required")}
+                      {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight new" : "Pro required")}
                     </button>
                   </div>
                   {aiExplainData ? (
@@ -6944,7 +6944,7 @@ const vaultFreeQty = useMemo(
                       <div style={{ display: "grid", gap: 6 }}>
                         <div className="label" style={{ marginBottom: 0 }}>Why this setup</div>
                         <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
-                          {aiExplainData.bullets.map((line, idx) => (
+                          {(Array.isArray(aiExplainData.bullets) ? aiExplainData.bullets : []).map((line, idx) => (
                             <div key={idx}>• {line}</div>
                           ))}
                         </div>

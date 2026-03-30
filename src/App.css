@@ -551,3 +551,459 @@ body{
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* ===============================
+   Mobile polish + missing UI classes
+   =============================== */
+.nexusApp{
+  width:100%;
+}
+
+.cardBody{ display:flex; flex-direction:column; gap:12px; }
+.helpBlock{ display:flex; flex-direction:column; gap:6px; }
+.helpBody{ display:flex; flex-direction:column; gap:10px; }
+.chartEmpty{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border:1px dashed rgba(210,220,230,.18);
+  border-radius:18px;
+  background:rgba(0,0,0,.12);
+}
+.chartWrap{ width:100%; }
+.chartHeader,
+.pairsHead,
+.ordersHead,
+.row,
+.btnRow,
+.liveMeta{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.rowBtn{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.flex{ display:flex; }
+.items-center{ align-items:center; }
+.gap-2{ gap:.5rem; }
+.label{
+  font-size:12px;
+  font-weight:800;
+  color:var(--txt-muted);
+  margin-bottom:6px;
+}
+.input,
+.select,
+.formRow textarea{
+  width:100%;
+  min-height:40px;
+  padding:10px 12px;
+  border-radius:12px;
+  border:1px solid var(--border-soft);
+  background:#071816;
+  color:var(--txt-main);
+  font:inherit;
+}
+.formRow textarea{
+  min-height:96px;
+  resize:vertical;
+}
+.ghostBtn,
+.btn.ghost,
+.btnGhost.ghost,
+.btn.secondary,
+.btnGhost.secondary,
+.secondary{
+  background:transparent;
+  border:1px solid var(--border-soft);
+  color:var(--txt-main);
+}
+.btn.ghost:hover,
+.btnGhost.ghost:hover,
+.ghostBtn:hover,
+.btn.secondary:hover,
+.btnGhost.secondary:hover{
+  border-color:rgba(210,220,230,.28);
+  background:rgba(255,255,255,.04);
+}
+.btnPill{
+  padding:8px 12px;
+  border-radius:999px;
+  border:1px solid var(--border-soft);
+  background:rgba(255,255,255,.05);
+  color:var(--txt-main);
+  font-weight:800;
+  cursor:pointer;
+}
+.btnPill:hover{ border-color:rgba(210,220,230,.28); }
+.pillOn,
+.pillOff,
+.infoDot{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:24px;
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:900;
+}
+.pillOn{
+  color:#082014;
+  background:rgba(46,204,113,.9);
+}
+.pillOff{
+  color:#fff;
+  background:rgba(231,76,60,.85);
+}
+.infoDot{
+  width:22px;
+  min-width:22px;
+  padding:0;
+  background:rgba(255,255,255,.08);
+  color:var(--txt-main);
+}
+.hr{ height:1px; background:var(--border-soft); margin:10px 0; }
+.hint,
+.tiny,
+.text-xs{ font-size:12px; color:var(--txt-muted); }
+.liveSym,
+.watchSym,
+.orderPx{ font-weight:900; }
+.gridLayout,
+.gridControls,
+.gridOrders,
+.gridLeft,
+.gridRight,
+.pairsBox,
+.aiOut,
+.aiSelect,
+.section-compare,
+.section-grid,
+.section-watch,
+.section-ai,
+.mobileStack{
+  min-width:0;
+}
+
+@media (max-width: 768px){
+  body{
+    font-size:14px;
+    line-height:1.4;
+  }
+
+  .topbar{
+    flex-direction:column;
+    align-items:stretch;
+    gap:12px;
+    padding:14px 14px 10px;
+  }
+  .brand{ gap:10px; }
+  .brandTitle{ font-size:18px; }
+  .brandSub{ font-size:12px; }
+  .logoBox{
+    width:38px;
+    height:38px;
+    border-radius:12px;
+  }
+  .logoSvg{ width:24px; height:24px; }
+  .walletBox{ width:100%; }
+  .walletRow{
+    width:100%;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .walletRow > *{
+    flex:1 1 auto;
+  }
+
+  .main{
+    padding:0 12px 24px;
+  }
+  .card{
+    border-radius:18px;
+    padding:12px;
+    margin-bottom:14px;
+  }
+  .cardHead{
+    align-items:flex-start;
+    gap:8px;
+    margin-bottom:10px;
+  }
+  .cardTitle{ font-size:16px; }
+  .cardActions,
+  .chartHeader,
+  .pairsHead,
+  .ordersHead,
+  .btnRow,
+  .row,
+  .rowBtn,
+  .healthChips,
+  .chartLegend,
+  .aiChips{
+    gap:6px;
+  }
+
+  .btn,
+  .btnGhost,
+  .btnDanger,
+  .btnPill,
+  .chip,
+  .pill,
+  .legendItem{
+    min-height:36px;
+    padding:8px 11px;
+    border-radius:12px;
+    font-size:13px;
+  }
+  .pill{
+    min-height:30px;
+    padding:5px 9px;
+    font-size:12px;
+  }
+  .infoBtn,
+  .iconBtn{
+    width:30px;
+    height:30px;
+    border-radius:10px;
+  }
+
+  .formRow{
+    margin-bottom:8px;
+  }
+  .formRow input,
+  .formRow select,
+  .input,
+  .select,
+  .formRow textarea{
+    min-height:38px;
+    padding:9px 10px;
+    border-radius:10px;
+    font-size:13px;
+  }
+  .label,
+  .tiny,
+  .text-xs,
+  .hint,
+  .helpLangTitle,
+  .brandSub,
+  .watchHead,
+  .muted{
+    font-size:12px;
+  }
+  .helpText,
+  .aiText{ font-size:13px; }
+
+  .compareLive,
+  .aiPanel,
+  .compareChart{
+    border-radius:14px;
+  }
+  .liveListBox{ max-height:240px; }
+  .liveRow{
+    padding:7px 8px;
+    border-radius:12px;
+    margin-bottom:6px;
+  }
+
+  .coinChip{
+    padding:6px 10px;
+    gap:8px;
+  }
+  .coinLogo{
+    width:24px;
+    height:24px;
+    font-size:12px;
+  }
+  .coinLogo.small{
+    width:20px;
+    height:20px;
+    font-size:11px;
+  }
+
+  .gridWrap,
+  .compareGrid,
+  .aiWrap{
+    gap:12px;
+  }
+  .ordersList{ margin-top:8px; }
+  .orderRow{
+    gap:8px;
+    align-items:flex-start;
+    padding:7px 0;
+    font-size:13px;
+  }
+
+  .watchTable{ margin-top:8px; }
+  .watchHead,
+  .watchRow{
+    min-width:680px;
+    gap:6px;
+  }
+  .watchRow{
+    padding:7px;
+    border-radius:12px;
+    margin-bottom:5px;
+    font-size:13px;
+  }
+  .watchScroll{
+    max-height:280px;
+    padding-right:4px;
+  }
+
+  .sparkGrid{
+    grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+    gap:6px;
+    max-height:300px;
+  }
+  .sparkTile{
+    padding:6px;
+    border-radius:12px;
+  }
+  .sparkSvg{ height:50px; }
+  .sparkSym,
+  .sparkVal,
+  .sparkFoot{ font-size:10px; }
+
+  .pairsScroll{ max-height:160px; }
+  .pairRow{
+    padding:7px 8px;
+    gap:8px;
+    border-radius:12px;
+    margin-bottom:6px;
+  }
+
+  .modal,
+  .modalHelp{
+    width:min(96vw, 520px);
+    max-height:86vh;
+    overflow:auto;
+    border-radius:16px;
+    padding:14px;
+  }
+
+  [role="dialog"][aria-label="Wallet details"]{
+    top:46px !important;
+    right:0 !important;
+    left:auto !important;
+    width:min(92vw, 360px) !important;
+    max-height:78vh;
+    overflow:auto;
+    padding:12px !important;
+    border-radius:14px !important;
+  }
+  [role="dialog"][aria-label="Withdraw & Send"] > div{
+    width:min(96vw, 520px) !important;
+    max-height:88vh;
+    overflow:auto;
+    padding:12px !important;
+    border-radius:14px !important;
+  }
+}
+
+@media (max-width: 560px){
+  .topbar{
+    padding:12px 12px 8px;
+    gap:10px;
+  }
+  .brandTitle{ font-size:17px; }
+  .main{ padding:0 10px 20px; }
+  .card{
+    padding:10px;
+    border-radius:16px;
+    margin-bottom:12px;
+  }
+  .cardTitle{ font-size:15px; }
+
+  .btn,
+  .btnGhost,
+  .btnDanger,
+  .btnPill,
+  .chip,
+  .legendItem{
+    min-height:34px;
+    padding:7px 10px;
+    font-size:12px;
+    border-radius:11px;
+  }
+  .pill{
+    min-height:28px;
+    padding:4px 8px;
+    font-size:11px;
+  }
+  .cardActions,
+  .walletRow,
+  .btnRow,
+  .row,
+  .rowBtn,
+  .healthChips,
+  .chartLegend,
+  .aiChips{
+    gap:5px;
+  }
+
+  .formRow input,
+  .formRow select,
+  .input,
+  .select,
+  .formRow textarea{
+    min-height:36px;
+    padding:8px 9px;
+    font-size:12px;
+  }
+  .label,
+  .tiny,
+  .text-xs,
+  .hint,
+  .helpLangTitle,
+  .watchHead,
+  .muted{
+    font-size:11px;
+  }
+  .helpText,
+  .aiText,
+  .watchRow,
+  .orderRow{ font-size:12px; }
+
+  .compareLive,
+  .aiPanel,
+  .compareChart,
+  .liveRow,
+  .pairRow,
+  .sparkTile,
+  .watchRow{
+    border-radius:12px;
+  }
+  .coinChip{
+    padding:6px 8px;
+    gap:6px;
+  }
+  .coinLogo{
+    width:22px;
+    height:22px;
+    font-size:11px;
+  }
+  .coinLogo.small{
+    width:18px;
+    height:18px;
+    font-size:10px;
+  }
+
+  .watchHead,
+  .watchRow{
+    min-width:620px;
+  }
+  .watchScroll{ max-height:240px; }
+
+  .sparkGrid{
+    grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+    gap:5px;
+    max-height:280px;
+  }
+  .sparkSvg{ height:44px; }
+
+  [role="dialog"][aria-label="Wallet details"]{
+    width:min(96vw, 360px) !important;
+    top:44px !important;
+  }
+}

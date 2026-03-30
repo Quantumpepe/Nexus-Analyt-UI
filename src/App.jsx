@@ -2395,7 +2395,7 @@ useEffect(() => {
         // Keep silent in UI. If auto-auth fails, the normal on-demand flow still works.
         _autoAuthStarted.current = false;
       }
-    }, 5000);
+    }, 3000);
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps

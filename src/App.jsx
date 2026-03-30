@@ -1,5 +1,3 @@
-
-
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??

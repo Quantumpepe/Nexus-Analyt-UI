@@ -1578,7 +1578,6 @@ const [errorMsg, setErrorMsg] = useState("");
 
   const _loginRetryUsed = useRef(false);
   const _backendAuthInFlight = useRef(false);
-  const _privyWalletReadyAt = useRef(0);
 
   // auth
   // NOTE: Backend expects its OWN Bearer token (issued by /api/auth/verify),
@@ -2271,46 +2270,14 @@ useEffect(() => {
   };
 
   // Sync Privy auth + embedded wallet into our local UI state.
-  // This keeps the app working without any MetaMask flow.
+  // IMPORTANT:
+  // Keep the initial Privy wallet-creation flow as light as possible:
+  // - set wallet
+  // - fetch Privy access token
+  // - do NOT immediately trigger backend nonce/sign/verify here
+  // Access / Redeem / Subscribe continue to work via wallet + refreshAccess().
   useEffect(() => {
     let cancelled = false;
-    let authTimer = null;
-
-    const signWithEmbeddedWallet = async (embeddedWallet, message, address) => {
-      if (!embeddedWallet) throw new Error("No wallet available to sign.");
-      const addr = String(address || embeddedWallet?.address || "").toLowerCase();
-      if (!addr) throw new Error("Missing wallet address.");
-
-      // Privy wallet implements EIP-1193 provider.
-      const provider = await embeddedWallet.getEthereumProvider?.();
-      if (!provider?.request) throw new Error("Wallet provider not available.");
-
-      // personal_sign expects params: [message, address] on most providers.
-      return await provider.request({ method: "personal_sign", params: [String(message), addr] });
-    };
-
-    const ensureBackendAuthToken = async (address, embeddedWallet) => {
-      const addr = String(address || "").toLowerCase();
-      if (!addr) return "";
-
-      const nonceRes = await api("/api/auth/nonce", {
-        method: "POST",
-        body: { address: addr },
-      });
-      const message = nonceRes?.message;
-      const nonce = nonceRes?.nonce;
-      if (!message || !nonce) throw new Error("Auth nonce failed");
-
-      const signature = await signWithEmbeddedWallet(embeddedWallet, message, addr);
-
-      const verifyRes = await api("/api/auth/verify", {
-        method: "POST",
-        body: { address: addr, message, signature, nonce },
-      });
-      const backendToken = verifyRes?.token;
-      if (!backendToken) throw new Error("Auth verify failed");
-      return String(backendToken);
-    };
 
     (async () => {
       if (!ready) return;
@@ -2319,7 +2286,6 @@ useEffect(() => {
         setWallet("");
         setToken("");
         setPrivyJwt("");
-        _privyWalletReadyAt.current = 0;
         return;
       }
 
@@ -2333,7 +2299,6 @@ useEffect(() => {
       const addr = String(embedded?.address || "").toLowerCase();
       if (!cancelled && addr) {
         setWallet(addr);
-        if (!_privyWalletReadyAt.current) _privyWalletReadyAt.current = Date.now();
       }
 
       try {
@@ -2342,41 +2307,16 @@ useEffect(() => {
       } catch {
         if (!cancelled) setPrivyJwt("");
       }
-
-      // Important: wait briefly before backend signing so Privy can finish wallet creation.
-      try {
-        if (cancelled) return;
-        if (!token && addr && embedded && !_backendAuthInFlight.current) {
-          authTimer = setTimeout(async () => {
-            try {
-              if (cancelled) return;
-              const provider = await embedded?.getEthereumProvider?.();
-              if (!provider?.request) return;
-
-              _backendAuthInFlight.current = true;
-              const bt = await ensureBackendAuthToken(addr, embedded);
-              if (!cancelled && bt) setToken(bt);
-            } catch (_) {
-              // keep UI usable; protected endpoints can request auth again later
-            } finally {
-              _backendAuthInFlight.current = false;
-            }
-          }, 1400);
-        }
-      } catch (_) {
-        _backendAuthInFlight.current = false;
-      }
     })();
 
     return () => {
       cancelled = true;
-      try { if (authTimer) clearTimeout(authTimer); } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, authenticated, privyWallets?.length]);
 
   const connectWallet = async () => {
-    // Connect = Privy login only (email/embedded). Never trigger MetaMask here.
+    // Keep login simple to avoid interfering with Privy's wallet-creation UI.
     try {
       if (!ready) return;
       if (authenticated) return;

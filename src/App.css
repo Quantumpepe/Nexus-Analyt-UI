@@ -3,6 +3,10 @@
    Green + Silver trading UI
    =============================== */
 
+/* ===============================
+   Nexus Analyt – App.css
+   =============================== */
+
 :root{
   --bg-main:#071816;
   --bg-card:#0b2622;
@@ -17,15 +21,38 @@
 }
 
 *{ box-sizing:border-box; }
+
+/* 🔥 BACKGROUND FIX (NEU) */
 body{
   margin:0;
-  background:radial-gradient(1200px 800px at 10% 0%, #0e3a31 0%, var(--bg-main) 55%);
   color:var(--txt-main);
   font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+
+  background:
+    linear-gradient(rgba(5,22,20,0.6), rgba(5,22,20,0.8)),
+    url("/Neostadt.png");
+
+  background-size: cover;
+  background-position: right center;
+  background-attachment: fixed;
 }
 
+/* 🔥 Blur Layer */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  backdrop-filter: blur(3px);
+  background: rgba(0,0,0,0.15);
+  z-index: -1;
+}
+
+/* ===============================
+   Rest bleibt unverändert
+   =============================== */
 .app{ min-height:100vh; }
 
+/* ... (DEIN GANZER RESTLICHER CSS BLEIBT GENAU SO WIE ER IST) ... */
 /* ===============================
    Topbar
    =============================== */

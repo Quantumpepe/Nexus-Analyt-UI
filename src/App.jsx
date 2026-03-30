@@ -1551,6 +1551,20 @@ useEffect(() => {
   const [watchErr, setWatchErr] = useState("");
 const [errorMsg, setErrorMsg] = useState("");
 
+  const isCompactMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+  const compactGridChipStyle = {
+    minHeight: isCompactMobile ? "28px" : "34px",
+    height: isCompactMobile ? "28px" : "34px",
+    padding: isCompactMobile ? "0 10px" : "6px 12px",
+    borderRadius: isCompactMobile ? "10px" : "12px",
+    fontSize: isCompactMobile ? "12px" : "13px",
+    lineHeight: 1,
+    fontWeight: 700,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  };
+
 
   // Privy (Auth + embedded wallet). IMPORTANT: We do NOT trigger MetaMask here.
   // External wallets must be optional and only enabled explicitly elsewhere.
@@ -6984,7 +6998,7 @@ const vaultFreeQty = useMemo(
                   className="btn"
                   type="button"
                   onClick={() => setManualPricePreset("FAST")}
-                  style={{ padding: "6px 12px", opacity: manualPricePreset === "FAST" ? 1 : 0.88 }}
+                  style={{ ...compactGridChipStyle, opacity: manualPricePreset === "FAST" ? 1 : 0.88 }}
                   title="Fast preset (0.25 / 0.5 / 1)"
                 >
                   Fast
@@ -6994,7 +7008,7 @@ const vaultFreeQty = useMemo(
                   className="btn"
                   type="button"
                   onClick={() => setManualPricePreset("STANDARD")}
-                  style={{ padding: "6px 12px", opacity: manualPricePreset === "STANDARD" ? 1 : 0.88 }}
+                  style={{ ...compactGridChipStyle, opacity: manualPricePreset === "STANDARD" ? 1 : 0.88 }}
                   title="Standard preset (0.5 / 1 / 2)"
                 >
                   Standard
@@ -7004,7 +7018,7 @@ const vaultFreeQty = useMemo(
                   className="btn"
                   type="button"
                   onClick={() => setManualPricePreset("WIDE")}
-                  style={{ padding: "6px 12px", opacity: manualPricePreset === "WIDE" ? 1 : 0.88 }}
+                  style={{ ...compactGridChipStyle, opacity: manualPricePreset === "WIDE" ? 1 : 0.88 }}
                   title="Wide preset (1 / 2 / 3)"
                 >
                   Wide
@@ -7014,7 +7028,7 @@ const vaultFreeQty = useMemo(
                   className="btn"
                   type="button"
                   onClick={() => setManualPricePreset("VERY_WIDE")}
-                  style={{ padding: "6px 12px", opacity: manualPricePreset === "VERY_WIDE" ? 1 : 0.88 }}
+                  style={{ ...compactGridChipStyle, opacity: manualPricePreset === "VERY_WIDE" ? 1 : 0.88 }}
                   title="Very Wide preset (5 / 10 / 15)"
                 >
                   Very Wide
@@ -7024,7 +7038,7 @@ const vaultFreeQty = useMemo(
               <div className="row" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
                 <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Quick price:</div>
 
-                <button className="btn" type="button" onClick={setManualPriceFromMarket} disabled={!shownGridPrice} title="Set price to current market" style={{ padding: "6px 12px" }}>
+                <button className="btn" type="button" onClick={setManualPriceFromMarket} disabled={!shownGridPrice} title="Set price to current market" style={compactGridChipStyle}>
                   Market
                 </button>
 
@@ -7038,7 +7052,7 @@ const vaultFreeQty = useMemo(
                         onClick={() => nudgeManualPricePct(-p)}
                         disabled={!shownGridPrice}
                         title={`Set BUY limit ${p}% below market`}
-                        style={{ padding: "6px 12px" }}
+                        style={compactGridChipStyle}
                       >
                         -{p}%
                       </button>
@@ -7054,7 +7068,7 @@ const vaultFreeQty = useMemo(
                         onClick={() => nudgeManualPricePct(p)}
                         disabled={!shownGridPrice}
                         title={`Set SELL limit ${p}% above market`}
-                        style={{ padding: "6px 12px" }}
+                        style={compactGridChipStyle}
                       >
                         +{p}%
                       </button>

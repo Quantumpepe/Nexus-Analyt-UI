@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@privy-io/react-auth": "^3.11.0",
+    "@privy-io/react-auth": "3.11.0",
     "@walletconnect/ethereum-provider": "^2.23.1",
     "alchemy-sdk": "^3.6.5",
     "buffer": "^6.0.3",

@@ -1,5 +1,3 @@
-
-
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
@@ -5135,12 +5133,14 @@ const vaultFreeQty = useMemo(
           header.topbar {
             flex-wrap: wrap;
             align-items: flex-start;
-            gap: 10px;
-            padding-bottom: 10px;
+            gap: 4px;
+            padding-top: 6px;
+            padding-bottom: 4px;
           }
           header.topbar .brand {
             flex: 1 1 240px;
             min-width: 220px;
+            margin-bottom: 0;
           }
           header.topbar .walletBox {
             flex: 1 1 100%;
@@ -5148,7 +5148,8 @@ const vaultFreeQty = useMemo(
             display: flex;
             flex-wrap: wrap;
             justify-content: flex-start;
-            gap: 8px;
+            gap: 6px;
+            margin-top: 0;
           }
           header.topbar .walletBox > * {
             flex: 0 0 auto;

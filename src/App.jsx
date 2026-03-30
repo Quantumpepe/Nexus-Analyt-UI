@@ -1669,6 +1669,56 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     return provider;
   };
 
+  const signWithEmbeddedWallet = async (embeddedWallet, message, address) => {
+    if (!embeddedWallet) throw new Error("No wallet available to sign.");
+    const addr = String(address || embeddedWallet?.address || "").toLowerCase();
+    if (!addr) throw new Error("Missing wallet address.");
+    const provider = await embeddedWallet.getEthereumProvider?.();
+    if (!provider?.request) throw new Error("Wallet provider not available.");
+    return await provider.request({ method: "personal_sign", params: [String(message), addr] });
+  };
+
+  const ensureBackendAuthToken = async (force = false) => {
+    const addr = String(wallet || "").toLowerCase();
+    if (!addr) throw new Error("Connect wallet first.");
+    if (!force && token) return token;
+    if (_backendAuthInFlight.current) throw new Error("Authorization already in progress.");
+
+    const embedded =
+      privyWallets?.find((w) =>
+        ["privy", "embedded"].includes(String(w?.walletClientType || "").toLowerCase()) ||
+        String(w?.connectorType || "").toLowerCase() === "embedded"
+      ) ||
+      privyWallets?.[0];
+
+    if (!embedded) throw new Error("Please reconnect your wallet to authorize.");
+
+    _backendAuthInFlight.current = true;
+    try {
+      const nonceRes = await api("/api/auth/nonce", {
+        method: "POST",
+        body: { address: addr },
+      });
+      const message = nonceRes?.message;
+      const nonce = nonceRes?.nonce;
+      if (!message || !nonce) throw new Error("Auth nonce failed.");
+
+      const signature = await signWithEmbeddedWallet(embedded, message, addr);
+
+      const verifyRes = await api("/api/auth/verify", {
+        method: "POST",
+        body: { address: addr, message, signature, nonce },
+      });
+      const backendToken = String(verifyRes?.token || "");
+      if (!backendToken) throw new Error("Auth verify failed.");
+
+      setToken(backendToken);
+      return backendToken;
+    } finally {
+      _backendAuthInFlight.current = false;
+    }
+  };
+
   const _trySwitchChain = async (provider, chainId) => {
     if (!provider?.request || !chainId) return;
     const hexChainId = "0x" + Number(chainId).toString(16);
@@ -5037,6 +5087,7 @@ async function runAi() {
 
     setAiLoading(true);
     try {
+      const authToken = await ensureBackendAuthToken();
       // Chart timeframe is the source of truth for Pro mode.
       const tf = String(timeframe || "").toUpperCase();
 

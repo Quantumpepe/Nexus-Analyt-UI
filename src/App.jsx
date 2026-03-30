@@ -1,3 +1,5 @@
+
+
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
@@ -5131,25 +5133,40 @@ const vaultFreeQty = useMemo(
 
         @media (max-width: 820px) {
           header.topbar {
-            flex-wrap: wrap;
-            align-items: flex-start;
-            gap: 3px;
-            padding-top: 4px;
-            padding-bottom: 3px;
+            flex-direction: column !important;
+            flex-wrap: nowrap !important;
+            justify-content: flex-start !important;
+            align-items: stretch !important;
+            row-gap: 4px !important;
+            column-gap: 4px !important;
+            padding-top: 4px !important;
+            padding-bottom: 4px !important;
+            min-height: 0 !important;
           }
           header.topbar .brand {
-            flex: 1 1 240px;
-            min-width: 220px;
-            margin-bottom: 0;
+            flex: 0 0 auto !important;
+            min-width: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            gap: 8px !important;
+          }
+          header.topbar .brandTitle {
+            line-height: 1.05 !important;
+            margin: 0 !important;
+          }
+          header.topbar .brandSub {
+            margin-top: 1px !important;
           }
           header.topbar .walletBox {
-            flex: 1 1 100%;
-            width: 100%;
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: flex-start;
-            gap: 6px;
-            margin-top: 0;
+            flex: 0 0 auto !important;
+            width: 100% !important;
+            display: flex !important;
+            flex-direction: column !important;
+            flex-wrap: nowrap !important;
+            justify-content: flex-start !important;
+            gap: 4px !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
           }
           header.topbar .walletBox > * {
             flex: 0 0 auto;
@@ -7273,7 +7290,7 @@ const vaultFreeQty = useMemo(
                       </div>
                     </div>
                     <div className="right mono">{fmtUsd(r.price)}</div>
-                    <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`}>{fmtPct(r.change24h)}</div>
+                    <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
                     <div className="right mono">{fmtUsd(r.volume24h)}</div>
                     <div className="right muted">{r.source || "—"}</div>
                     <div className="right"><button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>

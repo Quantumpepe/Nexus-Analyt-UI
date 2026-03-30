@@ -3255,22 +3255,133 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       const ra = _retPctForExplain(a);
       const rb = _retPctForExplain(b);
       const spread = (Number.isFinite(ra) && Number.isFinite(rb)) ? (ra - rb) : null;
-      const corr = selectedPair?.corr;
+      const corr = Number(selectedPair?.corr);
+
+      const winner = Number.isFinite(ra) && Number.isFinite(rb)
+        ? (ra >= rb ? a : b)
+        : null;
+      const loser = Number.isFinite(ra) && Number.isFinite(rb)
+        ? (ra >= rb ? b : a)
+        : null;
+
+      let setup = "Neutral";
+      let confidence = 5.4;
+      let confidenceLabel = "MEDIUM";
+      let risk = "Medium";
+      let action = "Watch this pair and wait for a cleaner setup.";
+      let gridMode = "Standard";
+      let gridRange = "2–4%";
+      let why = [];
+      let verdictText = "This pair is interesting, but the signal is not strong enough for a clear grid bias yet.";
+
+      if (Number.isFinite(corr)) {
+        if (corr >= 0.9) confidence += 1.8;
+        else if (corr >= 0.8) confidence += 1.2;
+        else if (corr >= 0.65) confidence += 0.6;
+        else if (corr < 0.45) confidence -= 1.4;
+      }
+
+      if (Number.isFinite(spread)) {
+        const absSpread = Math.abs(spread);
+        if (absSpread >= 4) confidence += 1.6;
+        else if (absSpread >= 2) confidence += 1.0;
+        else if (absSpread >= 1) confidence += 0.5;
+        else confidence -= 0.4;
+      }
+
+      if (Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(spread) && Math.abs(spread) >= 0.75 && winner && loser) {
+        setup = "MEAN REVERSION";
+        action = `Sell ${winner} (outperformer) and accumulate ${loser} (underperformer).`;
+        verdictText = `${winner} outperformed ${loser} over ${PAIR_EXPLAIN_TF}. With a relatively high correlation, this looks like a mean-reversion/grid candidate.`;
+        why.push(`High correlation (${corr >= 0 ? "+" : ""}${corr.toFixed(2)}) means both coins often move together.`);
+        why.push(`The performance spread of ${_fmtPctLocal(spread)} creates a usable imbalance for a reversion idea.`);
+        why.push(`${winner} is currently the stronger side, ${loser} the weaker side.`);
+        if (Math.abs(spread) >= 4) {
+          gridMode = "Wide";
+          gridRange = "4–6%";
+          risk = "Medium-High";
+        } else if (Math.abs(spread) >= 2) {
+          gridMode = "Standard";
+          gridRange = "3–5%";
+          risk = "Medium";
+        } else {
+          gridMode = "Standard";
+          gridRange = "2–4%";
+          risk = "Medium";
+        }
+      } else if (Number.isFinite(corr) && corr < 0.45) {
+        setup = "AVOID";
+        confidence -= 1.2;
+        confidenceLabel = "LOW";
+        risk = "High";
+        action = "Avoid grid here for now. Correlation is too weak.";
+        verdictText = "This pair is not moving together reliably enough for a clean grid/rebalance setup.";
+        why.push(`Low correlation (${Number.isFinite(corr) ? ((corr >= 0 ? "+" : "") + corr.toFixed(2)) : "—"}) weakens the grid logic.`);
+        why.push("Pairs with weak correlation can drift apart instead of reverting.");
+        why.push("This increases the chance of holding the wrong side while trend continues.");
+        gridMode = "Wait";
+        gridRange = "No setup";
+      } else if (Number.isFinite(spread) && Math.abs(spread) < 0.75) {
+        setup = "WAIT";
+        confidence -= 0.6;
+        confidenceLabel = "LOW-MED";
+        risk = "Low-Medium";
+        action = "Wait for a larger spread before opening a grid idea.";
+        verdictText = "The pair is correlated enough, but the spread is still too small to create a strong reversion edge.";
+        why.push("The current performance gap is still narrow.");
+        why.push("Without enough spread, grid entries can feel random and weak.");
+        why.push("A clearer imbalance usually gives the better setup.");
+        gridMode = "Wait";
+        gridRange = "Below 2%";
+      } else if (winner && loser) {
+        setup = "TREND BIAS";
+        confidence += 0.2;
+        confidenceLabel = "MEDIUM";
+        risk = "Medium-High";
+        action = `Be careful: ${winner} is leading, but correlation/spread quality is mixed. Use smaller budget if you trade it.`;
+        verdictText = `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence grid setup.`;
+        why.push("There is a leader and a laggard, but the data is not perfectly aligned for a strong reversion setup.");
+        why.push("Mixed conditions increase the chance of trend continuation.");
+        why.push("If you trade it, reduce size and widen the grid.");
+        gridMode = "Wide";
+        gridRange = "4–6%";
+      }
+
+      confidence = Math.max(1, Math.min(9.9, Number(confidence.toFixed(1))));
+      if (confidence >= 8.2) confidenceLabel = "HIGH";
+      else if (confidence >= 6.6) confidenceLabel = "MEDIUM";
+      else if (confidenceLabel === "MEDIUM") confidenceLabel = "LOW-MED";
 
       const bullets = [];
       if (Number.isFinite(ra) && Number.isFinite(rb)) {
-        bullets.push(`${a} moved ${_fmtPctLocal(ra)} while ${b} moved ${_fmtPctLocal(rb)} over $PAIR_EXPLAIN_TF.`);
+        bullets.push(`${a} moved ${_fmtPctLocal(ra)} while ${b} moved ${_fmtPctLocal(rb)} over ${PAIR_EXPLAIN_TF}.`);
         bullets.push(`Performance spread is ${_fmtPctLocal(spread)} (A minus B).`);
       } else {
         bullets.push("Not enough data to compute reliable performance spread for this range.");
       }
-      if (typeof corr === "number") {
+      if (Number.isFinite(corr)) {
         bullets.push(`Correlation is ${(corr >= 0 ? "+" : "") + corr.toFixed(2)} (higher means they often move together).`);
       }
-      bullets.push("Grid idea: consider selling the outperformer and accumulating the underperformer (reversion bet) — only if you accept trend risk.");
-      bullets.push("Risk: if a strong trend continues, grids can bleed. Use small budget, wider steps, and stop rules.");
+      bullets.push(`Suggested grid mode: ${gridMode}.`);
+      bullets.push(`Suggested range: ${gridRange}.`);
+      bullets.push(`Risk profile: ${risk}.`);
+
+      setAiExplainData({
+        setup,
+        confidence,
+        confidenceLabel,
+        risk,
+        action,
+        gridMode,
+        gridRange,
+        verdictText,
+        winner,
+        loser,
+        why,
+      });
       setAiExplainText("• " + bullets.join("\n• "));
     } catch (e) {
+      setAiExplainData(null);
       setAiExplainText("AI commentary failed.");
     } finally {
       setAiExplainLoading(false);

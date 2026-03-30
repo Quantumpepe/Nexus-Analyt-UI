@@ -2945,6 +2945,7 @@ const byChain = {};
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }
   const [aiExplainLoading, setAiExplainLoading] = useState(false);
   const [aiExplainText, setAiExplainText] = useState("");
+  const [aiExplainData, setAiExplainData] = useState(null);
   const [pairExplainSeries, setPairExplainSeries] = useState({}); // {SYM: [values...]}
   const [pairExplainLoading, setPairExplainLoading] = useState(false);
 
@@ -3059,6 +3060,7 @@ function _fmtPctLocal(x) {
   function openPairExplain(p) {
     setSelectedPair(p);
     setAiExplainText("");
+    setAiExplainData(null);
     setAiExplainLoading(false);
 
     // preload cached series for this pair + timeframe (refreshes automatically on new UTC day)
@@ -6789,7 +6791,57 @@ const vaultFreeQty = useMemo(
                       {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight" : "Pro required")}
                     </button>
                   </div>
-                  {aiExplainText ? (
+                  {aiExplainData ? (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div className="muted tiny">AI Verdict</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.setup}</div>
+                        </div>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div className="muted tiny">Confidence</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.confidenceLabel} ({aiExplainData.confidence}/10)</div>
+                        </div>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div className="muted tiny">Risk</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.risk}</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                        <div className="label" style={{ marginBottom: 0 }}>Action</div>
+                        <div className="muted" style={{ fontSize: 14 }}>
+                          {aiExplainData.action}
+                        </div>
+                        {aiExplainData.winner && aiExplainData.loser ? (
+                          <div className="tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            <span className="pill silver">Stronger: <b>{aiExplainData.winner}</b></span>
+                            <span className="pill silver">Weaker: <b>{aiExplainData.loser}</b></span>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div className="muted tiny">Suggested Grid</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.range}</div>
+                        </div>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div className="muted tiny">Mode</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.mode}</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "grid", gap: 6 }}>
+                        <div className="label" style={{ marginBottom: 0 }}>Why this setup</div>
+                        <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
+                          {aiExplainData.bullets.map((line, idx) => (
+                            <div key={idx}>• {line}</div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : aiExplainText ? (
                     <pre style={{ whiteSpace: "pre-wrap", margin: 0 }} className="muted tiny">
                       {aiExplainText}
                     </pre>

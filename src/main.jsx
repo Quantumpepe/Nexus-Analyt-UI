@@ -14,14 +14,10 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <PrivyProvider
       appId={PRIVY_APP_ID}
       config={{
-        // ✅ This restores the old flow: email -> code
-        // Passkey and wallet stay available.
-        loginMethods: ["email", "passkey", "wallet"],
-
+        loginMethods: ["email", "wallet"],
         embeddedWallets: {
-          createOnLogin: "users-without-wallets",
+          createOnLogin: "all-users",
         },
-
         appearance: { theme: "dark" },
       }}
     >

@@ -5119,7 +5119,7 @@ const vaultFreeQty = useMemo(
 );
 
   return (
-    <div className="app">
+    <div className="app nexusApp">
       
       <style>{`
 .btnPill, .btnPill *, .btnGhost, .btnGhost * { 

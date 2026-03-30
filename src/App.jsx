@@ -6786,7 +6786,7 @@ const vaultFreeQty = useMemo(
                       disabled={aiExplainLoading}
                       title={!isPro ? "Subscribe to Nexus Pro to use AI" : ""}
                     >
-                      {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight" : "Pro required")}
+                      {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight new" : "Pro required")}
                     </button>
                   </div>
                   {aiExplainData ? (

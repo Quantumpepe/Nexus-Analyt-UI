@@ -1578,6 +1578,7 @@ const [errorMsg, setErrorMsg] = useState("");
 
   const _loginRetryUsed = useRef(false);
   const _backendAuthInFlight = useRef(false);
+  const _privyWalletReadyAt = useRef(0);
 
   // auth
   // NOTE: Backend expects its OWN Bearer token (issued by /api/auth/verify),
@@ -2273,6 +2274,7 @@ useEffect(() => {
   // This keeps the app working without any MetaMask flow.
   useEffect(() => {
     let cancelled = false;
+    let authTimer = null;
 
     const signWithEmbeddedWallet = async (embeddedWallet, message, address) => {
       if (!embeddedWallet) throw new Error("No wallet available to sign.");
@@ -2291,7 +2293,6 @@ useEffect(() => {
       const addr = String(address || "").toLowerCase();
       if (!addr) return "";
 
-      // 1) Get nonce + canonical message from backend
       const nonceRes = await api("/api/auth/nonce", {
         method: "POST",
         body: { address: addr },
@@ -2300,10 +2301,8 @@ useEffect(() => {
       const nonce = nonceRes?.nonce;
       if (!message || !nonce) throw new Error("Auth nonce failed");
 
-      // 2) Sign EXACT message
       const signature = await signWithEmbeddedWallet(embeddedWallet, message, addr);
 
-      // 3) Verify + receive backend token
       const verifyRes = await api("/api/auth/verify", {
         method: "POST",
         body: { address: addr, message, signature, nonce },
@@ -2314,18 +2313,16 @@ useEffect(() => {
     };
 
     (async () => {
-      // Wait until Privy is ready; avoids transient states where authenticated is true
-      // but wallets are not yet populated.
       if (!ready) return;
 
       if (!authenticated) {
         setWallet("");
         setToken("");
         setPrivyJwt("");
-return;
+        _privyWalletReadyAt.current = 0;
+        return;
       }
 
-      // Prefer the embedded wallet address from Privy (avoid external wallets).
       const embedded =
         privyWallets?.find((w) =>
           ["privy", "embedded"].includes(String(w?.walletClientType || "").toLowerCase()) ||
@@ -2334,9 +2331,11 @@ return;
         privyWallets?.[0];
 
       const addr = String(embedded?.address || "").toLowerCase();
-      if (!cancelled && addr) setWallet(addr);
+      if (!cancelled && addr) {
+        setWallet(addr);
+        if (!_privyWalletReadyAt.current) _privyWalletReadyAt.current = Date.now();
+      }
 
-      // Privy access token (JWT) - keep for future if needed.
       try {
         const t = (await getAccessToken?.()) || "";
         if (!cancelled) setPrivyJwt(t);
@@ -2344,24 +2343,34 @@ return;
         if (!cancelled) setPrivyJwt("");
       }
 
-      // Backend auth token (required for /api/ai/* and other protected endpoints)
-      // Guard against duplicate concurrent auth attempts (can trigger multiple sign requests).
+      // Important: wait briefly before backend signing so Privy can finish wallet creation.
       try {
         if (cancelled) return;
-        if (!token && addr && !_backendAuthInFlight.current) {
-          _backendAuthInFlight.current = true;
-          const bt = await ensureBackendAuthToken(addr, embedded);
-          if (!cancelled) setToken(bt);
+        if (!token && addr && embedded && !_backendAuthInFlight.current) {
+          authTimer = setTimeout(async () => {
+            try {
+              if (cancelled) return;
+              const provider = await embedded?.getEthereumProvider?.();
+              if (!provider?.request) return;
+
+              _backendAuthInFlight.current = true;
+              const bt = await ensureBackendAuthToken(addr, embedded);
+              if (!cancelled && bt) setToken(bt);
+            } catch (_) {
+              // keep UI usable; protected endpoints can request auth again later
+            } finally {
+              _backendAuthInFlight.current = false;
+            }
+          }, 1400);
         }
-      } catch (e) {
-        // Don't hard-fail the whole UI; just surface an error when protected calls are made.
-      } finally {
+      } catch (_) {
         _backendAuthInFlight.current = false;
       }
     })();
 
     return () => {
       cancelled = true;
+      try { if (authTimer) clearTimeout(authTimer); } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, authenticated, privyWallets?.length]);
@@ -2370,33 +2379,14 @@ return;
     // Connect = Privy login only (email/embedded). Never trigger MetaMask here.
     try {
       if (!ready) return;
-      if (authenticated) return; // already logged in
+      if (authenticated) return;
       if (_loginInFlight.current) return;
       _loginInFlight.current = true;
+      setErrorMsg("");
       await login();
     } catch (e) {
       const msg = String(e?.message || e || "Login failed");
       setErrorMsg(msg);
-
-      // Some desktop browsers occasionally fail the first Privy session handshake (e.g. Cloudflare/cookie timing).
-      // Auto-retry ONCE to avoid the "I must click twice" UX.
-      if (!_loginRetryUsed.current) {
-        _loginRetryUsed.current = true;
-        setTimeout(async () => {
-          try {
-            if (!ready) return;
-            if (authenticated) return;
-            if (_loginInFlight.current) return;
-            _loginInFlight.current = true;
-            await login();
-            setErrorMsg(""); // clear on success
-          } catch (_) {
-            // keep original error
-          } finally {
-            _loginInFlight.current = false;
-          }
-        }, 650);
-      }
     } finally {
       _loginInFlight.current = false;
     }

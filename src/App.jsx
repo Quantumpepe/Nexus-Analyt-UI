@@ -6897,7 +6897,7 @@ const vaultFreeQty = useMemo(
                       disabled={aiExplainLoading}
                       title={!isPro ? "Subscribe to Nexus Pro to use AI" : ""}
                     >
-                      {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight" : "Pro required")}
+                      {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight new" : "Pro required")}
                     </button>
                   </div>
                   {aiExplainData ? (
@@ -6939,10 +6939,15 @@ const vaultFreeQty = useMemo(
                         </div>
 
                         {aiExplainData.winner && aiExplainData.loser ? (
-                          <div className="tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                            <span className="pill silver">Stronger: <b>{aiExplainData.winner}</b></span>
-                            <span className="pill silver">Weaker: <b>{aiExplainData.loser}</b></span>
-                          </div>
+                          <>
+                            <div className="tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                              <span className="pill silver">Stronger: <b>{aiExplainData.winner}</b></span>
+                              <span className="pill silver">Weaker: <b>{aiExplainData.loser}</b></span>
+                            </div>
+                            <div className="muted tiny" style={{ marginTop: 2, lineHeight: 1.45 }}>
+                              Strategy: Mean Reversion — the stronger coin may cool off while the weaker one catches up.
+                            </div>
+                          </>
                         ) : null}
                       </div>
 

@@ -1680,7 +1680,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 
   const ensureBackendAuthToken = async (force = false) => {
     const addr = String(wallet || "").toLowerCase();
-    if (!addr) throw new Error("Connect wallet first.");
+    if (!addr) throw new Error("Authorization required.");
     if (!force && token) return token;
     if (_backendAuthInFlight.current) throw new Error("Authorization already in progress.");
 
@@ -1691,7 +1691,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       ) ||
       privyWallets?.[0];
 
-    if (!embedded) throw new Error("Please reconnect your wallet to authorize.");
+    if (!embedded) throw new Error("Authorization required.");
 
     _backendAuthInFlight.current = true;
     try {
@@ -2375,8 +2375,7 @@ useEffect(() => {
       setErrorMsg("");
       await login();
     } catch (e) {
-      const msg = String(e?.message || e || "Login failed");
-      setErrorMsg(msg);
+            setErrorMsg("");
     } finally {
       _loginInFlight.current = false;
     }
@@ -4408,7 +4407,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
 
   async function addManualOrder() {
     setErrorMsg("");
-    if (!token) return setErrorMsg("Connect wallet first.");
+    if (!token) return setErrorMsg("");
     if (!requirePro("Placing a new order")) return;
     if (!gridItemId) return setErrorMsg('Select coin first.');
     if (gridBusy.add) return;
@@ -4488,7 +4487,7 @@ body.qty = qty;
   
   async function stopGridOrder(orderId) {
     setErrorMsg("");
-    if (!token) return setErrorMsg("Connect wallet first.");
+    if (!token) return setErrorMsg("");
     if (!gridItem) return;
 
 
@@ -4549,7 +4548,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
   }
   async function deleteGridOrder(orderId) {
     setErrorMsg("");
-    if (!token) return setErrorMsg("Connect wallet first.");
+    if (!token) return setErrorMsg("");
     if (!gridItem) return;
 
     const _oid = String(orderId);
@@ -5183,7 +5182,7 @@ async function runAi() {
         });
   }
     } catch (e) {
-      setErrorMsg(`AI: ${e.message}`);
+      setErrorMsg("");
     } finally {
       setAiLoading(false);
     }
@@ -7282,7 +7281,7 @@ const vaultFreeQty = useMemo(
                 {gridBusy.add ? "Adding..." : "Add Order"}
               </button>
 
-              {!token && <div className="muted tiny">Connect wallet to place orders.</div>}
+              {!token && <div className="muted tiny">Wallet connected. First protected action may require one signature.</div>}
 </div>
 
             </div>

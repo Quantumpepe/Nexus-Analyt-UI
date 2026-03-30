@@ -1007,3 +1007,35 @@ body{
     top:44px !important;
   }
 }
+@media (max-width: 768px){
+
+  .topbar{
+    padding: 8px 12px 6px !important;   /* vorher zu viel */
+    gap: 6px !important;               /* enger zusammen */
+  }
+
+  .brand{
+    gap: 8px;
+    margin-bottom: 2px;                /* wichtig: weniger Abstand nach unten */
+  }
+
+  .brandTitle{
+    font-size: 17px;
+    line-height: 1.1;
+  }
+
+  .brandSub{
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  .walletBox{
+    gap: 6px;
+    margin-top: 2px;                   /* näher an Titel */
+  }
+
+  .walletRow{
+    gap: 6px;
+  }
+
+}

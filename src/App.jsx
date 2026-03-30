@@ -1579,6 +1579,8 @@ const [errorMsg, setErrorMsg] = useState("");
   const _loginRetryUsed = useRef(false);
   const _backendAuthInFlight = useRef(false);
 
+  const _autoAuthStarted = useRef(false);
+
   // auth
   // NOTE: Backend expects its OWN Bearer token (issued by /api/auth/verify),
   // not the Privy JWT. We keep both:
@@ -2333,6 +2335,7 @@ useEffect(() => {
       if (!ready) return;
 
       if (!authenticated) {
+        _autoAuthStarted.current = false;
         setWallet("");
         setToken("");
         setPrivyJwt("");
@@ -2364,6 +2367,39 @@ useEffect(() => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, authenticated, privyWallets?.length]);
+
+  useEffect(() => {
+    if (!wallet) {
+      _autoAuthStarted.current = false;
+      return;
+    }
+
+    if (token) return;
+    if (!authenticated) return;
+    if (_autoAuthStarted.current) return;
+
+    const walletAtSchedule = String(wallet || "").toLowerCase();
+
+    const timer = setTimeout(async () => {
+      try {
+        if (!walletAtSchedule) return;
+        if (String(wallet || "").toLowerCase() !== walletAtSchedule) return;
+        if (token) return;
+        if (!authenticated) return;
+        if (_autoAuthStarted.current) return;
+        if (_backendAuthInFlight.current) return;
+
+        _autoAuthStarted.current = true;
+        await ensureBackendAuthToken();
+      } catch (_) {
+        // Keep silent in UI. If auto-auth fails, the normal on-demand flow still works.
+        _autoAuthStarted.current = false;
+      }
+    }, 5000);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet, token, authenticated]);
 
   const connectWallet = async () => {
     // Keep login simple to avoid interfering with Privy's wallet-creation UI.

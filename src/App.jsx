@@ -3291,7 +3291,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
       if (Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(spread) && Math.abs(spread) >= 0.75 && winner && loser) {
         setup = "MEAN REVERSION";
-        action = `Sell ${winner} (outperformer) and accumulate ${loser} (underperformer).`;
+        action = `1. SELL ${winner}\n2. BUY ${loser}\n3. Start Grid: Mode ${gridMode}, Range ${gridRange}\n4. Expectation: mean reversion (${winner} cools off, ${loser} catches up).`;
         verdictText = `${winner} outperformed ${loser} over ${PAIR_EXPLAIN_TF}. With a relatively high correlation, this looks like a mean-reversion/grid candidate.`;
         why.push(`High correlation (${corr >= 0 ? "+" : ""}${corr.toFixed(2)}) means both coins often move together.`);
         why.push(`The performance spread of ${_fmtPctLocal(spread)} creates a usable imbalance for a reversion idea.`);
@@ -3314,7 +3314,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         confidence -= 1.2;
         confidenceLabel = "LOW";
         risk = "High";
-        action = "Avoid grid here for now. Correlation is too weak.";
+        action = "1. DO NOT START GRID\n2. Wait for stronger correlation\n3. Recheck later with a clearer pair setup.";
         verdictText = "This pair is not moving together reliably enough for a clean grid/rebalance setup.";
         why.push(`Low correlation (${Number.isFinite(corr) ? ((corr >= 0 ? "+" : "") + corr.toFixed(2)) : "—"}) weakens the grid logic.`);
         why.push("Pairs with weak correlation can drift apart instead of reverting.");
@@ -3326,7 +3326,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         confidence -= 0.6;
         confidenceLabel = "LOW-MED";
         risk = "Low-Medium";
-        action = "Wait for a larger spread before opening a grid idea.";
+        action = "1. WAIT\n2. Do not open the grid yet\n3. Recheck when spread is larger than the current level.";
         verdictText = "The pair is correlated enough, but the spread is still too small to create a strong reversion edge.";
         why.push("The current performance gap is still narrow.");
         why.push("Without enough spread, grid entries can feel random and weak.");
@@ -3338,7 +3338,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         confidence += 0.2;
         confidenceLabel = "MEDIUM";
         risk = "Medium-High";
-        action = `Be careful: ${winner} is leading, but correlation/spread quality is mixed. Use smaller budget if you trade it.`;
+        action = `1. Small position only\n2. If you trade, SELL ${winner} / BUY ${loser}\n3. Use Wide mode and reduced budget because the setup is mixed.`;
         verdictText = `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence grid setup.`;
         why.push("There is a leader and a laggard, but the data is not perfectly aligned for a strong reversion setup.");
         why.push("Mixed conditions increase the chance of trend continuation.");
@@ -6917,11 +6917,27 @@ const vaultFreeQty = useMemo(
                         </div>
                       </div>
 
-                      <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Action</div>
-                        <div className="muted" style={{ fontSize: 14 }}>
-                          {aiExplainData.action}
+                      <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                        <div className="label" style={{ marginBottom: 0 }}>What to do now</div>
+
+                        {aiExplainData.winner && aiExplainData.loser ? (
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <span className="pill" style={{ background: "rgba(255,92,92,0.18)", borderColor: "rgba(255,92,92,0.35)" }}>SELL {aiExplainData.winner}</span>
+                            <span className="pill" style={{ background: "rgba(57,217,138,0.18)", borderColor: "rgba(57,217,138,0.35)" }}>BUY {aiExplainData.loser}</span>
+                          </div>
+                        ) : null}
+
+                        <div style={{ display: "grid", gap: 6 }} className="muted">
+                          {String(aiExplainData.action || "")
+                            .split("\n")
+                            .filter(Boolean)
+                            .map((line, idx) => (
+                              <div key={idx} style={{ fontSize: 14 }}>
+                                {line}
+                              </div>
+                            ))}
                         </div>
+
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <div className="tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                             <span className="pill silver">Stronger: <b>{aiExplainData.winner}</b></span>

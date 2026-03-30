@@ -5133,9 +5133,9 @@ const vaultFreeQty = useMemo(
           header.topbar {
             flex-wrap: wrap;
             align-items: flex-start;
-            gap: 4px;
-            padding-top: 6px;
-            padding-bottom: 4px;
+            gap: 3px;
+            padding-top: 4px;
+            padding-bottom: 3px;
           }
           header.topbar .brand {
             flex: 1 1 240px;
@@ -6503,7 +6503,7 @@ const vaultFreeQty = useMemo(
 
                     <div className="liveRight">
                       <div className="mono livePx">{fmtUsd(row?.price)}</div>
-                      <div className={`mono tiny ${Number(row?.change24h) >= 0 ? "txtGood" : "txtBad"}`}>{fmtPct(row?.change24h)}</div>
+                      <div className={`mono tiny ${Number(row?.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(row?.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(row?.change24h)}</div>
                     </div>
                   </div>
                 ))}

@@ -6975,7 +6975,7 @@ const vaultFreeQty = useMemo(
                       <p><b>BUY</b>-Orders kaufen Tokens, <b>SELL</b>-Orders verkaufen bereits gekaufte Tokens.</p>
                       <p><b>Orders werden nur nach deinen Eingaben ausgeführt.</b> Es gibt keine automatische Strategie-Logik durch SAFE / AGGRESSIVE.</p>
                       <p><b>Manuelle Orders</b> sind einzelne Orders und nicht Teil der Grid-Strategie.</p>
-                      <p>BUY kann per <b>USD</b> oder per <b>Token-Menge</b> erfolgen.</p>
+                      <p>BUY kann per <b>USD-Wert als Rechenhilfe</b> oder per <b>Token-Menge</b> erfolgen. Es wird <b>nicht</b> mit USDC/USDT getradet.</p>
                     </>
                   }
                   en={
@@ -6986,7 +6986,7 @@ const vaultFreeQty = useMemo(
                       <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell already acquired tokens.</p>
                       <p><b>Orders are executed only from your inputs.</b> There is no automatic SAFE / AGGRESSIVE strategy logic.</p>
                       <p><b>Manual orders</b> are single orders and not part of the grid strategy.</p>
-                      <p>BUY orders can be placed by <b>USD</b> or by <b>token quantity</b>.</p>
+                      <p>BUY orders can be placed by <b>USD value as a sizing helper</b> or by <b>token quantity</b>. Trading is <b>not</b> done with USDC/USDT.</p>
                     </>
                   }
                 />
@@ -7015,6 +7015,9 @@ const vaultFreeQty = useMemo(
                 <label>Budget (Qty)</label>
                 <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
               </div>
+<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
+  {tB("Trading uses native assets only. USDC/USDT are for subscription only.", "Trading uses native assets only. USDC/USDT are for subscription only.")}
+</div>
 <div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
   {tB("Vault:")} <b>{vaultNativeBal.toFixed(6)}</b> · {tB("Reserved (OPEN):")} <b>{reservedQtyOpen.toFixed(6)}</b> · {tB("Free:")} <b>{vaultFreeQty.toFixed(6)}</b>
 </div>{isEthChain ? (
@@ -7234,18 +7237,18 @@ const vaultFreeQty = useMemo(
               {manualSide === "BUY" ? (
                 <>
                   <div className="formRow">
-                    <label>Buy mode</label>
+                    <label>Buy mode (native trading)</label>
                     <select value={manualBuyMode} onChange={(e) => setManualBuyMode(e.target.value)}>                      <option value="QTY">Token qty</option>
                     </select>
                   </div>
 
                   {manualBuyMode === "USD" ? (
                     <div className="formRow">
-                      <label>Spend (Qty)</label>
+                      <label>Spend (native value)</label>
                       <input value={manualUsd} onChange={(e) => setManualUsd(e.target.value)} placeholder="e.g. 300" />
                       {manualUsd && manualPrice ? (
                         <div className="muted tiny" style={{ marginTop: 4 }}>
-                          Est. qty ≈ {(Number(manualUsd) > 0 && Number(manualPrice) > 0) ? (Number(manualUsd) / Number(manualPrice)).toFixed(8) : "—"}
+                          Est. token qty ≈ {(Number(manualUsd) > 0 && Number(manualPrice) > 0) ? (Number(manualUsd) / Number(manualPrice)).toFixed(8) : "—"}
                         </div>
                       ) : null}
                     </div>

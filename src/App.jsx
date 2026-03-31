@@ -2794,7 +2794,7 @@ const byChain = {};
   const SUB_PRICE_USD = 15;
   const SUB_PLAN = "pro";
   const [subChain, setSubChain] = useState("ETH"); // ETH | BNB | POL
-  const [subToken, setSubToken] = useState("USDC"); // NATIVE | USDC | USDT
+  const [subToken, setSubToken] = useState("USDC"); // USDC | USDT
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState("");
 
@@ -2886,64 +2886,31 @@ const byChain = {};
       // Ensure wallet is on the selected chain
       await _ensureChain(chainKey);
 
-      let txHash = null;
+      const specs = TOKEN_WHITELIST[chainKey] || [];
+      const spec = specs.find((t) => t.symbol === subToken);
+      if (!spec?.address) throw new Error("Token not supported on this chain.");
 
-      if (subToken === "NATIVE") {
-        // Pay $15 in native coin (ETH/BNB/POL). We compute a small buffer (+2%)
-        // to avoid underpay due to minor price movement.
-        const px = (await fetchNativeUsdPrices([chainKey]))?.[chainKey];
-        if (!px || !Number.isFinite(px) || px <= 0) throw new Error("Price feed unavailable.");
-        const nativeAmt = (SUB_PRICE_USD / px) * 1.02; // +2% buffer
-        const wei = BigInt(Math.floor(nativeAmt * 1e18));
-        if (wei <= 0n) throw new Error("Invalid amount.");
+      const amountUnits = BigInt(SUB_PRICE_USD) * (10n ** BigInt(spec.decimals || 6));
+      const data = _erc20TransferData(TREASURY_ADDRESS, amountUnits);
 
-        txHash = await window.ethereum.request({
-          method: "eth_sendTransaction",
-          params: [
-            {
-              from: wallet,
-              to: TREASURY_ADDRESS,
-              value: "0x" + wei.toString(16),
-              data: "0x",
-            },
-          ],
-        });
+      const txHash = await window.ethereum.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from: wallet,
+            to: spec.address,
+            data,
+            value: "0x0",
+          },
+        ],
+      });
 
-        // Verify + activate
-        const res = await api("/api/access/subscribe/verify", {
-          method: "POST",
-          body: { chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "native", token: chainKey },
-        });
+      const res = await api("/api/access/subscribe/verify", {
+        method: "POST",
+        body: { chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: subToken },
+      });
 
-        setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
-      } else {
-        // Pay with stablecoin (USDC/USDT) on the selected chain
-        const specs = TOKEN_WHITELIST[chainKey] || [];
-        const spec = specs.find((t) => t.symbol === subToken);
-        if (!spec?.address) throw new Error("Token not supported on this chain.");
-
-        const amountUnits = BigInt(SUB_PRICE_USD) * (10n ** BigInt(spec.decimals || 6));
-        const data = _erc20TransferData(TREASURY_ADDRESS, amountUnits);
-
-        txHash = await window.ethereum.request({
-          method: "eth_sendTransaction",
-          params: [
-            {
-              from: wallet,
-              to: spec.address,
-              data,
-              value: "0x0",
-            },
-          ],
-        });
-
-        const res = await api("/api/access/subscribe/verify", {
-          method: "POST",
-          body: { chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: subToken },
-        });
-
-        setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
-      }
+      setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
 
       setAccessModalOpen(false);
       await refreshAccess();
@@ -5600,7 +5567,7 @@ const vaultFreeQty = useMemo(
                 ) : (
                   <div>
                                         <div className="hint" style={{ marginBottom: 8 }}>
-                      Subscribe for <b>Nexus Pro</b> (${SUB_PRICE_USD}/30 days). Pay with <b>ETH / BNB / POL</b> (native) or <b>USDC/USDT</b>.
+                      Subscribe for <b>Nexus Pro</b> (${SUB_PRICE_USD}/30 days). Pay with <b>USDC</b> or <b>USDT</b> only.
                     </div>
 
                     <div className="row" style={{ gap: 8, marginBottom: 10, alignItems: "center" }}>
@@ -5619,14 +5586,6 @@ const vaultFreeQty = useMemo(
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
                       <div style={{ flex: 1 }} />
-                      <button
-                        type="button"
-                        className={`pill ${subToken === "NATIVE" ? "active" : ""}`}
-                        style={{ color: "#fff", background: subToken === "NATIVE" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
-                        onClick={() => setSubToken("NATIVE")}
-                      >
-                        {subChain}
-                      </button>
                       <button
                         type="button"
                         className={`pill ${subToken === "USDC" ? "active" : ""}`}
@@ -5666,7 +5625,7 @@ const vaultFreeQty = useMemo(
                     {subMsg ? <div className="hint" style={{ marginTop: 8 }}>{subMsg}</div> : null}
 
                     <div className="hint" style={{ marginTop: 10, opacity: 0.8 }}>
-                      Note: You must have enough funds for the plan amount plus <b>{subChain}</b> gas.
+                      Note: You must have enough <b>{subToken}</b> for the plan amount plus <b>{subChain}</b> gas.
                     </div>
                   </div>
                 )}

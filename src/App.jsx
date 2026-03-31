@@ -222,18 +222,18 @@ console.log("API_KEY loaded?", API_KEY ? "YES" : "NO");
 window.__API_KEY_OK__ = !!API_KEY;
 const TOKEN_WHITELIST = {
   ETH: [
-    { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
-    { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
+    { symbol: "USDC (subscription only)", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
+    { symbol: "USDT (subscription only)", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
   ],
   POL: [
-    // Polygon native USDC (Circle) and USDT
-    { symbol: "USDC", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
-    { symbol: "USDT", address: "0xC2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 },
+    // Polygon native USDC (subscription only) (Circle) and USDT (subscription only)
+    { symbol: "USDC (subscription only)", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
+    { symbol: "USDT (subscription only)", address: "0xC2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 },
   ],
   BNB: [
     // BNB Chain (BEP-20) pegged versions
-    { symbol: "USDC", address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", decimals: 18 },
-    { symbol: "USDT", address: "0x55d398326f99059fF775485246999027B3197955", decimals: 18 },
+    { symbol: "USDC (subscription only)", address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", decimals: 18 },
+    { symbol: "USDT (subscription only)", address: "0x55d398326f99059fF775485246999027B3197955", decimals: 18 },
   ],
 };
 
@@ -2597,18 +2597,18 @@ const byChain = {};
           // keep silent; balances still show
           setWalletUsd((prev) => ({ ...(prev || {}), total: prev?.total ?? null, ts: Date.now() }));
 
-      // Grid budget locks (USD-based) so wallet can show "Available vs In bots"
+      // Grid trading budget (native coin only) locks (USD-based) so wallet can show "Available vs In bots"
       try {
         setGridBudgetsErr("");
 
-        // Prefer per-chain budgets if backend supports it.
+        // Prefer per-chain trading budget (native coin only)s if backend supports it.
         // Fallback to legacy totals-only endpoint.
         let bdata = null;
         try {
-          const budByChain = await api("/api/grid/budgets_by_chain", { method: "GET", token });
+          const budByChain = await api("/api/grid/trading budget (native coin only)s_by_chain", { method: "GET", token });
           bdata = budByChain?.data || budByChain;
         } catch (_) {
-          const bud = await api("/api/grid/budgets", { method: "GET", token });
+          const bud = await api("/api/grid/trading budget (native coin only)s", { method: "GET", token });
           bdata = bud?.data || bud;
         }
 
@@ -2618,8 +2618,8 @@ const byChain = {};
 
         setGridBudgets({ totals, by_chain, items, ts: Date.now() });
       } catch (e) {
-        // Don't break wallet balances if budgets fail
-        setGridBudgetsErr(String(e?.message || e || "Failed to load grid budgets"));
+        // Don't break wallet balances if trading budget (native coin only)s fail
+        setGridBudgetsErr(String(e?.message || e || "Failed to load grid trading budget (native coin only)s"));
         setGridBudgets((prev) => ({ ...(prev || {}), totals: prev?.totals ?? { locked_usd: 0, available_usd: 0 }, by_chain: prev?.by_chain ?? {}, items: prev?.items ?? [], ts: Date.now() }));
       }
 
@@ -2789,12 +2789,12 @@ const byChain = {};
   const [redeemBusy, setRedeemBusy] = useState(false);
   const [redeemMsg, setRedeemMsg] = useState("");
 
-  // Subscribe (USDC/USDT on ETH)
+  // Subscribe (stablecoins (USDC (subscription only)/USDT (subscription only) – subscription only, not for trading) on ETH)
   // Single plan: PRO $15
   const SUB_PRICE_USD = 15;
   const SUB_PLAN = "pro";
   const [subChain, setSubChain] = useState("ETH"); // ETH | BNB | POL
-  const [subToken, setSubToken] = useState("USDC"); // USDC | USDT
+  const [subToken, setSubToken] = useState("USDC (subscription only)"); // USDC (subscription only) | USDT (subscription only)
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState("");
 
@@ -3320,7 +3320,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         confidence += 0.2;
         confidenceLabel = "MEDIUM";
         risk = "Medium-High";
-        action = `1. Small position only\n2. If you trade, SELL ${winner} / BUY ${loser}\n3. Use Wide mode and reduced budget because the setup is mixed.`;
+        action = `1. Small position only\n2. If you trade, SELL ${winner} / BUY ${loser}\n3. Use Wide mode and reduced trading budget (native coin only) because the setup is mixed.`;
         verdictText = `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence grid setup.`;
         why.push("There is a leader and a laggard, but the data is not perfectly aligned for a strong reversion setup.");
         why.push("Mixed conditions increase the chance of trend continuation.");
@@ -3501,14 +3501,14 @@ useEffect(() => {
 
     // Grid currently supports native trading only (ETH / POL / BNB).
     // Do NOT show stablecoins here, otherwise users may assume the Vault/Grid
-    // trades directly in USDC/USDT even though the current Vault is native-based.
+    // trades directly in stablecoins (USDC (subscription only)/USDT (subscription only) – subscription only, not for trading) even though the current Vault is native-based.
     out.push(chain);
 
     // user-added tokens (exclude stablecoins from Grid until Vault V2 supports them)
     const custom = row?.custom || [];
     for (const t of custom) {
       const sym = String(t?.symbol || "").toUpperCase().trim();
-      if (!sym || sym === "USDC" || sym === "USDT") continue;
+      if (!sym || sym === "USDC (subscription only)" || sym === "USDT (subscription only)") continue;
       out.push(sym);
     }
 
@@ -4296,7 +4296,7 @@ setGridBusy((s) => ({ ...s, start: true }));
     // Backend will validate subscription / vault prerequisites and return a clear error if needed.
 
     // Safety: Grid runs autonomously via backend operator + Vault funds.
-    // Require: Vault has budget deposited and operator is enabled (so backend can trade without further user signatures).
+    // Require: Vault has trading budget (native coin only) deposited and operator is enabled (so backend can trade without further user signatures).
     const chainKeyPre = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const want = Number(gridInvestQty) || 0;
     const have = Number(vaultState?.polBalance || 0);
@@ -4345,12 +4345,12 @@ setGridBusy((s) => ({ ...s, start: true }));
         // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
         addr: walletAddress || undefined,
         order_mode: "MANUAL",
-        // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd for backwards compatibility; invest_qty is the new canonical key.
+        // Vault trading budget (native coin only) is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd for backwards compatibility; invest_qty is the new canonical key.
         invest_native: investQty,
         invest_qty: investQty,
         invest_usd: investUsd,
-        budget_qty: investQty,
-        budget_usd: investUsd,
+        trading budget (native coin only)_qty: investQty,
+        trading budget (native coin only)_usd: investUsd,
         chain: chainKey,
         auto_path: !!gridAutoPath,
       };
@@ -4435,7 +4435,7 @@ try {
       };
 
       
-// Qty-only: all coins/tokens are entered as quantity (also USDC/USDT)
+// Qty-only: all coins/tokens are entered as quantity (also stablecoins (USDC (subscription only)/USDT (subscription only) – subscription only, not for trading))
 const qty = manualQty === "" ? undefined : Number(manualQty);
 if (qty === undefined || !Number.isFinite(qty) || qty <= 0) throw new Error("Invalid Qty amount.");
 body.qty = qty;
@@ -5469,7 +5469,7 @@ const vaultFreeQty = useMemo(
                   setSubMsg("");
                   setAccessModalOpen(true);
                 }}
-                title="Subscribe (USDC/USDT on ETH)"
+                title="Subscribe (stablecoins (USDC (subscription only)/USDT (subscription only) – subscription only, not for trading) on ETH)"
               >
                 Subscribe
               </button>
@@ -5566,7 +5566,7 @@ const vaultFreeQty = useMemo(
                 ) : (
                   <div>
                                         <div className="hint" style={{ marginBottom: 8 }}>
-                      Subscribe for <b>Nexus Pro</b> (${SUB_PRICE_USD}/30 days). Pay with <b>USDC</b> or <b>USDT</b> only.
+                      Subscribe for <b>Nexus Pro</b> (${SUB_PRICE_USD}/30 days). Pay with <b>USDC (subscription only)</b> or <b>USDT (subscription only)</b> only.
                     </div>
 
                     <div className="row" style={{ gap: 8, marginBottom: 10, alignItems: "center" }}>
@@ -5587,19 +5587,19 @@ const vaultFreeQty = useMemo(
                       <div style={{ flex: 1 }} />
                       <button
                         type="button"
-                        className={`pill ${subToken === "USDC" ? "active" : ""}`}
-                        style={{ color: "#fff", background: subToken === "USDC" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
-                        onClick={() => setSubToken("USDC")}
+                        className={`pill ${subToken === "USDC (subscription only)" ? "active" : ""}`}
+                        style={{ color: "#fff", background: subToken === "USDC (subscription only)" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
+                        onClick={() => setSubToken("USDC (subscription only)")}
                       >
-                        USDC
+                        USDC (subscription only)
                       </button>
                       <button
                         type="button"
-                        className={`pill ${subToken === "USDT" ? "active" : ""}`}
-                        style={{ color: "#fff", background: subToken === "USDT" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
-                        onClick={() => setSubToken("USDT")}
+                        className={`pill ${subToken === "USDT (subscription only)" ? "active" : ""}`}
+                        style={{ color: "#fff", background: subToken === "USDT (subscription only)" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
+                        onClick={() => setSubToken("USDT (subscription only)")}
                       >
-                        USDT
+                        USDT (subscription only)
                       </button>
                     </div><div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
                       Selected: <b>Nexus Pro ${SUB_PRICE_USD}</b> · <b>{subToken}</b>
@@ -5789,7 +5789,7 @@ const vaultFreeQty = useMemo(
                   const nativeLabel = c; // ETH / POL / BNB
 
                   // Show FREE balance (total - reserved) directly in the chain header.
-                  // Reserved is derived from per-chain locked USD budget, converted to native using USD price.
+                  // Reserved is derived from per-chain locked USD trading budget (native coin only), converted to native using USD price.
                   const nativeBalNum = Number(row?.native);
                   const nPxUsd = Number(walletPx?.native?.[c]);
                   const lockedUsd = Number(gridBudgets?.by_chain?.[c]?.locked_usd ?? 0);
@@ -5816,7 +5816,7 @@ const vaultFreeQty = useMemo(
 
                       
                       
-                      {/* Grid budget info (per-chain, if available) */}
+                      {/* Grid trading budget (native coin only) info (per-chain, if available) */}
                       {gridBudgets?.by_chain && Object.keys(gridBudgets.by_chain).length ? (
                         <div style={{ marginTop: 4, fontSize: 11, opacity: 0.82, display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <span>In bots: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.locked_usd || 0))}</b></span>
@@ -5835,7 +5835,7 @@ const vaultFreeQty = useMemo(
                           fontSize: 13,
                         }}
                       >
-                        {Object.keys(row.stables || { USDC: 0, USDT: 0 }).map((sym) => (
+                        {Object.keys(row.stables || { USDC (subscription only): 0, USDT (subscription only): 0 }).map((sym) => (
                           <React.Fragment key={sym}>
                             <div>
                               <div className="muted">{sym}</div>
@@ -6984,12 +6984,12 @@ const vaultFreeQty = useMemo(
                   en={
                     <>
                       <p><b>Grid Trader</b> places multiple BUY and SELL orders for the selected coin.</p>
-                      <p>You define a <b>maximum native-coin budget (ETH / BNB / POL)</b>. This budget is a <b>global limit</b> for the entire grid.</p>
-                      <p>The budget is <b>not per order</b>, but shared across all orders.</p>
+                      <p>You define a <b>maximum native-coin trading budget (native coin only) (ETH / BNB / POL)</b>. This trading budget (native coin only) is a <b>global limit</b> for the entire grid.</p>
+                      <p>The trading budget (native coin only) is <b>not per order</b>, but shared across all orders.</p>
                       <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell already acquired tokens.</p>
                       <p><b>Orders are executed only from your inputs.</b> There is no automatic SAFE / AGGRESSIVE strategy logic.</p>
                       <p><b>Manual orders</b> are single orders and not part of the grid strategy.</p>
-                      <p>BUY orders can be placed by <b>native coin budget</b> or by <b>token quantity</b>.</p>
+                      <p>BUY orders can be placed by <b>native coin trading budget (native coin only)</b> or by <b>token quantity</b>.</p>
                     </>
                   }
                 />

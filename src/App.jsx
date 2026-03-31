@@ -3499,18 +3499,17 @@ useEffect(() => {
     const row = balByChain?.[chain] || {};
     const out = [];
 
-    // native coin of the active chain (ETH / POL / BNB)
+    // Grid currently supports native trading only (ETH / POL / BNB).
+    // Do NOT show stablecoins here, otherwise users may assume the Vault/Grid
+    // trades directly in USDC/USDT even though the current Vault is native-based.
     out.push(chain);
 
-    // stables present on this chain (USDC/USDT etc.)
-    const stablesMap = row?.stables || {};
-    for (const k of Object.keys(stablesMap)) out.push(String(k).toUpperCase());
-
-    // user-added tokens
+    // user-added tokens (exclude stablecoins from Grid until Vault V2 supports them)
     const custom = row?.custom || [];
     for (const t of custom) {
       const sym = String(t?.symbol || "").toUpperCase().trim();
-      if (sym) out.push(sym);
+      if (!sym || sym === "USDC" || sym === "USDT") continue;
+      out.push(sym);
     }
 
     // unique
@@ -6985,12 +6984,12 @@ const vaultFreeQty = useMemo(
                   en={
                     <>
                       <p><b>Grid Trader</b> places multiple BUY and SELL orders for the selected coin.</p>
-                      <p>You define a <b>maximum USD budget (USDC / USDT)</b>. This budget is a <b>global limit</b> for the entire grid.</p>
+                      <p>You define a <b>maximum native-coin budget (ETH / BNB / POL)</b>. This budget is a <b>global limit</b> for the entire grid.</p>
                       <p>The budget is <b>not per order</b>, but shared across all orders.</p>
                       <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell already acquired tokens.</p>
                       <p><b>Orders are executed only from your inputs.</b> There is no automatic SAFE / AGGRESSIVE strategy logic.</p>
                       <p><b>Manual orders</b> are single orders and not part of the grid strategy.</p>
-                      <p>BUY orders can be placed by <b>USD</b> or by <b>token quantity</b>.</p>
+                      <p>BUY orders can be placed by <b>native coin budget</b> or by <b>token quantity</b>.</p>
                     </>
                   }
                 />

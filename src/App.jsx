@@ -4462,6 +4462,17 @@ async function setGridExecute(itemIdArg = "") {
     `${(balActiveChain || wsChainKey || DEFAULT_CHAIN)}:${String(gridItem || "").toUpperCase()}`
   ).trim();
   if (!itemId) throw new Error("Missing grid item for execute.");
+
+  const frontendPriceCandidates = [
+    shownGridPrice,
+    gridLiveFallback,
+    gridNativeUsd?.[String(gridItem || "").toUpperCase()],
+    gridMeta?.price,
+  ];
+  const frontendPrice = frontendPriceCandidates
+    .map((v) => Number(v))
+    .find((v) => Number.isFinite(v) && v > 0);
+
   return await api("/api/grid/execute", {
     method: "POST",
     token,
@@ -4470,6 +4481,9 @@ async function setGridExecute(itemIdArg = "") {
       item: itemId,
       addr: walletAddress || undefined,
       wallet: walletAddress || undefined,
+      price: frontendPrice,
+      current_price: frontendPrice,
+      market_price: frontendPrice,
     },
   });
 }

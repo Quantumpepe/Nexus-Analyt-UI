@@ -4302,26 +4302,6 @@ const kickGridRefresh = useCallback(() => {
   setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 1400);
 }, [fetchGridOrders]);
 
-const setGridAutorun = useCallback(async (enable, interval = 5) => {
-  if (!gridItemId || !walletAddress) return null;
-  try {
-    return await api("/api/grid/autorun", {
-      method: "POST",
-      token,
-      wallet: walletAddress,
-      body: {
-        item: gridItemId,
-        addr: walletAddress,
-        wallet: walletAddress,
-        enable: !!enable,
-        interval,
-      },
-    });
-  } catch (_) {
-    return null;
-  }
-}, [gridItemId, walletAddress, token]);
-
 useInterval(
   () => {
     fetchGridOrders();
@@ -4418,13 +4398,40 @@ setGridBusy((s) => ({ ...s, start: true }));
         setGridOrders(startOrders);
       }
       
-      await setGridAutorun(true, 5);
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, start: false }));
 } catch (e) {
       setErrorMsg(`Grid start: ${e.message}`);
       setGridBusy((s) => ({ ...s, start: false }));
+    }
+  }
+
+
+  async function setGridAutorun(enable, itemIdArg = "", intervalSec = 5) {
+    try {
+      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+      const itemId =
+        itemIdArg ||
+        gridItemId ||
+        gridMeta?.gridItemId ||
+        gridMeta?.itemId ||
+        gridMeta?.id ||
+        `${chainKey}:${String(gridItem || "").toUpperCase()}`;
+      if (!itemId) return null;
+      return await api("/api/grid/autorun", {
+        method: "POST",
+        token,
+        wallet: walletAddress,
+        body: {
+          item: itemId,
+          addr: walletAddress || undefined,
+          enable: !!enable,
+          interval: Math.max(2, Number(intervalSec) || 5),
+        },
+      });
+    } catch (_) {
+      return null;
     }
   }
 
@@ -4454,7 +4461,8 @@ setGridBusy((s) => ({ ...s, stop: true }));
         const stopOrders = normalizeGridOrders(stopOrdersRaw);
         setGridOrders(stopOrders);
       }
-      await setGridAutorun(false, 5);
+      // Stop backend autorun when the grid is stopped.
+      await setGridAutorun(false, itemId, 5);
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
     } catch (e) {
@@ -4465,6 +4473,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
 
   async function addManualOrder() {
     setErrorMsg("");
+    if (!token) return setErrorMsg("");
     if (!requirePro("Placing a new order")) return;
     if (!gridItemId) return setErrorMsg('Select coin first.');
     if (gridBusy.add) return;
@@ -4532,6 +4541,9 @@ body.qty = qty;
         });
       }
 
+      // A newly added order should immediately start/keep autorun alive.
+      await setGridAutorun(true, gridItemId, 5);
+
       // Always reload from backend so the server can commit the order and the UI stays live.
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, add: false }));
@@ -4544,6 +4556,7 @@ body.qty = qty;
   
   async function stopGridOrder(orderId) {
     setErrorMsg("");
+    if (!token) return setErrorMsg("");
     if (!gridItem) return;
 
 
@@ -4604,6 +4617,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
   }
   async function deleteGridOrder(orderId) {
     setErrorMsg("");
+    if (!token) return setErrorMsg("");
     if (!gridItem) return;
 
     const _oid = String(orderId);

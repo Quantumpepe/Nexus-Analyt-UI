@@ -4315,6 +4315,49 @@ useInterval(
     !gridBusy.deleteOrderId
 );
 
+
+// Execute polling: this is the real trigger that makes BUY/SELL fire.
+useInterval(
+  async () => {
+    if (!gridItemId || !walletAddress) return;
+    try {
+      const r = await setGridExecute(gridItemId);
+      const execMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
+      setGridMeta((prev) => ({ ...prev, ...execMeta }));
+      setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+
+      const execOrdersRaw = getGridOrdersFromResponse(r);
+      if (Array.isArray(execOrdersRaw)) {
+        const execOrders = normalizeGridOrders(execOrdersRaw);
+        if (execOrders.length) {
+          rememberGridOrders(gridItemId, execOrders);
+          setGridOrders(execOrders);
+        }
+      }
+
+      try {
+        const sym = String(gridItem || "").toUpperCase().trim();
+        if (["POL", "BNB", "ETH"].includes(sym)) {
+          setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
+        }
+      } catch (_) {}
+    } catch (_) {
+      // silent: polling should never spam the UI
+    }
+  },
+  5000,
+  !!isGridReady &&
+    !!gridItemId &&
+    !!walletAddress &&
+    !gridBusy.start &&
+    !gridBusy.stop &&
+    !gridBusy.add &&
+    !gridBusy.stopOrderId &&
+    !gridBusy.deleteOrderId &&
+    gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN")
+);
+
+
   async function gridStart() {
     console.log("[GRID] Start clicked");
     setErrorMsg("");
@@ -4397,17 +4440,6 @@ setGridBusy((s) => ({ ...s, start: true }));
         const startOrders = normalizeGridOrders(startOrdersRaw);
         setGridOrders(startOrders);
       }
-      
-      try {
-        await setGridAutorun(true, itemId, 5);
-      } catch (eAutorun) {
-        console.warn("autorun start failed", eAutorun);
-      }
-      try {
-        await setGridAutorun(false, itemId, 5);
-      } catch (eAutorun) {
-        console.warn("autorun stop failed", eAutorun);
-      }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, start: false }));
@@ -4419,7 +4451,8 @@ setGridBusy((s) => ({ ...s, start: true }));
 
 
 
-async function setGridAutorun(enable, itemIdArg = "", intervalSec = 5) {
+
+async function setGridExecute(itemIdArg = "") {
   const itemId = String(
     itemIdArg ||
     gridItemId ||
@@ -4428,8 +4461,8 @@ async function setGridAutorun(enable, itemIdArg = "", intervalSec = 5) {
     gridMeta?.id ||
     `${(balActiveChain || wsChainKey || DEFAULT_CHAIN)}:${String(gridItem || "").toUpperCase()}`
   ).trim();
-  if (!itemId) throw new Error("Missing grid item for autorun.");
-  return await api("/api/grid/autorun", {
+  if (!itemId) throw new Error("Missing grid item for execute.");
+  return await api("/api/grid/execute", {
     method: "POST",
     token,
     wallet: walletAddress,
@@ -4437,8 +4470,6 @@ async function setGridAutorun(enable, itemIdArg = "", intervalSec = 5) {
       item: itemId,
       addr: walletAddress || undefined,
       wallet: walletAddress || undefined,
-      enable: !!enable,
-      interval: Number(intervalSec) || 5,
     },
   });
 }
@@ -4545,12 +4576,6 @@ body.qty = qty;
           const merged = mergeGridOrders(prev, [addSingleOrder]);
           return merged;
         });
-      }
-
-      try {
-        await setGridAutorun(true, gridItemId, 5);
-      } catch (eAutorun) {
-        console.warn("autorun after add failed", eAutorun);
       }
       // Always reload from backend so the server can commit the order and the UI stays live.
       kickGridRefresh();

@@ -4306,13 +4306,14 @@ useInterval(
   () => {
     fetchGridOrders();
   },
-  3000,
+  10000,
   !!isGridReady &&
     !gridBusy.start &&
     !gridBusy.stop &&
     !gridBusy.add &&
     !gridBusy.stopOrderId &&
-    !gridBusy.deleteOrderId
+    !gridBusy.deleteOrderId &&
+    gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN")
 );
 
 
@@ -4329,10 +4330,8 @@ useInterval(
       const execOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(execOrdersRaw)) {
         const execOrders = normalizeGridOrders(execOrdersRaw);
-        if (execOrders.length) {
-          rememberGridOrders(gridItemId, execOrders);
-          setGridOrders(execOrders);
-        }
+        rememberGridOrders(gridItemId, execOrders);
+        setGridOrders(execOrders);
       }
 
       try {
@@ -4345,7 +4344,7 @@ useInterval(
       // silent: polling should never spam the UI
     }
   },
-  5000,
+  8000,
   !!isGridReady &&
     !!gridItemId &&
     !!walletAddress &&

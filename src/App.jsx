@@ -4398,6 +4398,16 @@ setGridBusy((s) => ({ ...s, start: true }));
         setGridOrders(startOrders);
       }
       
+      try {
+        await setGridAutorun(true, itemId, 5);
+      } catch (eAutorun) {
+        console.warn("autorun start failed", eAutorun);
+      }
+      try {
+        await setGridAutorun(false, itemId, 5);
+      } catch (eAutorun) {
+        console.warn("autorun stop failed", eAutorun);
+      }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, start: false }));
@@ -4408,32 +4418,30 @@ setGridBusy((s) => ({ ...s, start: true }));
   }
 
 
-  async function setGridAutorun(enable, itemIdArg = "", intervalSec = 5) {
-    try {
-      const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
-      const itemId =
-        itemIdArg ||
-        gridItemId ||
-        gridMeta?.gridItemId ||
-        gridMeta?.itemId ||
-        gridMeta?.id ||
-        `${chainKey}:${String(gridItem || "").toUpperCase()}`;
-      if (!itemId) return null;
-      return await api("/api/grid/autorun", {
-        method: "POST",
-        token,
-        wallet: walletAddress,
-        body: {
-          item: itemId,
-          addr: walletAddress || undefined,
-          enable: !!enable,
-          interval: Math.max(2, Number(intervalSec) || 5),
-        },
-      });
-    } catch (_) {
-      return null;
-    }
-  }
+
+async function setGridAutorun(enable, itemIdArg = "", intervalSec = 5) {
+  const itemId = String(
+    itemIdArg ||
+    gridItemId ||
+    gridMeta?.gridItemId ||
+    gridMeta?.itemId ||
+    gridMeta?.id ||
+    `${(balActiveChain || wsChainKey || DEFAULT_CHAIN)}:${String(gridItem || "").toUpperCase()}`
+  ).trim();
+  if (!itemId) throw new Error("Missing grid item for autorun.");
+  return await api("/api/grid/autorun", {
+    method: "POST",
+    token,
+    wallet: walletAddress,
+    body: {
+      item: itemId,
+      addr: walletAddress || undefined,
+      wallet: walletAddress || undefined,
+      enable: !!enable,
+      interval: Number(intervalSec) || 5,
+    },
+  });
+}
 
   async function gridStop() {
     setErrorMsg("");
@@ -4461,8 +4469,6 @@ setGridBusy((s) => ({ ...s, stop: true }));
         const stopOrders = normalizeGridOrders(stopOrdersRaw);
         setGridOrders(stopOrders);
       }
-      // Stop backend autorun when the grid is stopped.
-      await setGridAutorun(false, itemId, 5);
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
     } catch (e) {
@@ -4541,9 +4547,11 @@ body.qty = qty;
         });
       }
 
-      // A newly added order should immediately start/keep autorun alive.
-      await setGridAutorun(true, gridItemId, 5);
-
+      try {
+        await setGridAutorun(true, gridItemId, 5);
+      } catch (eAutorun) {
+        console.warn("autorun after add failed", eAutorun);
+      }
       // Always reload from backend so the server can commit the order and the UI stays live.
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, add: false }));

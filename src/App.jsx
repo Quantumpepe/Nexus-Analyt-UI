@@ -2789,12 +2789,12 @@ const byChain = {};
   const [redeemBusy, setRedeemBusy] = useState(false);
   const [redeemMsg, setRedeemMsg] = useState("");
 
-  // Subscribe (USDC/USDT only; separate from trading)
+  // Subscribe (USDC/USDT on ETH)
   // Single plan: PRO $15
   const SUB_PRICE_USD = 15;
   const SUB_PLAN = "pro";
   const [subChain, setSubChain] = useState("ETH"); // ETH | BNB | POL
-  const [subToken, setSubToken] = useState("USDC"); // USDC | USDT
+  const [subToken, setSubToken] = useState("USDC"); // NATIVE | USDC | USDT
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState("");
 
@@ -2886,31 +2886,64 @@ const byChain = {};
       // Ensure wallet is on the selected chain
       await _ensureChain(chainKey);
 
-      const specs = TOKEN_WHITELIST[chainKey] || [];
-      const spec = specs.find((t) => t.symbol === subToken);
-      if (!spec?.address) throw new Error("Token not supported on this chain.");
+      let txHash = null;
 
-      const amountUnits = BigInt(SUB_PRICE_USD) * (10n ** BigInt(spec.decimals || 6));
-      const data = _erc20TransferData(TREASURY_ADDRESS, amountUnits);
+      if (subToken === "NATIVE") {
+        // Pay $15 in native coin (ETH/BNB/POL). We compute a small buffer (+2%)
+        // to avoid underpay due to minor price movement.
+        const px = (await fetchNativeUsdPrices([chainKey]))?.[chainKey];
+        if (!px || !Number.isFinite(px) || px <= 0) throw new Error("Price feed unavailable.");
+        const nativeAmt = (SUB_PRICE_USD / px) * 1.02; // +2% buffer
+        const wei = BigInt(Math.floor(nativeAmt * 1e18));
+        if (wei <= 0n) throw new Error("Invalid amount.");
 
-      const txHash = await window.ethereum.request({
-        method: "eth_sendTransaction",
-        params: [
-          {
-            from: wallet,
-            to: spec.address,
-            data,
-            value: "0x0",
-          },
-        ],
-      });
+        txHash = await window.ethereum.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: wallet,
+              to: TREASURY_ADDRESS,
+              value: "0x" + wei.toString(16),
+              data: "0x",
+            },
+          ],
+        });
 
-      const res = await api("/api/access/subscribe/verify", {
-        method: "POST",
-        body: { chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: subToken },
-      });
+        // Verify + activate
+        const res = await api("/api/access/subscribe/verify", {
+          method: "POST",
+          body: { chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "native", token: chainKey },
+        });
 
-      setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
+        setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
+      } else {
+        // Pay with stablecoin (USDC/USDT) on the selected chain
+        const specs = TOKEN_WHITELIST[chainKey] || [];
+        const spec = specs.find((t) => t.symbol === subToken);
+        if (!spec?.address) throw new Error("Token not supported on this chain.");
+
+        const amountUnits = BigInt(SUB_PRICE_USD) * (10n ** BigInt(spec.decimals || 6));
+        const data = _erc20TransferData(TREASURY_ADDRESS, amountUnits);
+
+        txHash = await window.ethereum.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from: wallet,
+              to: spec.address,
+              data,
+              value: "0x0",
+            },
+          ],
+        });
+
+        const res = await api("/api/access/subscribe/verify", {
+          method: "POST",
+          body: { chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: subToken },
+        });
+
+        setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
+      }
 
       setAccessModalOpen(false);
       await refreshAccess();
@@ -3492,8 +3525,8 @@ useEffect(() => {
     }
   })();
 }, [gridItem]);
-  // Grid coin source: wallet holdings only (native + user-added tokens).
-  // IMPORTANT: stablecoins like USDC/USDT are used for subscription only and are not shown in Grid trading.
+  // Grid coin source: wallet holdings only (native + stables + user-added tokens).
+  // This avoids showing market/watchlist items that cannot be traded from the wallet.
   const gridWalletCoins = useMemo(() => {
     const chain = String(balActiveChain || DEFAULT_CHAIN).toUpperCase();
     const row = balByChain?.[chain] || {};
@@ -3502,7 +3535,11 @@ useEffect(() => {
     // native coin of the active chain (ETH / POL / BNB)
     out.push(chain);
 
-    // user-added tradable tokens (no stablecoins in Grid mode)
+    // stables present on this chain (USDC/USDT etc.)
+    const stablesMap = row?.stables || {};
+    for (const k of Object.keys(stablesMap)) out.push(String(k).toUpperCase());
+
+    // user-added tokens
     const custom = row?.custom || [];
     for (const t of custom) {
       const sym = String(t?.symbol || "").toUpperCase().trim();
@@ -4265,6 +4302,26 @@ const kickGridRefresh = useCallback(() => {
   setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 1400);
 }, [fetchGridOrders]);
 
+const setGridAutorun = useCallback(async (enable, interval = 5) => {
+  if (!gridItemId || !walletAddress) return null;
+  try {
+    return await api("/api/grid/autorun", {
+      method: "POST",
+      token,
+      wallet: walletAddress,
+      body: {
+        item: gridItemId,
+        addr: walletAddress,
+        wallet: walletAddress,
+        enable: !!enable,
+        interval,
+      },
+    });
+  } catch (_) {
+    return null;
+  }
+}, [gridItemId, walletAddress, token]);
+
 useInterval(
   () => {
     fetchGridOrders();
@@ -4342,7 +4399,7 @@ setGridBusy((s) => ({ ...s, start: true }));
         // Include wallet so backend's anon-grid mode (GRID_ALLOW_ANON=1) can authorize.
         addr: walletAddress || undefined,
         order_mode: "MANUAL",
-        // Vault budget is in native units (POL/BNB/ETH). USDC/USDT are not used for Grid trading. Backend may ignore unknown keys; keep invest_usd for backwards compatibility; invest_qty is the new canonical key.
+        // Vault budget is in native units (POL/BNB/ETH). Backend may ignore unknown keys; keep invest_usd for backwards compatibility; invest_qty is the new canonical key.
         invest_native: investQty,
         invest_qty: investQty,
         invest_usd: investUsd,
@@ -4361,6 +4418,7 @@ setGridBusy((s) => ({ ...s, start: true }));
         setGridOrders(startOrders);
       }
       
+      await setGridAutorun(true, 5);
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, start: false }));
@@ -4396,6 +4454,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         const stopOrders = normalizeGridOrders(stopOrdersRaw);
         setGridOrders(stopOrders);
       }
+      await setGridAutorun(false, 5);
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
     } catch (e) {
@@ -4406,7 +4465,6 @@ setGridBusy((s) => ({ ...s, stop: true }));
 
   async function addManualOrder() {
     setErrorMsg("");
-    if (!token) return setErrorMsg("");
     if (!requirePro("Placing a new order")) return;
     if (!gridItemId) return setErrorMsg('Select coin first.');
     if (gridBusy.add) return;
@@ -4432,7 +4490,7 @@ try {
       };
 
       
-// Qty-only: all Grid coins/tokens are entered as quantity.
+// Qty-only: all coins/tokens are entered as quantity (also USDC/USDT)
 const qty = manualQty === "" ? undefined : Number(manualQty);
 if (qty === undefined || !Number.isFinite(qty) || qty <= 0) throw new Error("Invalid Qty amount.");
 body.qty = qty;
@@ -4486,7 +4544,6 @@ body.qty = qty;
   
   async function stopGridOrder(orderId) {
     setErrorMsg("");
-    if (!token) return setErrorMsg("");
     if (!gridItem) return;
 
 
@@ -4547,7 +4604,6 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
   }
   async function deleteGridOrder(orderId) {
     setErrorMsg("");
-    if (!token) return setErrorMsg("");
     if (!gridItem) return;
 
     const _oid = String(orderId);
@@ -5563,7 +5619,7 @@ const vaultFreeQty = useMemo(
                 ) : (
                   <div>
                                         <div className="hint" style={{ marginBottom: 8 }}>
-                      Subscribe for <b>Nexus Pro</b> (${SUB_PRICE_USD}/30 days). Pay with <b>USDC</b> or <b>USDT</b> only.
+                      Subscribe for <b>Nexus Pro</b> (${SUB_PRICE_USD}/30 days). Pay with <b>ETH / BNB / POL</b> (native) or <b>USDC/USDT</b>.
                     </div>
 
                     <div className="row" style={{ gap: 8, marginBottom: 10, alignItems: "center" }}>
@@ -5582,6 +5638,14 @@ const vaultFreeQty = useMemo(
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
                       <div style={{ flex: 1 }} />
+                      <button
+                        type="button"
+                        className={`pill ${subToken === "NATIVE" ? "active" : ""}`}
+                        style={{ color: "#fff", background: subToken === "NATIVE" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
+                        onClick={() => setSubToken("NATIVE")}
+                      >
+                        {subChain}
+                      </button>
                       <button
                         type="button"
                         className={`pill ${subToken === "USDC" ? "active" : ""}`}
@@ -5621,7 +5685,7 @@ const vaultFreeQty = useMemo(
                     {subMsg ? <div className="hint" style={{ marginTop: 8 }}>{subMsg}</div> : null}
 
                     <div className="hint" style={{ marginTop: 10, opacity: 0.8 }}>
-                      Note: You must have enough <b>{subToken}</b> for the plan amount plus <b>{subChain}</b> gas.
+                      Note: You must have enough funds for the plan amount plus <b>{subChain}</b> gas.
                     </div>
                   </div>
                 )}
@@ -6975,18 +7039,18 @@ const vaultFreeQty = useMemo(
                       <p><b>BUY</b>-Orders kaufen Tokens, <b>SELL</b>-Orders verkaufen bereits gekaufte Tokens.</p>
                       <p><b>Orders werden nur nach deinen Eingaben ausgeführt.</b> Es gibt keine automatische Strategie-Logik durch SAFE / AGGRESSIVE.</p>
                       <p><b>Manuelle Orders</b> sind einzelne Orders und nicht Teil der Grid-Strategie.</p>
-                      <p>BUY kann per <b>USD-Wert als Rechenhilfe</b> oder per <b>Token-Menge</b> erfolgen. Es wird <b>nicht</b> mit USDC/USDT getradet.</p>
+                      <p>BUY kann per <b>USD</b> oder per <b>Token-Menge</b> erfolgen.</p>
                     </>
                   }
                   en={
                     <>
                       <p><b>Grid Trader</b> places multiple BUY and SELL orders for the selected coin.</p>
-                      <p>You define a <b>native-coin budget (ETH / BNB / POL)</b>. This budget is a <b>global limit</b> for the entire grid.</p>
+                      <p>You define a <b>maximum USD budget (USDC / USDT)</b>. This budget is a <b>global limit</b> for the entire grid.</p>
                       <p>The budget is <b>not per order</b>, but shared across all orders.</p>
                       <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell already acquired tokens.</p>
                       <p><b>Orders are executed only from your inputs.</b> There is no automatic SAFE / AGGRESSIVE strategy logic.</p>
                       <p><b>Manual orders</b> are single orders and not part of the grid strategy.</p>
-                      <p>BUY orders can be placed by <b>USD value as a sizing helper</b> or by <b>token quantity</b>. Trading is <b>not</b> done with USDC/USDT.</p>
+                      <p>BUY orders can be placed by <b>USD</b> or by <b>token quantity</b>.</p>
                     </>
                   }
                 />
@@ -7015,9 +7079,6 @@ const vaultFreeQty = useMemo(
                 <label>Budget (Qty)</label>
                 <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
               </div>
-<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
-  {tB("Trading uses native assets only. USDC/USDT are for subscription only.", "Trading uses native assets only. USDC/USDT are for subscription only.")}
-</div>
 <div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
   {tB("Vault:")} <b>{vaultNativeBal.toFixed(6)}</b> · {tB("Reserved (OPEN):")} <b>{reservedQtyOpen.toFixed(6)}</b> · {tB("Free:")} <b>{vaultFreeQty.toFixed(6)}</b>
 </div>{isEthChain ? (
@@ -7237,18 +7298,18 @@ const vaultFreeQty = useMemo(
               {manualSide === "BUY" ? (
                 <>
                   <div className="formRow">
-                    <label>Buy mode (native trading)</label>
+                    <label>Buy mode</label>
                     <select value={manualBuyMode} onChange={(e) => setManualBuyMode(e.target.value)}>                      <option value="QTY">Token qty</option>
                     </select>
                   </div>
 
                   {manualBuyMode === "USD" ? (
                     <div className="formRow">
-                      <label>Spend (native value)</label>
+                      <label>Spend (Qty)</label>
                       <input value={manualUsd} onChange={(e) => setManualUsd(e.target.value)} placeholder="e.g. 300" />
                       {manualUsd && manualPrice ? (
                         <div className="muted tiny" style={{ marginTop: 4 }}>
-                          Est. token qty ≈ {(Number(manualUsd) > 0 && Number(manualPrice) > 0) ? (Number(manualUsd) / Number(manualPrice)).toFixed(8) : "—"}
+                          Est. qty ≈ {(Number(manualUsd) > 0 && Number(manualPrice) > 0) ? (Number(manualUsd) / Number(manualPrice)).toFixed(8) : "—"}
                         </div>
                       ) : null}
                     </div>

@@ -2690,6 +2690,94 @@ const byChain = {};
       return [];
     }
   });
+
+  const normalizeWatchItems = useCallback((items) => {
+    const arr = Array.isArray(items) ? items : [];
+    const out = [];
+    const seen = new Set();
+
+    for (const raw of arr) {
+      if (!raw || typeof raw !== "object") continue;
+
+      let item = null;
+      const modeRaw = String(raw?.mode || "").trim().toLowerCase();
+
+      if (modeRaw === "dex") {
+        const contract = String(raw?.contract || raw?.tokenAddress || "").trim().toLowerCase();
+        if (!contract) continue;
+        item = {
+          ...raw,
+          mode: "dex",
+          contract,
+          tokenAddress: contract,
+          symbol: String(raw?.symbol || contract.slice(0, 10)).trim().toUpperCase(),
+          name: String(raw?.name || raw?.symbol || contract.slice(0, 10)).trim(),
+          chain: String(raw?.chain || "pol").trim(),
+        };
+      } else if (modeRaw === "market" || raw?.coingecko_id || raw?.symbol) {
+        const symbol = String(raw?.symbol || "").trim().toUpperCase();
+        const cgid = String(raw?.coingecko_id || raw?.id || "").trim().toLowerCase();
+        if (!symbol || !cgid) continue;
+        item = {
+          ...raw,
+          mode: "market",
+          symbol,
+          coingecko_id: cgid,
+          id: cgid,
+          name: String(raw?.name || symbol).trim(),
+        };
+      } else {
+        // legacy/unknown backend payloads are ignored instead of breaking the UI
+        continue;
+      }
+
+      const k = _watchKeyFromItem(item);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      out.push(item);
+    }
+    return out;
+  }, []);
+
+  const saveWatchlistToServer = useCallback(async (items) => {
+    if (!wallet) return;
+    const clean = normalizeWatchItems(items);
+    try {
+      await api("/api/watchlist", {
+        method: "POST",
+        token,
+        wallet,
+        body: { wallet, items: clean },
+      });
+    } catch (e) {
+      console.warn("watchlist save failed", e);
+    }
+  }, [wallet, token, normalizeWatchItems]);
+
+  const loadWatchlistFromServer = useCallback(async () => {
+    if (!wallet) return;
+    try {
+      const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
+        method: "GET",
+        token,
+        wallet,
+      });
+      const clean = normalizeWatchItems(r?.items || []);
+      if (clean.length > 0) {
+        setWatchItems(clean);
+        setTimeout(() => {
+          try { fetchWatchSnapshot(clean, { force: true, user: false }); } catch (_) {}
+        }, 0);
+      }
+    } catch (e) {
+      console.warn("watchlist load failed", e);
+    }
+  }, [wallet, token, normalizeWatchItems]);
+
+  useEffect(() => {
+    if (!wallet) return;
+    loadWatchlistFromServer();
+  }, [wallet, loadWatchlistFromServer]);
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
     const uniq = [];
@@ -4942,7 +5030,7 @@ const addMarketCoin = async (coin) => {
   // Optimistic: update local state immediately (never wait for backend)
   let nextItems = null;
   setWatchItems((prev0) => {
-    const prev = Array.isArray(prev0) ? prev0 : [];
+    const prev = normalizeWatchItems(prev0);
     const key = `${item.mode}|${item.symbol}|${item.coingecko_id}`.toLowerCase();
     const exists = prev.some((x) => {
       const xs = String(x?.symbol || "").trim().toUpperCase();
@@ -4950,9 +5038,10 @@ const addMarketCoin = async (coin) => {
       const xid = String(x?.coingecko_id || x?.id || "").toLowerCase();
       return `${xm}|${xs}|${xid}`.toLowerCase() === key;
     });
-    nextItems = exists ? prev : [...prev, item];
+    nextItems = exists ? prev : normalizeWatchItems([...prev, item]);
     return nextItems;
   });
+  setTimeout(() => { try { saveWatchlistToServer(nextItems || [item]); } catch (_) {} }, 0);
 
   // Ensure it shows instantly in the table even if snapshot is down (placeholder row).
   setWatchRows((prev0) => {
@@ -5008,12 +5097,13 @@ const addDexToken = async () => {
 
   let nextItems = null;
   setWatchItems((prev0) => {
-    const prev = Array.isArray(prev0) ? prev0 : [];
+    const prev = normalizeWatchItems(prev0);
     const key = `${item.mode}|${item.contract}`.toLowerCase();
     const exists = prev.some((x) => `${String(x?.mode || "market").toLowerCase()}|${String(x?.contract || x?.tokenAddress || "").toLowerCase()}` === key);
-    nextItems = exists ? prev : [...prev, item];
+    nextItems = exists ? prev : normalizeWatchItems([...prev, item]);
     return nextItems;
   });
+  setTimeout(() => { try { saveWatchlistToServer(nextItems || [item]); } catch (_) {} }, 0);
 
   // placeholder row so user sees it instantly
   setWatchRows((prev0) => {
@@ -5070,16 +5160,17 @@ _setTombstone(removedKey);
 
 
   // Build next "items" array (the true source of truth we send to backend)
-  const nextItems = (watchItems || []).filter((x) => {
+  const nextItems = normalizeWatchItems((watchItems || []).filter((x) => {
     if (!x) return false;
     const xs = String(x.symbol || "").toUpperCase();
     const xm = String(x.mode || "market").toLowerCase();
     const xa = String(x.contract || x.tokenAddress || "").toLowerCase();
     return !(xs === sym && xm === m && xa === addr);
-  });
+  }));
 
   // Optimistic UI update (so it disappears immediately)
   setWatchItems(nextItems);
+  setTimeout(() => { try { saveWatchlistToServer(nextItems); } catch (_) {} }, 0);
   setWatchRows((prev) =>
     (prev || []).filter((r) => {
       if (!r) return false;

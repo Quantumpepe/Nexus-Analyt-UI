@@ -2690,6 +2690,103 @@ const byChain = {};
       return [];
     }
   });
+
+  const _normalizeWatchItems = useCallback((items) => {
+    const arr = Array.isArray(items) ? items : [];
+    const out = [];
+    const seen = new Set();
+
+    for (const it of arr) {
+      if (!it || typeof it !== "object") continue;
+
+      const mode = String(it?.mode || "market").toLowerCase();
+      let next = null;
+
+      if (mode === "dex") {
+        const contract = String(it?.contract || it?.tokenAddress || "").trim().toLowerCase();
+        if (!contract) continue;
+        next = {
+          ...it,
+          mode: "dex",
+          contract,
+          tokenAddress: contract,
+          symbol: String(it?.symbol || "").toUpperCase().trim(),
+          name: String(it?.name || it?.symbol || "").trim(),
+        };
+      } else {
+        const symbol = String(it?.symbol || "").toUpperCase().trim();
+        const coingecko_id = String(it?.coingecko_id || it?.id || "").trim().toLowerCase();
+        if (!symbol || !coingecko_id) continue;
+        next = {
+          ...it,
+          mode: "market",
+          symbol,
+          coingecko_id,
+          id: coingecko_id,
+          name: String(it?.name || symbol).trim(),
+        };
+      }
+
+      const k = _watchKeyFromItem(next);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      out.push(next);
+    }
+
+    return out;
+  }, []);
+
+  const loadWatchlistFromServer = useCallback(async () => {
+    if (!wallet) return;
+    try {
+      const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
+        method: "GET",
+        token,
+        wallet,
+      });
+      const clean = _normalizeWatchItems(r?.items || []);
+      if (clean.length > 0) {
+        setWatchItems(clean);
+      }
+    } catch (e) {
+      console.warn("watchlist load failed", e);
+    }
+  }, [wallet, token, _normalizeWatchItems]);
+
+  const saveWatchlistToServer = useCallback(async (items) => {
+    if (!wallet) return;
+    try {
+      const clean = _normalizeWatchItems(items);
+      await api("/api/watchlist", {
+        method: "POST",
+        token,
+        wallet,
+        body: { wallet, items: clean },
+      });
+    } catch (e) {
+      console.warn("watchlist save failed", e);
+    }
+  }, [wallet, token, _normalizeWatchItems]);
+
+  const setWatchItemsSynced = useCallback((updater) => {
+    let nextItems = null;
+    setWatchItemsSynced((prev) => {
+      const base = _normalizeWatchItems(prev);
+      nextItems = typeof updater === "function" ? updater(base) : updater;
+      nextItems = _normalizeWatchItems(nextItems);
+      return nextItems;
+    });
+    if (nextItems) {
+      setTimeout(() => {
+        try { saveWatchlistToServer(nextItems); } catch (_) {}
+      }, 0);
+    }
+  }, [_normalizeWatchItems, saveWatchlistToServer, setWatchItems]);
+
+  useEffect(() => {
+    if (!wallet) return;
+    loadWatchlistFromServer();
+  }, [wallet, loadWatchlistFromServer]);
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
     const uniq = [];
@@ -5079,7 +5176,7 @@ _setTombstone(removedKey);
   });
 
   // Optimistic UI update (so it disappears immediately)
-  setWatchItems(nextItems);
+  setWatchItemsSynced(nextItems);
   setWatchRows((prev) =>
     (prev || []).filter((r) => {
       if (!r) return false;

@@ -2690,6 +2690,92 @@ const byChain = {};
       return [];
     }
   });
+
+  const normalizeWatchItems = useCallback((items) => {
+    const arr = Array.isArray(items) ? items : [];
+    const out = [];
+    const seen = new Set();
+
+    for (const it of arr) {
+      if (!it || typeof it !== "object") continue;
+      const mode = String(it?.mode || "market").toLowerCase();
+
+      if (mode === "dex") {
+        const contract = String(it?.contract || it?.tokenAddress || "").trim().toLowerCase();
+        if (!contract) continue;
+        const item = {
+          ...it,
+          mode: "dex",
+          contract,
+          tokenAddress: contract,
+          symbol: String(it?.symbol || contract.slice(0, 10)).toUpperCase().trim(),
+          chain: String(it?.chain || "pol").trim(),
+        };
+        const key = _watchKeyFromItem(item);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(item);
+      } else {
+        const symbol = String(it?.symbol || "").trim().toUpperCase();
+        const cgId = String(it?.coingecko_id || it?.id || "").trim().toLowerCase();
+        if (!symbol || !cgId) continue;
+        const item = {
+          ...it,
+          mode: "market",
+          symbol,
+          coingecko_id: cgId,
+          id: cgId,
+          name: String(it?.name || symbol).trim(),
+        };
+        const key = _watchKeyFromItem(item);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(item);
+      }
+    }
+    return out;
+  }, []);
+
+  const saveWatchlistToServer = useCallback(async (itemsArg) => {
+    if (!wallet) return;
+    try {
+      const clean = normalizeWatchItems(itemsArg);
+      await api("/api/watchlist", {
+        method: "POST",
+        token,
+        wallet,
+        body: { wallet, items: clean },
+      });
+    } catch (e) {
+      console.warn("watchlist save failed", e);
+    }
+  }, [wallet, token, normalizeWatchItems]);
+
+  const loadWatchlistFromServer = useCallback(async () => {
+    if (!wallet) return;
+    try {
+      const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
+        method: "GET",
+        token,
+        wallet,
+      });
+      const serverItems = normalizeWatchItems(r?.items || []);
+      if (!serverItems.length) return;
+
+      setWatchItems((prev0) => {
+        const prev = normalizeWatchItems(prev0 || []);
+        const merged = normalizeWatchItems([...serverItems, ...prev]);
+        return merged;
+      });
+    } catch (e) {
+      console.warn("watchlist load failed", e);
+    }
+  }, [wallet, token, normalizeWatchItems, setWatchItems]);
+
+  useEffect(() => {
+    if (!wallet) return;
+    loadWatchlistFromServer();
+  }, [wallet, loadWatchlistFromServer]);
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
     const uniq = [];
@@ -4989,6 +5075,12 @@ const addMarketCoin = async (coin) => {
     }, 0);
   } catch {}
 
+  try {
+    setTimeout(() => {
+      saveWatchlistToServer(nextItems || null);
+    }, 0);
+  } catch {}
+
   // keep modal open to allow adding multiple, but clear search to reduce confusion
   setAddQuery("");
   setAddResults([]);
@@ -5042,6 +5134,12 @@ const addDexToken = async () => {
   try {
     setTimeout(() => {
       fetchWatchSnapshot(nextItems || null, { force: true, user: true });
+    }, 0);
+  } catch {}
+
+  try {
+    setTimeout(() => {
+      saveWatchlistToServer(nextItems || null);
     }, 0);
   } catch {}
 
@@ -5109,6 +5207,10 @@ _setTombstone(removedKey);
   // (This makes sure the item doesn't come back on next poll.)
   (async () => {
     try {
+      try {
+        saveWatchlistToServer(nextItems);
+      } catch {}
+
       const data = await api("/api/watchlist/snapshot", {
         method: "POST",
         body: { items: nextItems },

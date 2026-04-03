@@ -673,6 +673,18 @@ async function api(
 // Search helper: backend endpoint name may differ across deployments.
 // Search helper: backend endpoint name may differ across deployments.
 // backend endpoint name may differ across deployments.
+async function securityPrecheckForDeposit({ chainKey, tokenAddress = "", symbol = "", isNative = false, token }) {
+  const body = {
+    chain: String(chainKey || "").toUpperCase(),
+    token_address: tokenAddress || "",
+    address: tokenAddress || "",
+    symbol: symbol || "",
+    is_native: !!isNative,
+  };
+  const res = await api(`/api/security/token-check`, { method: "POST", body, token });
+  return res || {};
+}
+
 async function apiSearchCoins(query, { signal } = {}) {
   const q = String(query || "").trim();
   if (!q) return [];
@@ -1823,6 +1835,19 @@ const [wsChainKey, setWsChainKey] = useState(() => {
         (contracts?.chains?.[chainKey]?.vault || "").trim() ||
         (contracts?.chains?.[String(chainKey).toLowerCase()]?.vault || "").trim();
       if (!_isAddr(vaultAddr)) throw new Error("Vault address not available for this chain.");
+
+      // Current UI deposits native only. We still run the new backend gate here so the
+      // same flow is already wired for later token deposits. Native assets are bypassed backend-side.
+      const nativeSymbol = String(chainKey || DEFAULT_CHAIN).toUpperCase();
+      const pre = await securityPrecheckForDeposit({
+        chainKey,
+        symbol: nativeSymbol,
+        isNative: true,
+        token,
+      });
+      if (pre?.allowed === false) {
+        throw new Error(pre?.reason || "Deposit blocked by security check.");
+      }
 
       setTxBusy(true);
       const provider = await _getEmbeddedProvider();
@@ -6742,7 +6767,7 @@ const vaultFreeQty = useMemo(
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
                     <div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Deposit to Vault (native)</div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Deposit to Vault (native • security gate ready)</div>
                       <input
                         className="input"
                         value={depositAmt}

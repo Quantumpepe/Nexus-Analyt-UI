@@ -3599,38 +3599,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [highlightSym, setHighlightSym] = useState(null);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
 
-  const filteredCompareSeries = useMemo(() => {
-    const allowedWatchSyms = new Set(
-      (Array.isArray(watchItems) ? watchItems : [])
-        .map((w) => String(w?.symbol || "").toUpperCase().trim())
-        .filter(Boolean)
-    );
-    const allowedCompareSyms = new Set(
-      (Array.isArray(compareSymbols) ? compareSymbols : [])
-        .map((s) => String(s || "").toUpperCase().trim())
-        .filter(Boolean)
-    );
-    const out = {};
-    for (const [sym, series] of Object.entries(compareSeries || {})) {
-      const S = String(sym || "").toUpperCase().trim();
-      if (!S) continue;
-      if (allowedWatchSyms.has(S) && allowedCompareSyms.has(S)) out[S] = series;
-    }
-    return out;
-  }, [watchItems, compareSymbols, compareSeries]);
-
-  useEffect(() => {
-    if (highlightSym && !filteredCompareSeries[String(highlightSym || "").toUpperCase()]) {
-      setHighlightSym(null);
-    }
-  }, [filteredCompareSeries, highlightSym]);
-
-  const compareSeriesView = useMemo(() => sliceCompareSeries(filteredCompareSeries, timeframe), [filteredCompareSeries, timeframe]);
+  const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
 
   // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/2Y)
   const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
-  const chartRawFull = useMemo(() => buildUnifiedChart(filteredCompareSeries), [filteredCompareSeries]);
-    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(filteredCompareSeries, 1000), [filteredCompareSeries]);
+  const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
+    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000), [compareSeries]);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsAll.slice(0, 10) : bestPairsAll), [showTop10Pairs, bestPairsAll]);
 
   // grid (manual)
@@ -4029,7 +4003,52 @@ const [aiLoading, setAiLoading] = useState(false);
     });
     if (!marketMissing.length) return rows;
 
-    const nativeSyms = Array.from(new Set(marketMissing.map((r) => String(r?.symbol || "").toUpperCase()).filter((s) => ["ETH","BNB","POL","MATIC"].includes(s))));
+    // Build symbol <-> CoinGecko id hints from both rows and watch items.
+    const itemBySym = new Map(
+      items
+        .map((it) => [String(it?.symbol || "").toUpperCase(), it])
+        .filter(([sym]) => !!sym)
+    );
+
+    const marketById = {};
+    const ids = Array.from(new Set(
+      marketMissing
+        .map((r) => {
+          const sym = String(r?.symbol || "").toUpperCase();
+          const item = itemBySym.get(sym);
+          return String(r?.coingecko_id || r?.id || item?.coingecko_id || item?.id || "").trim().toLowerCase();
+        })
+        .filter(Boolean)
+    ));
+
+    // Strongest fallback first: exact CoinGecko ids.
+    if (ids.length) {
+      try {
+        const qs = new URLSearchParams({
+          ids: ids.join(","),
+          vs_currencies: "usd",
+          include_24hr_change: "true",
+          include_24hr_vol: "true",
+        }).toString();
+        const cg = await api(`/api/coingecko/simple_price?${qs}`, { method: "GET", token, wallet });
+        for (const [id, data] of Object.entries(cg || {})) {
+          const p = Number(data?.usd);
+          if (!Number.isFinite(p) || p <= 0) continue;
+          marketById[String(id || "").toLowerCase()] = {
+            price: p,
+            change24h: Number(data?.usd_24h_change),
+            volume24h: Number(data?.usd_24h_vol),
+            source: "coingecko-id",
+          };
+        }
+      } catch (e) {
+        console.warn("coingecko id fallback failed", e);
+      }
+    }
+
+    const nativeSyms = Array.from(new Set(
+      marketMissing.map((r) => String(r?.symbol || "").toUpperCase()).filter((s) => ["ETH","BNB","POL","MATIC"].includes(s))
+    ));
     const nativeMap = {};
     if (nativeSyms.length) {
       try {
@@ -4041,7 +4060,12 @@ const [aiLoading, setAiLoading] = useState(false);
       } catch {}
     }
 
-    const otherSyms = Array.from(new Set(marketMissing.map((r) => String(r?.symbol || "").toUpperCase()).filter(Boolean).filter((s) => !nativeMap[s])));
+    const otherSyms = Array.from(new Set(
+      marketMissing
+        .map((r) => String(r?.symbol || "").toUpperCase())
+        .filter(Boolean)
+        .filter((s) => !nativeMap[s])
+    ));
     const otherMap = {};
     if (otherSyms.length) {
       try {
@@ -4049,28 +4073,51 @@ const [aiLoading, setAiLoading] = useState(false);
         const priceMap = priceResp?.prices || {};
         for (const [sym, data] of Object.entries(priceMap || {})) {
           const p = Number(data?.price);
-          if (Number.isFinite(p) && p > 0) otherMap[String(sym || "").toUpperCase()] = p;
+          if (Number.isFinite(p) && p > 0) {
+            otherMap[String(sym || "").toUpperCase()] = {
+              price: p,
+              change24h: Number(data?.change24h ?? data?.chg_24h),
+              volume24h: Number(data?.volume24h ?? data?.vol),
+              source: "price-fallback",
+            };
+          }
         }
       } catch (e) {
         console.warn("supplemental market prices failed", e);
       }
     }
 
-    const fallbackBySym = { ...nativeMap, ...otherMap };
     let changed = false;
     const next = rows.map((row) => {
       const sym = String(row?.symbol || "").toUpperCase();
       const cur = Number(row?.price);
-      const fallback = fallbackBySym[sym];
       if (Number.isFinite(cur) && cur > 0) return row;
-      if (!Number.isFinite(fallback) || fallback <= 0) return row;
+
+      const item = itemBySym.get(sym);
+      const cgId = String(row?.coingecko_id || row?.id || item?.coingecko_id || item?.id || "").trim().toLowerCase();
+      const exact = (cgId && marketById[cgId]) ? marketById[cgId] : null;
+      const fallback = exact || (nativeMap[sym] ? { price: nativeMap[sym], source: "native-fallback" } : null) || otherMap[sym];
+
+      const p = Number(fallback?.price);
+      if (!Number.isFinite(p) || p <= 0) return row;
+
       changed = true;
+      const ch24 = Number.isFinite(Number(fallback?.change24h)) ? Number(fallback.change24h) : row?.change24h ?? row?.chg_24h ?? null;
+      const v24 = Number.isFinite(Number(fallback?.volume24h)) ? Number(fallback.volume24h) : row?.volume24h ?? row?.vol ?? null;
+
       return {
         ...row,
-        price: fallback,
-        source: row?.source === "error" || row?.source === "pending" || !row?.source ? "price-fallback" : row.source,
+        coingecko_id: row?.coingecko_id || row?.id || cgId || undefined,
+        id: row?.id || row?.coingecko_id || cgId || undefined,
+        price: p,
+        change24h: ch24,
+        chg_24h: ch24,
+        volume24h: v24,
+        vol: v24,
+        source: row?.source === "error" || row?.source === "pending" || !row?.source ? (fallback?.source || "price-fallback") : row.source,
       };
     });
+
     if (!changed) return rows;
     try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(next)); } catch {}
     setWatchRows(next);
@@ -5362,17 +5409,52 @@ const addMarketCoin = async (coin) => {
   // NOTE: Do NOT auto-add to Compare when adding to Watchlist.
 
   // Kick a background snapshot refresh (best-effort). Never block the click.
-  // Use setTimeout(0) so state updates (watchItems/watchRows) are committed before we read them.
-  try {
-    setTimeout(() => {
-      fetchWatchSnapshot(nextItems || null, { force: true, user: true });
-    }, 0);
-  } catch {}
-
+  // Save first, then snapshot, and also try an exact-id direct price hydration for instant UX.
   try {
     setTimeout(async () => {
-      await saveWatchlistToServer(nextItems || null);
-      try { setWatchSyncedWallet(wallet || ""); } catch {}
+      try {
+        await saveWatchlistToServer(nextItems || null);
+        try { setWatchSyncedWallet(wallet || ""); } catch {}
+      } catch {}
+
+      try {
+        const qs = new URLSearchParams({
+          ids: String(cgId || "").toLowerCase(),
+          vs_currencies: "usd",
+          include_24hr_change: "true",
+          include_24hr_vol: "true",
+        }).toString();
+        const direct = await api(`/api/coingecko/simple_price?${qs}`, { method: "GET", token, wallet });
+        const d = direct?.[String(cgId || "").toLowerCase()];
+        const p = Number(d?.usd);
+        if (Number.isFinite(p) && p > 0) {
+          setWatchRows((prev0) => {
+            const prev = Array.isArray(prev0) ? prev0 : [];
+            const next = prev.map((r) => {
+              const rs = String(r?.symbol || "").toUpperCase().trim();
+              const rid = String(r?.coingecko_id || r?.id || "").toLowerCase();
+              if (rs !== sym || rid !== String(cgId || "").toLowerCase()) return r;
+              const ch24 = Number.isFinite(Number(d?.usd_24h_change)) ? Number(d.usd_24h_change) : (r?.change24h ?? r?.chg_24h ?? null);
+              const v24 = Number.isFinite(Number(d?.usd_24h_vol)) ? Number(d.usd_24h_vol) : (r?.volume24h ?? r?.vol ?? null);
+              return {
+                ...r,
+                price: p,
+                change24h: ch24,
+                chg_24h: ch24,
+                volume24h: v24,
+                vol: v24,
+                source: "coingecko-id",
+              };
+            });
+            try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(next)); } catch {}
+            return next;
+          });
+        }
+      } catch {}
+
+      try {
+        await fetchWatchSnapshot(nextItems || null, { force: true, user: true });
+      } catch {}
     }, 0);
   } catch {}
 
@@ -5487,28 +5569,17 @@ _setTombstone(removedKey);
     })
   );
 
-  // Keep compare selection + chart state consistent (avoid "ghost" selections/lines)
+  // Keep compare selection consistent (avoid "ghost" selections)
   setCompareSet((prev) => {
     const p = Array.isArray(prev) ? prev : [];
     return p.filter((s) => String(s || "").toUpperCase() !== sym);
   });
-  setCompareSeries((prev) => {
-    const next = {};
-    for (const [k, v] of Object.entries(prev || {})) {
-      if (String(k || "").toUpperCase() !== sym) next[k] = v;
-    }
-    lastGoodCompareRef.current = next;
-    try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(next)); } catch {}
-    return next;
-  });
-  setHighlightSym((prev) => (String(prev || "").toUpperCase() === sym ? null : prev));
 
   // If you removed the last watch item, also clear compare selection + chart cache
   if (!nextItems.length) {
     setCompareSet([]);
     setCompareSeries({});
     lastGoodCompareRef.current = {};
-    setHighlightSym(null);
     try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify({})); } catch {}
   }
 

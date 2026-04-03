@@ -2690,92 +2690,6 @@ const byChain = {};
       return [];
     }
   });
-
-  const normalizeWatchItems = useCallback((items) => {
-    const arr = Array.isArray(items) ? items : [];
-    const out = [];
-    const seen = new Set();
-
-    for (const it of arr) {
-      if (!it || typeof it !== "object") continue;
-      const mode = String(it?.mode || "market").toLowerCase();
-
-      if (mode === "dex") {
-        const contract = String(it?.contract || it?.tokenAddress || "").trim().toLowerCase();
-        if (!contract) continue;
-        const item = {
-          ...it,
-          mode: "dex",
-          contract,
-          tokenAddress: contract,
-          symbol: String(it?.symbol || contract.slice(0, 10)).toUpperCase().trim(),
-          chain: String(it?.chain || "pol").trim(),
-        };
-        const key = _watchKeyFromItem(item);
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        out.push(item);
-      } else {
-        const symbol = String(it?.symbol || "").trim().toUpperCase();
-        const cgId = String(it?.coingecko_id || it?.id || "").trim().toLowerCase();
-        if (!symbol || !cgId) continue;
-        const item = {
-          ...it,
-          mode: "market",
-          symbol,
-          coingecko_id: cgId,
-          id: cgId,
-          name: String(it?.name || symbol).trim(),
-        };
-        const key = _watchKeyFromItem(item);
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        out.push(item);
-      }
-    }
-    return out;
-  }, []);
-
-  const saveWatchlistToServer = useCallback(async (itemsArg) => {
-    if (!wallet) return;
-    try {
-      const clean = normalizeWatchItems(itemsArg);
-      await api("/api/watchlist", {
-        method: "POST",
-        token,
-        wallet,
-        body: { wallet, items: clean },
-      });
-    } catch (e) {
-      console.warn("watchlist save failed", e);
-    }
-  }, [wallet, token, normalizeWatchItems]);
-
-  const loadWatchlistFromServer = useCallback(async () => {
-    if (!wallet) return;
-    try {
-      const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
-        method: "GET",
-        token,
-        wallet,
-      });
-      const serverItems = normalizeWatchItems(r?.items || []);
-      if (!serverItems.length) return;
-
-      setWatchItems((prev0) => {
-        const prev = normalizeWatchItems(prev0 || []);
-        const merged = normalizeWatchItems([...serverItems, ...prev]);
-        return merged;
-      });
-    } catch (e) {
-      console.warn("watchlist load failed", e);
-    }
-  }, [wallet, token, normalizeWatchItems, setWatchItems]);
-
-  useEffect(() => {
-    if (!wallet) return;
-    loadWatchlistFromServer();
-  }, [wallet, loadWatchlistFromServer]);
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
     const uniq = [];
@@ -3726,48 +3640,23 @@ useEffect(() => {
     },
     [idOf]
   );
-  // Persist grid orders (localStorage + in-memory cache)
+  // Grid orders cache (memory only). Backend is the source of truth.
 const gridOrdersCacheRef = useRef({});
 
-const gridOrdersStorageKey = useCallback(
-  (itemId) => `na:gridOrders:${walletAddress || "anon"}:${itemId || "none"}`,
-  [walletAddress]
-);
-
-const loadPersistedGridOrders = useCallback((itemId) => {
-  if (!itemId) return [];
-  try {
-    const raw = localStorage.getItem(gridOrdersStorageKey(itemId));
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}, [gridOrdersStorageKey]);
-
-const savePersistedGridOrders = useCallback((itemId, ordersArr) => {
-  if (!itemId || !Array.isArray(ordersArr)) return;
-  try {
-    localStorage.setItem(gridOrdersStorageKey(itemId), JSON.stringify(ordersArr));
-  } catch {}
-}, [gridOrdersStorageKey]);
-
 const rememberGridOrders = useCallback((itemId, ordersArr) => {
-  if (!itemId) return;
-  if (!Array.isArray(ordersArr)) return;
-
-  const prev = gridOrdersCacheRef.current[itemId];
-  const now = Date.now();
-
+  if (!itemId || !Array.isArray(ordersArr)) return;
   gridOrdersCacheRef.current[itemId] = {
-    ts: now,
+    ts: Date.now(),
     orders: ordersArr,
-    lastNonEmptyOrders: (ordersArr.length ? ordersArr : (prev?.lastNonEmptyOrders || [])),
-    lastNonEmptyTs: (ordersArr.length ? now : (prev?.lastNonEmptyTs || 0)),
   };
+}, []);
 
-  savePersistedGridOrders(itemId, ordersArr);
-}, [savePersistedGridOrders]);
+useEffect(() => {
+  if (!gridItemId || !walletAddress) return;
+  try {
+    localStorage.removeItem(`na:gridOrders:${walletAddress || "anon"}:${gridItemId || "none"}`);
+  } catch {}
+}, [gridItemId, walletAddress]);
 
   const [manualSide, setManualSide] = useState("BUY");
   const [manualPrice, setManualPrice] = useState("");
@@ -4273,16 +4162,9 @@ useEffect(() => {
     return;
   }
 
-  const persisted = loadPersistedGridOrders(gridItemId);
-  if (persisted.length) {
-    rememberGridOrders(gridItemId, persisted);
-    setGridOrders(persisted);
-    return;
-  }
-
   setGridOrders([]);
   setGridVaultStats({ vault: 0, reserved: 0, free: 0 });
-}, [gridItemId, loadPersistedGridOrders, rememberGridOrders]);
+}, [gridItemId, rememberGridOrders]);
 
 
 
@@ -4331,30 +4213,10 @@ const fetchGridOrders = useCallback(async () => {
   return;
 }
 
-// 🔥 WICHTIG: Fallback wenn Backend leer liefert
-if (nextOrders.length === 0) {
-  const cached = gridOrdersCacheRef.current[gridItemId];
-  const lastNonEmpty = cached?.lastNonEmptyOrders || [];
-  const lastNonEmptyTs = cached?.lastNonEmptyTs || 0;
+// Backend is the source of truth for orders.
+// If backend returns an empty array, keep it empty instead of reviving old local orders.
 
-  const stillFresh =
-    lastNonEmpty.length > 0 &&
-    (Date.now() - lastNonEmptyTs) < 2 * 60 * 1000;
-
-  if (stillFresh) {
-    setGridOrders(lastNonEmpty);
-    return;
-  }
-
-  const persisted = loadPersistedGridOrders(gridItemId);
-  if (persisted.length > 0) {
-    rememberGridOrders(gridItemId, persisted);
-    setGridOrders(persisted);
-    return;
-  }
-}
-
-// 🔥 WICHTIG: Orders speichern + setzen
+// Orders speichern + setzen
 rememberGridOrders(gridItemId, nextOrders);
 setGridOrders(nextOrders);
 
@@ -4775,7 +4637,11 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
 
     // Optimistic UI: hide immediately
     const prevOrders = gridOrders;
-    setGridOrders((prev) => (prev || []).filter((o) => String(idOf(o)) !== String(orderId)));
+    setGridOrders((prev) => {
+      const next = (prev || []).filter((o) => String(idOf(o)) !== String(orderId));
+      gridOrdersCacheRef.current[gridItemId] = { ts: Date.now(), orders: next };
+      return next;
+    });
 
     let lastErr = null;
     for (const a of attempts) {
@@ -4798,6 +4664,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           const delOrdersRaw = getGridOrdersFromResponse(r);
           if (Array.isArray(delOrdersRaw)) {
             const delOrders = normalizeGridOrders(delOrdersRaw);
+            rememberGridOrders(gridItemId, delOrders);
             setGridOrders(delOrders);
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
@@ -4807,7 +4674,16 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           return;
         } else {
           const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-          safeSetGridOrdersFromResponse(r, setGridOrders);
+          {
+            const _delRaw = getGridOrdersFromResponse(r);
+            if (Array.isArray(_delRaw)) {
+              const _del = normalizeGridOrders(_delRaw);
+              rememberGridOrders(gridItemId, _del);
+              setGridOrders(_del);
+            } else {
+              safeSetGridOrdersFromResponse(r, setGridOrders);
+            }
+          }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           kickGridRefresh();
@@ -5075,12 +4951,6 @@ const addMarketCoin = async (coin) => {
     }, 0);
   } catch {}
 
-  try {
-    setTimeout(() => {
-      saveWatchlistToServer(nextItems || null);
-    }, 0);
-  } catch {}
-
   // keep modal open to allow adding multiple, but clear search to reduce confusion
   setAddQuery("");
   setAddResults([]);
@@ -5134,12 +5004,6 @@ const addDexToken = async () => {
   try {
     setTimeout(() => {
       fetchWatchSnapshot(nextItems || null, { force: true, user: true });
-    }, 0);
-  } catch {}
-
-  try {
-    setTimeout(() => {
-      saveWatchlistToServer(nextItems || null);
     }, 0);
   } catch {}
 
@@ -5207,10 +5071,6 @@ _setTombstone(removedKey);
   // (This makes sure the item doesn't come back on next poll.)
   (async () => {
     try {
-      try {
-        saveWatchlistToServer(nextItems);
-      } catch {}
-
       const data = await api("/api/watchlist/snapshot", {
         method: "POST",
         body: { items: nextItems },

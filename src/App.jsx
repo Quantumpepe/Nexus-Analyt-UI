@@ -2751,8 +2751,12 @@ const byChain = {};
     }
   }, [wallet, token, normalizeWatchItems]);
 
-  const loadWatchlistFromServer = useCallback(async () => {
-    if (!wallet) return;
+  const syncWatchlistFromServer = useCallback(async () => {
+    if (!wallet) {
+      fetchWatchSnapshot();
+      return;
+    }
+
     try {
       const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
         method: "GET",
@@ -2761,24 +2765,31 @@ const byChain = {};
       });
 
       const serverItems = normalizeWatchItems(r?.items || []);
-      if (!serverItems.length) return;
+      const localItems = normalizeWatchItems(watchItems || []);
 
-      setWatchItems(serverItems);
+      const sig = (arr) =>
+        JSON.stringify(
+          (arr || [])
+            .map((x) => _watchKeyFromItem(x))
+            .filter(Boolean)
+            .sort()
+        );
 
-      setTimeout(() => {
-        try {
-          fetchWatchSnapshot(serverItems, { force: true, user: false });
-        } catch (_) {}
-      }, 0);
+      const serverSig = sig(serverItems);
+      const localSig = sig(localItems);
+
+      if (serverItems.length && serverSig !== localSig) {
+        setWatchItems(serverItems);
+        fetchWatchSnapshot(serverItems, { force: true, user: false });
+        return;
+      }
+
+      fetchWatchSnapshot(localItems, { force: true, user: false });
     } catch (e) {
-      console.warn("watchlist load failed", e);
+      console.warn("watchlist sync failed", e);
+      fetchWatchSnapshot();
     }
-  }, [wallet, token, normalizeWatchItems, setWatchItems]);
-
-  useEffect(() => {
-    if (!wallet) return;
-    loadWatchlistFromServer();
-  }, [wallet, loadWatchlistFromServer]);
+  }, [wallet, token, watchItems, normalizeWatchItems, setWatchItems]);
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
     const uniq = [];
@@ -3918,10 +3929,10 @@ const [aiLoading, setAiLoading] = useState(false);
   };
 
   useEffect(() => {
-    fetchWatchSnapshot();
+    syncWatchlistFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useInterval(fetchWatchSnapshot, 120000, true);
+  }, [wallet]);
+  useInterval(syncWatchlistFromServer, 120000, true);
 
   // 🔁 Refetch snapshot immediately when watchlist changes (so newly added coins get data without full page refresh)
   const watchlistKey = useMemo(() => {

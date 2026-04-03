@@ -2739,7 +2739,33 @@ const byChain = {};
   const saveWatchlistToServer = useCallback(async (itemsArg) => {
     if (!wallet) return;
     try {
-      const clean = normalizeWatchItems(itemsArg);
+      const normalized = normalizeWatchItems(itemsArg);
+
+      const clean = normalized.map((it) => {
+        const mode = String(it?.mode || "market").toLowerCase();
+
+        if (mode === "dex") {
+          const contract = String(it?.contract || it?.tokenAddress || "").trim().toLowerCase();
+          return {
+            mode: "dex",
+            contract,
+            tokenAddress: contract,
+            symbol: String(it?.symbol || "").trim().toUpperCase(),
+            chain: String(it?.chain || "pol").trim(),
+            name: String(it?.name || it?.symbol || "").trim(),
+          };
+        }
+
+        const cgId = String(it?.coingecko_id || it?.id || "").trim().toLowerCase();
+        return {
+          mode: "market",
+          id: cgId,
+          coingecko_id: cgId,
+          symbol: String(it?.symbol || "").trim().toUpperCase(),
+          name: String(it?.name || it?.symbol || "").trim(),
+        };
+      });
+
       await api("/api/watchlist", {
         method: "POST",
         token,
@@ -3932,7 +3958,7 @@ const [aiLoading, setAiLoading] = useState(false);
     syncWatchlistFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet]);
-  useInterval(syncWatchlistFromServer, 12000, true);
+  useInterval(syncWatchlistFromServer, 120000, true);
 
   // 🔁 Refetch snapshot immediately when watchlist changes (so newly added coins get data without full page refresh)
   const watchlistKey = useMemo(() => {
@@ -4444,7 +4470,7 @@ useInterval(
       // silent: polling should never spam the UI
     }
   },
-  5000,
+  8000,
   !!isGridReady &&
     !!gridItemId &&
     !!walletAddress &&

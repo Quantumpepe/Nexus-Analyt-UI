@@ -2680,7 +2680,13 @@ const byChain = {};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletModalOpen, wallet]);
 
-  // watchlist
+  // watchlist + cross-device UI sync
+  const appStateHydratedRef = useRef(false);
+  const watchlistHydratedRef = useRef(false);
+  const appStateSaveTimerRef = useRef(null);
+  const appStateSyncInflightRef = useRef(false);
+  const watchlistSyncInflightRef = useRef(false);
+
   const [watchItems, setWatchItems] = useLocalStorageState("nexus_watch_items", []);
   const [watchRows, setWatchRows] = useState(() => {
     try {
@@ -2690,8 +2696,6 @@ const byChain = {};
       return [];
     }
   });
-  const watchlistSyncInFlightRef = useRef(false);
-  const watchlistLastServerSigRef = useRef("");
 
   const normalizeWatchItems = useCallback((items) => {
     const arr = Array.isArray(items) ? items : [];
@@ -2739,7 +2743,7 @@ const byChain = {};
   }, []);
 
   const saveWatchlistToServer = useCallback(async (itemsArg) => {
-    if (!wallet) return null;
+    if (!wallet) return;
     try {
       const normalized = normalizeWatchItems(itemsArg);
 
@@ -2768,34 +2772,36 @@ const byChain = {};
         };
       });
 
-      const r = await api("/api/watchlist", {
+      await api("/api/watchlist", {
         method: "POST",
         token,
         wallet,
         body: { wallet, items: clean },
       });
-
-      const savedItems = normalizeWatchItems(r?.items || clean);
-      const savedSig = JSON.stringify(savedItems.map((x) => _watchKeyFromItem(x)).filter(Boolean).sort());
-      watchlistLastServerSigRef.current = savedSig;
-      return savedItems;
     } catch (e) {
       console.warn("watchlist save failed", e);
-      return null;
     }
   }, [wallet, token, normalizeWatchItems]);
 
   const syncWatchlistFromServer = useCallback(async () => {
-    if (watchlistSyncInFlightRef.current) return;
-    watchlistSyncInFlightRef.current = true;
+    if (!wallet) {
+      watchlistHydratedRef.current = false;
+      fetchWatchSnapshot();
+      return;
+    }
+    if (watchlistSyncInflightRef.current) return;
+    watchlistSyncInflightRef.current = true;
 
     try {
-      if (!wallet) {
-        fetchWatchSnapshot();
-        return;
-      }
+      const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
+        method: "GET",
+        token,
+        wallet,
+      });
 
+      const serverItems = normalizeWatchItems(r?.items || []);
       const localItems = normalizeWatchItems(watchItems || []);
+
       const sig = (arr) =>
         JSON.stringify(
           (arr || [])
@@ -2804,37 +2810,30 @@ const byChain = {};
             .sort()
         );
 
-      const localSig = sig(localItems);
-      const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
-        method: "GET",
-        token,
-        wallet,
-      });
-
-      const serverItems = normalizeWatchItems(r?.items || []);
       const serverSig = sig(serverItems);
-      watchlistLastServerSigRef.current = serverSig;
+      const localSig = sig(localItems);
 
       if (!serverItems.length && localItems.length) {
-        const uploaded = await saveWatchlistToServer(localItems);
-        const nextItems = normalizeWatchItems(uploaded || localItems);
-        setWatchItems(nextItems);
-        fetchWatchSnapshot(nextItems, { force: true, user: false });
+        await saveWatchlistToServer(localItems);
+        watchlistHydratedRef.current = true;
+        fetchWatchSnapshot(localItems, { force: true, user: false });
         return;
       }
 
-      if (serverItems.length && serverSig !== localSig) {
+      if (serverSig !== localSig) {
         setWatchItems(serverItems);
+        watchlistHydratedRef.current = true;
         fetchWatchSnapshot(serverItems, { force: true, user: false });
         return;
       }
 
-      fetchWatchSnapshot(localItems, { force: true, user: false });
+      watchlistHydratedRef.current = true;
+      fetchWatchSnapshot(serverItems.length ? serverItems : localItems, { force: true, user: false });
     } catch (e) {
       console.warn("watchlist sync failed", e);
       fetchWatchSnapshot();
     } finally {
-      watchlistSyncInFlightRef.current = false;
+      watchlistSyncInflightRef.current = false;
     }
   }, [wallet, token, watchItems, normalizeWatchItems, setWatchItems, saveWatchlistToServer]);
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
@@ -2891,6 +2890,7 @@ const byChain = {};
 
   // compare/chart
   const [timeframe, setTimeframe] = useLocalStorageState("nexus_timeframe", "90D");
+
   const compareFetchRange = useMemo(() => _compareFetchRange(timeframe), [timeframe]);
   const PAIR_EXPLAIN_TF = "30D";
 
@@ -3789,9 +3789,6 @@ useEffect(() => {
   );
   // Persist grid orders (localStorage + in-memory cache)
 const gridOrdersCacheRef = useRef({});
-const gridFetchInFlightRef = useRef(null);
-const gridFetchSeqRef = useRef(0);
-const gridExecuteInFlightRef = useRef(false);
 
 const gridOrdersStorageKey = useCallback(
   (itemId) => `na:gridOrders:${walletAddress || "anon"}:${itemId || "none"}`,
@@ -3816,23 +3813,18 @@ const savePersistedGridOrders = useCallback((itemId, ordersArr) => {
   } catch {}
 }, [gridOrdersStorageKey]);
 
-const rememberGridOrders = useCallback((itemId, ordersArr, options = {}) => {
+const rememberGridOrders = useCallback((itemId, ordersArr) => {
   if (!itemId) return;
   if (!Array.isArray(ordersArr)) return;
 
   const prev = gridOrdersCacheRef.current[itemId];
   const now = Date.now();
-  const resetOnEmpty = !!options?.resetOnEmpty;
 
   gridOrdersCacheRef.current[itemId] = {
     ts: now,
     orders: ordersArr,
-    lastNonEmptyOrders: ordersArr.length
-      ? ordersArr
-      : (resetOnEmpty ? [] : (prev?.lastNonEmptyOrders || [])),
-    lastNonEmptyTs: ordersArr.length
-      ? now
-      : (resetOnEmpty ? 0 : (prev?.lastNonEmptyTs || 0)),
+    lastNonEmptyOrders: (ordersArr.length ? ordersArr : (prev?.lastNonEmptyOrders || [])),
+    lastNonEmptyTs: (ordersArr.length ? now : (prev?.lastNonEmptyTs || 0)),
   };
 
   savePersistedGridOrders(itemId, ordersArr);
@@ -3862,6 +3854,116 @@ const rememberGridOrders = useCallback((itemId, ordersArr, options = {}) => {
 
   // AI
   const [aiSelected, setAiSelected] = useLocalStorageState("nexus_ai_selected", []);
+
+  const saveAppStateToServer = useCallback(async (stateOverride = null) => {
+    if (!wallet) return;
+    const payload = stateOverride || {
+      compareSet: Array.isArray(compareSet) ? compareSet : [],
+      timeframe,
+      indexMode,
+      aiSelected: Array.isArray(aiSelected) ? aiSelected : [],
+    };
+    try {
+      await api("/api/app-state", {
+        method: "POST",
+        token,
+        wallet,
+        body: { wallet, state: payload },
+      });
+    } catch (e) {
+      console.warn("app-state save failed", e);
+    }
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected]);
+
+  const syncAppStateFromServer = useCallback(async () => {
+    if (!wallet) {
+      appStateHydratedRef.current = false;
+      return;
+    }
+    if (appStateSyncInflightRef.current) return;
+    appStateSyncInflightRef.current = true;
+    try {
+      const r = await api(`/api/app-state?wallet=${encodeURIComponent(wallet)}`, {
+        method: "GET",
+        token,
+        wallet,
+      });
+      const state = r?.state || {};
+      const serverCompare = Array.isArray(state?.compareSet) ? state.compareSet : [];
+      const localCompare = Array.isArray(compareSet) ? compareSet : [];
+      const serverCompareSig = JSON.stringify(serverCompare.map((s) => String(s || "").toUpperCase()).filter(Boolean));
+      const localCompareSig = JSON.stringify(localCompare.map((s) => String(s || "").toUpperCase()).filter(Boolean));
+      const serverHasState = Boolean(
+        serverCompare.length ||
+        state?.timeframe ||
+        typeof state?.indexMode === "boolean" ||
+        (Array.isArray(state?.aiSelected) && state.aiSelected.length)
+      );
+
+      if (!serverHasState) {
+        appStateHydratedRef.current = true;
+        await saveAppStateToServer({
+          compareSet: localCompare,
+          timeframe,
+          indexMode,
+          aiSelected: Array.isArray(aiSelected) ? aiSelected : [],
+        });
+        return;
+      }
+
+      if (serverCompareSig !== localCompareSig) setCompareSet(serverCompare);
+      if (state?.timeframe && String(state.timeframe).toUpperCase() !== String(timeframe || "").toUpperCase()) {
+        setTimeframe(String(state.timeframe).toUpperCase());
+      }
+      if (typeof state?.indexMode === "boolean" && Boolean(state.indexMode) !== Boolean(indexMode)) {
+        setIndexMode(Boolean(state.indexMode));
+      }
+      if (Array.isArray(state?.aiSelected)) {
+        const serverAi = state.aiSelected.map((s) => String(s || "").toUpperCase()).filter(Boolean);
+        const localAi = (Array.isArray(aiSelected) ? aiSelected : []).map((s) => String(s || "").toUpperCase()).filter(Boolean);
+        if (JSON.stringify(serverAi) !== JSON.stringify(localAi)) setAiSelected(serverAi);
+      }
+      appStateHydratedRef.current = true;
+    } catch (e) {
+      console.warn("app-state sync failed", e);
+    } finally {
+      appStateSyncInflightRef.current = false;
+    }
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, setCompareSet, setTimeframe, setIndexMode, setAiSelected, saveAppStateToServer]);
+
+  useEffect(() => {
+    if (!wallet) {
+      appStateHydratedRef.current = false;
+      watchlistHydratedRef.current = false;
+      return;
+    }
+    syncAppStateFromServer();
+    syncWatchlistFromServer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet]);
+
+  useEffect(() => {
+    if (!wallet || !appStateHydratedRef.current) return;
+    if (appStateSaveTimerRef.current) clearTimeout(appStateSaveTimerRef.current);
+    const payload = {
+      compareSet: Array.isArray(compareSet) ? compareSet : [],
+      timeframe,
+      indexMode,
+      aiSelected: Array.isArray(aiSelected) ? aiSelected : [],
+    };
+    appStateSaveTimerRef.current = setTimeout(() => {
+      saveAppStateToServer(payload);
+    }, 500);
+    return () => {
+      if (appStateSaveTimerRef.current) clearTimeout(appStateSaveTimerRef.current);
+    };
+  }, [wallet, compareSet, timeframe, indexMode, aiSelected, saveAppStateToServer]);
+
+  useEffect(() => {
+    if (!wallet || !watchlistHydratedRef.current) return;
+    const normalized = normalizeWatchItems(watchItems || []);
+    saveWatchlistToServer(normalized);
+  }, [wallet, watchItems, normalizeWatchItems, saveWatchlistToServer]);
   const [aiKind, setAiKind] = useState("analysis");
   const [aiProfile, setAiProfile] = useState("balanced");
 const [aiQuestion, setAiQuestion] = useState("");
@@ -3983,29 +4085,22 @@ const [aiLoading, setAiLoading] = useState(false);
     }
   };
 
-  useEffect(() => {
-    syncWatchlistFromServer();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet]);
+  useInterval(syncWatchlistFromServer, 120000, Boolean(wallet));
+  useInterval(syncAppStateFromServer, 45000, Boolean(wallet));
 
   useEffect(() => {
-    const onFocus = () => {
-      try { syncWatchlistFromServer(); } catch {}
+    if (!wallet) return;
+    const onFocusSync = () => {
+      syncAppStateFromServer();
+      syncWatchlistFromServer();
     };
-    const onVisibility = () => {
-      if (typeof document !== "undefined" && document.visibilityState === "visible") {
-        try { syncWatchlistFromServer(); } catch {}
-      }
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocusSync);
+    document.addEventListener("visibilitychange", onFocusSync);
     return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocusSync);
+      document.removeEventListener("visibilitychange", onFocusSync);
     };
-  }, [syncWatchlistFromServer]);
-
-  useInterval(syncWatchlistFromServer, 45000, true);
+  }, [wallet, syncAppStateFromServer, syncWatchlistFromServer]);
 
   // 🔁 Refetch snapshot immediately when watchlist changes (so newly added coins get data without full page refresh)
   const watchlistKey = useMemo(() => {
@@ -4373,93 +4468,95 @@ useEffect(() => {
 
 
 
-const fetchGridOrders = useCallback(async ({ force = false } = {}) => {
+const fetchGridOrders = useCallback(async () => {
   // Only fetch when wallet + backend grid context are ready.
   // Do not require the backend auth token here: api() can fall back to API key + wallet header,
   // and requiring token caused empty grid state after refresh on some devices until auth finished.
-  if (!gridUiHydrated || !gridItemId || !walletAddress) return null;
+  if (!gridUiHydrated || !gridItemId || !walletAddress) return;
 
-  if (!force && gridFetchInFlightRef.current) {
-    return gridFetchInFlightRef.current;
+  try {
+    // Be permissive with query param naming across backend revisions.
+    // Some deployments use `addr`, others `wallet`.
+    const params = new URLSearchParams({
+      item: gridItemId,
+      chain: activeGridChainKey,
+      addr: walletAddress,
+      wallet: walletAddress,
+    });
+
+    const r = await api(`/api/grid/orders?${params.toString()}`, {
+      method: "GET",
+      token,
+    wallet: walletAddress,
+    });
+
+    // If auth isn't ready yet, NEVER overwrite current UI state
+    if (r?.unauthenticated || r?.data?.unauthenticated) {
+      return;
+    }
+
+    setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+
+    const nextOrdersRaw = r?.orders ?? r?.data?.orders;
+
+    // Do not clear orders if backend didn't return an orders array (transient HTML/errors/etc.)
+    if (!Array.isArray(nextOrdersRaw)) return;
+
+    const nextOrders = normalizeGridOrders(nextOrdersRaw);
+
+    // If server says empty right after an Add, don't wipe UI (backend may be eventually consistent).
+    const now = Date.now();
+    const last = lastGridActionRef.current || { type: null, ts: 0 };
+    const recentAdd = last.type === "add" && now - (last.ts || 0) < 5000;
+
+    if (nextOrders.length === 0 && recentAdd && gridOrders.length > 0) {
+  return;
+}
+
+// 🔥 WICHTIG: Fallback wenn Backend leer liefert
+if (nextOrders.length === 0) {
+  const cached = gridOrdersCacheRef.current[gridItemId];
+  const lastNonEmpty = cached?.lastNonEmptyOrders || [];
+  const lastNonEmptyTs = cached?.lastNonEmptyTs || 0;
+
+  const stillFresh =
+    lastNonEmpty.length > 0 &&
+    (Date.now() - lastNonEmptyTs) < 2 * 60 * 1000;
+
+  if (stillFresh) {
+    setGridOrders(lastNonEmpty);
+    return;
   }
 
-  const requestSeq = ++gridFetchSeqRef.current;
-  let runPromise = null;
-  const run = (async () => {
-    try {
-      // Be permissive with query param naming across backend revisions.
-      // Some deployments use `addr`, others `wallet`.
-      const params = new URLSearchParams({
-        item: gridItemId,
-        chain: activeGridChainKey,
-        addr: walletAddress,
-        wallet: walletAddress,
-      });
+  const persisted = loadPersistedGridOrders(gridItemId);
+  if (persisted.length > 0) {
+    rememberGridOrders(gridItemId, persisted);
+    setGridOrders(persisted);
+    return;
+  }
+}
 
-      const r = await api(`/api/grid/orders?${params.toString()}`, {
-        method: "GET",
-        token,
-        wallet: walletAddress,
-      });
+// 🔥 WICHTIG: Orders speichern + setzen
+rememberGridOrders(gridItemId, nextOrders);
+setGridOrders(nextOrders);
 
-      if (requestSeq !== gridFetchSeqRef.current) return r;
-
-      // If auth isn't ready yet, NEVER overwrite current UI state
-      if (r?.unauthenticated || r?.data?.unauthenticated) {
-        return r;
+	try {
+      const sym = String(gridItem || "").toUpperCase().trim();
+      if (["POL", "BNB", "ETH"].includes(sym)) {
+        setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
       }
+    } catch (_) {}
 
-      setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-
-      const nextOrdersRaw = r?.orders ?? r?.data?.orders;
-
-      // Do not clear orders if backend didn't return an orders array (transient HTML/errors/etc.)
-      if (!Array.isArray(nextOrdersRaw)) return r;
-
-      const nextOrders = normalizeGridOrders(nextOrdersRaw);
-
-      // If server says empty right after an Add, don't wipe UI (backend may be eventually consistent).
-      const now = Date.now();
-      const last = lastGridActionRef.current || { type: null, ts: 0 };
-      const recentAdd = last.type === "add" && now - (last.ts || 0) < 5000;
-
-      if (nextOrders.length === 0 && recentAdd && gridOrders.length > 0) {
-        return r;
-      }
-
-      // Authenticated empty response is authoritative for cross-device sync.
-      // Clear stale per-device cache instead of resurrecting old local orders.
-      rememberGridOrders(gridItemId, nextOrders, { resetOnEmpty: nextOrders.length === 0 });
-      setGridOrders(nextOrders);
-
-      try {
-        const sym = String(gridItem || "").toUpperCase().trim();
-        if (["POL", "BNB", "ETH"].includes(sym)) {
-          setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
-        }
-      } catch (_) {}
-
-      if (nextOrders.length > 0) {
-        lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
-      }
-
-      setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
-      return r;
-    } catch (e) {
-      // Keep existing orders on transient errors; just surface message
-      setErrorMsg(`Grid orders: ${e.message}`);
-      throw e;
-    } finally {
-      if (gridFetchInFlightRef.current === runPromise) {
-        gridFetchInFlightRef.current = null;
-      }
+    if (nextOrders.length > 0) {
+      lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
     }
-  })();
 
-  runPromise = run;
-  gridFetchInFlightRef.current = runPromise;
-  return runPromise;
-}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState, gridOrders, rememberGridOrders]);
+    setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
+  } catch (e) {
+    // Keep existing orders on transient errors; just surface message
+    setErrorMsg(`Grid orders: ${e.message}`);
+  }
+}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -4468,39 +4565,30 @@ useEffect(() => {
 }, [isGridReady, fetchGridOrders]);
 
 const kickGridRefresh = useCallback(() => {
-  try { fetchGridOrders({ force: true }); } catch (_) {}
-  setTimeout(() => { try { fetchGridOrders({ force: true }); } catch (_) {} }, 500);
-  setTimeout(() => { try { fetchGridOrders({ force: true }); } catch (_) {} }, 1800);
+  try { fetchGridOrders(); } catch (_) {}
+  setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 400);
+  setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 1400);
 }, [fetchGridOrders]);
-
-const gridHasOpenOrders = useMemo(
-  () => gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN"),
-  [gridOrders]
-);
-
-const gridCanPoll =
-  !!isGridReady &&
-  !gridBusy.start &&
-  !gridBusy.stop &&
-  !gridBusy.add &&
-  !gridBusy.stopOrderId &&
-  !gridBusy.deleteOrderId;
 
 useInterval(
   () => {
-    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     fetchGridOrders();
   },
-  gridHasOpenOrders ? 8000 : 20000,
-  gridCanPoll
+  10000,
+  !!isGridReady &&
+    !gridBusy.start &&
+    !gridBusy.stop &&
+    !gridBusy.add &&
+    !gridBusy.stopOrderId &&
+    !gridBusy.deleteOrderId &&
+    gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN")
 );
+
 
 // Execute polling: this is the real trigger that makes BUY/SELL fire.
 useInterval(
   async () => {
-    if (!gridItemId || !walletAddress || gridExecuteInFlightRef.current) return;
-    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-    gridExecuteInFlightRef.current = true;
+    if (!gridItemId || !walletAddress) return;
     try {
       const r = await setGridExecute(gridItemId);
       const execMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
@@ -4510,7 +4598,7 @@ useInterval(
       const execOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(execOrdersRaw)) {
         const execOrders = normalizeGridOrders(execOrdersRaw);
-        rememberGridOrders(gridItemId, execOrders, { resetOnEmpty: execOrders.length === 0 });
+        rememberGridOrders(gridItemId, execOrders);
         setGridOrders(execOrders);
       }
 
@@ -4522,29 +4610,19 @@ useInterval(
       } catch (_) {}
     } catch (_) {
       // silent: polling should never spam the UI
-    } finally {
-      gridExecuteInFlightRef.current = false;
     }
   },
   8000,
-  gridCanPoll && !!gridItemId && !!walletAddress && gridHasOpenOrders
+  !!isGridReady &&
+    !!gridItemId &&
+    !!walletAddress &&
+    !gridBusy.start &&
+    !gridBusy.stop &&
+    !gridBusy.add &&
+    !gridBusy.stopOrderId &&
+    !gridBusy.deleteOrderId &&
+    gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN")
 );
-
-useEffect(() => {
-  if (!isGridReady) return;
-
-  const handleFocusRefresh = () => {
-    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-    try { fetchGridOrders({ force: true }); } catch (_) {}
-  };
-
-  window.addEventListener("focus", handleFocusRefresh);
-  document.addEventListener("visibilitychange", handleFocusRefresh);
-  return () => {
-    window.removeEventListener("focus", handleFocusRefresh);
-    document.removeEventListener("visibilitychange", handleFocusRefresh);
-  };
-}, [isGridReady, fetchGridOrders]);
 
 
   async function gridStart() {
@@ -4941,6 +5019,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
     setGridOrders(prevOrders);
     setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
+useInterval(fetchGridOrders, 15000, isGridReady);
 
   const gridLiveFallback = useMemo(() => {
   const tgt = String(gridItem || "").toUpperCase();

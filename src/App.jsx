@@ -3808,7 +3808,6 @@ useEffect(() => {
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
   const [gridOrdersOpen, setGridOrdersOpen] = useState(true);
-  const [desktopVaultFocus, setDesktopVaultFocus] = useState("available");
   const [mobileGridControlsOpen, setMobileGridControlsOpen] = useState(false);
   const [mobileAdvancedOpen, setMobileAdvancedOpen] = useState(false);
   const [mobileExecutionInfoOpen, setMobileExecutionInfoOpen] = useState(false);
@@ -7925,22 +7924,22 @@ const vaultFreeQty = useMemo(
               </div>
 
               <div className="vaultHeroGrid">
-                <div className={`vaultHeroCard ${desktopVaultFocus === "available" ? "isActive" : "isShrink"}`} onClick={() => setDesktopVaultFocus("available")}>
+                <div className="vaultHeroCard">
                   <div className="vaultHeroLabel">Available</div>
                   <div className="vaultHeroValue">{fmtQty(vaultFreeQty)}</div>
                   <div className="vaultHeroMeta">Free in vault · ready for new live orders</div>
                 </div>
-                <div className={`vaultHeroCard ${desktopVaultFocus === "allocated" ? "isActive" : "isShrink"}`} onClick={() => setDesktopVaultFocus("allocated")}>
+                <div className="vaultHeroCard">
                   <div className="vaultHeroLabel">Allocated</div>
                   <div className="vaultHeroValue">{fmtQty(reservedQtyOpen)}</div>
                   <div className="vaultHeroMeta">Open order exposure already reserved inside the vault</div>
                 </div>
-                <div className={`vaultHeroCard ${desktopVaultFocus === "cycle" ? "isActive" : "isShrink"}`} onClick={() => setDesktopVaultFocus("cycle")}>
+                <div className="vaultHeroCard">
                   <div className="vaultHeroLabel">Cycle</div>
                   <div className="vaultHeroValue">{vaultState?.inCycle ? "Running" : "Stopped"}</div>
                   <div className="vaultHeroMeta">Withdraw becomes available after the active cycle ends</div>
                 </div>
-                <div className={`vaultHeroCard ${desktopVaultFocus === "held" ? "isActive" : "isShrink"}`} onClick={() => setDesktopVaultFocus("held")}>
+                <div className="vaultHeroCard">
                   <div className="vaultHeroLabel">Held Result</div>
                   <div className="vaultHeroValue" style={{ fontSize: 15 }}>{vaultHeldSummary}</div>
                   <div className="vaultHeroMeta">Completed orders are swapped into payout asset and kept in vault</div>

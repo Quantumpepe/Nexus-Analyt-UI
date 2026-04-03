@@ -4069,7 +4069,7 @@ const [aiLoading, setAiLoading] = useState(false);
     const otherMap = {};
     if (otherSyms.length) {
       try {
-        const priceResp = await api(`/api/market/prices?symbols=${encodeURIComponent(otherSyms.join(","))}`, { method: "GET", token, wallet });
+        const priceResp = await api(`/api/prices?symbols=${encodeURIComponent(otherSyms.join(","))}`, { method: "GET", token, wallet });
         const priceMap = priceResp?.prices || {};
         for (const [sym, data] of Object.entries(priceMap || {})) {
           const p = Number(data?.price);

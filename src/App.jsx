@@ -3768,6 +3768,9 @@ useEffect(() => {
   );
   // Persist grid orders (localStorage + in-memory cache)
 const gridOrdersCacheRef = useRef({});
+const gridFetchInFlightRef = useRef(null);
+const gridFetchSeqRef = useRef(0);
+const gridExecuteInFlightRef = useRef(false);
 
 const gridOrdersStorageKey = useCallback(
   (itemId) => `na:gridOrders:${walletAddress || "anon"}:${itemId || "none"}`,
@@ -3792,18 +3795,23 @@ const savePersistedGridOrders = useCallback((itemId, ordersArr) => {
   } catch {}
 }, [gridOrdersStorageKey]);
 
-const rememberGridOrders = useCallback((itemId, ordersArr) => {
+const rememberGridOrders = useCallback((itemId, ordersArr, options = {}) => {
   if (!itemId) return;
   if (!Array.isArray(ordersArr)) return;
 
   const prev = gridOrdersCacheRef.current[itemId];
   const now = Date.now();
+  const resetOnEmpty = !!options?.resetOnEmpty;
 
   gridOrdersCacheRef.current[itemId] = {
     ts: now,
     orders: ordersArr,
-    lastNonEmptyOrders: (ordersArr.length ? ordersArr : (prev?.lastNonEmptyOrders || [])),
-    lastNonEmptyTs: (ordersArr.length ? now : (prev?.lastNonEmptyTs || 0)),
+    lastNonEmptyOrders: ordersArr.length
+      ? ordersArr
+      : (resetOnEmpty ? [] : (prev?.lastNonEmptyOrders || [])),
+    lastNonEmptyTs: ordersArr.length
+      ? now
+      : (resetOnEmpty ? 0 : (prev?.lastNonEmptyTs || 0)),
   };
 
   savePersistedGridOrders(itemId, ordersArr);
@@ -4326,95 +4334,93 @@ useEffect(() => {
 
 
 
-const fetchGridOrders = useCallback(async () => {
+const fetchGridOrders = useCallback(async ({ force = false } = {}) => {
   // Only fetch when wallet + backend grid context are ready.
   // Do not require the backend auth token here: api() can fall back to API key + wallet header,
   // and requiring token caused empty grid state after refresh on some devices until auth finished.
-  if (!gridUiHydrated || !gridItemId || !walletAddress) return;
+  if (!gridUiHydrated || !gridItemId || !walletAddress) return null;
 
-  try {
-    // Be permissive with query param naming across backend revisions.
-    // Some deployments use `addr`, others `wallet`.
-    const params = new URLSearchParams({
-      item: gridItemId,
-      chain: activeGridChainKey,
-      addr: walletAddress,
-      wallet: walletAddress,
-    });
-
-    const r = await api(`/api/grid/orders?${params.toString()}`, {
-      method: "GET",
-      token,
-    wallet: walletAddress,
-    });
-
-    // If auth isn't ready yet, NEVER overwrite current UI state
-    if (r?.unauthenticated || r?.data?.unauthenticated) {
-      return;
-    }
-
-    setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-
-    const nextOrdersRaw = r?.orders ?? r?.data?.orders;
-
-    // Do not clear orders if backend didn't return an orders array (transient HTML/errors/etc.)
-    if (!Array.isArray(nextOrdersRaw)) return;
-
-    const nextOrders = normalizeGridOrders(nextOrdersRaw);
-
-    // If server says empty right after an Add, don't wipe UI (backend may be eventually consistent).
-    const now = Date.now();
-    const last = lastGridActionRef.current || { type: null, ts: 0 };
-    const recentAdd = last.type === "add" && now - (last.ts || 0) < 5000;
-
-    if (nextOrders.length === 0 && recentAdd && gridOrders.length > 0) {
-  return;
-}
-
-// 🔥 WICHTIG: Fallback wenn Backend leer liefert
-if (nextOrders.length === 0) {
-  const cached = gridOrdersCacheRef.current[gridItemId];
-  const lastNonEmpty = cached?.lastNonEmptyOrders || [];
-  const lastNonEmptyTs = cached?.lastNonEmptyTs || 0;
-
-  const stillFresh =
-    lastNonEmpty.length > 0 &&
-    (Date.now() - lastNonEmptyTs) < 2 * 60 * 1000;
-
-  if (stillFresh) {
-    setGridOrders(lastNonEmpty);
-    return;
+  if (!force && gridFetchInFlightRef.current) {
+    return gridFetchInFlightRef.current;
   }
 
-  const persisted = loadPersistedGridOrders(gridItemId);
-  if (persisted.length > 0) {
-    rememberGridOrders(gridItemId, persisted);
-    setGridOrders(persisted);
-    return;
-  }
-}
+  const requestSeq = ++gridFetchSeqRef.current;
+  let runPromise = null;
+  const run = (async () => {
+    try {
+      // Be permissive with query param naming across backend revisions.
+      // Some deployments use `addr`, others `wallet`.
+      const params = new URLSearchParams({
+        item: gridItemId,
+        chain: activeGridChainKey,
+        addr: walletAddress,
+        wallet: walletAddress,
+      });
 
-// 🔥 WICHTIG: Orders speichern + setzen
-rememberGridOrders(gridItemId, nextOrders);
-setGridOrders(nextOrders);
+      const r = await api(`/api/grid/orders?${params.toString()}`, {
+        method: "GET",
+        token,
+        wallet: walletAddress,
+      });
 
-	try {
-      const sym = String(gridItem || "").toUpperCase().trim();
-      if (["POL", "BNB", "ETH"].includes(sym)) {
-        setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
+      if (requestSeq !== gridFetchSeqRef.current) return r;
+
+      // If auth isn't ready yet, NEVER overwrite current UI state
+      if (r?.unauthenticated || r?.data?.unauthenticated) {
+        return r;
       }
-    } catch (_) {}
 
-    if (nextOrders.length > 0) {
-      lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
+      setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+
+      const nextOrdersRaw = r?.orders ?? r?.data?.orders;
+
+      // Do not clear orders if backend didn't return an orders array (transient HTML/errors/etc.)
+      if (!Array.isArray(nextOrdersRaw)) return r;
+
+      const nextOrders = normalizeGridOrders(nextOrdersRaw);
+
+      // If server says empty right after an Add, don't wipe UI (backend may be eventually consistent).
+      const now = Date.now();
+      const last = lastGridActionRef.current || { type: null, ts: 0 };
+      const recentAdd = last.type === "add" && now - (last.ts || 0) < 5000;
+
+      if (nextOrders.length === 0 && recentAdd && gridOrders.length > 0) {
+        return r;
+      }
+
+      // Authenticated empty response is authoritative for cross-device sync.
+      // Clear stale per-device cache instead of resurrecting old local orders.
+      rememberGridOrders(gridItemId, nextOrders, { resetOnEmpty: nextOrders.length === 0 });
+      setGridOrders(nextOrders);
+
+      try {
+        const sym = String(gridItem || "").toUpperCase().trim();
+        if (["POL", "BNB", "ETH"].includes(sym)) {
+          setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
+        }
+      } catch (_) {}
+
+      if (nextOrders.length > 0) {
+        lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
+      }
+
+      setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
+      return r;
+    } catch (e) {
+      // Keep existing orders on transient errors; just surface message
+      setErrorMsg(`Grid orders: ${e.message}`);
+      throw e;
+    } finally {
+      if (gridFetchInFlightRef.current === runPromise) {
+        gridFetchInFlightRef.current = null;
+      }
     }
+  })();
 
-    setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
-  } catch (e) {
-    // Keep existing orders on transient errors; just surface message
-    setErrorMsg(`Grid orders: ${e.message}`);
-  }
-}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
+  runPromise = run;
+  gridFetchInFlightRef.current = runPromise;
+  return runPromise;
+}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState, gridOrders, rememberGridOrders]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -4423,30 +4429,39 @@ useEffect(() => {
 }, [isGridReady, fetchGridOrders]);
 
 const kickGridRefresh = useCallback(() => {
-  try { fetchGridOrders(); } catch (_) {}
-  setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 400);
-  setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 1400);
+  try { fetchGridOrders({ force: true }); } catch (_) {}
+  setTimeout(() => { try { fetchGridOrders({ force: true }); } catch (_) {} }, 500);
+  setTimeout(() => { try { fetchGridOrders({ force: true }); } catch (_) {} }, 1800);
 }, [fetchGridOrders]);
+
+const gridHasOpenOrders = useMemo(
+  () => gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN"),
+  [gridOrders]
+);
+
+const gridCanPoll =
+  !!isGridReady &&
+  !gridBusy.start &&
+  !gridBusy.stop &&
+  !gridBusy.add &&
+  !gridBusy.stopOrderId &&
+  !gridBusy.deleteOrderId;
 
 useInterval(
   () => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     fetchGridOrders();
   },
-  10000,
-  !!isGridReady &&
-    !gridBusy.start &&
-    !gridBusy.stop &&
-    !gridBusy.add &&
-    !gridBusy.stopOrderId &&
-    !gridBusy.deleteOrderId &&
-    gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN")
+  gridHasOpenOrders ? 8000 : 20000,
+  gridCanPoll
 );
-
 
 // Execute polling: this is the real trigger that makes BUY/SELL fire.
 useInterval(
   async () => {
-    if (!gridItemId || !walletAddress) return;
+    if (!gridItemId || !walletAddress || gridExecuteInFlightRef.current) return;
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    gridExecuteInFlightRef.current = true;
     try {
       const r = await setGridExecute(gridItemId);
       const execMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
@@ -4456,7 +4471,7 @@ useInterval(
       const execOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(execOrdersRaw)) {
         const execOrders = normalizeGridOrders(execOrdersRaw);
-        rememberGridOrders(gridItemId, execOrders);
+        rememberGridOrders(gridItemId, execOrders, { resetOnEmpty: execOrders.length === 0 });
         setGridOrders(execOrders);
       }
 
@@ -4468,19 +4483,29 @@ useInterval(
       } catch (_) {}
     } catch (_) {
       // silent: polling should never spam the UI
+    } finally {
+      gridExecuteInFlightRef.current = false;
     }
   },
   8000,
-  !!isGridReady &&
-    !!gridItemId &&
-    !!walletAddress &&
-    !gridBusy.start &&
-    !gridBusy.stop &&
-    !gridBusy.add &&
-    !gridBusy.stopOrderId &&
-    !gridBusy.deleteOrderId &&
-    gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN")
+  gridCanPoll && !!gridItemId && !!walletAddress && gridHasOpenOrders
 );
+
+useEffect(() => {
+  if (!isGridReady) return;
+
+  const handleFocusRefresh = () => {
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    try { fetchGridOrders({ force: true }); } catch (_) {}
+  };
+
+  window.addEventListener("focus", handleFocusRefresh);
+  document.addEventListener("visibilitychange", handleFocusRefresh);
+  return () => {
+    window.removeEventListener("focus", handleFocusRefresh);
+    document.removeEventListener("visibilitychange", handleFocusRefresh);
+  };
+}, [isGridReady, fetchGridOrders]);
 
 
   async function gridStart() {
@@ -4877,7 +4902,6 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
     setGridOrders(prevOrders);
     setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
-useInterval(fetchGridOrders, 15000, isGridReady);
 
   const gridLiveFallback = useMemo(() => {
   const tgt = String(gridItem || "").toUpperCase();

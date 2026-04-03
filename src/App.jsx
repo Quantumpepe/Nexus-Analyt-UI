@@ -3807,11 +3807,7 @@ useEffect(() => {
   const [gridInvestQty, setGridInvestQty] = useState(250);
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
-  const [gridOrdersOpen, setGridOrdersOpen] = useState(true);
-  const [mobileGridControlsOpen, setMobileGridControlsOpen] = useState(false);
-  const [mobileAdvancedOpen, setMobileAdvancedOpen] = useState(false);
-  const [mobileExecutionInfoOpen, setMobileExecutionInfoOpen] = useState(false);
-  const [mobileOrdersPanelOpen, setMobileOrdersPanelOpen] = useState(false);
+  const [gridOrdersOpen, setGridOrdersOpen] = useState(false);
   const [gridVaultStats, setGridVaultStats] = useState({ vault: 0, reserved: 0, free: 0 });
   // Helper: extract order id from different backend schemas
   const idOf = (o) => o?.order_id ?? o?.orderId ?? o?.id ?? o?._id ?? o?.uuid ?? null;
@@ -3909,7 +3905,6 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
     return Array.isArray(arr) ? arr : [0.5, 1, 2];
   }, [GRID_PRICE_PRESETS, manualPricePreset]);
   const [manualQty, setManualQty] = useState("");
-  const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
 
   // AI
   const [aiSelected, setAiSelected] = useLocalStorageState("nexus_ai_selected", []);
@@ -5037,9 +5032,6 @@ try {
         addr: walletAddress || undefined,
         side: manualSide,
         price,
-        payout_asset: manualPayoutAsset,
-        payoutAsset: manualPayoutAsset,
-        payout_chain: currentGridChainKey,
         slippage_bps: Math.round(slp * 100),
         deadline_sec: deadlineSec,
       };
@@ -5285,42 +5277,6 @@ useInterval(fetchGridOrders, 15000, isGridReady);
   return null;
 }, [watchRows, gridItem]);
   const shownGridPrice = gridLiveFallback ?? gridNativeUsd[String(gridItem || '').toUpperCase()] ?? gridMeta.price ?? null;
-  const currentGridChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
-  const payoutAssetOptions = useMemo(() => {
-    const native = String(currentGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-    const fromCfg = Array.isArray(TOKEN_WHITELIST?.[native]) ? TOKEN_WHITELIST[native] : [];
-    const base = [native, ...fromCfg.map((x) => String(x?.symbol || "").toUpperCase()).filter(Boolean)];
-    return Array.from(new Set(base));
-  }, [currentGridChainKey]);
-  useEffect(() => {
-    if (!payoutAssetOptions.length) return;
-    if (!payoutAssetOptions.includes(String(manualPayoutAsset || "").toUpperCase())) {
-      setManualPayoutAsset(payoutAssetOptions[0]);
-    }
-  }, [payoutAssetOptions, manualPayoutAsset]);
-  const openOrderExposureQty = useMemo(() => {
-    try {
-      return (gridOrders || [])
-        .filter((o) => o && String(o.status || "").toUpperCase() === "OPEN")
-        .reduce((s, o) => s + (Number(o.qty) || 0), 0);
-    } catch {
-      return 0;
-    }
-  }, [gridOrders]);
-  const orderComposerQty = useMemo(() => {
-    if (manualQty !== "" && Number.isFinite(Number(manualQty)) && Number(manualQty) > 0) return Number(manualQty);
-    if (manualBuyMode === "USD" && Number(manualUsd) > 0 && Number(manualPrice) > 0) {
-      return Number(manualUsd) / Number(manualPrice);
-    }
-    return 0;
-  }, [manualQty, manualBuyMode, manualUsd, manualPrice]);
-  const exposureAfterOrderQty = useMemo(() => openOrderExposureQty + orderComposerQty, [openOrderExposureQty, orderComposerQty]);
-  const vaultHeldSummary = useMemo(() => {
-    const heldAmt = Number(vaultState?.heldTokenBal || 0);
-    const heldTok = String(vaultState?.heldToken || "").trim();
-    if (!heldTok || !(heldAmt > 0)) return "—";
-    return `${fmtQty(heldAmt)} ${heldTok.slice(0, 6)}…${heldTok.slice(-4)}`;
-  }, [vaultState]);
 
   const setManualPriceFromMarket = () => {
     if (!shownGridPrice || !Number.isFinite(Number(shownGridPrice))) return;
@@ -5924,6 +5880,17 @@ const vaultFreeQty = useMemo(
   [vaultNativeBal, reservedQtyOpen]
 );
 
+const [activePanel, setActivePanel] = useState(null);
+const handlePanelActivate = useCallback((name) => (e) => {
+  if (typeof window !== "undefined" && window.innerWidth <= 980) return;
+  const el = e?.target;
+  if (el && typeof el.closest === "function") {
+    const interactive = el.closest('button, input, select, textarea, label, a, [role="dialog"], .infoBtn, .iconBtn, .chip, .btn, .btnGhost, .btnDanger, .btnPill, .pill');
+    if (interactive) return;
+  }
+  setActivePanel((prev) => (prev === name ? null : name));
+}, []);
+
   return (
     <div className="app nexusApp">
       
@@ -5932,138 +5899,7 @@ const vaultFreeQty = useMemo(
           color: #fff !important; 
           -webkit-text-fill-color: #fff !important;
         }
-        .brandTag {
-          margin-top: 4px;
-          font-size: 12px;
-          font-weight: 800;
-          letter-spacing: .04em;
-          color: rgba(232,242,240,.74);
-          text-transform: uppercase;
-        }
-        .vaultHeroGrid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-          margin: 10px 0 14px;
-        }
-        .vaultHeroCard {
-          border-radius: 16px;
-          padding: 14px;
-          background: linear-gradient(180deg, rgba(0,255,166,0.10), rgba(0,210,140,0.06));
-          border: 1px solid rgba(255,255,255,.06);
-          min-height: 124px;
-          transition: all .24s ease;
-          cursor: pointer;
-        }
-        .vaultHeroCard.isActive {
-          transform: scale(1.015);
-          border-color: rgba(46,204,113,.28);
-          box-shadow: 0 18px 48px rgba(0,0,0,.24);
-        }
-        .vaultHeroCard.isShrink {
-          opacity: .58;
-          transform: scale(.96);
-        }
-        .vaultHeroLabel {
-          font-size: 11px;
-          font-weight: 800;
-          text-transform: uppercase;
-          letter-spacing: .05em;
-          color: rgba(232,242,240,.62);
-        }
-        .vaultHeroValue {
-          margin-top: 6px;
-          font-size: 18px;
-          font-weight: 900;
-          color: #fff;
-        }
-        .vaultHeroMeta {
-          margin-top: 4px;
-          font-size: 12px;
-          color: rgba(232,242,240,.72);
-        }
-        .vaultCompactBar {
-          display: none;
-        }
-        .vaultCompactItem {
-          min-width: 0;
-        }
-        .orderComposerPanel {
-          margin-top: 12px;
-          padding: 14px;
-          border-radius: 14px;
-          background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
-          border: 1px solid rgba(255,255,255,.07);
-          display: grid;
-          gap: 10px;
-        }
-        .orderComposerGrid {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 10px;
-        }
-        .riskBadgeInline {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 12px;
-          border-radius: 999px;
-          font-size: 12px;
-          font-weight: 800;
-          background: rgba(255,221,87,.10);
-          border: 1px solid rgba(255,221,87,.24);
-          color: #ffe38a;
-        }
-        .sectionToggle {
-          display: none;
-        }
-        .sectionBodyMobile {
-          display: block;
-        }
-        .sectionBodyDesktop {
-          display: block;
-        }
-        @media (max-width: 980px) {
-          .orderComposerGrid { grid-template-columns: 1fr; }
-        }
-        @media (max-width: 768px) {
-          .vaultHeroGrid { display: none; }
-          .vaultCompactBar {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 8px;
-            margin: 10px 0 12px;
-          }
-          .vaultCompactItem {
-            border-radius: 14px;
-            border: 1px solid rgba(255,255,255,.06);
-            background: rgba(255,255,255,.04);
-            padding: 10px 12px;
-          }
-          .sectionToggle {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            width: 100%;
-            padding: 10px 12px;
-            margin-top: 10px;
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,.08);
-            background: rgba(255,255,255,.04);
-            color: rgba(255,255,255,.92);
-            font-weight: 800;
-          }
-          .sectionBodyMobile {
-            display: none;
-          }
-          .sectionBodyMobile.open {
-            display: block;
-            margin-top: 8px;
-          }
-          .sectionBodyDesktop {
-            display: none;
-          }
-        }
+
         /* --- Mobile / small screens: prevent horizontal overflow and wrap topbar controls --- */
         html, body { max-width: 100%; overflow-x: hidden; }
         #root { max-width: 100%; overflow-x: hidden; }
@@ -6202,6 +6038,72 @@ const vaultFreeQty = useMemo(
           .gridRight{
             position: static;
           }
+        }
+
+        /* --- Desktop dashboard overview (Compare / Vault / Watchlist / AI) --- */
+        .brandTag {
+          font-size: 12px;
+          color: rgba(232,242,240,.72);
+          margin-top: 2px;
+          font-weight: 700;
+        }
+        .dashboardGrid {
+          display: block;
+        }
+        .dashboardPanel {
+          transition: transform .22s ease, opacity .22s ease, box-shadow .22s ease;
+        }
+        @media (min-width: 981px) {
+          .dashboardGrid {
+            display: grid;
+            grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+            grid-template-rows: minmax(320px,auto) minmax(320px,auto);
+            gap: 18px;
+            align-items: stretch;
+          }
+          .dashboardPanel {
+            margin-bottom: 0;
+            min-width: 0;
+            min-height: 320px;
+            overflow: hidden;
+            cursor: pointer;
+          }
+          .dashboardGrid.hasFocus {
+            grid-template-columns: minmax(0,1.35fr) minmax(0,1.35fr) minmax(280px,0.9fr);
+            grid-template-rows: repeat(3, minmax(180px, auto));
+          }
+          .dashboardGrid.hasFocus .dashboardPanel {
+            min-height: 180px;
+            opacity: .84;
+            transform: scale(.97);
+          }
+          .dashboardGrid.hasFocus .dashboardPanel:hover {
+            opacity: .95;
+          }
+          .dashboardGrid.hasFocus .dashboardPanel.panelActive {
+            opacity: 1;
+            transform: none;
+            box-shadow: 0 20px 60px rgba(0,0,0,.42), inset 0 0 0 1px rgba(46,204,113,.10);
+          }
+          .dashboardGrid.focus-compare .section-compare { grid-column: 1 / span 2; grid-row: 1 / span 3; }
+          .dashboardGrid.focus-compare .section-grid { grid-column: 3; grid-row: 1; }
+          .dashboardGrid.focus-compare .section-watch { grid-column: 3; grid-row: 2; }
+          .dashboardGrid.focus-compare .section-ai { grid-column: 3; grid-row: 3; }
+
+          .dashboardGrid.focus-vault .section-grid { grid-column: 1 / span 2; grid-row: 1 / span 3; }
+          .dashboardGrid.focus-vault .section-compare { grid-column: 3; grid-row: 1; }
+          .dashboardGrid.focus-vault .section-watch { grid-column: 3; grid-row: 2; }
+          .dashboardGrid.focus-vault .section-ai { grid-column: 3; grid-row: 3; }
+
+          .dashboardGrid.focus-watchlist .section-watch { grid-column: 1 / span 2; grid-row: 1 / span 3; }
+          .dashboardGrid.focus-watchlist .section-compare { grid-column: 3; grid-row: 1; }
+          .dashboardGrid.focus-watchlist .section-grid { grid-column: 3; grid-row: 2; }
+          .dashboardGrid.focus-watchlist .section-ai { grid-column: 3; grid-row: 3; }
+
+          .dashboardGrid.focus-ai .section-ai { grid-column: 1 / span 2; grid-row: 1 / span 3; }
+          .dashboardGrid.focus-ai .section-compare { grid-column: 3; grid-row: 1; }
+          .dashboardGrid.focus-ai .section-grid { grid-column: 3; grid-row: 2; }
+          .dashboardGrid.focus-ai .section-watch { grid-column: 3; grid-row: 3; }
         }
 `}</style>
 <header className="topbar">
@@ -7037,7 +6939,7 @@ const vaultFreeQty = useMemo(
                           color: "rgba(232,242,240,.86)",
                         }}
                       >
-                        🛡 Secured by GoPlus
+                        🛡 powered by GoPlus
                       </div>
                     </div>
                   )}
@@ -7045,7 +6947,7 @@ const vaultFreeQty = useMemo(
                   {/* Vault status + Operator (one-time enable for autonomous grid) */}
                   <div className="muted tiny" style={{ marginTop: 6 }}>
                     <div>
-                      {tB("Vault Total", "Vault total")}: <b>{vaultState?.polBalance != null ? String(vaultState.polBalance) : "—"}</b>{" "}
+                      {tB("Vault Balance", "Vault balance")}: <b>{vaultState?.polBalance != null ? String(vaultState.polBalance) : "—"}</b>{" "}
                       | {tB("Cycle", "Cycle")}: <b>{vaultState?.inCycle ? tB("LÄUFT", "RUNNING") : tB("STOP", "STOPPED")}</b>{" "}
                       | {tB("Operator", "Operator")}: <b>{vaultState?.operatorEnabled ? tB("AKTIV", "ENABLED") : tB("INAKTIV", "DISABLED")}</b>
                     </div>
@@ -7406,8 +7308,9 @@ const vaultFreeQty = useMemo(
 </header>
 
       <main className="main mobileStack">
+        <div className={`dashboardGrid ${activePanel ? `hasFocus focus-${activePanel}` : ""}`}>
         {/* Compare */}
-        <section className="card section-compare">
+        <section className={`card section-compare dashboardPanel ${activePanel === "compare" ? "panelActive" : ""}`} onClick={handlePanelActivate("compare")}>
           <div className="cardHead">
             <div className="cardTitle">Compare (max 10)</div>
             <div className="cardActions">
@@ -7844,17 +7747,17 @@ const vaultFreeQty = useMemo(
 
 
         {/* Grid */}
-        <section className="card section-grid">
+        <section className={`card section-grid dashboardPanel ${activePanel === "vault" ? "panelActive" : ""}`} onClick={handlePanelActivate("vault")}>
           <div className="cardHead">
-            <div className="cardTitle">Vault Execution</div>
+            <div className="cardTitle">Grid Trader</div>
             <div className="cardActions" style={{ alignItems: "center" }}>
-              <span className="pill silver">Live Tick: {gridMeta.tick ?? "—"}</span>
-              <span className="pill silver">Live Price: {shownGridPrice ? fmtUsd(shownGridPrice) : "—"}</span>
-              <InfoButton title="Vault Execution – Info">
+              <span className="pill silver">Tick: {gridMeta.tick ?? "—"}</span>
+              <span className="pill silver">Price: {shownGridPrice ? fmtUsd(shownGridPrice) : "—"}</span>
+              <InfoButton title="Grid Trader – Info">
                 <Help showClose dismissable
                   de={
                     <>
-                      <p><b>Vault Execution</b> führt Live-Orders aus deinem Vault-Guthaben für das gewählte Asset aus.</p>
+                      <p><b>Grid Trader</b> platziert mehrere BUY- und SELL-Orders für den gewählten Coin.</p>
                       <p>Du definierst ein <b>maximales Budget in der nativen Chain-Währung (POL/BNB/ETH)</b>. Dieses Budget ist ein <b>globales Limit</b> für den gesamten Grid und liegt im <b>Vault</b>.</p>
                       <p>Das Budget gilt <b>nicht pro Order</b>, sondern für alle Orders zusammen.</p>
                       <p><b>BUY</b>-Orders kaufen Tokens, <b>SELL</b>-Orders verkaufen bereits gekaufte Tokens.</p>
@@ -7865,7 +7768,7 @@ const vaultFreeQty = useMemo(
                   }
                   en={
                     <>
-                      <p><b>Vault Execution</b> runs live orders from your vault balance for the selected asset.</p>
+                      <p><b>Grid Trader</b> places multiple BUY and SELL orders for the selected coin.</p>
                       <p>You define a <b>maximum USD budget (USDC / USDT)</b>. This budget is a <b>global limit</b> for the entire grid.</p>
                       <p>The budget is <b>not per order</b>, but shared across all orders.</p>
                       <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell already acquired tokens.</p>
@@ -7897,54 +7800,12 @@ const vaultFreeQty = useMemo(
 
               
               <div className="formRow">
-                <label>Vault allocation</label>
+                <label>Budget (Qty)</label>
                 <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
               </div>
 <div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
   {tB("Vault:")} <b>{vaultNativeBal.toFixed(6)}</b> · {tB("Reserved (OPEN):")} <b>{reservedQtyOpen.toFixed(6)}</b> · {tB("Free:")} <b>{vaultFreeQty.toFixed(6)}</b>
-</div>
-
-              <div className="vaultCompactBar">
-                <div className="vaultCompactItem">
-                  <div className="vaultHeroLabel">Available</div>
-                  <div className="vaultHeroValue" style={{ fontSize: 18 }}>{fmtQty(vaultFreeQty)}</div>
-                </div>
-                <div className="vaultCompactItem">
-                  <div className="vaultHeroLabel">Allocated</div>
-                  <div className="vaultHeroValue" style={{ fontSize: 18 }}>{fmtQty(reservedQtyOpen)}</div>
-                </div>
-                <div className="vaultCompactItem">
-                  <div className="vaultHeroLabel">Cycle</div>
-                  <div className="vaultHeroValue" style={{ fontSize: 18 }}>{vaultState?.inCycle ? "Running" : "Stopped"}</div>
-                </div>
-                <div className="vaultCompactItem">
-                  <div className="vaultHeroLabel">Held</div>
-                  <div className="vaultHeroValue" style={{ fontSize: 14 }}>{vaultHeldSummary}</div>
-                </div>
-              </div>
-
-              <div className="vaultHeroGrid">
-                <div className="vaultHeroCard">
-                  <div className="vaultHeroLabel">Available</div>
-                  <div className="vaultHeroValue">{fmtQty(vaultFreeQty)}</div>
-                  <div className="vaultHeroMeta">Free in vault · ready for new live orders</div>
-                </div>
-                <div className="vaultHeroCard">
-                  <div className="vaultHeroLabel">Allocated</div>
-                  <div className="vaultHeroValue">{fmtQty(reservedQtyOpen)}</div>
-                  <div className="vaultHeroMeta">Open order exposure already reserved inside the vault</div>
-                </div>
-                <div className="vaultHeroCard">
-                  <div className="vaultHeroLabel">Cycle</div>
-                  <div className="vaultHeroValue">{vaultState?.inCycle ? "Running" : "Stopped"}</div>
-                  <div className="vaultHeroMeta">Withdraw becomes available after the active cycle ends</div>
-                </div>
-                <div className="vaultHeroCard">
-                  <div className="vaultHeroLabel">Held Result</div>
-                  <div className="vaultHeroValue" style={{ fontSize: 15 }}>{vaultHeldSummary}</div>
-                  <div className="vaultHeroMeta">Completed orders are swapped into payout asset and kept in vault</div>
-                </div>
-              </div>{isEthChain ? (
+</div>{isEthChain ? (
 
 
               <div className="formRow" style={{ marginTop: 6 }}>
@@ -7965,7 +7826,7 @@ const vaultFreeQty = useMemo(
               </div>
 
               ) : null}
-<div className="btnRow" style={{ marginBottom: isCompactMobile ? 10 : 0 }}>
+<div className="btnRow">
                 <button
                   className="btn"
                   type="button"
@@ -7977,9 +7838,9 @@ const vaultFreeQty = useMemo(
                   disabled={!isGridReady || gridBusy.start || gridBusy.stop}
                   title={!isPro ? "Subscribe to Nexus Pro to start trading" : ""}
                 >
-                  {gridBusy.start ? "Starting..." : "Start Grid"}
+                  {gridBusy.start ? "Starting..." : "Start"}
                 </button>
-                <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start}>{gridBusy.stop ? "Stopping..." : "Stop Grid"}</button>
+                <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start}>{gridBusy.stop ? "Stopping..." : "Stop"}</button>
               </div>
               {errorMsg ? (
                 <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "8px", background: "rgba(255, 0, 0, 0.10)", border: "1px solid rgba(255, 0, 0, 0.25)", fontSize: "13px", lineHeight: "1.4" }}>
@@ -7988,15 +7849,16 @@ const vaultFreeQty = useMemo(
               ) : null}
           <div style={{
             marginTop: "10px",
-            padding: isCompactMobile ? "8px 10px" : "10px 12px",
-            borderRadius: "12px",
+            padding: "10px 12px",
+            borderRadius: "8px",
             background: "rgba(255, 165, 0, 0.08)",
             border: "none",
-            fontSize: isCompactMobile ? "12px" : "13px",
+            fontSize: "13px",
             lineHeight: "1.4",
             color: "#f5c16c"
           }}>
-            <strong>Warning:</strong> Low-liquidity trades may fail or slip. Gas fees can still apply.
+            <strong>Warning:</strong> Trading low-liquidity tokens may fail (no fills or high slippage). 
+            You may still pay gas fees even if the trade does not execute successfully.
           </div>
 
               </div>
@@ -8004,15 +7866,15 @@ const vaultFreeQty = useMemo(
               <div className="divider" />
 
               <div className="label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                Order Composer
-                <InfoButton title="Order Composer">
+                Manual order
+                <InfoButton title="Manual Order">
                   <Help showClose dismissable
                     de={
                       <>
                         <p><b>Price</b> ist dein Limit-Preis.</p>
                         <p><b>Price preset</b> wählt die Prozent-Gruppe: Fast, Standard, Wide oder Very Wide.</p>
                         <p><b>Quick price</b> übernimmt auf Basis des aktuellen Marktpreises direkt den gewünschten Prozent-Abstand in das Price-Feld.</p>
-                        <p><b>Payout Asset</b> wird vor dem Hinzufügen gewählt. Nach Zielerreichung wird die Order sofort dorthin geswappt.</p><p><b>Add Live Order</b> erstellt die Order erst nach deiner Bestätigung.</p>
+                        <p><b>Add Order</b> erstellt die Order erst nach deiner Bestätigung.</p>
                         <p><b>Qty</b> ist optional.</p>
                       </>
                     }
@@ -8021,7 +7883,7 @@ const vaultFreeQty = useMemo(
                         <p><b>Price</b> is your limit price.</p>
                         <p><b>Price preset</b> chooses the percentage group: Fast, Standard, Wide or Very Wide.</p>
                         <p><b>Quick price</b> fills the Price field from the current market price using the selected percentage distance.</p>
-                        <p><b>Payout Asset</b> is selected before placing the order. When the target is reached, proceeds are swapped there immediately.</p><p><b>Add Live Order</b> creates the order only after your confirmation.</p>
+                        <p><b>Add Order</b> creates the order only after your confirmation.</p>
                         <p><b>Qty</b> is optional.</p>
                       </>
                     }
@@ -8038,105 +7900,34 @@ const vaultFreeQty = useMemo(
               </div>
 
               <div className="formRow">
-                <label>Target price</label>
+                <label>Price</label>
                 <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="e.g. 94442" />
               </div>
 
-              <div className="formRow">
-                <label>Payout asset</label>
-                <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
-                  {payoutAssetOptions.map((sym) => (
-                    <option key={sym} value={sym}>{sym}</option>
-                  ))}
-                </select>
-              </div>
 
-              {isCompactMobile ? (
-                <>
-                  <button type="button" className="sectionToggle" onClick={() => setMobileExecutionInfoOpen((v) => !v)}>
-                    <span>Execution Info</span>
-                    <span>{mobileExecutionInfoOpen ? "−" : "+"}</span>
-                  </button>
-                  <div className={`sectionBodyMobile ${mobileExecutionInfoOpen ? "open" : ""}`}>
-                    <div className="orderComposerPanel" style={{ padding: "14px" }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                        <div>
-                          <div className="muted tiny">Open exposure</div>
-                          <div style={{ fontWeight: 900, marginTop: 6 }}>{fmtQty(openOrderExposureQty)}</div>
-                        </div>
-                        <div>
-                          <div className="muted tiny">After this order</div>
-                          <div style={{ fontWeight: 900, marginTop: 6 }}>{fmtQty(exposureAfterOrderQty)}</div>
-                        </div>
-                        <div>
-                          <div className="muted tiny">Settlement</div>
-                          <div style={{ fontWeight: 900, marginTop: 6 }}>{manualPayoutAsset} on target hit</div>
-                        </div>
-                        <div>
-                          <div className="muted tiny">Withdrawal</div>
-                          <div style={{ fontWeight: 900, marginTop: 6 }}>Held until cycle end</div>
-                        </div>
-                      </div>
-                      <div className="riskBadgeInline" style={{ marginTop: 10, fontSize: 12 }}>⚡ Live order · payout swap on completion · protected by GoPlus</div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="orderComposerPanel">
-                  <div className="orderComposerGrid">
-                    <div>
-                      <div className="muted tiny">Open exposure</div>
-                      <div style={{ fontWeight: 900, marginTop: 6 }}>{fmtQty(openOrderExposureQty)}</div>
-                    </div>
-                    <div>
-                      <div className="muted tiny">Exposure after this order</div>
-                      <div style={{ fontWeight: 900, marginTop: 6 }}>{fmtQty(exposureAfterOrderQty)}</div>
-                    </div>
-                    <div>
-                      <div className="muted tiny">Settlement</div>
-                      <div style={{ fontWeight: 900, marginTop: 6 }}>{manualPayoutAsset} on target hit</div>
-                    </div>
-                    <div>
-                      <div className="muted tiny">Withdrawal</div>
-                      <div style={{ fontWeight: 900, marginTop: 6 }}>Held until cycle end</div>
-                    </div>
-                  </div>
-                  <div className="riskBadgeInline">⚡ Live order · payout swap on completion · protected by GoPlus</div>
-                </div>
-              )}
-
-              {isCompactMobile ? (
-                <>
-                  <button type="button" className="sectionToggle" onClick={() => setMobileAdvancedOpen((v) => !v)}>
-                    <span>Advanced</span>
-                    <span>{mobileAdvancedOpen ? "−" : "+"}</span>
-                  </button>
-                  <div className={`sectionBodyMobile ${mobileAdvancedOpen ? "open" : ""}`}>
-              <div className="row" style={{
-                display: "grid",
-                gridTemplateColumns: isCompactMobile ? "1fr 1fr" : "auto 90px auto auto 90px auto 1fr",
-                gap: isCompactMobile ? 8 : 10,
-                alignItems: "center",
-                marginTop: -6,
-                marginBottom: 12
-              }}>
-                <div className="muted" style={{ fontSize: 12 }}>Slippage</div>
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -6, marginBottom: 12 }}>
+                <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>
                 <input
                   value={manualSlippagePct}
                   onChange={(e) => setManualSlippagePct(e.target.value)}
-                  style={{ width: "100%" }}
+                  style={{ width: 90 }}
                   placeholder="5"
                 />
-                {isCompactMobile ? null : <div className="muted" style={{ fontSize: 12 }}>%</div>}
-                <div className="muted" style={{ fontSize: 12 }}>Deadline</div>
+                <div className="muted" style={{ fontSize: 12 }}>%</div>
+
+                <div style={{ width: 10 }} />
+
+                <div className="muted" style={{ fontSize: 12 }}>Deadline:</div>
                 <input
                   value={manualDeadlineMin}
                   onChange={(e) => setManualDeadlineMin(e.target.value)}
-                  style={{ width: "100%" }}
+                  style={{ width: 90 }}
                   placeholder="20"
                 />
-                {isCompactMobile ? null : <div className="muted" style={{ fontSize: 12 }}>min</div>}
-                <div className="muted tiny" style={{ gridColumn: isCompactMobile ? "1 / -1" : "auto" }}>
+                <div className="muted" style={{ fontSize: 12 }}>min</div>
+
+                <div style={{ width: 10 }} />
+                <div className="muted tiny">
                   Tip: increase slippage for low-liquidity tokens to avoid failed swaps.
                 </div>
               </div>
@@ -8259,18 +8050,14 @@ const vaultFreeQty = useMemo(
                   <input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="e.g. 0.01" />
                 </div>
               )}
-                  </div>
-                </>
-              ) : null}
 
               <button
                 className="btn"
                 onClick={addManualOrder}
                 disabled={!isGridReady || gridBusy.add}
                 title={!isPro ? "Subscribe to Nexus Pro to trade" : ""}
-                style={isCompactMobile ? { width: "100%", marginTop: 4 } : undefined}
               >
-                {gridBusy.add ? "Adding..." : "Add Live Order"}
+                {gridBusy.add ? "Adding..." : "Add Order"}
               </button>
 
               {!token && <div className="muted tiny">Wallet connected. First protected action may require one signature.</div>}
@@ -8278,36 +8065,23 @@ const vaultFreeQty = useMemo(
 
             </div>
 
-            <div className="gridRight" style={isCompactMobile ? { marginTop: 12 } : undefined}>
+            <div className="gridRight">
               <div className="gridOrders">
               <div className="ordersHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                {isCompactMobile ? (
-                  <button
-                    type="button"
-                    className="sectionToggle"
-                    onClick={() => setMobileOrdersPanelOpen((v) => !v)}
-                    style={{ display: "flex", marginTop: 0 }}
-                    title={gridOrders.length ? "Show orders" : "No orders"}
-                  >
-                    <span>Orders</span>
-                    <span>{mobileOrdersPanelOpen ? "−" : "+"}</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btnGhost"
-                    onClick={() => gridOrders.length && setGridOrdersOpen((v) => !v)}
-                    style={{ height: 32, paddingInline: 12, fontSize: 13 }}
-                    title={gridOrders.length ? (gridOrdersOpen ? "Orders" : "Show orders") : "No orders"}
-                  >
-                    Orders {gridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btnGhost"
+                  onClick={() => gridOrders.length && setGridOrdersOpen((v) => !v)}
+                  style={{ height: 32, paddingInline: 12, fontSize: 13 }}
+                  title={gridOrders.length ? (gridOrdersOpen ? "Hide orders" : "Show orders") : "No orders"}
+                >
+                  Orders {gridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
+                </button>
                 <span className="pill silver">{gridOrders.length} orders</span>
               </div>
 
               {gridOrders.length ? (
-                ((isCompactMobile && mobileOrdersPanelOpen) || (!isCompactMobile && gridOrdersOpen)) ? (
+                gridOrdersOpen ? (
                   <div className="ordersList" style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
                     {gridOrders.map((o) => {
                       const currentPrice = Number(shownGridPrice || 0);
@@ -8420,7 +8194,7 @@ const vaultFreeQty = useMemo(
                   <div className="muted tiny" style={{ marginTop: 8 }}>Orders hidden. Tap Orders to open.</div>
                 )
               ) : (
-                <div className="muted">No live orders yet. Start the grid, then add a live order.</div>
+                <div className="muted">No orders yet. Press Start then Add Order.</div>
               )}
             </div>
             </div>
@@ -8428,7 +8202,7 @@ const vaultFreeQty = useMemo(
         </section>
 
         {/* Watchlist */}
-        <section className="card section-watch">
+        <section className={`card section-watch dashboardPanel ${activePanel === "watchlist" ? "panelActive" : ""}`} onClick={handlePanelActivate("watchlist")}>
           <div className="cardHead">
             <div className="cardTitle">Watchlist</div>
             <div className="cardActions" style={{ alignItems: "center" }}>
@@ -8486,7 +8260,7 @@ const vaultFreeQty = useMemo(
         </section>
 
         {/* AI */}
-        <section className="card section-ai">
+        <section className={`card section-ai dashboardPanel ${activePanel === "ai" ? "panelActive" : ""}`} onClick={handlePanelActivate("ai")}>
           <div className="cardHead">
             <div className="cardTitle">AI Analyst</div>
             <div className="cardActions" style={{ alignItems: "center" }}>
@@ -8575,6 +8349,7 @@ const vaultFreeQty = useMemo(
             </div>
           </div>
         </section>
+        </div>
       </main>
 
       {null}

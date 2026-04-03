@@ -3932,7 +3932,7 @@ const [aiLoading, setAiLoading] = useState(false);
     syncWatchlistFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet]);
-  useInterval(syncWatchlistFromServer, 120000, true);
+  useInterval(syncWatchlistFromServer, 20000, true);
 
   // 🔁 Refetch snapshot immediately when watchlist changes (so newly added coins get data without full page refresh)
   const watchlistKey = useMemo(() => {

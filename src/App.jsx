@@ -1629,6 +1629,19 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [sendAmt, setSendAmt] = useState(""); // in native units
 
   // Vault state (on-chain) + operator authorization
+
+  useEffect(() => {
+    if (!withdrawSendOpen) {
+      setSecurityState(null);
+      setSecurityMsg("");
+    }
+  }, [withdrawSendOpen]);
+
+  useEffect(() => {
+    setSecurityState(null);
+    setSecurityMsg("");
+  }, [depositAmt, balActiveChain, wsChainKey]);
+
   const [vaultState, setVaultState] = useState({
     polBalanceWei: null,
     polBalance: null,
@@ -1780,6 +1793,21 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 
 
   const _isAddr = (a) => /^0x[a-fA-F0-9]{40}$/.test(String(a || "").trim());
+  const _isUserRejectedTx = (err) => {
+    const msg = String(err?.message || err || "").toLowerCase();
+    const code = err?.code;
+    return (
+      code === 4001 ||
+      msg.includes("user rejected") ||
+      msg.includes("user denied") ||
+      msg.includes("user cancelled") ||
+      msg.includes("transaction cancelled") ||
+      msg.includes("rejected") ||
+      msg.includes("denied") ||
+      msg.includes("cancelled")
+    );
+  };
+
 
   const sendNative = async () => {
     try {
@@ -1827,6 +1855,9 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const depositToVault = async () => {
     try {
       setTxMsg("");
+      setSecurityState("loading");
+      setSecurityMsg("🟡 Checking token security...");
+
       if (!wallet) throw new Error("Wallet not connected.");
       const amt = String(depositAmt || "").trim();
       if (!amt || Number(amt) <= 0) throw new Error("Deposit amount invalid.");
@@ -1841,8 +1872,6 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       // Current UI deposits native only. We still run the new backend gate here so the
       // same flow is already wired for later token deposits. Native assets are bypassed backend-side.
       const nativeSymbol = String(chainKey || DEFAULT_CHAIN).toUpperCase();
-      setSecurityState("loading");
-      setSecurityMsg("🟡 Checking token security...");
       const pre = await securityPrecheckForDeposit({
         chainKey,
         symbol: nativeSymbol,
@@ -1857,6 +1886,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 
       setSecurityState("ok");
       setSecurityMsg("🟢 Token approved. Opening wallet signature...");
+
       setTxBusy(true);
       const provider = await _getEmbeddedProvider();
       await _trySwitchChain(provider, chainId);
@@ -1885,17 +1915,21 @@ const [wsChainKey, setWsChainKey] = useState(() => {
         txHash = await trySend("0x");
       }
 
-      setTxMsg(`Deposit submitted. Tx: ${txHash}`);
       setSecurityState("ok");
-      setSecurityMsg("🟢 Security check passed. Deposit submitted.");
+      setSecurityMsg("🟢 Deposit submitted successfully.");
+      setTxMsg(`Deposit submitted. Tx: ${txHash}`);
       setDepositAmt("");
       setTimeout(() => refreshBalances(), 1200);
     } catch (e) {
-      if (!String(e?.message || e || "").toLowerCase().includes("security")) {
+      if (_isUserRejectedTx(e)) {
+        setSecurityState("loading");
+        setSecurityMsg("🟡 Transaction cancelled by user.");
+        setTxMsg("Transaction cancelled by user.");
+      } else {
         setSecurityState("blocked");
         setSecurityMsg(`🔴 ${String(e?.message || e || "Deposit failed")}`);
+        setTxMsg(String(e?.message || e || "Deposit failed"));
       }
-      setTxMsg(String(e?.message || e || "Deposit failed"));
     } finally {
       setTxBusy(false);
     }
@@ -2208,12 +2242,6 @@ useEffect(() => {
     refreshVaultState(forcedChain);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet, wsChainKey, balActiveChain, contracts]);
-
-  useEffect(() => {
-    setSecurityState(null);
-    setSecurityMsg("");
-  }, [withdrawSendOpen, wsChainKey, balActiveChain, depositAmt]);
-
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -6807,39 +6835,32 @@ const vaultFreeQty = useMemo(
                     </button>
                   </div>
 
-                  {securityState ? (
+                  {securityState && (
                     <div
                       style={{
                         marginTop: 10,
                         padding: "10px 12px",
-                        borderRadius: 12,
-                        fontSize: 13,
+                        borderRadius: 10,
                         fontWeight: 800,
-                        lineHeight: 1.25,
-                        textAlign: "center",
-                        color:
-                          securityState === "loading"
-                            ? "#fff6bf"
-                            : securityState === "ok"
-                            ? "#caffdf"
-                            : "#ffc4c4",
+                        lineHeight: 1.35,
+                        color: "#ffffff",
                         background:
                           securityState === "loading"
-                            ? "rgba(181,159,0,0.18)"
+                            ? "linear-gradient(180deg, rgba(181,159,0,0.28), rgba(120,102,0,0.22))"
                             : securityState === "ok"
-                            ? "rgba(31,139,76,0.20)"
-                            : "rgba(168,50,50,0.20)",
+                            ? "linear-gradient(180deg, rgba(31,139,76,0.28), rgba(20,96,52,0.22))"
+                            : "linear-gradient(180deg, rgba(168,50,50,0.28), rgba(111,29,29,0.22))",
                         border:
                           securityState === "loading"
-                            ? "1px solid rgba(255,214,10,0.28)"
+                            ? "1px solid rgba(245, 208, 66, 0.45)"
                             : securityState === "ok"
-                            ? "1px solid rgba(80,255,160,0.24)"
-                            : "1px solid rgba(255,90,90,0.28)",
+                            ? "1px solid rgba(74, 222, 128, 0.35)"
+                            : "1px solid rgba(248, 113, 113, 0.35)",
                       }}
                     >
                       {securityMsg}
                     </div>
-                  ) : null}
+                  )}
 
                   {/* Vault status + Operator (one-time enable for autonomous grid) */}
                   <div className="muted tiny" style={{ marginTop: 6 }}>

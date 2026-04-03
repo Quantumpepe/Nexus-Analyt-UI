@@ -2419,10 +2419,13 @@ useEffect(() => {
 
   const disconnectWallet = async () => {
     try {
+      try { resetWalletBoundUi({ clearAuth: true }); } catch {}
       await logout();
       setWalletModalOpen(false);
     } catch (e) {
       setErrorMsg(String(e?.message || e || "Logout failed"));
+    } finally {
+      try { resetWalletBoundUi({ clearAuth: true }); } catch {}
     }
   };
 
@@ -2695,6 +2698,7 @@ const byChain = {};
   const [appStateSyncedWallet, setAppStateSyncedWallet] = useLocalStorageState("nexus_app_state_synced_wallet", "");
   const watchSyncBusyRef = useRef(false);
   const appStateHydratedRef = useRef(false);
+  const prevWalletRef = useRef(String(wallet || "").toLowerCase());
   const appStateSyncBusyRef = useRef(false);
   const normalizeWatchItems = useCallback((items) => {
     const arr = Array.isArray(items) ? items : [];
@@ -2784,7 +2788,7 @@ const byChain = {};
 
   const syncWatchlistFromServer = useCallback(async () => {
     if (!wallet) {
-      fetchWatchSnapshot();
+      setWatchRows([]);
       return;
     }
     if (watchSyncBusyRef.current) return;
@@ -3913,6 +3917,68 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
     return () => clearTimeout(t);
   }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, setAppStateSyncedWallet]);
 
+  const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
+    try {
+      if (watchRetryRef.current?.t) {
+        clearTimeout(watchRetryRef.current.t);
+      }
+    } catch {}
+    watchRetryRef.current = { key: "", n: 0, t: null };
+    watchSyncBusyRef.current = false;
+    appStateSyncBusyRef.current = false;
+    appStateHydratedRef.current = false;
+    inflightWatch.current = false;
+    watchRefreshQueued.current = false;
+
+    setWatchItems([]);
+    setWatchRows([]);
+    setCompareSet([]);
+    setTimeframe("90D");
+    setIndexMode(true);
+    setAiSelected([]);
+    setCompareSeries({});
+    lastGoodCompareRef.current = {};
+    setWatchSyncedWallet("");
+    setAppStateSyncedWallet("");
+    try { setGridOrders([]); } catch {}
+    try { setGridMeta({ tick: null, price: null }); } catch {}
+    try { setGridVaultStats({ vault: 0, reserved: 0, free: 0 }); } catch {}
+    try { setGridUiHydrated(false); } catch {}
+    if (clearAuth) {
+      try { setWallet(""); } catch {}
+      try { setToken(""); } catch {}
+      try { setPrivyJwt(""); } catch {}
+    }
+
+    const keys = [
+      "nexus_watch_items",
+      "nexus_watch_synced_wallet",
+      "nexus_app_state_synced_wallet",
+      "nexus_compare_set",
+      "nexus_timeframe",
+      "nexus_ai_selected",
+      LS_WATCH_ROWS_CACHE,
+      LS_COMPARE_SERIES_CACHE,
+      LS_COMPARE_STORE,
+      LS_WATCH_REMOVED,
+    ];
+    if (clearAuth) {
+      keys.push("nexus_wallet", "nexus_token");
+    }
+    for (const key of keys) {
+      try { localStorage.removeItem(key); } catch {}
+    }
+  }, [setWatchItems, setWatchRows, setCompareSet, setTimeframe, setIndexMode, setAiSelected, setCompareSeries, setWatchSyncedWallet, setAppStateSyncedWallet, setGridOrders, setGridMeta, setGridVaultStats, setGridUiHydrated, setWallet, setToken, setPrivyJwt]);
+
+  useEffect(() => {
+    const prev = prevWalletRef.current || "";
+    const curr = String(wallet || "").toLowerCase();
+    if (prev && prev !== curr) {
+      resetWalletBoundUi({ clearAuth: !curr });
+    }
+    prevWalletRef.current = curr;
+  }, [wallet, resetWalletBoundUi]);
+
   const [aiKind, setAiKind] = useState("analysis");
   const [aiProfile, setAiProfile] = useState("balanced");
 const [aiQuestion, setAiQuestion] = useState("");
@@ -3928,6 +3994,10 @@ const [aiLoading, setAiLoading] = useState(false);
   const watchRetryRef = useRef({ key: "", n: 0, t: null });
 
   const fetchWatchSnapshot = async (itemsOverride = null, opts = {}) => {
+    if (!wallet && !opts?.allowGuest) {
+      setWatchRows([]);
+      return;
+    }
     if (inflightWatch.current) {
       // If a refresh is requested while a snapshot is already in-flight, queue exactly one refresh.
       watchRefreshQueued.current = true;

@@ -4444,7 +4444,7 @@ useInterval(
       // silent: polling should never spam the UI
     }
   },
-  8000,
+  5000,
   !!isGridReady &&
     !!gridItemId &&
     !!walletAddress &&

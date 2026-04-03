@@ -3599,12 +3599,38 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [highlightSym, setHighlightSym] = useState(null);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
 
-  const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
+  const filteredCompareSeries = useMemo(() => {
+    const allowedWatchSyms = new Set(
+      (Array.isArray(watchItems) ? watchItems : [])
+        .map((w) => String(w?.symbol || "").toUpperCase().trim())
+        .filter(Boolean)
+    );
+    const allowedCompareSyms = new Set(
+      (Array.isArray(compareSymbols) ? compareSymbols : [])
+        .map((s) => String(s || "").toUpperCase().trim())
+        .filter(Boolean)
+    );
+    const out = {};
+    for (const [sym, series] of Object.entries(compareSeries || {})) {
+      const S = String(sym || "").toUpperCase().trim();
+      if (!S) continue;
+      if (allowedWatchSyms.has(S) && allowedCompareSyms.has(S)) out[S] = series;
+    }
+    return out;
+  }, [watchItems, compareSymbols, compareSeries]);
+
+  useEffect(() => {
+    if (highlightSym && !filteredCompareSeries[String(highlightSym || "").toUpperCase()]) {
+      setHighlightSym(null);
+    }
+  }, [filteredCompareSeries, highlightSym]);
+
+  const compareSeriesView = useMemo(() => sliceCompareSeries(filteredCompareSeries, timeframe), [filteredCompareSeries, timeframe]);
 
   // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/2Y)
   const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
-  const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
-    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000), [compareSeries]);
+  const chartRawFull = useMemo(() => buildUnifiedChart(filteredCompareSeries), [filteredCompareSeries]);
+    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(filteredCompareSeries, 1000), [filteredCompareSeries]);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsAll.slice(0, 10) : bestPairsAll), [showTop10Pairs, bestPairsAll]);
 
   // grid (manual)
@@ -5461,17 +5487,28 @@ _setTombstone(removedKey);
     })
   );
 
-  // Keep compare selection consistent (avoid "ghost" selections)
+  // Keep compare selection + chart state consistent (avoid "ghost" selections/lines)
   setCompareSet((prev) => {
     const p = Array.isArray(prev) ? prev : [];
     return p.filter((s) => String(s || "").toUpperCase() !== sym);
   });
+  setCompareSeries((prev) => {
+    const next = {};
+    for (const [k, v] of Object.entries(prev || {})) {
+      if (String(k || "").toUpperCase() !== sym) next[k] = v;
+    }
+    lastGoodCompareRef.current = next;
+    try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(next)); } catch {}
+    return next;
+  });
+  setHighlightSym((prev) => (String(prev || "").toUpperCase() === sym ? null : prev));
 
   // If you removed the last watch item, also clear compare selection + chart cache
   if (!nextItems.length) {
     setCompareSet([]);
     setCompareSeries({});
     lastGoodCompareRef.current = {};
+    setHighlightSym(null);
     try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify({})); } catch {}
   }
 

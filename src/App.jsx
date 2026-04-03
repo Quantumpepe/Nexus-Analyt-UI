@@ -1908,7 +1908,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
         setSecurityMsg("🟡 Transaction cancelled by user.");
       } else if (low.includes("execution reverted") || low.includes("estimate gas") || low.includes("call_exception") || low.includes("cycle_open") || low.includes("revert")) {
         setSecurityState("blocked");
-        setSecurityMsg("🔴 Deposit rejected by contract.");
+        setSecurityMsg("🔴 Deposit rejected by User/Wallet/Contract.");
       } else if (!securityState) {
         setSecurityState("blocked");
         setSecurityMsg(`🔴 ${msg}`);

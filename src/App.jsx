@@ -2680,13 +2680,7 @@ const byChain = {};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletModalOpen, wallet]);
 
-  // watchlist + cross-device UI sync
-  const appStateHydratedRef = useRef(false);
-  const watchlistHydratedRef = useRef(false);
-  const appStateSaveTimerRef = useRef(null);
-  const appStateSyncInflightRef = useRef(false);
-  const watchlistSyncInflightRef = useRef(false);
-
+  // watchlist
   const [watchItems, setWatchItems] = useLocalStorageState("nexus_watch_items", []);
   const [watchRows, setWatchRows] = useState(() => {
     try {
@@ -2697,6 +2691,11 @@ const byChain = {};
     }
   });
 
+  const [watchSyncedWallet, setWatchSyncedWallet] = useLocalStorageState("nexus_watch_synced_wallet", "");
+  const [appStateSyncedWallet, setAppStateSyncedWallet] = useLocalStorageState("nexus_app_state_synced_wallet", "");
+  const watchSyncBusyRef = useRef(false);
+  const appStateHydratedRef = useRef(false);
+  const appStateSyncBusyRef = useRef(false);
   const normalizeWatchItems = useCallback((items) => {
     const arr = Array.isArray(items) ? items : [];
     const out = [];
@@ -2785,12 +2784,11 @@ const byChain = {};
 
   const syncWatchlistFromServer = useCallback(async () => {
     if (!wallet) {
-      watchlistHydratedRef.current = false;
       fetchWatchSnapshot();
       return;
     }
-    if (watchlistSyncInflightRef.current) return;
-    watchlistSyncInflightRef.current = true;
+    if (watchSyncBusyRef.current) return;
+    watchSyncBusyRef.current = true;
 
     try {
       const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
@@ -2802,40 +2800,32 @@ const byChain = {};
       const serverItems = normalizeWatchItems(r?.items || []);
       const localItems = normalizeWatchItems(watchItems || []);
 
-      const sig = (arr) =>
-        JSON.stringify(
-          (arr || [])
-            .map((x) => _watchKeyFromItem(x))
-            .filter(Boolean)
-            .sort()
-        );
-
+      const sig = (arr) => JSON.stringify((arr || []).map((x) => _watchKeyFromItem(x)).filter(Boolean).sort());
       const serverSig = sig(serverItems);
       const localSig = sig(localItems);
+      const neverSynced = String(watchSyncedWallet || "").toLowerCase() !== String(wallet || "").toLowerCase();
 
-      if (!serverItems.length && localItems.length) {
+      if (neverSynced && !serverItems.length && localItems.length) {
         await saveWatchlistToServer(localItems);
-        watchlistHydratedRef.current = true;
+        setWatchSyncedWallet(wallet);
         fetchWatchSnapshot(localItems, { force: true, user: false });
         return;
       }
 
-      if (serverSig !== localSig) {
+      // Once a wallet has synced, server is the source of truth — even when empty.
+      if (serverSig !== localSig || (!serverItems.length && localItems.length) || (serverItems.length && !localItems.length)) {
         setWatchItems(serverItems);
-        watchlistHydratedRef.current = true;
-        fetchWatchSnapshot(serverItems, { force: true, user: false });
-        return;
+        try { localStorage.setItem("nexus_watch_items", JSON.stringify(serverItems)); } catch {}
       }
-
-      watchlistHydratedRef.current = true;
-      fetchWatchSnapshot(serverItems.length ? serverItems : localItems, { force: true, user: false });
+      setWatchSyncedWallet(wallet);
+      fetchWatchSnapshot(serverItems, { force: true, user: false });
     } catch (e) {
       console.warn("watchlist sync failed", e);
       fetchWatchSnapshot();
     } finally {
-      watchlistSyncInflightRef.current = false;
+      watchSyncBusyRef.current = false;
     }
-  }, [wallet, token, watchItems, normalizeWatchItems, setWatchItems, saveWatchlistToServer]);
+  }, [wallet, token, watchItems, normalizeWatchItems, setWatchItems, watchSyncedWallet, setWatchSyncedWallet, saveWatchlistToServer]);
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
     const uniq = [];
@@ -2890,7 +2880,6 @@ const byChain = {};
 
   // compare/chart
   const [timeframe, setTimeframe] = useLocalStorageState("nexus_timeframe", "90D");
-
   const compareFetchRange = useMemo(() => _compareFetchRange(timeframe), [timeframe]);
   const PAIR_EXPLAIN_TF = "30D";
 
@@ -3854,116 +3843,76 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
 
   // AI
   const [aiSelected, setAiSelected] = useLocalStorageState("nexus_ai_selected", []);
-
-  const saveAppStateToServer = useCallback(async (stateOverride = null) => {
-    if (!wallet) return;
-    const payload = stateOverride || {
-      compareSet: Array.isArray(compareSet) ? compareSet : [],
-      timeframe,
-      indexMode,
-      aiSelected: Array.isArray(aiSelected) ? aiSelected : [],
-    };
-    try {
-      await api("/api/app-state", {
-        method: "POST",
-        token,
-        wallet,
-        body: { wallet, state: payload },
-      });
-    } catch (e) {
-      console.warn("app-state save failed", e);
-    }
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected]);
-
   const syncAppStateFromServer = useCallback(async () => {
     if (!wallet) {
-      appStateHydratedRef.current = false;
+      appStateHydratedRef.current = true;
       return;
     }
-    if (appStateSyncInflightRef.current) return;
-    appStateSyncInflightRef.current = true;
+    if (appStateSyncBusyRef.current) return;
+    appStateSyncBusyRef.current = true;
     try {
-      const r = await api(`/api/app-state?wallet=${encodeURIComponent(wallet)}`, {
-        method: "GET",
-        token,
-        wallet,
-      });
+      const r = await api(`/api/app-state?wallet=${encodeURIComponent(wallet)}`, { method: "GET", token, wallet });
       const state = r?.state || {};
-      const serverCompare = Array.isArray(state?.compareSet) ? state.compareSet : [];
-      const localCompare = Array.isArray(compareSet) ? compareSet : [];
-      const serverCompareSig = JSON.stringify(serverCompare.map((s) => String(s || "").toUpperCase()).filter(Boolean));
-      const localCompareSig = JSON.stringify(localCompare.map((s) => String(s || "").toUpperCase()).filter(Boolean));
-      const serverHasState = Boolean(
-        serverCompare.length ||
-        state?.timeframe ||
-        typeof state?.indexMode === "boolean" ||
-        (Array.isArray(state?.aiSelected) && state.aiSelected.length)
-      );
+      const serverCompare = Array.isArray(state?.compare) ? state.compare.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 10) : [];
+      const serverTf = String(state?.timeframe || "90D").toUpperCase();
+      const serverIndex = state?.indexMode == null ? true : !!state.indexMode;
+      const serverAi = Array.isArray(state?.aiSelected) ? state.aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
+      const neverSynced = String(appStateSyncedWallet || "").toLowerCase() !== String(wallet || "").toLowerCase();
+      const hasLocal = (Array.isArray(compareSet) && compareSet.length) || (Array.isArray(aiSelected) && aiSelected.length) || String(timeframe || "90D").toUpperCase() !== "90D" || !!indexMode === false;
+      const hasServer = serverCompare.length || serverAi.length || serverTf !== "90D" || serverIndex !== true;
 
-      if (!serverHasState) {
-        appStateHydratedRef.current = true;
-        await saveAppStateToServer({
-          compareSet: localCompare,
-          timeframe,
-          indexMode,
-          aiSelected: Array.isArray(aiSelected) ? aiSelected : [],
+      if (neverSynced && !hasServer && hasLocal) {
+        await api("/api/app-state", {
+          method: "POST",
+          token,
+          wallet,
+          body: { wallet, compare: compareSet, timeframe, indexMode, aiSelected },
         });
-        return;
+        setAppStateSyncedWallet(wallet);
+      } else {
+        setCompareSet(serverCompare);
+        setTimeframe(serverTf || "90D");
+        setIndexMode(!!serverIndex);
+        setAiSelected(serverAi);
+        setAppStateSyncedWallet(wallet);
       }
-
-      if (serverCompareSig !== localCompareSig) setCompareSet(serverCompare);
-      if (state?.timeframe && String(state.timeframe).toUpperCase() !== String(timeframe || "").toUpperCase()) {
-        setTimeframe(String(state.timeframe).toUpperCase());
-      }
-      if (typeof state?.indexMode === "boolean" && Boolean(state.indexMode) !== Boolean(indexMode)) {
-        setIndexMode(Boolean(state.indexMode));
-      }
-      if (Array.isArray(state?.aiSelected)) {
-        const serverAi = state.aiSelected.map((s) => String(s || "").toUpperCase()).filter(Boolean);
-        const localAi = (Array.isArray(aiSelected) ? aiSelected : []).map((s) => String(s || "").toUpperCase()).filter(Boolean);
-        if (JSON.stringify(serverAi) !== JSON.stringify(localAi)) setAiSelected(serverAi);
-      }
-      appStateHydratedRef.current = true;
     } catch (e) {
       console.warn("app-state sync failed", e);
     } finally {
-      appStateSyncInflightRef.current = false;
+      appStateHydratedRef.current = true;
+      appStateSyncBusyRef.current = false;
     }
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, setCompareSet, setTimeframe, setIndexMode, setAiSelected, saveAppStateToServer]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, setCompareSet, setTimeframe, setIndexMode, setAiSelected, setAppStateSyncedWallet]);
 
   useEffect(() => {
-    if (!wallet) {
-      appStateHydratedRef.current = false;
-      watchlistHydratedRef.current = false;
-      return;
-    }
     syncAppStateFromServer();
-    syncWatchlistFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet]);
 
   useEffect(() => {
     if (!wallet || !appStateHydratedRef.current) return;
-    if (appStateSaveTimerRef.current) clearTimeout(appStateSaveTimerRef.current);
     const payload = {
-      compareSet: Array.isArray(compareSet) ? compareSet : [],
+      wallet,
+      compare: Array.isArray(compareSet) ? compareSet : [],
       timeframe,
       indexMode,
       aiSelected: Array.isArray(aiSelected) ? aiSelected : [],
     };
-    appStateSaveTimerRef.current = setTimeout(() => {
-      saveAppStateToServer(payload);
-    }, 500);
-    return () => {
-      if (appStateSaveTimerRef.current) clearTimeout(appStateSaveTimerRef.current);
-    };
-  }, [wallet, compareSet, timeframe, indexMode, aiSelected, saveAppStateToServer]);
+    const t = setTimeout(async () => {
+      if (appStateSyncBusyRef.current) return;
+      appStateSyncBusyRef.current = true;
+      try {
+        await api("/api/app-state", { method: "POST", token, wallet, body: payload });
+        setAppStateSyncedWallet(wallet);
+      } catch (e) {
+        console.warn("app-state save failed", e);
+      } finally {
+        appStateSyncBusyRef.current = false;
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, setAppStateSyncedWallet]);
 
-  useEffect(() => {
-    if (!wallet || !watchlistHydratedRef.current) return;
-    const normalized = normalizeWatchItems(watchItems || []);
-    saveWatchlistToServer(normalized);
-  }, [wallet, watchItems, normalizeWatchItems, saveWatchlistToServer]);
   const [aiKind, setAiKind] = useState("analysis");
   const [aiProfile, setAiProfile] = useState("balanced");
 const [aiQuestion, setAiQuestion] = useState("");
@@ -3986,7 +3935,7 @@ const [aiLoading, setAiLoading] = useState(false);
     }
     inflightWatch.current = true;
     try {
-      const r = await api("/api/watchlist/snapshot", { method: "POST", body: { items: (itemsOverride ?? watchItems) } });
+      const r = await api("/api/watchlist/snapshot", { method: "POST", token, wallet, body: { wallet, items: (itemsOverride ?? watchItems) } });
       const nextRowsRaw = (r?.results || r?.rows || []);
       // Merge-only rule: watchItems is the source of truth. Never resurrect removed items.
       const allowedKeys = new Set(((itemsOverride ?? watchItems) || []).map(_watchKeyFromItem));
@@ -4062,7 +4011,7 @@ const [aiLoading, setAiLoading] = useState(false);
           if (watchRetryRef.current.t) { try { clearTimeout(watchRetryRef.current.t); } catch {} }
           watchRetryRef.current = { key: _key, n: 0, t: null };
         }
-        if (watchRetryRef.current.n < 2) {
+        if (watchRetryRef.current.n < 5) {
           const delay = 1200 * (watchRetryRef.current.n + 1);
           const nnext = watchRetryRef.current.n + 1;
           if (watchRetryRef.current.t) { try { clearTimeout(watchRetryRef.current.t); } catch {} }
@@ -4085,14 +4034,17 @@ const [aiLoading, setAiLoading] = useState(false);
     }
   };
 
-  useInterval(syncWatchlistFromServer, 120000, Boolean(wallet));
-  useInterval(syncAppStateFromServer, 45000, Boolean(wallet));
+  useEffect(() => {
+    syncWatchlistFromServer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet]);
+  useInterval(syncWatchlistFromServer, 45000, !!wallet);
+  useInterval(syncAppStateFromServer, 45000, !!wallet);
 
   useEffect(() => {
-    if (!wallet) return;
     const onFocusSync = () => {
-      syncAppStateFromServer();
       syncWatchlistFromServer();
+      syncAppStateFromServer();
     };
     window.addEventListener("focus", onFocusSync);
     document.addEventListener("visibilitychange", onFocusSync);
@@ -4100,7 +4052,7 @@ const [aiLoading, setAiLoading] = useState(false);
       window.removeEventListener("focus", onFocusSync);
       document.removeEventListener("visibilitychange", onFocusSync);
     };
-  }, [wallet, syncAppStateFromServer, syncWatchlistFromServer]);
+  }, [syncWatchlistFromServer, syncAppStateFromServer]);
 
   // 🔁 Refetch snapshot immediately when watchlist changes (so newly added coins get data without full page refresh)
   const watchlistKey = useMemo(() => {
@@ -5258,8 +5210,9 @@ const addMarketCoin = async (coin) => {
   } catch {}
 
   try {
-    setTimeout(() => {
-      saveWatchlistToServer(nextItems || null);
+    setTimeout(async () => {
+      await saveWatchlistToServer(nextItems || null);
+      try { setWatchSyncedWallet(wallet || ""); } catch {}
     }, 0);
   } catch {}
 
@@ -5320,8 +5273,9 @@ const addDexToken = async () => {
   } catch {}
 
   try {
-    setTimeout(() => {
-      saveWatchlistToServer(nextItems || null);
+    setTimeout(async () => {
+      await saveWatchlistToServer(nextItems || null);
+      try { setWatchSyncedWallet(wallet || ""); } catch {}
     }, 0);
   } catch {}
 
@@ -5355,7 +5309,9 @@ _setTombstone(removedKey);
     const xs = String(x.symbol || "").toUpperCase();
     const xm = String(x.mode || "market").toLowerCase();
     const xa = String(x.contract || x.tokenAddress || "").toLowerCase();
-    return !(xs === sym && xm === m && xa === addr);
+    const xid = String(x.coingecko_id || x.id || "").toLowerCase();
+    if (m === "dex") return !(xs === sym && xm === m && xa === addr);
+    return !(xs === sym && xm === m);
   });
 
   // Optimistic UI update (so it disappears immediately)
@@ -5366,7 +5322,8 @@ _setTombstone(removedKey);
       const rs = String(r.symbol || "").toUpperCase();
       const rm = String(r.mode || "market").toLowerCase();
       const ra = String(r.contract || r.tokenAddress || "").toLowerCase();
-      return !(rs === sym && rm === m && ra === addr);
+      if (m === "dex") return !(rs === sym && rm === m && ra === addr);
+      return !(rs === sym && rm === m);
     })
   );
 
@@ -5389,7 +5346,7 @@ _setTombstone(removedKey);
   // (This makes sure the item doesn't come back on next poll.)
   (async () => {
     try {
-      try { saveWatchlistToServer(nextItems); } catch (_) {}
+      try { await saveWatchlistToServer(nextItems); setWatchSyncedWallet(wallet || ""); } catch (_) {}
 
       const data = await api("/api/watchlist/snapshot", {
         method: "POST",

@@ -2690,6 +2690,8 @@ const byChain = {};
       return [];
     }
   });
+  const watchlistSyncInFlightRef = useRef(false);
+  const watchlistLastServerSigRef = useRef("");
 
   const normalizeWatchItems = useCallback((items) => {
     const arr = Array.isArray(items) ? items : [];
@@ -2737,7 +2739,7 @@ const byChain = {};
   }, []);
 
   const saveWatchlistToServer = useCallback(async (itemsArg) => {
-    if (!wallet) return;
+    if (!wallet) return null;
     try {
       const normalized = normalizeWatchItems(itemsArg);
 
@@ -2766,33 +2768,34 @@ const byChain = {};
         };
       });
 
-      await api("/api/watchlist", {
+      const r = await api("/api/watchlist", {
         method: "POST",
         token,
         wallet,
         body: { wallet, items: clean },
       });
+
+      const savedItems = normalizeWatchItems(r?.items || clean);
+      const savedSig = JSON.stringify(savedItems.map((x) => _watchKeyFromItem(x)).filter(Boolean).sort());
+      watchlistLastServerSigRef.current = savedSig;
+      return savedItems;
     } catch (e) {
       console.warn("watchlist save failed", e);
+      return null;
     }
   }, [wallet, token, normalizeWatchItems]);
 
   const syncWatchlistFromServer = useCallback(async () => {
-    if (!wallet) {
-      fetchWatchSnapshot();
-      return;
-    }
+    if (watchlistSyncInFlightRef.current) return;
+    watchlistSyncInFlightRef.current = true;
 
     try {
-      const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
-        method: "GET",
-        token,
-        wallet,
-      });
+      if (!wallet) {
+        fetchWatchSnapshot();
+        return;
+      }
 
-      const serverItems = normalizeWatchItems(r?.items || []);
       const localItems = normalizeWatchItems(watchItems || []);
-
       const sig = (arr) =>
         JSON.stringify(
           (arr || [])
@@ -2801,8 +2804,24 @@ const byChain = {};
             .sort()
         );
 
-      const serverSig = sig(serverItems);
       const localSig = sig(localItems);
+      const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
+        method: "GET",
+        token,
+        wallet,
+      });
+
+      const serverItems = normalizeWatchItems(r?.items || []);
+      const serverSig = sig(serverItems);
+      watchlistLastServerSigRef.current = serverSig;
+
+      if (!serverItems.length && localItems.length) {
+        const uploaded = await saveWatchlistToServer(localItems);
+        const nextItems = normalizeWatchItems(uploaded || localItems);
+        setWatchItems(nextItems);
+        fetchWatchSnapshot(nextItems, { force: true, user: false });
+        return;
+      }
 
       if (serverItems.length && serverSig !== localSig) {
         setWatchItems(serverItems);
@@ -2814,8 +2833,10 @@ const byChain = {};
     } catch (e) {
       console.warn("watchlist sync failed", e);
       fetchWatchSnapshot();
+    } finally {
+      watchlistSyncInFlightRef.current = false;
     }
-  }, [wallet, token, watchItems, normalizeWatchItems, setWatchItems]);
+  }, [wallet, token, watchItems, normalizeWatchItems, setWatchItems, saveWatchlistToServer]);
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
     const uniq = [];
@@ -3966,7 +3987,25 @@ const [aiLoading, setAiLoading] = useState(false);
     syncWatchlistFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet]);
-  useInterval(syncWatchlistFromServer, 120000, true);
+
+  useEffect(() => {
+    const onFocus = () => {
+      try { syncWatchlistFromServer(); } catch {}
+    };
+    const onVisibility = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        try { syncWatchlistFromServer(); } catch {}
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [syncWatchlistFromServer]);
+
+  useInterval(syncWatchlistFromServer, 45000, true);
 
   // 🔁 Refetch snapshot immediately when watchlist changes (so newly added coins get data without full page refresh)
   const watchlistKey = useMemo(() => {

@@ -1621,7 +1621,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   // Wallet actions (Vault withdraw + native send)
   const [txBusy, setTxBusy] = useState(false);
   const [txMsg, setTxMsg] = useState("");
-  const [securityState, setSecurityState] = useState(null); // null | loading | ok | blocked | cancelled
+  const [securityState, setSecurityState] = useState(null); // null | "loading" | "ok" | "blocked"
   const [securityMsg, setSecurityMsg] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState(""); // in native units (e.g., POL)
   const [depositAmt, setDepositAmt] = useState(""); // deposit into vault (native units, e.g., POL)
@@ -1629,6 +1629,19 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [sendAmt, setSendAmt] = useState(""); // in native units
 
   // Vault state (on-chain) + operator authorization
+
+  useEffect(() => {
+    if (!withdrawSendOpen) {
+      setSecurityState(null);
+      setSecurityMsg("");
+    }
+  }, [withdrawSendOpen]);
+
+  useEffect(() => {
+    setSecurityState(null);
+    setSecurityMsg("");
+  }, [depositAmt, balActiveChain, wsChainKey]);
+
   const [vaultState, setVaultState] = useState({
     polBalanceWei: null,
     polBalance: null,
@@ -1660,11 +1673,6 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [wsInfoOpen]);
-
-  useEffect(() => {
-    setSecurityState(null);
-    setSecurityMsg("");
-  }, [withdrawSendOpen, balActiveChain, wsChainKey, depositAmt]);
 
   // Contracts (Vault/Executor/Router) fetched from backend ENV so UI stays in sync after deploys
   const [contracts, setContracts] = useState(null);
@@ -1785,6 +1793,21 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 
 
   const _isAddr = (a) => /^0x[a-fA-F0-9]{40}$/.test(String(a || "").trim());
+  const _isUserRejectedTx = (err) => {
+    const msg = String(err?.message || err || "").toLowerCase();
+    const code = err?.code;
+    return (
+      code === 4001 ||
+      msg.includes("user rejected") ||
+      msg.includes("user denied") ||
+      msg.includes("user cancelled") ||
+      msg.includes("transaction cancelled") ||
+      msg.includes("rejected") ||
+      msg.includes("denied") ||
+      msg.includes("cancelled")
+    );
+  };
+
 
   const sendNative = async () => {
     try {
@@ -1863,8 +1886,6 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 
       setSecurityState("ok");
       setSecurityMsg("🟢 Token approved. Opening wallet signature...");
-      // Let the user actually see the green state before Privy opens.
-      await new Promise((r) => setTimeout(r, 3000));
 
       setTxBusy(true);
       const provider = await _getEmbeddedProvider();
@@ -1900,24 +1921,15 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       setDepositAmt("");
       setTimeout(() => refreshBalances(), 1200);
     } catch (e) {
-      const msg = String(e?.message || e || "Deposit failed");
-      const low = msg.toLowerCase();
-
-      if (e?.code === 4001 || low.includes("user rejected") || low.includes("rejected") || low.includes("denied") || low.includes("cancelled") || low.includes("canceled")) {
-        setSecurityState("cancelled");
+      if (_isUserRejectedTx(e)) {
+        setSecurityState("loading");
         setSecurityMsg("🟡 Transaction cancelled by user.");
-      } else if (low.includes("execution reverted") || low.includes("estimate gas") || low.includes("call_exception") || low.includes("cycle_open") || low.includes("revert")) {
+        setTxMsg("Transaction cancelled by user.");
+      } else {
         setSecurityState("blocked");
-        setSecurityMsg("🔴 Deposit rejected by User/Wallet/Contract.");
-      } else if (!securityState) {
-        setSecurityState("blocked");
-        setSecurityMsg(`🔴 ${msg}`);
-      } else if (securityState !== "blocked") {
-        setSecurityState("blocked");
-        setSecurityMsg(`🔴 ${msg}`);
+        setSecurityMsg(`🔴 ${String(e?.message || e || "Deposit failed")}`);
+        setTxMsg(String(e?.message || e || "Deposit failed"));
       }
-
-      setTxMsg(msg);
     } finally {
       setTxBusy(false);
     }
@@ -6828,30 +6840,28 @@ const vaultFreeQty = useMemo(
                       style={{
                         marginTop: 10,
                         padding: "10px 12px",
-                        borderRadius: 12,
+                        borderRadius: 10,
                         fontWeight: 800,
                         lineHeight: 1.35,
-                        color: "#fff",
+                        color: "#ffffff",
                         background:
                           securityState === "loading"
-                            ? "rgba(181,159,0,0.22)"
+                            ? "linear-gradient(180deg, rgba(181,159,0,0.28), rgba(120,102,0,0.22))"
                             : securityState === "ok"
-                            ? "rgba(31,139,76,0.24)"
-                            : securityState === "cancelled"
-                            ? "rgba(181,159,0,0.22)"
-                            : "rgba(168,50,50,0.24)",
+                            ? "linear-gradient(180deg, rgba(31,139,76,0.28), rgba(20,96,52,0.22))"
+                            : "linear-gradient(180deg, rgba(168,50,50,0.28), rgba(111,29,29,0.22))",
                         border:
                           securityState === "loading"
-                            ? "1px solid rgba(255,221,87,.45)"
+                            ? "1px solid rgba(245, 208, 66, 0.45)"
                             : securityState === "ok"
-                            ? "1px solid rgba(40,255,160,.38)"
-                            : securityState === "cancelled"
-                            ? "1px solid rgba(255,221,87,.45)"
-                            : "1px solid rgba(255,88,88,.42)",
-                        boxShadow: "0 10px 26px rgba(0,0,0,.16)",
+                            ? "1px solid rgba(74, 222, 128, 0.35)"
+                            : "1px solid rgba(248, 113, 113, 0.35)",
                       }}
                     >
-                      {securityMsg}
+                      <div>{securityMsg}</div>
+                      <div style={{ marginTop: 6, fontSize: 12, fontWeight: 600, opacity: 0.88 }}>
+                        🛡 powered by GoPlus
+                      </div>
                     </div>
                   )}
 

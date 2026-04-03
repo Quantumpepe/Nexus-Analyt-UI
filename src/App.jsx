@@ -7840,28 +7840,78 @@ const vaultFreeQty = useMemo(
   {tB("Vault:")} <b>{vaultNativeBal.toFixed(6)}</b> · {tB("Reserved (OPEN):")} <b>{reservedQtyOpen.toFixed(6)}</b> · {tB("Free:")} <b>{vaultFreeQty.toFixed(6)}</b>
 </div>
 
-              <div className="vaultHeroGrid">
-                <div className="vaultHeroCard">
-                  <div className="vaultHeroLabel">Available</div>
-                  <div className="vaultHeroValue">{fmtQty(vaultFreeQty)}</div>
-                  <div className="vaultHeroMeta">Free in vault</div>
+              {isCompactMobile ? (
+                <>
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 10,
+                    marginBottom: 10,
+                  }}>
+                    <div className="vaultHeroCard" style={{ minHeight: 0, padding: "14px 16px" }}>
+                      <div className="vaultHeroLabel">Available</div>
+                      <div className="vaultHeroValue" style={{ fontSize: 24 }}>{fmtQty(vaultFreeQty)}</div>
+                      <div className="vaultHeroMeta">Free in vault</div>
+                    </div>
+                    <div className="vaultHeroCard" style={{ minHeight: 0, padding: "14px 16px" }}>
+                      <div className="vaultHeroLabel">Allocated</div>
+                      <div className="vaultHeroValue" style={{ fontSize: 24 }}>{fmtQty(reservedQtyOpen)}</div>
+                      <div className="vaultHeroMeta">Open exposure</div>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 10,
+                    marginBottom: 10,
+                  }}>
+                    <div className="vaultHeroCard" style={{ minHeight: 0, padding: "14px 16px" }}>
+                      <div className="vaultHeroLabel">Cycle</div>
+                      <div className="vaultHeroValue" style={{ fontSize: 24 }}>{vaultState?.inCycle ? "Running" : "Stopped"}</div>
+                      <div className="vaultHeroMeta">Withdraw after cycle end</div>
+                    </div>
+                    <div className="vaultHeroCard" style={{ minHeight: 0, padding: "14px 16px" }}>
+                      <div className="vaultHeroLabel">Held Result</div>
+                      <div className="vaultHeroValue" style={{ fontSize: 18 }}>{vaultHeldSummary}</div>
+                      <div className="vaultHeroMeta">Kept in vault</div>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 10,
+                    marginBottom: 14,
+                  }}>
+                    <div className="pill silver" style={{ justifyContent: "center", padding: "12px 14px", borderRadius: 16 }}>Live Tick: {gridMeta.tick ?? "—"}</div>
+                    <div className="pill silver" style={{ justifyContent: "center", padding: "12px 14px", borderRadius: 16 }}>Live Price: {shownGridPrice ? fmtUsd(shownGridPrice) : "—"}</div>
+                  </div>
+                </>
+              ) : (
+                <div className="vaultHeroGrid">
+                  <div className="vaultHeroCard">
+                    <div className="vaultHeroLabel">Available</div>
+                    <div className="vaultHeroValue">{fmtQty(vaultFreeQty)}</div>
+                    <div className="vaultHeroMeta">Free in vault</div>
+                  </div>
+                  <div className="vaultHeroCard">
+                    <div className="vaultHeroLabel">Allocated</div>
+                    <div className="vaultHeroValue">{fmtQty(reservedQtyOpen)}</div>
+                    <div className="vaultHeroMeta">Open order exposure</div>
+                  </div>
+                  <div className="vaultHeroCard">
+                    <div className="vaultHeroLabel">Cycle</div>
+                    <div className="vaultHeroValue">{vaultState?.inCycle ? "Running" : "Stopped"}</div>
+                    <div className="vaultHeroMeta">Withdraw after cycle end</div>
+                  </div>
+                  <div className="vaultHeroCard">
+                    <div className="vaultHeroLabel">Held Result</div>
+                    <div className="vaultHeroValue" style={{ fontSize: 15 }}>{vaultHeldSummary}</div>
+                    <div className="vaultHeroMeta">Swapped result kept in vault</div>
+                  </div>
                 </div>
-                <div className="vaultHeroCard">
-                  <div className="vaultHeroLabel">Allocated</div>
-                  <div className="vaultHeroValue">{fmtQty(reservedQtyOpen)}</div>
-                  <div className="vaultHeroMeta">Open order exposure</div>
-                </div>
-                <div className="vaultHeroCard">
-                  <div className="vaultHeroLabel">Cycle</div>
-                  <div className="vaultHeroValue">{vaultState?.inCycle ? "Running" : "Stopped"}</div>
-                  <div className="vaultHeroMeta">Withdraw after cycle end</div>
-                </div>
-                <div className="vaultHeroCard">
-                  <div className="vaultHeroLabel">Held Result</div>
-                  <div className="vaultHeroValue" style={{ fontSize: 15 }}>{vaultHeldSummary}</div>
-                  <div className="vaultHeroMeta">Swapped result kept in vault</div>
-                </div>
-              </div>{isEthChain ? (
+              )}{isEthChain ? (
 
 
               <div className="formRow" style={{ marginTop: 6 }}>
@@ -7882,7 +7932,7 @@ const vaultFreeQty = useMemo(
               </div>
 
               ) : null}
-<div className="btnRow">
+<div className="btnRow" style={{ marginBottom: isCompactMobile ? 10 : 0 }}>
                 <button
                   className="btn"
                   type="button"
@@ -7905,16 +7955,15 @@ const vaultFreeQty = useMemo(
               ) : null}
           <div style={{
             marginTop: "10px",
-            padding: "10px 12px",
-            borderRadius: "8px",
+            padding: isCompactMobile ? "8px 10px" : "10px 12px",
+            borderRadius: "12px",
             background: "rgba(255, 165, 0, 0.08)",
             border: "none",
-            fontSize: "13px",
+            fontSize: isCompactMobile ? "12px" : "13px",
             lineHeight: "1.4",
             color: "#f5c16c"
           }}>
-            <strong>Warning:</strong> Trading low-liquidity tokens may fail (no fills or high slippage). 
-            You may still pay gas fees even if the trade does not execute successfully.
+            <strong>Warning:</strong> Low-liquidity trades may fail or slip. Gas fees can still apply.
           </div>
 
               </div>
@@ -7969,51 +8018,79 @@ const vaultFreeQty = useMemo(
                 </select>
               </div>
 
-              <div className="orderComposerPanel">
-                <div className="orderComposerGrid">
-                  <div>
-                    <div className="muted tiny">Open exposure</div>
-                    <div style={{ fontWeight: 900, marginTop: 6 }}>{fmtQty(openOrderExposureQty)}</div>
-                  </div>
-                  <div>
-                    <div className="muted tiny">Exposure after this order</div>
-                    <div style={{ fontWeight: 900, marginTop: 6 }}>{fmtQty(exposureAfterOrderQty)}</div>
-                  </div>
-                  <div>
-                    <div className="muted tiny">Settlement</div>
-                    <div style={{ fontWeight: 900, marginTop: 6 }}>{manualPayoutAsset} on target hit</div>
-                  </div>
-                  <div>
-                    <div className="muted tiny">Withdrawal</div>
-                    <div style={{ fontWeight: 900, marginTop: 6 }}>Held until cycle end</div>
-                  </div>
-                </div>
-                <div className="riskBadgeInline">⚡ Live order · payout swap on completion · protected by GoPlus</div>
+              <div className="orderComposerPanel" style={{ padding: isCompactMobile ? "14px" : undefined }}>
+                {isCompactMobile ? (
+                  <>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div>
+                        <div className="muted tiny">Open exposure</div>
+                        <div style={{ fontWeight: 900, marginTop: 6 }}>{fmtQty(openOrderExposureQty)}</div>
+                      </div>
+                      <div>
+                        <div className="muted tiny">After this order</div>
+                        <div style={{ fontWeight: 900, marginTop: 6 }}>{fmtQty(exposureAfterOrderQty)}</div>
+                      </div>
+                      <div>
+                        <div className="muted tiny">Settlement</div>
+                        <div style={{ fontWeight: 900, marginTop: 6 }}>{manualPayoutAsset} on target hit</div>
+                      </div>
+                      <div>
+                        <div className="muted tiny">Withdrawal</div>
+                        <div style={{ fontWeight: 900, marginTop: 6 }}>Held until cycle end</div>
+                      </div>
+                    </div>
+                    <div className="riskBadgeInline" style={{ marginTop: 10, fontSize: 12 }}>⚡ Live order · payout swap on completion · protected by GoPlus</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="orderComposerGrid">
+                      <div>
+                        <div className="muted tiny">Open exposure</div>
+                        <div style={{ fontWeight: 900, marginTop: 6 }}>{fmtQty(openOrderExposureQty)}</div>
+                      </div>
+                      <div>
+                        <div className="muted tiny">Exposure after this order</div>
+                        <div style={{ fontWeight: 900, marginTop: 6 }}>{fmtQty(exposureAfterOrderQty)}</div>
+                      </div>
+                      <div>
+                        <div className="muted tiny">Settlement</div>
+                        <div style={{ fontWeight: 900, marginTop: 6 }}>{manualPayoutAsset} on target hit</div>
+                      </div>
+                      <div>
+                        <div className="muted tiny">Withdrawal</div>
+                        <div style={{ fontWeight: 900, marginTop: 6 }}>Held until cycle end</div>
+                      </div>
+                    </div>
+                    <div className="riskBadgeInline">⚡ Live order · payout swap on completion · protected by GoPlus</div>
+                  </>
+                )}
               </div>
 
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -6, marginBottom: 12 }}>
-                <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>
+              <div className="row" style={{
+                display: "grid",
+                gridTemplateColumns: isCompactMobile ? "1fr 1fr" : "auto 90px auto auto 90px auto 1fr",
+                gap: isCompactMobile ? 8 : 10,
+                alignItems: "center",
+                marginTop: -6,
+                marginBottom: 12
+              }}>
+                <div className="muted" style={{ fontSize: 12 }}>Slippage</div>
                 <input
                   value={manualSlippagePct}
                   onChange={(e) => setManualSlippagePct(e.target.value)}
-                  style={{ width: 90 }}
+                  style={{ width: "100%" }}
                   placeholder="5"
                 />
-                <div className="muted" style={{ fontSize: 12 }}>%</div>
-
-                <div style={{ width: 10 }} />
-
-                <div className="muted" style={{ fontSize: 12 }}>Deadline:</div>
+                {isCompactMobile ? null : <div className="muted" style={{ fontSize: 12 }}>%</div>}
+                <div className="muted" style={{ fontSize: 12 }}>Deadline</div>
                 <input
                   value={manualDeadlineMin}
                   onChange={(e) => setManualDeadlineMin(e.target.value)}
-                  style={{ width: 90 }}
+                  style={{ width: "100%" }}
                   placeholder="20"
                 />
-                <div className="muted" style={{ fontSize: 12 }}>min</div>
-
-                <div style={{ width: 10 }} />
-                <div className="muted tiny">
+                {isCompactMobile ? null : <div className="muted" style={{ fontSize: 12 }}>min</div>}
+                <div className="muted tiny" style={{ gridColumn: isCompactMobile ? "1 / -1" : "auto" }}>
                   Tip: increase slippage for low-liquidity tokens to avoid failed swaps.
                 </div>
               </div>
@@ -8142,6 +8219,7 @@ const vaultFreeQty = useMemo(
                 onClick={addManualOrder}
                 disabled={!isGridReady || gridBusy.add}
                 title={!isPro ? "Subscribe to Nexus Pro to trade" : ""}
+                style={isCompactMobile ? { width: "100%", marginTop: 4 } : undefined}
               >
                 {gridBusy.add ? "Adding..." : "Add Live Order"}
               </button>
@@ -8151,23 +8229,23 @@ const vaultFreeQty = useMemo(
 
             </div>
 
-            <div className="gridRight">
+            <div className="gridRight" style={isCompactMobile ? { marginTop: 12 } : undefined}>
               <div className="gridOrders">
               <div className="ordersHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                 <button
                   type="button"
                   className="btnGhost"
-                  onClick={() => gridOrders.length && setGridOrdersOpen((v) => !v)}
+                  onClick={() => (!isCompactMobile && gridOrders.length) && setGridOrdersOpen((v) => !v)}
                   style={{ height: 32, paddingInline: 12, fontSize: 13 }}
-                  title={gridOrders.length ? (gridOrdersOpen ? "Hide orders" : "Show orders") : "No orders"}
+                  title={gridOrders.length ? ((isCompactMobile || gridOrdersOpen) ? "Orders" : "Show orders") : "No orders"}
                 >
-                  Orders {gridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
+                  Orders {gridOrders.length && !isCompactMobile ? (gridOrdersOpen ? "▲" : "▼") : ""}
                 </button>
                 <span className="pill silver">{gridOrders.length} orders</span>
               </div>
 
               {gridOrders.length ? (
-                gridOrdersOpen ? (
+                (isCompactMobile || gridOrdersOpen) ? (
                   <div className="ordersList" style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
                     {gridOrders.map((o) => {
                       const currentPrice = Number(shownGridPrice || 0);

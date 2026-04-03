@@ -3993,6 +3993,64 @@ const [aiLoading, setAiLoading] = useState(false);
   const watchRefreshQueued = useRef(false);
   const watchRetryRef = useRef({ key: "", n: 0, t: null });
 
+  const fillMissingWatchMarketData = useCallback(async (rowsArg, itemsArg) => {
+    const rows = Array.isArray(rowsArg) ? rowsArg : [];
+    const items = Array.isArray(itemsArg) ? itemsArg : [];
+    const marketMissing = rows.filter((r) => {
+      const mode = String(r?.mode || "market").toLowerCase();
+      const p = Number(r?.price);
+      return mode === "market" && (!Number.isFinite(p) || p <= 0);
+    });
+    if (!marketMissing.length) return rows;
+
+    const nativeSyms = Array.from(new Set(marketMissing.map((r) => String(r?.symbol || "").toUpperCase()).filter((s) => ["ETH","BNB","POL","MATIC"].includes(s))));
+    const nativeMap = {};
+    if (nativeSyms.length) {
+      try {
+        const px = await fetchNativeUsdPrices(nativeSyms.map((s) => (s === "MATIC" ? "POL" : s)));
+        for (const [k, v] of Object.entries(px || {})) {
+          nativeMap[k === "POL" ? "POL" : k] = Number(v);
+        }
+        if (nativeMap.POL && !nativeMap.MATIC) nativeMap.MATIC = nativeMap.POL;
+      } catch {}
+    }
+
+    const otherSyms = Array.from(new Set(marketMissing.map((r) => String(r?.symbol || "").toUpperCase()).filter(Boolean).filter((s) => !nativeMap[s])));
+    const otherMap = {};
+    if (otherSyms.length) {
+      try {
+        const priceResp = await api(`/api/market/prices?symbols=${encodeURIComponent(otherSyms.join(","))}`, { method: "GET", token, wallet });
+        const priceMap = priceResp?.prices || {};
+        for (const [sym, data] of Object.entries(priceMap || {})) {
+          const p = Number(data?.price);
+          if (Number.isFinite(p) && p > 0) otherMap[String(sym || "").toUpperCase()] = p;
+        }
+      } catch (e) {
+        console.warn("supplemental market prices failed", e);
+      }
+    }
+
+    const fallbackBySym = { ...nativeMap, ...otherMap };
+    let changed = false;
+    const next = rows.map((row) => {
+      const sym = String(row?.symbol || "").toUpperCase();
+      const cur = Number(row?.price);
+      const fallback = fallbackBySym[sym];
+      if (Number.isFinite(cur) && cur > 0) return row;
+      if (!Number.isFinite(fallback) || fallback <= 0) return row;
+      changed = true;
+      return {
+        ...row,
+        price: fallback,
+        source: row?.source === "error" || row?.source === "pending" || !row?.source ? "price-fallback" : row.source,
+      };
+    });
+    if (!changed) return rows;
+    try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(next)); } catch {}
+    setWatchRows(next);
+    return next;
+  }, [token, wallet, setWatchRows]);
+
   const fetchWatchSnapshot = async (itemsOverride = null, opts = {}) => {
     if (!wallet && !opts?.allowGuest) {
       setWatchRows([]);
@@ -4016,6 +4074,7 @@ const [aiLoading, setAiLoading] = useState(false);
         // Also drop anything not in current watchItems (never replace by snapshot).
         return allowedKeys.has(k);
       });
+      let mergedRows = [];
       setWatchRows((prev0) => {
         const prev = Array.isArray(prev0) ? prev0 : [];
         const prevMap = new Map(prev.map((r) => [_watchKeyFromRow(r), r]));
@@ -4030,6 +4089,7 @@ const [aiLoading, setAiLoading] = useState(false);
             symbol: String(it?.symbol || "").toUpperCase(),
             mode: String(it?.mode || "market"),
             coingecko_id: String(it?.coingecko_id || it?.id || ""),
+            id: String(it?.coingecko_id || it?.id || ""),
             name: it?.name || String(it?.symbol || "").toUpperCase(),
             price: null,
             chg_24h: null,
@@ -4045,9 +4105,13 @@ const [aiLoading, setAiLoading] = useState(false);
           if (allowedKeys.has(k)) merged.push(row);
         }
 
+        mergedRows = merged;
         try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(merged)); } catch {}
         return merged;
       });
+      try {
+        await fillMissingWatchMarketData(mergedRows, (itemsOverride ?? watchItems) || []);
+      } catch {}
       if ((r?.results || r?.rows || []).length) {
         const symUp = String(gridItem || "").toUpperCase();
         const list = (r?.results || r?.rows || []);

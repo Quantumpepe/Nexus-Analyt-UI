@@ -1621,6 +1621,8 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   // Wallet actions (Vault withdraw + native send)
   const [txBusy, setTxBusy] = useState(false);
   const [txMsg, setTxMsg] = useState("");
+  const [securityState, setSecurityState] = useState(null); // null | "loading" | "ok" | "blocked"
+  const [securityMsg, setSecurityMsg] = useState("");
   const [withdrawAmt, setWithdrawAmt] = useState(""); // in native units (e.g., POL)
   const [depositAmt, setDepositAmt] = useState(""); // deposit into vault (native units, e.g., POL)
   const [sendTo, setSendTo] = useState("");
@@ -1839,6 +1841,8 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       // Current UI deposits native only. We still run the new backend gate here so the
       // same flow is already wired for later token deposits. Native assets are bypassed backend-side.
       const nativeSymbol = String(chainKey || DEFAULT_CHAIN).toUpperCase();
+      setSecurityState("loading");
+      setSecurityMsg("🟡 Checking token security...");
       const pre = await securityPrecheckForDeposit({
         chainKey,
         symbol: nativeSymbol,
@@ -1846,9 +1850,13 @@ const [wsChainKey, setWsChainKey] = useState(() => {
         token,
       });
       if (pre?.allowed === false) {
+        setSecurityState("blocked");
+        setSecurityMsg(`🔴 ${pre?.reason || "Deposit blocked by security check."}`);
         throw new Error(pre?.reason || "Deposit blocked by security check.");
       }
 
+      setSecurityState("ok");
+      setSecurityMsg("🟢 Token approved. Opening wallet signature...");
       setTxBusy(true);
       const provider = await _getEmbeddedProvider();
       await _trySwitchChain(provider, chainId);
@@ -1878,9 +1886,15 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       }
 
       setTxMsg(`Deposit submitted. Tx: ${txHash}`);
+      setSecurityState("ok");
+      setSecurityMsg("🟢 Security check passed. Deposit submitted.");
       setDepositAmt("");
       setTimeout(() => refreshBalances(), 1200);
     } catch (e) {
+      if (!String(e?.message || e || "").toLowerCase().includes("security")) {
+        setSecurityState("blocked");
+        setSecurityMsg(`🔴 ${String(e?.message || e || "Deposit failed")}`);
+      }
       setTxMsg(String(e?.message || e || "Deposit failed"));
     } finally {
       setTxBusy(false);
@@ -2194,6 +2208,12 @@ useEffect(() => {
     refreshVaultState(forcedChain);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet, wsChainKey, balActiveChain, contracts]);
+
+  useEffect(() => {
+    setSecurityState(null);
+    setSecurityMsg("");
+  }, [withdrawSendOpen, wsChainKey, balActiveChain, depositAmt]);
+
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
@@ -6786,6 +6806,40 @@ const vaultFreeQty = useMemo(
                       {txBusy ? "…" : "Deposit"}
                     </button>
                   </div>
+
+                  {securityState ? (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        fontSize: 13,
+                        fontWeight: 800,
+                        lineHeight: 1.25,
+                        textAlign: "center",
+                        color:
+                          securityState === "loading"
+                            ? "#fff6bf"
+                            : securityState === "ok"
+                            ? "#caffdf"
+                            : "#ffc4c4",
+                        background:
+                          securityState === "loading"
+                            ? "rgba(181,159,0,0.18)"
+                            : securityState === "ok"
+                            ? "rgba(31,139,76,0.20)"
+                            : "rgba(168,50,50,0.20)",
+                        border:
+                          securityState === "loading"
+                            ? "1px solid rgba(255,214,10,0.28)"
+                            : securityState === "ok"
+                            ? "1px solid rgba(80,255,160,0.24)"
+                            : "1px solid rgba(255,90,90,0.28)",
+                      }}
+                    >
+                      {securityMsg}
+                    </div>
+                  ) : null}
 
                   {/* Vault status + Operator (one-time enable for autonomous grid) */}
                   <div className="muted tiny" style={{ marginTop: 6 }}>

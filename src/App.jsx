@@ -5979,6 +5979,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .cardActions .chip { white-space: nowrap; }
         }
+
+
         /* --- Grid layout: left controls, right orders --- */
         .gridLayout{
           display: grid;
@@ -5990,7 +5992,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
         .gridLeft,
         .gridRight{
           min-width: 0;
-          justify-self: stretch;
         }
         .gridLeft{justify-self:start;}
 
@@ -6025,7 +6026,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
         .gridLeft .row{justify-content:flex-start;}
 
-        /* whole card should scroll, not a small inner strip */
+        /* no sticky mini-scroll on desktop */
         .gridRight{
           position: static;
           top: auto;
@@ -6055,6 +6056,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         .dashboardPanel {
           transition: transform .22s ease, opacity .22s ease, box-shadow .22s ease;
         }
+
         @media (min-width: 981px) {
           html, body, #root, .app {
             height: 100%;
@@ -6066,6 +6068,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             height: calc(100vh - 96px);
             overflow: hidden;
           }
+
           .dashboardGrid {
             display: grid;
             grid-template-columns: minmax(0,1fr) minmax(0,1fr);
@@ -6081,15 +6084,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
             min-height: 0;
             height: 100%;
             max-height: 100%;
-            overflow-y: auto;
-            overflow-x: hidden;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
             cursor: pointer;
-            display: flex;
-            flex-direction: column;
+            display: block;
             scrollbar-gutter: stable;
-          }
-          .dashboardPanel > .cardHead{
-            flex: 0 0 auto;
           }
           .dashboardGrid.hasFocus {
             grid-template-columns: minmax(0,1.18fr) minmax(0,1.18fr) minmax(260px,0.82fr);
@@ -6128,19 +6127,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .dashboardGrid.focus-ai .section-grid { grid-column: 3; grid-row: 2; }
           .dashboardGrid.focus-ai .section-watch { grid-column: 3; grid-row: 3; }
 
-          /* inner layouts should not create their own desktop scrollbar */
-          .section-compare .compareGrid,
-          .section-grid .gridLayout,
-          .section-watch .watchTable,
-          .section-ai .aiWrap{
-            min-height: 0;
-            overflow: visible;
-          }
-
-          .section-watch .watchTable{
-            display: block;
-          }
-
+          /* kill inner desktop scroll strips so the whole card scrolls */
           .section-watch .watchScroll,
           .section-compare .liveListBox,
           .section-compare .pairsScroll,
@@ -6148,10 +6135,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-ai .aiOut,
           .section-ai .aiSelect,
           .section-grid .gridLeft,
-          .section-grid .gridRight{
+          .section-grid .gridRight,
+          .section-grid .ordersList{
             overflow: visible !important;
             max-height: none !important;
             height: auto !important;
+          }
+          .section-watch .watchTable,
+          .section-compare .compareGrid,
+          .section-grid .gridLayout,
+          .section-ai .aiWrap{
+            overflow: visible !important;
+            min-height: 0;
           }
 
           .dashboardPanel::-webkit-scrollbar{

@@ -4629,7 +4629,7 @@ useEffect(() => {
       }
 
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-      setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: srvItemId || gridItemId }) }));
+      applyGridMetaResponse(r, srvItemId || gridItemId);
       if (r?.vault_state) setVaultState((prev) => ({ ...(prev || {}), ...(r.vault_state || {}) }));
     } catch (e) {
       setErrorMsg((prev) => prev || `Grid init: ${e?.message || e}`);
@@ -4651,21 +4651,42 @@ const isGridReady = useMemo(() => {
   return !!walletAddress && !!gridItemId && gridUiHydrated;
 }, [walletAddress, gridItemId, gridUiHydrated]);
 
+const mergeGridMetaStable = useCallback((prev, incoming) => {
+  const out = { ...(prev || {}), ...(incoming || {}) };
+  const prevTick = Number(prev?.tick || 0);
+  const nextTick = Number(incoming?.tick || 0);
+
+  if (Number.isFinite(prevTick) && prevTick > 0) {
+    if (!Number.isFinite(nextTick) || nextTick <= 0) {
+      out.tick = prevTick;
+    } else {
+      // Never let stale/alternate streams move the tick backwards.
+      if (nextTick < prevTick) out.tick = prevTick;
+      // Also ignore implausibly large jumps which usually come from a second tick source.
+      else if (nextTick - prevTick > 250 && prevTick > 0) out.tick = prevTick;
+    }
+  }
+
+  const prevPrice = Number(prev?.price || 0);
+  const nextPrice = Number(incoming?.price || 0);
+  if (Number.isFinite(prevPrice) && prevPrice > 0 && (!Number.isFinite(nextPrice) || nextPrice <= 0)) {
+    out.price = prevPrice;
+  }
+  return out;
+}, []);
+
+const applyGridMetaResponse = useCallback((r, fallbackItemId = gridItemId) => {
+  setGridMeta((prev) => {
+    const incoming = getGridMetaFromResponse(r, { ...prev, gridItemId: fallbackItemId });
+    return mergeGridMetaStable(prev, incoming);
+  });
+}, [gridItemId, mergeGridMetaStable]);
+
 
 const mergeGridOrders = useCallback((baseArr, incomingArr) => {
   const base = Array.isArray(baseArr) ? baseArr : [];
   const incoming = Array.isArray(incomingArr) ? incomingArr : [];
-  const out = [];
-  const seen = new Set();
-  for (const o of [...incoming, ...base]) {
-    if (!o) continue;
-    const id = idOf(o);
-    const key = id != null ? String(id) : JSON.stringify(o);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(o);
-  }
-  return normalizeGridOrders(out);
+  return normalizeGridOrders([...incoming, ...base]);
 }, [normalizeGridOrders]);
 
 useEffect(() => {
@@ -4773,20 +4794,7 @@ setGridOrders(nextOrders);
       lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
     }
 
-    setGridMeta((prev) => {
-      const incomingMeta = getGridMetaFromResponse(r, { ...prev, gridItemId });
-      const prevTick = Number(prev?.tick || 0);
-      const nextTick = Number(incomingMeta?.tick || 0);
-
-      // Keep tick monotonic during polling so stale backend snapshots cannot jump backwards.
-      if (Number.isFinite(prevTick) && prevTick > 0) {
-        if (!Number.isFinite(nextTick) || nextTick <= 0 || nextTick < prevTick) {
-          incomingMeta.tick = prevTick;
-        }
-      }
-
-      return { ...prev, ...incomingMeta };
-    });
+    applyGridMetaResponse(r, gridItemId);
   } catch (e) {
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
@@ -4826,8 +4834,7 @@ useInterval(
     if (!gridItemId || !walletAddress) return;
     try {
       const r = await setGridExecute(gridItemId);
-      const execMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
-      setGridMeta((prev) => ({ ...prev, ...execMeta }));
+      applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
       const execOrdersRaw = getGridOrdersFromResponse(r);
@@ -4934,8 +4941,7 @@ setGridBusy((s) => ({ ...s, start: true }));
         auto_path: !!gridAutoPath,
       };
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
-      const startMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId: itemId });
-      setGridMeta((prev) => ({ ...prev, ...startMeta }));
+      applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const startOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(startOrdersRaw)) {
@@ -5009,7 +5015,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         gridMeta?.id ||
         `${chainKey}:${String(gridItem || "").toUpperCase()}`;
       const r = await api("/api/grid/stop", { method: "POST", token, wallet: walletAddress, body: { item: gridItemId, addr: walletAddress || undefined }, });
-      setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: itemId }) }));
+      applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const stopOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(stopOrdersRaw)) {
@@ -5083,8 +5089,7 @@ body.qty = qty;
       // Mark recent add so a transient empty poll right after add can't wipe the UI.
       lastGridActionRef.current = { type: "add", ts: Date.now() };
 
-      const addMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
-      setGridMeta((prev) => ({ ...prev, ...addMeta }));
+      applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
       const addOrdersRaw = getGridOrdersFromResponse(r);
@@ -5138,7 +5143,7 @@ body.qty = qty;
     // Optimistic UI: mark CANCELLED locally, but keep in list until backend confirms
     setGridBusy((s) => ({ ...s, stopOrderId: null }));
 
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "CANCELLING" } : o)));
+    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
 
     let lastErr = null;
     for (const a of attempts) {
@@ -5148,12 +5153,17 @@ body.qty = qty;
           const _arrRaw = r?.orders || r?.data?.orders;
           const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
           if (_arr.length) {
-            setGridOrders(_arr);
+            setGridOrders((prev) => {
+              const merged = mergeGridOrders(_arr, prev || []);
+              return merged.map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o));
+            });
+          } else {
+            setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
           }
         }
         setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         // Do not mark as "add" here; stopping an order must not trigger the recent-add guard.
-setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
+applyGridMetaResponse(r, gridItemId);
         fetchGridOrders();
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;
@@ -5169,6 +5179,61 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
     setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o)));
     setErrorMsg(`Stop order: ${lastErr?.message || "failed"}`);
   }
+  async function resumeGridOrder(orderId) {
+    setErrorMsg("");
+    if (!token) return setErrorMsg("");
+    if (!gridItem) return;
+
+    const _oid = String(orderId);
+    if (gridBusy.stopOrderId === _oid) return;
+    if (!isGridReady) {
+      setErrorMsg("Grid not ready yet (connect wallet + select coin).");
+      return;
+    }
+    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
+
+    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+    const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
+    const addrPayload = walletAddress || undefined;
+    const attempts = [
+      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/start", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/restart", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
+      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
+    ];
+
+    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o)));
+
+    let lastErr = null;
+    for (const a of attempts) {
+      try {
+        const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
+        const _arrRaw = r?.orders || r?.data?.orders;
+        const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
+        if (_arr.length) {
+          setGridOrders((prev) => {
+            const merged = mergeGridOrders(_arr, prev || []);
+            return merged.map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o));
+          });
+        }
+        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+        applyGridMetaResponse(r, gridItemId);
+        fetchGridOrders();
+        setGridBusy((s) => ({ ...s, stopOrderId: null }));
+        return;
+      } catch (e) {
+        lastErr = e;
+        const msg = String(e?.message || "");
+        if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) break;
+      }
+    }
+
+    setGridBusy((s) => ({ ...s, stopOrderId: null }));
+    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
+    setErrorMsg(`Resume order: ${lastErr?.message || "failed"}`);
+  }
+
   async function deleteGridOrder(orderId) {
     setErrorMsg("");
     if (!token) return setErrorMsg("");
@@ -5223,7 +5288,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
             setGridOrders(delOrders);
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-          setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
+          applyGridMetaResponse(r, gridItemId);
           kickGridRefresh();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
@@ -5231,7 +5296,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
           safeSetGridOrdersFromResponse(r, setGridOrders);
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-          setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
+          applyGridMetaResponse(r, gridItemId);
           kickGridRefresh();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
@@ -5361,7 +5426,13 @@ useInterval(fetchGridOrders, 15000, isGridReady);
   }, [manualPayoutAsset]);
 
   const inferOrderStatus = useCallback((o) => {
-    return String(o?.status || o?.state || "OPEN").toUpperCase();
+    const raw = String(o?.status || o?.state || "OPEN").toUpperCase();
+    if (["OPEN", "ACTIVE", "RUNNING", "LIVE"].includes(raw)) return "OPEN";
+    if (["STOPPED", "STOP", "PAUSED", "CANCELLED", "CANCELED", "CANCELLING", "PAUSING"].includes(raw)) return "PAUSED";
+    if (["FILLED", "EXECUTED", "DONE", "COMPLETED", "SETTLED"].includes(raw)) return "FILLED";
+    if (["FAILED", "ERROR", "REJECTED"].includes(raw)) return "FAILED";
+    if (["DELETED", "REMOVED"].includes(raw)) return "DELETED";
+    return raw || "OPEN";
   }, []);
 
   const orderNotionalUsd = useCallback((o) => {
@@ -5375,9 +5446,13 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) === "OPEN");
   }, [gridOrders, inferOrderStatus]);
 
+  const visibleGridOrders = useMemo(() => {
+    return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) !== "DELETED");
+  }, [gridOrders, inferOrderStatus]);
+
   const gridOrdersGroupedByChain = useMemo(() => {
     const map = {};
-    for (const o of openGridOrders) {
+    for (const o of visibleGridOrders) {
       const ck = inferOrderChainKey(o);
       if (!map[ck]) map[ck] = [];
       map[ck].push(o);
@@ -5388,7 +5463,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       const bi = pref.indexOf(b[0]);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
-  }, [openGridOrders, inferOrderChainKey]);
+  }, [visibleGridOrders, inferOrderChainKey]);
 
   const manualOrderNotionalUsd = useMemo(() => {
     const px = Number(manualPrice || shownGridPrice || 0);
@@ -8582,11 +8657,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         type="button"
                                         className="btn ghost"
                                         style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                                        disabled={!idOf(o) || statusTxt !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
-                                        onClick={() => stopGridOrder(idOf(o))}
-                                        title="Stop this single order (backend will mark it as STOPPED)."
+                                        disabled={!idOf(o) || !["OPEN","PAUSED"].includes(statusTxt) || gridBusy.stopOrderId === String(idOf(o))}
+                                        onClick={() => (statusTxt === "PAUSED" ? resumeGridOrder(idOf(o)) : stopGridOrder(idOf(o)))}
+                                        title={statusTxt === "PAUSED" ? "Resume this paused order." : "Pause this order without deleting it."}
                                       >
-                                        Stop
+                                        {gridBusy.stopOrderId === String(idOf(o)) ? (statusTxt === "PAUSED" ? "Resuming..." : "Pausing...") : (statusTxt === "PAUSED" ? "Resume" : "Stop")}
                                       </button>
                                       <button
                                         type="button"

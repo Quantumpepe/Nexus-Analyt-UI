@@ -1379,13 +1379,4 @@ body::before {
     overflow: visible;
   }
 }
-/* FIX DROPDOWN TEXT */
-select {
-  color: black !important;
-  background: white !important;
-}
 
-select option {
-  color: black !important;
-  background: white !important;
-}

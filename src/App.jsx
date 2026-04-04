@@ -5885,7 +5885,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
   if (typeof window !== "undefined" && window.innerWidth <= 980) return;
   const el = e?.target;
   if (el && typeof el.closest === "function") {
-    const interactive = el.closest('button, input, select, textarea, label, a, [role="dialog"], .infoBtn, .iconBtn, .chip, .btn, .btnGhost, .btnDanger, .btnPill, .pill');
+    const interactive = el.closest('button, input, select, textarea, label, a, [role="dialog"], .infoBtn, .iconBtn, .chip, .btn, .btnGhost, .btnDanger, .btnPill, .pill, .pairRow, .pairsScroll, .watchRow');
     if (interactive) return;
   }
   setActivePanel((prev) => (prev === name ? null : name));
@@ -6194,6 +6194,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 6px !important;
+            padding-bottom: 18px !important;
+            margin-bottom: 6px !important;
+            scroll-padding-bottom: 18px !important;
+            overscroll-behavior: contain !important;
           }
           .section-compare .liveListBox::-webkit-scrollbar,
           .section-compare .pairsScroll::-webkit-scrollbar{
@@ -7628,7 +7632,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="pairsScroll">
                   {bestPairsToShow.length ? (
                     bestPairsToShow.map((p, i) => (
-                      <div key={p.pair} className="pairRow" style={{ gap: 12, cursor: "pointer" }} onClick={() => openPairExplain(p)}>
+                      <div key={p.pair} className="pairRow" style={{ gap: 12, cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}>
                         <span className="muted" style={{ width: 30, textAlign: "right" }}>#{i + 1}</span>
                         <span className="pairName" style={{ flex: 1 }}>{p.pair}</span>
                         <span className="pill silver">Score {p.score}</span>

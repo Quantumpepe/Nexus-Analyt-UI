@@ -8588,7 +8588,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
               Cancel
             </button>
           </div>
-        </>
+        
+      <style>{`
+        @media (min-width: 981px){
+          .section-compare .liveListBox{
+            max-height: 320px !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+          }
+          .section-compare .liveListBox::-webkit-scrollbar{
+            width: 10px;
+          }
+          .section-compare .liveListBox::-webkit-scrollbar-thumb{
+            background: rgba(210,220,230,.22);
+            border-radius: 999px;
+            border: 2px solid rgba(0,0,0,.10);
+          }
+          .section-compare .liveListBox::-webkit-scrollbar-track{
+            background: rgba(0,0,0,.10);
+            border-radius: 999px;
+          }
+        }
+      `}</style>
+</>
       )}
 
       <div className="muted" style={{ marginTop: 10 }}>

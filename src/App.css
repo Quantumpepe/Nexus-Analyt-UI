@@ -1389,3 +1389,22 @@ body::before {
   color: #000 !important;
   background: #fff !important;
 }
+/* Payout Dropdown FIX */
+select {
+  background: #0f3f2f !important; /* gleich wie deine Buttons */
+  color: #000 !important; /* schwarze Schrift */
+  border: 1px solid #00ff88;
+}
+
+/* Dropdown Liste (wichtig!) */
+select option {
+  background: #00c46a !important; /* grüner Hintergrund */
+  color: #000 !important; /* schwarze Schrift */
+}
+
+/* Hover / Auswahl */
+select option:checked,
+select option:hover {
+  background: #00ff88 !important;
+  color: #000 !important;
+}

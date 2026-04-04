@@ -47,10 +47,16 @@ function getGridMetaFromResponse(r, fallback = {}) {
 
   return {
     tick:
-      r?.tick ??
-      r?.data?.tick ??
-      gm?.tick ??
       gm?.current_tick ??
+      gm?.tick ??
+      r?.data?.gridMeta?.current_tick ??
+      r?.data?.grid_meta?.current_tick ??
+      r?.data?.grid?.current_tick ??
+      r?.data?.gridMeta?.tick ??
+      r?.data?.grid_meta?.tick ??
+      r?.data?.grid?.tick ??
+      r?.data?.tick ??
+      r?.tick ??
       fallback?.tick ??
       null,
     price:
@@ -3906,6 +3912,26 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   }, [GRID_PRICE_PRESETS, manualPricePreset]);
   const [manualQty, setManualQty] = useState("");
   const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
+  const currentPayoutAssets = useMemo(() => {
+    const ck = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+    const base = ["USDC", "USDT", ck];
+    const uniq = [];
+    for (const a of base) {
+      const v = String(a || "").toUpperCase().trim();
+      if (!v || uniq.includes(v)) continue;
+      uniq.push(v);
+    }
+    return uniq;
+  }, [activeGridChainKey]);
+  const visiblePayoutAssets = useMemo(() => currentPayoutAssets.slice(0, 2), [currentPayoutAssets]);
+  const extraPayoutAssets = useMemo(() => currentPayoutAssets.slice(2), [currentPayoutAssets]);
+  useEffect(() => {
+    if (!currentPayoutAssets.length) return;
+    const cur = String(manualPayoutAsset || "").toUpperCase();
+    if (!currentPayoutAssets.includes(cur)) {
+      setManualPayoutAsset(currentPayoutAssets[0]);
+    }
+  }, [currentPayoutAssets, manualPayoutAsset]);
   const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
 
   // AI
@@ -4662,9 +4688,12 @@ const mergeGridMetaStable = useCallback((prev, incoming) => {
     } else {
       // Never let stale/alternate streams move the tick backwards.
       if (nextTick < prevTick) out.tick = prevTick;
-      // Also ignore implausibly large jumps which usually come from a second tick source.
-      else if (nextTick - prevTick > 250 && prevTick > 0) out.tick = prevTick;
+      // Ignore alternate/global counters that jump far away from the current grid tick.
+      else if (nextTick - prevTick > Math.max(25, Math.ceil(prevTick * 0.5))) out.tick = prevTick;
     }
+  } else if (Number.isFinite(nextTick) && nextTick > 500) {
+    // When no stable tick exists yet, ignore obviously wrong large counter values.
+    out.tick = prev?.tick ?? null;
   }
 
   const prevPrice = Number(prev?.price || 0);
@@ -8361,13 +8390,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="formRow">
                 <label>Payout asset</label>
-                <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
-                  <option value="USDC">USDC</option>
-                  <option value="USDT">USDT</option>
-                  <option value={String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}>
-                    {String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}
-                  </option>
-                </select>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  {visiblePayoutAssets.map((asset) => {
+                    const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
+                    return (
+                      <button
+                        key={asset}
+                        type="button"
+                        className={`segBtn ${active ? "active" : ""}`}
+                        onClick={() => setManualPayoutAsset(String(asset).toUpperCase())}
+                      >
+                        {asset}
+                      </button>
+                    );
+                  })}
+                  {extraPayoutAssets.length > 0 && (
+                    <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)} style={{ minWidth: 170 }}>
+                      {extraPayoutAssets.map((asset) => (
+                        <option key={asset} value={asset}>{asset}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 <div className="muted tiny" style={{ marginTop: 6 }}>
                   Profit result will be swapped immediately into this asset when the target is hit.
                 </div>

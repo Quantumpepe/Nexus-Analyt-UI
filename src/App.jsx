@@ -5395,100 +5395,6 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     return Number.isFinite(px) && px > 0 ? px : null;
   }, [walletPx, activeGridChainSymbol]);
 
-  const manualVaultAvailableQty = useMemo(() => {
-    const v = Number(gridVaultStats?.free);
-    return Number.isFinite(v) ? v : (Number(vaultFreeQty) || 0);
-  }, [gridVaultStats, vaultFreeQty]);
-
-  const manualVaultAllocatedQty = useMemo(() => {
-    const v = Number(gridVaultStats?.reserved);
-    return Number.isFinite(v) ? v : (Number(reservedQtyOpen) || 0);
-  }, [gridVaultStats, reservedQtyOpen]);
-
-  const manualVaultTotalQty = useMemo(() => {
-    const v = Number(gridVaultStats?.vault);
-    return Number.isFinite(v) && v > 0 ? v : (Number(vaultNativeBal) || 0);
-  }, [gridVaultStats, vaultNativeBal]);
-
-  const manualVaultSettledQty = useMemo(() => {
-    const v = Number(vaultState?.heldTokenBal);
-    return Number.isFinite(v) ? v : 0;
-  }, [vaultState]);
-
-  const manualPoolLiquidityUsd = useMemo(() => {
-    if (!Number.isFinite(Number(activeGridNativeUsd)) || Number(activeGridNativeUsd) <= 0) return null;
-    const qty = Number(manualVaultTotalQty || 0);
-    if (!Number.isFinite(qty) || qty <= 0) return 0;
-    return qty * Number(activeGridNativeUsd);
-  }, [manualVaultTotalQty, activeGridNativeUsd]);
-
-  const manualEstimatedImpactPct = useMemo(() => {
-    const liq = Number(manualPoolLiquidityUsd);
-    const after = Number(manualExposureAfterUsd);
-    if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(after) || after <= 0) return null;
-    return (after / liq) * 100;
-  }, [manualPoolLiquidityUsd, manualExposureAfterUsd]);
-
-  const manualRiskState = useMemo(() => {
-    const liq = Number(manualPoolLiquidityUsd);
-    const impact = Number(manualEstimatedImpactPct);
-    if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(impact) || impact < 0) {
-      return {
-        key: "pending",
-        label: "⏳ Backend pending",
-        tone: "rgba(245, 193, 108, 0.18)",
-        border: "1px solid rgba(245, 193, 108, 0.28)",
-        color: "#f5c16c",
-      };
-    }
-
-    let greenMax = 1;
-    let yellowMax = 2.5;
-
-    if (liq < 5000) {
-      greenMax = 1;
-      yellowMax = 2.5;
-    } else if (liq < 25000) {
-      greenMax = 1.75;
-      yellowMax = 4;
-    } else if (liq < 100000) {
-      greenMax = 2.5;
-      yellowMax = 6;
-    } else if (liq < 350000) {
-      greenMax = 3.5;
-      yellowMax = 8;
-    } else {
-      greenMax = 5;
-      yellowMax = 10;
-    }
-
-    if (impact < greenMax) {
-      return {
-        key: "green",
-        label: "🟢 Green · normal execution",
-        tone: "rgba(34, 197, 94, 0.16)",
-        border: "1px solid rgba(34, 197, 94, 0.28)",
-        color: "#86efac",
-      };
-    }
-    if (impact <= yellowMax) {
-      return {
-        key: "yellow",
-        label: "🟡 Yellow · warning, review before submit",
-        tone: "rgba(245, 193, 108, 0.16)",
-        border: "1px solid rgba(245, 193, 108, 0.28)",
-        color: "#f5c16c",
-      };
-    }
-    return {
-      key: "red",
-      label: "🔴 Red · high impact / critical",
-      tone: "rgba(239, 68, 68, 0.15)",
-      border: "1px solid rgba(239, 68, 68, 0.28)",
-      color: "#fca5a5",
-    };
-  }, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
-
 
   // watchlist actions
   function toggleCompare(sym) {
@@ -6075,6 +5981,101 @@ const vaultFreeQty = useMemo(
   () => Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reservedQtyOpen) || 0)),
   [vaultNativeBal, reservedQtyOpen]
 );
+
+
+const manualVaultAvailableQty = useMemo(() => {
+  const v = Number(gridVaultStats?.free);
+  return Number.isFinite(v) ? v : (Number(vaultFreeQty) || 0);
+}, [gridVaultStats, vaultFreeQty]);
+
+const manualVaultAllocatedQty = useMemo(() => {
+  const v = Number(gridVaultStats?.reserved);
+  return Number.isFinite(v) ? v : (Number(reservedQtyOpen) || 0);
+}, [gridVaultStats, reservedQtyOpen]);
+
+const manualVaultTotalQty = useMemo(() => {
+  const v = Number(gridVaultStats?.vault);
+  return Number.isFinite(v) && v > 0 ? v : (Number(vaultNativeBal) || 0);
+}, [gridVaultStats, vaultNativeBal]);
+
+const manualVaultSettledQty = useMemo(() => {
+  const v = Number(vaultState?.heldTokenBal);
+  return Number.isFinite(v) ? v : 0;
+}, [vaultState]);
+
+const manualPoolLiquidityUsd = useMemo(() => {
+  if (!Number.isFinite(Number(activeGridNativeUsd)) || Number(activeGridNativeUsd) <= 0) return null;
+  const qty = Number(manualVaultTotalQty || 0);
+  if (!Number.isFinite(qty) || qty <= 0) return 0;
+  return qty * Number(activeGridNativeUsd);
+}, [manualVaultTotalQty, activeGridNativeUsd]);
+
+const manualEstimatedImpactPct = useMemo(() => {
+  const liq = Number(manualPoolLiquidityUsd);
+  const after = Number(manualExposureAfterUsd);
+  if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(after) || after <= 0) return null;
+  return (after / liq) * 100;
+}, [manualPoolLiquidityUsd, manualExposureAfterUsd]);
+
+const manualRiskState = useMemo(() => {
+  const liq = Number(manualPoolLiquidityUsd);
+  const impact = Number(manualEstimatedImpactPct);
+  if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(impact) || impact < 0) {
+    return {
+      key: "pending",
+      label: "⏳ Backend pending",
+      tone: "rgba(245, 193, 108, 0.18)",
+      border: "1px solid rgba(245, 193, 108, 0.28)",
+      color: "#f5c16c",
+    };
+  }
+
+  let greenMax = 1;
+  let yellowMax = 2.5;
+
+  if (liq < 5000) {
+    greenMax = 1;
+    yellowMax = 2.5;
+  } else if (liq < 25000) {
+    greenMax = 1.75;
+    yellowMax = 4;
+  } else if (liq < 100000) {
+    greenMax = 2.5;
+    yellowMax = 6;
+  } else if (liq < 350000) {
+    greenMax = 3.5;
+    yellowMax = 8;
+  } else {
+    greenMax = 5;
+    yellowMax = 10;
+  }
+
+  if (impact < greenMax) {
+    return {
+      key: "green",
+      label: "🟢 Green · normal execution",
+      tone: "rgba(34, 197, 94, 0.16)",
+      border: "1px solid rgba(34, 197, 94, 0.28)",
+      color: "#86efac",
+    };
+  }
+  if (impact <= yellowMax) {
+    return {
+      key: "yellow",
+      label: "🟡 Yellow · warning, review before submit",
+      tone: "rgba(245, 193, 108, 0.16)",
+      border: "1px solid rgba(245, 193, 108, 0.28)",
+      color: "#f5c16c",
+    };
+  }
+  return {
+    key: "red",
+    label: "🔴 Red · high impact / critical",
+    tone: "rgba(239, 68, 68, 0.15)",
+    border: "1px solid rgba(239, 68, 68, 0.28)",
+    color: "#fca5a5",
+  };
+}, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
 
 const [activePanel, setActivePanel] = useState(null);
 const handlePanelActivate = useCallback((name) => (e) => {

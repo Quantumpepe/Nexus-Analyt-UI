@@ -5428,7 +5428,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     DEFAULT_CHAIN,
     openGridOrders,
     inferOrderChainKey,
-    vaultStats,
+    safeVaultStats,
     gridBudgetInput,
     gridRunning,
     orderNotionalUsd,

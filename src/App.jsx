@@ -1530,10 +1530,37 @@ function computeBestPairs(chart, limit = 30) {
 // ------------------------
 function AppInner() {
 
-  // Multi-chain config (UI is ready; test phase enables POL + BNB)
+  // Multi-chain config
+  // Build the UI dynamically so new chains / payout assets can be added without rewriting JSX.
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
-  const ENABLED_CHAINS = ["POL","BNB","ETH"];
-  const DEFAULT_CHAIN = "POL";
+  const CHAIN_OPTIONS = [
+    { k: "POL", label: "POL (Polygon)", enabled: true, payoutAssets: ["USDC", "USDT", "POL"] },
+    { k: "BNB", label: "BNB (BNB Chain)", enabled: true, payoutAssets: ["USDC", "USDT", "BNB"] },
+    { k: "ETH", label: "ETH (Ethereum)", enabled: true, payoutAssets: ["USDC", "USDT", "ETH"] },
+    { k: "ARB", label: "ARB (Arbitrum)", enabled: false, payoutAssets: ["USDC", "USDT", "ARB"] },
+    { k: "BASE", label: "BASE (Base)", enabled: false, payoutAssets: ["USDC", "USDT", "BASE"] },
+    { k: "OP", label: "OP (Optimism)", enabled: false, payoutAssets: ["USDC", "USDT", "OP"] },
+    { k: "AVAX", label: "AVAX (Avalanche)", enabled: false, payoutAssets: ["USDC", "USDT", "AVAX"] },
+    { k: "FTM", label: "FTM (Fantom)", enabled: false, payoutAssets: ["USDC", "USDT", "FTM"] },
+    { k: "SOL", label: "SOL (soon)", enabled: false, payoutAssets: ["USDC", "USDT", "SOL"] },
+    { k: "BTC", label: "BTC (soon)", enabled: false, payoutAssets: ["USDC", "USDT", "BTC"] },
+  ];
+  const ENABLED_CHAINS = CHAIN_OPTIONS.filter((c) => c.enabled).map((c) => c.k);
+  const ENABLED_NATIVE_CHAINS = ENABLED_CHAINS.filter((c) => Number.isFinite(Number(CHAIN_ID?.[c])));
+  const DEFAULT_CHAIN = ENABLED_CHAINS[0] || "POL";
+  const CHAIN_PREF_ORDER = CHAIN_OPTIONS.map((c) => c.k);
+
+  const PAYOUT_ASSETS_BY_CHAIN = CHAIN_OPTIONS.reduce((acc, c) => {
+    const whitelistSymbols = (TOKEN_WHITELIST?.[c.k] || [])
+      .map((t) => String(t?.symbol || "").toUpperCase().trim())
+      .filter(Boolean);
+    const configured = Array.isArray(c?.payoutAssets) ? c.payoutAssets : [];
+    const merged = [...configured, ...whitelistSymbols, c.k]
+      .map((v) => String(v || "").toUpperCase().trim())
+      .filter(Boolean);
+    acc[c.k] = Array.from(new Set(merged));
+    return acc;
+  }, {});
 
 // One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
 useEffect(() => {
@@ -2223,7 +2250,7 @@ useEffect(() => {
       const savedCoin = String(
         localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || ""
       ).toUpperCase().trim();
-      if (["POL", "BNB", "ETH"].includes(savedCoin)) {
+      if (ENABLED_NATIVE_CHAINS.includes(savedCoin)) {
         forcedChain = savedCoin;
       }
     } catch (_) {}
@@ -3683,7 +3710,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
   const activeGridChainKey = useMemo(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
-    if (["POL", "BNB", "ETH"].includes(sym)) return sym;
+    if (ENABLED_NATIVE_CHAINS.includes(sym)) return sym;
     return String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [gridItem, balActiveChain, wsChainKey]);
 
@@ -3698,7 +3725,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   useEffect(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
     if (!wallet) return;
-    if (!["POL", "BNB", "ETH"].includes(sym)) return;
+    if (!ENABLED_NATIVE_CHAINS.includes(sym)) return;
 
     const t1 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 250);
     const t2 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 1200);
@@ -4764,7 +4791,7 @@ setGridOrders(nextOrders);
 
 	try {
       const sym = String(gridItem || "").toUpperCase().trim();
-      if (["POL", "BNB", "ETH"].includes(sym)) {
+      if (ENABLED_NATIVE_CHAINS.includes(sym)) {
         setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
       }
     } catch (_) {}
@@ -4826,7 +4853,7 @@ useInterval(
 
       try {
         const sym = String(gridItem || "").toUpperCase().trim();
-        if (["POL", "BNB", "ETH"].includes(sym)) {
+        if (ENABLED_NATIVE_CHAINS.includes(sym)) {
           setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
         }
       } catch (_) {}
@@ -5315,7 +5342,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       activeGridChainKey ||
       DEFAULT_CHAIN;
     const norm = String(raw || DEFAULT_CHAIN).toUpperCase().trim();
-    return ["POL", "BNB", "ETH"].includes(norm)
+    return ENABLED_CHAINS.includes(norm)
       ? norm
       : String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [activeGridChainKey]);
@@ -5354,13 +5381,13 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       if (!map[ck]) map[ck] = [];
       map[ck].push(o);
     }
-    const pref = ["POL", "BNB", "ETH"];
+    const pref = CHAIN_PREF_ORDER;
     return Object.entries(map).sort((a, b) => {
       const ai = pref.indexOf(a[0]);
       const bi = pref.indexOf(b[0]);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
-  }, [openGridOrders, inferOrderChainKey]);
+  }, [openGridOrders, inferOrderChainKey, CHAIN_PREF_ORDER]);
 
   const manualOrderNotionalUsd = useMemo(() => {
     const px = Number(manualPrice || shownGridPrice || 0);
@@ -5389,6 +5416,23 @@ useInterval(fetchGridOrders, 15000, isGridReady);
   const activeGridChainSymbol = useMemo(() => {
     return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [activeGridChainKey]);
+
+  const activePayoutAssets = useMemo(() => {
+    const chain = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+    const arr = PAYOUT_ASSETS_BY_CHAIN?.[chain];
+    return Array.isArray(arr) && arr.length ? arr : ["USDC", "USDT", chain];
+  }, [activeGridChainKey, PAYOUT_ASSETS_BY_CHAIN]);
+
+  const primaryPayoutAssets = useMemo(() => activePayoutAssets.slice(0, 2), [activePayoutAssets]);
+  const overflowPayoutAssets = useMemo(() => activePayoutAssets.slice(2), [activePayoutAssets]);
+
+  useEffect(() => {
+    if (!activePayoutAssets.length) return;
+    const cur = String(manualPayoutAsset || "").toUpperCase().trim();
+    if (!cur || !activePayoutAssets.includes(cur)) {
+      setManualPayoutAsset(activePayoutAssets[0]);
+    }
+  }, [activePayoutAssets, manualPayoutAsset]);
 
   const activeGridNativeUsd = useMemo(() => {
     const px = Number(walletPx?.native?.[activeGridChainSymbol]);
@@ -7083,15 +7127,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   onChange={(e) => setWsChainKey(e.target.value)}
                   style={{ marginLeft: 8, padding: "6px 10px", borderRadius: 10 }}
                 >
-                  {[
-                    { k: "BNB", label: "BNB (BNB Chain)", enabled: true },
-                    { k: "POL", label: "POL (Polygon)", enabled: true },
-                    { k: "ETH", label: "ETH (Ethereum)", enabled: true },
-                    { k: "SOL", label: "SOL (soon)", enabled: false },
-                    { k: "BTC", label: "BTC (soon)", enabled: false },
-                  ].map((c) => (
+                  {CHAIN_OPTIONS.map((c) => (
                     <option key={c.k} value={c.k} disabled={!ENABLED_CHAINS.includes(c.k)}>
-                      {c.label}{!ENABLED_CHAINS.includes(c.k) ? " — soon" : ""}
+                      {c.label}{!ENABLED_CHAINS.includes(c.k) && !String(c.label || "").toLowerCase().includes("soon") ? " — soon" : ""}
                     </option>
                   ))}
                 </select>
@@ -8258,15 +8296,46 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="formRow">
                 <label>Payout asset</label>
-                <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
-                  <option value="USDC">USDC</option>
-                  <option value="USDT">USDT</option>
-                  <option value={String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}>
-                    {String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}
-                  </option>
-                </select>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  {primaryPayoutAssets.map((asset) => {
+                    const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
+                    return (
+                      <button
+                        key={asset}
+                        type="button"
+                        onClick={() => setManualPayoutAsset(asset)}
+                        style={{
+                          ...compactGridChipStyle,
+                          border: active ? "1px solid rgba(34,197,94,.45)" : "1px solid rgba(255,255,255,.10)",
+                          background: active ? "rgba(34,197,94,.16)" : "rgba(255,255,255,.04)",
+                          color: active ? "rgba(220,255,232,.98)" : "rgba(232,242,240,.92)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {asset}
+                      </button>
+                    );
+                  })}
+
+                  {overflowPayoutAssets.length > 0 && (
+                    <select
+                      value={overflowPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? manualPayoutAsset : ""}
+                      onChange={(e) => {
+                        if (e.target.value) setManualPayoutAsset(e.target.value);
+                      }}
+                      style={{ minWidth: 130 }}
+                    >
+                      <option value="">More assets</option>
+                      {overflowPayoutAssets.map((asset) => (
+                        <option key={asset} value={asset}>
+                          {asset}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
                 <div className="muted tiny" style={{ marginTop: 6 }}>
-                  Profit result will be swapped immediately into this asset when the target is hit.
+                  Chain-specific payout assets are shown dynamically. The first two stay visible; additional assets move into the dropdown automatically.
                 </div>
               </div>
 

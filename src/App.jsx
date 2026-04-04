@@ -5979,16 +5979,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .cardActions .chip { white-space: nowrap; }
         }
-
-
         /* --- Grid layout: left controls, right orders --- */
         .gridLayout{
           display: grid;
           grid-template-columns: 1.15fr 0.85fr;
           gap: 16px;
           align-items: start;
+          min-width: 0;
         }
-        .gridLeft{min-width:0;}
+        .gridLeft,
+        .gridRight{
+          min-width: 0;
+          justify-self: stretch;
+        }
         .gridLeft{justify-self:start;}
 
         /* Ensure controls stack and never center */
@@ -6001,7 +6004,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
         .gridLeft .gridControls > *{ width: 100%; }
         .gridLeft .formRow{ width: 100%; display: flex; flex-direction: column; align-items: flex-start; }
-
 
         /* --- Force manual/grid inputs to align left (no centering) --- */
         .gridLeft .formRow select,
@@ -6017,17 +6019,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
           width: 100%;
           max-width: 560px;
         }
-        /* Keep inline rows (slippage/deadline/quick steps) anchored left */
         .gridLeft .row {
           justify-content: flex-start !important;
           align-items: center;
         }
-        
         .gridLeft .row{justify-content:flex-start;}
-        
+
+        /* whole card should scroll, not a small inner strip */
         .gridRight{
-          position: sticky;
-          top: 16px;
+          position: static;
+          top: auto;
           justify-self: end;
           width: min(420px, 100%);
         }
@@ -6037,6 +6038,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .gridRight{
             position: static;
+            width: 100%;
           }
         }
 
@@ -6053,23 +6055,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
         .dashboardPanel {
           transition: transform .22s ease, opacity .22s ease, box-shadow .22s ease;
         }
-        .panelScroll{
-          min-height: 0;
-        }
         @media (min-width: 981px) {
-          html, body, #root {
+          html, body, #root, .app {
             height: 100%;
+          }
+          body{
             overflow: hidden;
           }
-          .app.nexusApp{
-            height: 100vh;
+          .main{
+            height: calc(100vh - 96px);
             overflow: hidden;
-          }
-          main.main.mobileStack{
-            height: calc(100vh - 110px);
-            min-height: calc(100vh - 110px);
-            overflow: hidden;
-            padding-bottom: 14px;
           }
           .dashboardGrid {
             display: grid;
@@ -6079,8 +6074,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             align-items: stretch;
             height: 100%;
             min-height: 0;
-            max-height: 100%;
-            overflow: hidden;
           }
           .dashboardPanel {
             margin-bottom: 0;
@@ -6088,26 +6081,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
             min-height: 0;
             height: 100%;
             max-height: 100%;
-            overflow: hidden;
+            overflow-y: auto;
+            overflow-x: hidden;
             cursor: pointer;
             display: flex;
             flex-direction: column;
+            scrollbar-gutter: stable;
           }
-          .dashboardPanel .cardHead{
+          .dashboardPanel > .cardHead{
             flex: 0 0 auto;
           }
-          .dashboardPanel .panelScroll{
-            flex: 1 1 auto;
-            min-height: 0;
-            overflow-y: auto;
-            overflow-x: hidden;
-            padding-right: 6px;
-          }
           .dashboardGrid.hasFocus {
-            grid-template-columns: minmax(0,1.15fr) minmax(0,1.15fr) minmax(260px,0.72fr);
-            grid-template-rows: repeat(3, minmax(0,1fr));
-            height: 100%;
-            min-height: 0;
+            grid-template-columns: minmax(0,1.18fr) minmax(0,1.18fr) minmax(260px,0.82fr);
+            grid-template-rows: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);
           }
           .dashboardGrid.hasFocus .dashboardPanel {
             min-height: 0;
@@ -6141,21 +6127,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .dashboardGrid.focus-ai .section-compare { grid-column: 3; grid-row: 1; }
           .dashboardGrid.focus-ai .section-grid { grid-column: 3; grid-row: 2; }
           .dashboardGrid.focus-ai .section-watch { grid-column: 3; grid-row: 3; }
-        }
-        @media (max-width: 980px){
-          html, body, #root {
-            overflow: auto;
-            height: auto;
-          }
-          .app.nexusApp,
-          main.main.mobileStack{
-            height: auto;
+
+          /* inner layouts should not create their own desktop scrollbar */
+          .section-compare .compareGrid,
+          .section-grid .gridLayout,
+          .section-watch .watchTable,
+          .section-ai .aiWrap{
             min-height: 0;
             overflow: visible;
           }
-          .dashboardPanel .panelScroll{
-            overflow: visible;
-            padding-right: 0;
+
+          .section-watch .watchTable{
+            display: block;
+          }
+
+          .section-watch .watchScroll,
+          .section-compare .liveListBox,
+          .section-compare .pairsScroll,
+          .section-ai .aiPanel,
+          .section-ai .aiOut,
+          .section-ai .aiSelect,
+          .section-grid .gridLeft,
+          .section-grid .gridRight{
+            overflow: visible !important;
+            max-height: none !important;
+            height: auto !important;
+          }
+
+          .dashboardPanel::-webkit-scrollbar{
+            width: 10px;
+          }
+          .dashboardPanel::-webkit-scrollbar-thumb{
+            background: rgba(210,220,230,.22);
+            border-radius: 999px;
+            border: 2px solid rgba(0,0,0,.10);
+          }
+          .dashboardPanel::-webkit-scrollbar-track{
+            background: rgba(0,0,0,.10);
+            border-radius: 999px;
           }
         }
 `}</style>
@@ -7438,7 +7447,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="compareGrid panelScroll">
+          <div className="compareGrid">
             {/* Live list */}
             <div className="compareLive">
               <div className="label">Live Prices (USD)</div>
@@ -7835,7 +7844,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="gridLayout panelScroll">
+          <div className="gridLayout">
             <div className="gridLeft">
 
           <div className="gridWrap">
@@ -8270,7 +8279,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="watchTable panelScroll">
+          <div className="watchTable">
             <div className="watchHead watchStickyHead">
               <div>Compare</div>
               <div>Coin</div>
@@ -8327,7 +8336,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="aiWrap panelScroll">
+          <div className="aiWrap">
             <div className="aiSelect">
               <div className="label">Coins (from Compare)</div>
               <div className="aiChips">

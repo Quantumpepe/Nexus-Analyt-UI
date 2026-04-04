@@ -3884,6 +3884,16 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   savePersistedGridOrders(itemId, ordersArr);
 }, [savePersistedGridOrders]);
 
+const commitGridOrders = useCallback((itemId, nextOrders) => {
+  const arr = normalizeGridOrders(Array.isArray(nextOrders) ? nextOrders : []);
+  rememberGridOrders(itemId, arr);
+  setGridOrders(arr);
+  if (arr.length > 0) {
+    lastNonEmptyOrdersRef.current = { ts: Date.now(), count: arr.length };
+  }
+  return arr;
+}, [normalizeGridOrders, rememberGridOrders]);
+
   const [manualSide, setManualSide] = useState("BUY");
   const [manualPrice, setManualPrice] = useState("");
   const [manualBuyMode, setManualBuyMode] = useState("QTY"); // USD | QTY (only used for BUY)
@@ -4660,11 +4670,7 @@ useEffect(() => {
       const initOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(initOrdersRaw)) {
         const initOrders = normalizeGridOrders(initOrdersRaw);
-        rememberGridOrders(srvItemId || gridItemId, initOrders);
-        setGridOrders(initOrders);
-        if (initOrders.length > 0) {
-          lastNonEmptyOrdersRef.current = { ts: Date.now(), count: initOrders.length };
-        }
+        commitGridOrders(srvItemId || gridItemId, initOrders);
       }
 
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
@@ -4676,7 +4682,7 @@ useEffect(() => {
   })();
 
   return () => { cancelled = true; };
-}, [gridUiHydrated, walletAddress, token, activeGridChainKey, gridItemId]);
+}, [gridUiHydrated, walletAddress, token, activeGridChainKey, gridItemId, commitGridOrders]);
 
 const [gridBusy, setGridBusy] = useState({
   start: false,
@@ -4798,8 +4804,7 @@ if (nextOrders.length === 0) {
 }
 
 // 🔥 WICHTIG: Orders speichern + setzen
-rememberGridOrders(gridItemId, nextOrders);
-setGridOrders(nextOrders);
+commitGridOrders(gridItemId, nextOrders);
 
 	try {
       const sym = String(gridItem || "").toUpperCase().trim();
@@ -4817,7 +4822,7 @@ setGridOrders(nextOrders);
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
+}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState, commitGridOrders, loadPersistedGridOrders, rememberGridOrders, gridOrders]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -4859,8 +4864,7 @@ useInterval(
       const execOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(execOrdersRaw)) {
         const execOrders = normalizeGridOrders(execOrdersRaw);
-        rememberGridOrders(gridItemId, execOrders);
-        setGridOrders(execOrders);
+        commitGridOrders(gridItemId, execOrders);
       }
 
       try {
@@ -4966,7 +4970,7 @@ setGridBusy((s) => ({ ...s, start: true }));
       const startOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(startOrdersRaw)) {
         const startOrders = normalizeGridOrders(startOrdersRaw);
-        setGridOrders(startOrders);
+        commitGridOrders(gridItemId, startOrders);
       }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
@@ -5040,7 +5044,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
       const stopOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(stopOrdersRaw)) {
         const stopOrders = normalizeGridOrders(stopOrdersRaw);
-        setGridOrders(stopOrders);
+        commitGridOrders(gridItemId, stopOrders);
       }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
@@ -5118,10 +5122,14 @@ body.qty = qty;
       const addSingleOrder = getGridSingleOrderFromResponse(r);
       if (Array.isArray(addOrdersRaw)) {
         const addOrders = normalizeGridOrders(addOrdersRaw);
-        setGridOrders(addOrders);
+        commitGridOrders(gridItemId, addOrders);
       } else if (addSingleOrder) {
         setGridOrders((prev) => {
           const merged = mergeGridOrders(prev, [addSingleOrder]);
+          rememberGridOrders(gridItemId, merged);
+          if (merged.length > 0) {
+            lastNonEmptyOrdersRef.current = { ts: Date.now(), count: merged.length };
+          }
           return merged;
         });
       }
@@ -5257,7 +5265,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           const delOrdersRaw = getGridOrdersFromResponse(r);
           if (Array.isArray(delOrdersRaw)) {
             const delOrders = normalizeGridOrders(delOrdersRaw);
-            setGridOrders(delOrders);
+            commitGridOrders(gridItemId, delOrders);
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
@@ -5266,7 +5274,8 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           return;
         } else {
           const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-          safeSetGridOrdersFromResponse(r, setGridOrders);
+          const _raw = getGridOrdersFromResponse(r);
+          if (Array.isArray(_raw)) commitGridOrders(gridItemId, _raw);
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           kickGridRefresh();

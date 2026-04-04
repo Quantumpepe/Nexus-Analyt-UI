@@ -5416,7 +5416,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       balance: Number(safeVaultStats?.vault || 0),
       reserved: Number(safeVaultStats?.reserved || 0),
       free: Number(safeVaultStats?.free || 0),
-      allocation: Number(gridBudgetInput || 0),
+      allocation: Number(gridInvestQty || 0),
       status: gridRunning ? "running" : "idle",
       chain,
       activeOrders: chainOrders.length,
@@ -5429,7 +5429,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     openGridOrders,
     inferOrderChainKey,
     safeVaultStats,
-    gridBudgetInput,
+    gridBudget,
     gridRunning,
     orderNotionalUsd,
   ]);

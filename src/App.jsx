@@ -6291,6 +6291,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             margin-bottom: 6px !important;
             scroll-padding-bottom: 18px !important;
             overscroll-behavior: contain !important;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
           }
           .section-compare .liveListBox::-webkit-scrollbar,
           .section-compare .pairsScroll::-webkit-scrollbar{
@@ -7722,10 +7723,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </button>
                 </div>
 
-                <div className="pairsScroll">
+                <div
+                  className="pairsScroll"
+                  style={{
+                    border: "1px solid rgba(255,255,255,.06)",
+                    borderRadius: 14,
+                    background: "rgba(255,255,255,.02)",
+                    padding: "6px 6px 16px 6px",
+                    boxSizing: "border-box",
+                  }}
+                >
                   {bestPairsToShow.length ? (
                     bestPairsToShow.map((p, i) => (
-                      <div key={p.pair} className="pairRow" style={{ gap: 12, cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}>
+                      <div
+                        key={p.pair}
+                        className="pairRow"
+                        style={{
+                          gap: 12,
+                          cursor: "pointer",
+                          marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
+                        }}
+                        onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
+                      >
                         <span className="muted" style={{ width: 30, textAlign: "right" }}>#{i + 1}</span>
                         <span className="pairName" style={{ flex: 1 }}>{p.pair}</span>
                         <span className="pill silver">Score {p.score}</span>

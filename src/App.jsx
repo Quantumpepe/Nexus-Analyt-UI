@@ -2232,8 +2232,8 @@ useEffect(() => {
   }, [wallet, wsChainKey, balActiveChain, contracts]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
-  const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
-  const [gridBudgetsErr, setGridBudgetsErr] = useState("");
+  const [gridInvestQtys, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
+  const [gridInvestQtysErr, setGridBudgetsErr] = useState("");
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
   const [walletUsdLoading, setWalletUsdLoading] = useState(false);
@@ -5429,7 +5429,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     openGridOrders,
     inferOrderChainKey,
     safeVaultStats,
-    gridBudget,
+    gridInvestQty,
     gridRunning,
     orderNotionalUsd,
   ]);
@@ -6806,7 +6806,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   // Reserved is derived from per-chain locked USD budget, converted to native using USD price.
                   const nativeBalNum = Number(row?.native);
                   const nPxUsd = Number(walletPx?.native?.[c]);
-                  const lockedUsd = Number(gridBudgets?.by_chain?.[c]?.locked_usd ?? 0);
+                  const lockedUsd = Number(gridInvestQtys?.by_chain?.[c]?.locked_usd ?? 0);
                   const reservedNative = (Number.isFinite(nPxUsd) && nPxUsd > 0) ? (lockedUsd / nPxUsd) : 0;
                   const freeNativeNum = Number.isFinite(nativeBalNum) ? Math.max(0, nativeBalNum - reservedNative) : null;
                   const freeUsdVal = (Number.isFinite(freeNativeNum) && Number.isFinite(nPxUsd)) ? (freeNativeNum * nPxUsd) : null;
@@ -6831,11 +6831,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       
                       
                       {/* Grid budget info (per-chain, if available) */}
-                      {gridBudgets?.by_chain && Object.keys(gridBudgets.by_chain).length ? (
+                      {gridInvestQtys?.by_chain && Object.keys(gridInvestQtys.by_chain).length ? (
                         <div style={{ marginTop: 4, fontSize: 11, opacity: 0.82, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <span>In bots: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.locked_usd || 0))}</b></span>
+                          <span>In bots: <b>{fmtUsd(Number(gridInvestQtys.by_chain?.[c]?.locked_usd || 0))}</b></span>
                           <span style={{ opacity: 0.6 }}>|</span>
-                          <span>Free: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.available_usd || 0))}</b></span>
+                          <span>Free: <b>{fmtUsd(Number(gridInvestQtys.by_chain?.[c]?.available_usd || 0))}</b></span>
                         </div>
                       ) : null}
 

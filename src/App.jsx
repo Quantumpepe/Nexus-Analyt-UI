@@ -8459,8 +8459,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             zIndex: 50,
                             borderRadius: 12,
                             overflow: "hidden",
-                            background: "rgba(11,26,23,.98)",
-                            border: "1px solid rgba(34,197,94,.32)",
+                            background: "linear-gradient(180deg, rgba(74,222,128,.98), rgba(34,197,94,.98))",
+                            border: "1px solid rgba(34,197,94,.55)",
                             boxShadow: "0 16px 34px rgba(0,0,0,.35)",
                           }}
                         >
@@ -8478,10 +8478,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   width: "100%",
                                   textAlign: "left",
                                   padding: "10px 12px",
-                                  background: active ? "linear-gradient(90deg, #4ade80, #22c55e)" : "rgba(255,255,255,.02)",
+                                  background: active ? "linear-gradient(90deg, #86efac, #4ade80)" : "rgba(255,255,255,.10)",
                                   color: "#071512",
                                   border: "none",
-                                  borderTop: "1px solid rgba(255,255,255,.05)",
+                                  borderTop: "1px solid rgba(7,21,18,.10)",
                                   fontWeight: active ? 800 : 700,
                                   cursor: "pointer",
                                 }}

@@ -6182,6 +6182,34 @@ const handlePanelActivate = useCallback((name) => (e) => {
             position: static !important;
             top: auto !important;
           }
+
+          /* re-enable Compare internal scrolls after the global desktop override */
+          .section-compare .liveListBox{
+            max-height: 320px !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+          }
+          .section-compare .pairsScroll{
+            max-height: 420px !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            padding-right: 6px !important;
+          }
+          .section-compare .liveListBox::-webkit-scrollbar,
+          .section-compare .pairsScroll::-webkit-scrollbar{
+            width: 10px;
+          }
+          .section-compare .liveListBox::-webkit-scrollbar-thumb,
+          .section-compare .pairsScroll::-webkit-scrollbar-thumb{
+            background: rgba(210,220,230,.22);
+            border-radius: 999px;
+            border: 2px solid rgba(0,0,0,.10);
+          }
+          .section-compare .liveListBox::-webkit-scrollbar-track,
+          .section-compare .pairsScroll::-webkit-scrollbar-track{
+            background: rgba(0,0,0,.10);
+            border-radius: 999px;
+          }
         }
 
         @media (max-width: 980px) {

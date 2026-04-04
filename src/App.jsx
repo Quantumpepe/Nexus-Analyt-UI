@@ -3908,6 +3908,45 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
   const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
 
+  const MANUAL_PAYOUT_ASSETS_BY_CHAIN = useMemo(
+    () => ({
+      ETH: ["USDC", "USDT", "ETH", "DAI"],
+      POL: ["USDC", "USDT", "POL", "DAI"],
+      BNB: ["USDC", "USDT", "BNB", "DAI"],
+      ARB: ["USDC", "USDT", "ARB", "DAI"],
+      OP: ["USDC", "USDT", "OP", "DAI"],
+      BASE: ["USDC", "USDT", "ETH", "DAI"],
+      AVAX: ["USDC", "USDT", "AVAX", "DAI"],
+      FTM: ["USDC", "USDT", "FTM", "DAI"],
+    }),
+    []
+  );
+
+  const manualActiveChainKey = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+  const manualPayoutOptions = useMemo(() => {
+    const fallback = ["USDC", "USDT", manualActiveChainKey].filter(Boolean);
+    const arr = MANUAL_PAYOUT_ASSETS_BY_CHAIN?.[manualActiveChainKey] || fallback;
+    const seen = new Set();
+    return (Array.isArray(arr) ? arr : fallback)
+      .map((x) => String(x || "").toUpperCase().trim())
+      .filter((x) => {
+        if (!x || seen.has(x)) return false;
+        seen.add(x);
+        return true;
+      });
+  }, [MANUAL_PAYOUT_ASSETS_BY_CHAIN, manualActiveChainKey]);
+
+  const manualPayoutPrimaryOptions = useMemo(() => manualPayoutOptions.slice(0, 2), [manualPayoutOptions]);
+  const manualPayoutExtraOptions = useMemo(() => manualPayoutOptions.slice(2), [manualPayoutOptions]);
+
+  useEffect(() => {
+    if (!manualPayoutOptions.length) return;
+    const current = String(manualPayoutAsset || "").toUpperCase();
+    if (!current || !manualPayoutOptions.includes(current)) {
+      setManualPayoutAsset(manualPayoutOptions[0]);
+    }
+  }, [manualPayoutOptions, manualPayoutAsset]);
+
   // AI
   const [aiSelected, setAiSelected] = useLocalStorageState("nexus_ai_selected", []);
   const syncAppStateFromServer = useCallback(async () => {
@@ -8161,13 +8200,36 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="formRow">
                 <label>Payout asset</label>
-                <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
-                  <option value="USDC">USDC</option>
-                  <option value="USDT">USDT</option>
-                  <option value={String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}>
-                    {String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}
-                  </option>
-                </select>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: manualPayoutExtraOptions.length ? 8 : 0 }}>
+                  {manualPayoutPrimaryOptions.map((asset) => {
+                    const active = String(manualPayoutAsset || "").toUpperCase() === asset;
+                    return (
+                      <button
+                        key={asset}
+                        type="button"
+                        className={active ? "btn" : "btnGhost"}
+                        onClick={() => setManualPayoutAsset(asset)}
+                        style={{ minWidth: 74, height: 32, paddingInline: 12, fontWeight: 800 }}
+                      >
+                        {asset}
+                      </button>
+                    );
+                  })}
+                </div>
+                {manualPayoutExtraOptions.length ? (
+                  <select
+                    value={manualPayoutPrimaryOptions.includes(String(manualPayoutAsset || "").toUpperCase()) ? "" : String(manualPayoutAsset || "").toUpperCase()}
+                    onChange={(e) => {
+                      const v = String(e.target.value || "").toUpperCase();
+                      if (v) setManualPayoutAsset(v);
+                    }}
+                  >
+                    <option value="">More payout assets</option>
+                    {manualPayoutExtraOptions.map((asset) => (
+                      <option key={asset} value={asset}>{asset}</option>
+                    ))}
+                  </select>
+                ) : null}
                 <div className="muted tiny" style={{ marginTop: 6 }}>
                   Profit result will be swapped immediately into this asset when the target is hit.
                 </div>

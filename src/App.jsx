@@ -2232,8 +2232,8 @@ useEffect(() => {
   }, [wallet, wsChainKey, balActiveChain, contracts]);
 
   // Wallet USD valuation (CoinGecko). Includes native + stables + user-added tokens (when priced).
-  const [gridInvestQtys, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
-  const [gridInvestQtysErr, setGridBudgetsErr] = useState("");
+  const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
+  const [gridBudgetsErr, setGridBudgetsErr] = useState("");
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
   const [walletUsdLoading, setWalletUsdLoading] = useState(false);
@@ -5386,54 +5386,6 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     return `On target hit -> swap immediately into ${payout} -> hold in vault until withdraw.`;
   }, [manualPayoutAsset]);
 
-  const safeVaultStats = useMemo(() => {
-    const balance = Number(vaultState?.polBalance || 0) || 0;
-    const reserved = 0;
-    const free = Math.max(0, balance - reserved);
-    return { vault: balance, reserved, free };
-  }, [vaultState]);
-
-  const getOrderLiquidityBadge = useCallback((o) => {
-    const raw = String(
-      o?.liquidity ||
-      o?.liquidity_status ||
-      o?.liquidityStatus ||
-      o?.risk ||
-      o?.risk_status ||
-      o?.riskStatus ||
-      ""
-    ).toUpperCase();
-    if (["SAFE", "GREEN", "LOW", "OK"].includes(raw)) return "SAFE";
-    if (["MEDIUM", "WARN", "YELLOW"].includes(raw)) return "MEDIUM";
-    if (["DANGER", "BLOCK", "RED", "HIGH"].includes(raw)) return "DANGER";
-    return "PENDING";
-  }, []);
-
-  const vaultData = useMemo(() => {
-    const chain = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-    const chainOrders = openGridOrders.filter((o) => inferOrderChainKey(o) === chain);
-    return {
-      balance: Number(safeVaultStats?.vault || 0),
-      reserved: Number(safeVaultStats?.reserved || 0),
-      free: Number(safeVaultStats?.free || 0),
-      allocation: Number(gridInvestQty || 0),
-      status: gridRunning ? "running" : "idle",
-      chain,
-      activeOrders: chainOrders.length,
-      orders: chainOrders,
-      exposureUsd: chainOrders.reduce((sum, o) => sum + orderNotionalUsd(o), 0),
-    };
-  }, [
-    activeGridChainKey,
-    DEFAULT_CHAIN,
-    openGridOrders,
-    inferOrderChainKey,
-    safeVaultStats,
-    gridInvestQty,
-    gridRunning,
-    orderNotionalUsd,
-  ]);
-
 
   // watchlist actions
   function toggleCompare(sym) {
@@ -6806,7 +6758,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   // Reserved is derived from per-chain locked USD budget, converted to native using USD price.
                   const nativeBalNum = Number(row?.native);
                   const nPxUsd = Number(walletPx?.native?.[c]);
-                  const lockedUsd = Number(gridInvestQtys?.by_chain?.[c]?.locked_usd ?? 0);
+                  const lockedUsd = Number(gridBudgets?.by_chain?.[c]?.locked_usd ?? 0);
                   const reservedNative = (Number.isFinite(nPxUsd) && nPxUsd > 0) ? (lockedUsd / nPxUsd) : 0;
                   const freeNativeNum = Number.isFinite(nativeBalNum) ? Math.max(0, nativeBalNum - reservedNative) : null;
                   const freeUsdVal = (Number.isFinite(freeNativeNum) && Number.isFinite(nPxUsd)) ? (freeNativeNum * nPxUsd) : null;
@@ -6831,11 +6783,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       
                       
                       {/* Grid budget info (per-chain, if available) */}
-                      {gridInvestQtys?.by_chain && Object.keys(gridInvestQtys.by_chain).length ? (
+                      {gridBudgets?.by_chain && Object.keys(gridBudgets.by_chain).length ? (
                         <div style={{ marginTop: 4, fontSize: 11, opacity: 0.82, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <span>In bots: <b>{fmtUsd(Number(gridInvestQtys.by_chain?.[c]?.locked_usd || 0))}</b></span>
+                          <span>In bots: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.locked_usd || 0))}</b></span>
                           <span style={{ opacity: 0.6 }}>|</span>
-                          <span>Free: <b>{fmtUsd(Number(gridInvestQtys.by_chain?.[c]?.available_usd || 0))}</b></span>
+                          <span>Free: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.available_usd || 0))}</b></span>
                         </div>
                       ) : null}
 
@@ -8092,7 +8044,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               
               <div className="formRow">
-                <label>Vault allocation</label>
+                <label>Budget (Qty)</label>
                 <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
               </div>
 <div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
@@ -8227,9 +8179,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div>After this order: <b>{fmtUsd(manualExposureAfterUsd)}</b></div>
                   <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
                   <div>Liquidity check: <b>Backend pending</b></div>
-                  <div>Order status: <b>UI ready</b></div>
                   <div>Settlement: <b>{manualSettlementPreview}</b></div>
-                  <div>Vault free / reserved: <b>{fmtUsd(Number(vaultData?.free || 0))} / {fmtUsd(Number(vaultData?.reserved || 0))}</b></div>
                 </div>
               </div>
 
@@ -8432,7 +8382,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <span className="pill silver">{chainKey}</span>
                               <span className="muted tiny">{chainOrders.length} open</span>
                               <span className="muted tiny">Exposure {fmtUsd(totalExposure)}</span>
-                              <span className="pill silver">Vault-ready</span>
                             </div>
                             {chainOrders.length > 2 ? (
                               <button
@@ -8458,8 +8407,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               const profitText = estProfit == null ? "" : `${estProfit >= 0 ? "+" : ""}${Math.abs(estProfit).toFixed(4)} $`;
                               const payout = inferOrderPayoutAsset(o);
                               const statusTxt = inferOrderStatus(o);
-                              const liqTxt = getOrderLiquidityBadge(o);
-                              const liqClass = liqTxt === "SAFE" ? "good" : (liqTxt === "MEDIUM" ? "silver" : (liqTxt === "DANGER" ? "bad" : "silver"));
 
                               return (
                                 <div
@@ -8467,11 +8414,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   className="orderRow"
                                   style={{ padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
                                 >
-                                  <div style={{ display: "grid", gridTemplateColumns: "auto auto auto auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
+                                  <div style={{ display: "grid", gridTemplateColumns: "auto auto auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
                                     <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
                                     <span className="orderPx">{fmtUsd(Number(o?.price || 0))}</span>
                                     <span className="muted">{o?.qty ? `qty ${fmtQty(Number(o.qty))}` : ""}</span>
-                                    <span className={`pill ${liqClass}`}>{liqTxt}</span>
                                     <span className="pill silver">{statusTxt}</span>
                                     <span className="muted tiny">Payout {payout}</span>
                                     <button
@@ -8496,7 +8442,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     </button>
                                   </div>
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
-                                    <span className="muted tiny">Settlement: swap on fill -> hold in vault · backend/vault ready</span>
+                                    <span className="muted tiny">Settlement: swap on fill -> hold in vault</span>
                                     {profitText ? (
                                       <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap" }}>{profitText}</span>
                                     ) : <span />}

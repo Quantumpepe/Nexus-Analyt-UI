@@ -1530,37 +1530,10 @@ function computeBestPairs(chart, limit = 30) {
 // ------------------------
 function AppInner() {
 
-  // Multi-chain config
-  // Build the UI dynamically so new chains / payout assets can be added without rewriting JSX.
+  // Multi-chain config (UI is ready; test phase enables POL + BNB)
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
-  const CHAIN_OPTIONS = [
-    { k: "POL", label: "POL (Polygon)", enabled: true, payoutAssets: ["USDC", "USDT", "POL"] },
-    { k: "BNB", label: "BNB (BNB Chain)", enabled: true, payoutAssets: ["USDC", "USDT", "BNB"] },
-    { k: "ETH", label: "ETH (Ethereum)", enabled: true, payoutAssets: ["USDC", "USDT", "ETH"] },
-    { k: "ARB", label: "ARB (Arbitrum)", enabled: false, payoutAssets: ["USDC", "USDT", "ARB"] },
-    { k: "BASE", label: "BASE (Base)", enabled: false, payoutAssets: ["USDC", "USDT", "BASE"] },
-    { k: "OP", label: "OP (Optimism)", enabled: false, payoutAssets: ["USDC", "USDT", "OP"] },
-    { k: "AVAX", label: "AVAX (Avalanche)", enabled: false, payoutAssets: ["USDC", "USDT", "AVAX"] },
-    { k: "FTM", label: "FTM (Fantom)", enabled: false, payoutAssets: ["USDC", "USDT", "FTM"] },
-    { k: "SOL", label: "SOL (soon)", enabled: false, payoutAssets: ["USDC", "USDT", "SOL"] },
-    { k: "BTC", label: "BTC (soon)", enabled: false, payoutAssets: ["USDC", "USDT", "BTC"] },
-  ];
-  const ENABLED_CHAINS = CHAIN_OPTIONS.filter((c) => c.enabled).map((c) => c.k);
-  const ENABLED_NATIVE_CHAINS = ENABLED_CHAINS.filter((c) => Number.isFinite(Number(CHAIN_ID?.[c])));
-  const DEFAULT_CHAIN = ENABLED_CHAINS[0] || "POL";
-  const CHAIN_PREF_ORDER = CHAIN_OPTIONS.map((c) => c.k);
-
-  const PAYOUT_ASSETS_BY_CHAIN = CHAIN_OPTIONS.reduce((acc, c) => {
-    const whitelistSymbols = (TOKEN_WHITELIST?.[c.k] || [])
-      .map((t) => String(t?.symbol || "").toUpperCase().trim())
-      .filter(Boolean);
-    const configured = Array.isArray(c?.payoutAssets) ? c.payoutAssets : [];
-    const merged = [...configured, ...whitelistSymbols, c.k]
-      .map((v) => String(v || "").toUpperCase().trim())
-      .filter(Boolean);
-    acc[c.k] = Array.from(new Set(merged));
-    return acc;
-  }, {});
+  const ENABLED_CHAINS = ["POL","BNB","ETH"];
+  const DEFAULT_CHAIN = "POL";
 
 // One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
 useEffect(() => {
@@ -2250,7 +2223,7 @@ useEffect(() => {
       const savedCoin = String(
         localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || ""
       ).toUpperCase().trim();
-      if (ENABLED_NATIVE_CHAINS.includes(savedCoin)) {
+      if (["POL", "BNB", "ETH"].includes(savedCoin)) {
         forcedChain = savedCoin;
       }
     } catch (_) {}
@@ -3710,7 +3683,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
   const activeGridChainKey = useMemo(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
-    if (ENABLED_NATIVE_CHAINS.includes(sym)) return sym;
+    if (["POL", "BNB", "ETH"].includes(sym)) return sym;
     return String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [gridItem, balActiveChain, wsChainKey]);
 
@@ -3725,7 +3698,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   useEffect(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
     if (!wallet) return;
-    if (!ENABLED_NATIVE_CHAINS.includes(sym)) return;
+    if (!["POL", "BNB", "ETH"].includes(sym)) return;
 
     const t1 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 250);
     const t2 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 1200);
@@ -4791,7 +4764,7 @@ setGridOrders(nextOrders);
 
 	try {
       const sym = String(gridItem || "").toUpperCase().trim();
-      if (ENABLED_NATIVE_CHAINS.includes(sym)) {
+      if (["POL", "BNB", "ETH"].includes(sym)) {
         setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
       }
     } catch (_) {}
@@ -4853,7 +4826,7 @@ useInterval(
 
       try {
         const sym = String(gridItem || "").toUpperCase().trim();
-        if (ENABLED_NATIVE_CHAINS.includes(sym)) {
+        if (["POL", "BNB", "ETH"].includes(sym)) {
           setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
         }
       } catch (_) {}
@@ -5040,6 +5013,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
 
   async function addManualOrder() {
     setErrorMsg("");
+    setTxMsg("");
     if (!token) return setErrorMsg("");
     if (!requirePro("Placing a new order")) return;
     if (!gridItemId) return setErrorMsg('Select coin first.');
@@ -5112,12 +5086,22 @@ body.qty = qty;
           return merged;
         });
       }
+
+      const riskRaw = String(r?.risk || r?.risk_level || r?.data?.risk || r?.data?.risk_level || "").toLowerCase();
+      const impactVal = Number(r?.impact_pct ?? r?.impact ?? r?.data?.impact_pct ?? r?.data?.impact);
+      const riskLabel = riskRaw === "green" ? "LOW RISK" : riskRaw === "yellow" ? "MEDIUM RISK" : riskRaw === "red" ? "HIGH RISK" : "ORDER CREATED";
+      const impactTxt = Number.isFinite(impactVal) ? ` · Impact ${impactVal.toFixed(2)}%` : "";
+      setTxMsg(`✅ ${riskLabel}${impactTxt}`);
+      setGridOrdersOpen(true);
+
       // Always reload from backend so the server can commit the order and the UI stays live.
       kickGridRefresh();
+      setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 350);
       setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
-      setErrorMsg(`Manual add: ${e.message}`);
-    
+      const msg = String(e?.message || "Order failed");
+      setErrorMsg(`Manual add: ${msg}`);
+      setTxMsg(`❌ ${msg}`);
       setGridBusy((s) => ({ ...s, add: false }));}
   }
   
@@ -5342,7 +5326,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       activeGridChainKey ||
       DEFAULT_CHAIN;
     const norm = String(raw || DEFAULT_CHAIN).toUpperCase().trim();
-    return ENABLED_CHAINS.includes(norm)
+    return ["POL", "BNB", "ETH"].includes(norm)
       ? norm
       : String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [activeGridChainKey]);
@@ -5381,13 +5365,13 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       if (!map[ck]) map[ck] = [];
       map[ck].push(o);
     }
-    const pref = CHAIN_PREF_ORDER;
+    const pref = ["POL", "BNB", "ETH"];
     return Object.entries(map).sort((a, b) => {
       const ai = pref.indexOf(a[0]);
       const bi = pref.indexOf(b[0]);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
-  }, [openGridOrders, inferOrderChainKey, CHAIN_PREF_ORDER]);
+  }, [openGridOrders, inferOrderChainKey]);
 
   const manualOrderNotionalUsd = useMemo(() => {
     const px = Number(manualPrice || shownGridPrice || 0);
@@ -5412,32 +5396,6 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     const payout = String(manualPayoutAsset || "USDC").toUpperCase();
     return `On target hit -> swap immediately into ${payout} -> hold in vault until withdraw.`;
   }, [manualPayoutAsset]);
-
-  const activeGridChainSymbol = useMemo(() => {
-    return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-  }, [activeGridChainKey]);
-
-  const activePayoutAssets = useMemo(() => {
-    const chain = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-    const arr = PAYOUT_ASSETS_BY_CHAIN?.[chain];
-    return Array.isArray(arr) && arr.length ? arr : ["USDC", "USDT", chain];
-  }, [activeGridChainKey, PAYOUT_ASSETS_BY_CHAIN]);
-
-  const primaryPayoutAssets = useMemo(() => activePayoutAssets.slice(0, 2), [activePayoutAssets]);
-  const overflowPayoutAssets = useMemo(() => activePayoutAssets.slice(2), [activePayoutAssets]);
-
-  useEffect(() => {
-    if (!activePayoutAssets.length) return;
-    const cur = String(manualPayoutAsset || "").toUpperCase().trim();
-    if (!cur || !activePayoutAssets.includes(cur)) {
-      setManualPayoutAsset(activePayoutAssets[0]);
-    }
-  }, [activePayoutAssets, manualPayoutAsset]);
-
-  const activeGridNativeUsd = useMemo(() => {
-    const px = Number(walletPx?.native?.[activeGridChainSymbol]);
-    return Number.isFinite(px) && px > 0 ? px : null;
-  }, [walletPx, activeGridChainSymbol]);
 
 
   // watchlist actions
@@ -6025,101 +5983,6 @@ const vaultFreeQty = useMemo(
   () => Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reservedQtyOpen) || 0)),
   [vaultNativeBal, reservedQtyOpen]
 );
-
-
-const manualVaultAvailableQty = useMemo(() => {
-  const v = Number(gridVaultStats?.free);
-  return Number.isFinite(v) ? v : (Number(vaultFreeQty) || 0);
-}, [gridVaultStats, vaultFreeQty]);
-
-const manualVaultAllocatedQty = useMemo(() => {
-  const v = Number(gridVaultStats?.reserved);
-  return Number.isFinite(v) ? v : (Number(reservedQtyOpen) || 0);
-}, [gridVaultStats, reservedQtyOpen]);
-
-const manualVaultTotalQty = useMemo(() => {
-  const v = Number(gridVaultStats?.vault);
-  return Number.isFinite(v) && v > 0 ? v : (Number(vaultNativeBal) || 0);
-}, [gridVaultStats, vaultNativeBal]);
-
-const manualVaultSettledQty = useMemo(() => {
-  const v = Number(vaultState?.heldTokenBal);
-  return Number.isFinite(v) ? v : 0;
-}, [vaultState]);
-
-const manualPoolLiquidityUsd = useMemo(() => {
-  if (!Number.isFinite(Number(activeGridNativeUsd)) || Number(activeGridNativeUsd) <= 0) return null;
-  const qty = Number(manualVaultTotalQty || 0);
-  if (!Number.isFinite(qty) || qty <= 0) return 0;
-  return qty * Number(activeGridNativeUsd);
-}, [manualVaultTotalQty, activeGridNativeUsd]);
-
-const manualEstimatedImpactPct = useMemo(() => {
-  const liq = Number(manualPoolLiquidityUsd);
-  const after = Number(manualExposureAfterUsd);
-  if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(after) || after <= 0) return null;
-  return (after / liq) * 100;
-}, [manualPoolLiquidityUsd, manualExposureAfterUsd]);
-
-const manualRiskState = useMemo(() => {
-  const liq = Number(manualPoolLiquidityUsd);
-  const impact = Number(manualEstimatedImpactPct);
-  if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(impact) || impact < 0) {
-    return {
-      key: "pending",
-      label: "⏳ Backend pending",
-      tone: "rgba(245, 193, 108, 0.18)",
-      border: "1px solid rgba(245, 193, 108, 0.28)",
-      color: "#f5c16c",
-    };
-  }
-
-  let greenMax = 1;
-  let yellowMax = 2.5;
-
-  if (liq < 5000) {
-    greenMax = 1;
-    yellowMax = 2.5;
-  } else if (liq < 25000) {
-    greenMax = 1.75;
-    yellowMax = 4;
-  } else if (liq < 100000) {
-    greenMax = 2.5;
-    yellowMax = 6;
-  } else if (liq < 350000) {
-    greenMax = 3.5;
-    yellowMax = 8;
-  } else {
-    greenMax = 5;
-    yellowMax = 10;
-  }
-
-  if (impact < greenMax) {
-    return {
-      key: "green",
-      label: "🟢 Green · normal execution",
-      tone: "rgba(34, 197, 94, 0.16)",
-      border: "1px solid rgba(34, 197, 94, 0.28)",
-      color: "#86efac",
-    };
-  }
-  if (impact <= yellowMax) {
-    return {
-      key: "yellow",
-      label: "🟡 Yellow · warning, review before submit",
-      tone: "rgba(245, 193, 108, 0.16)",
-      border: "1px solid rgba(245, 193, 108, 0.28)",
-      color: "#f5c16c",
-    };
-  }
-  return {
-    key: "red",
-    label: "🔴 Red · high impact / critical",
-    tone: "rgba(239, 68, 68, 0.15)",
-    border: "1px solid rgba(239, 68, 68, 0.28)",
-    color: "#fca5a5",
-  };
-}, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
 
 const [activePanel, setActivePanel] = useState(null);
 const handlePanelActivate = useCallback((name) => (e) => {
@@ -7127,9 +6990,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   onChange={(e) => setWsChainKey(e.target.value)}
                   style={{ marginLeft: 8, padding: "6px 10px", borderRadius: 10 }}
                 >
-                  {CHAIN_OPTIONS.map((c) => (
+                  {[
+                    { k: "BNB", label: "BNB (BNB Chain)", enabled: true },
+                    { k: "POL", label: "POL (Polygon)", enabled: true },
+                    { k: "ETH", label: "ETH (Ethereum)", enabled: true },
+                    { k: "SOL", label: "SOL (soon)", enabled: false },
+                    { k: "BTC", label: "BTC (soon)", enabled: false },
+                  ].map((c) => (
                     <option key={c.k} value={c.k} disabled={!ENABLED_CHAINS.includes(c.k)}>
-                      {c.label}{!ENABLED_CHAINS.includes(c.k) && !String(c.label || "").toLowerCase().includes("soon") ? " — soon" : ""}
+                      {c.label}{!ENABLED_CHAINS.includes(c.k) ? " — soon" : ""}
                     </option>
                   ))}
                 </select>
@@ -8189,12 +8058,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <label>Budget (Qty)</label>
                 <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
               </div>
-<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.95 }}>
-  {tB("Available:")} <b>{manualVaultAvailableQty.toFixed(6)}</b> {activeGridChainSymbol}
-  {" · "}
-  {tB("Allocated:")} <b>{manualVaultAllocatedQty.toFixed(6)}</b> {activeGridChainSymbol}
-  {" · "}
-  {tB("Settled:")} <b>{manualVaultSettledQty.toFixed(6)}</b> {String(manualPayoutAsset || "USDC").toUpperCase()}
+<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
+  {tB("Vault:")} <b>{vaultNativeBal.toFixed(6)}</b> · {tB("Reserved (OPEN):")} <b>{reservedQtyOpen.toFixed(6)}</b> · {tB("Free:")} <b>{vaultFreeQty.toFixed(6)}</b>
 </div>{isEthChain ? (
 
 
@@ -8296,46 +8161,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="formRow">
                 <label>Payout asset</label>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  {primaryPayoutAssets.map((asset) => {
-                    const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
-                    return (
-                      <button
-                        key={asset}
-                        type="button"
-                        onClick={() => setManualPayoutAsset(asset)}
-                        style={{
-                          ...compactGridChipStyle,
-                          border: active ? "1px solid rgba(34,197,94,.45)" : "1px solid rgba(255,255,255,.10)",
-                          background: active ? "rgba(34,197,94,.16)" : "rgba(255,255,255,.04)",
-                          color: active ? "rgba(220,255,232,.98)" : "rgba(232,242,240,.92)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {asset}
-                      </button>
-                    );
-                  })}
-
-                  {overflowPayoutAssets.length > 0 && (
-                    <select
-                      value={overflowPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? manualPayoutAsset : ""}
-                      onChange={(e) => {
-                        if (e.target.value) setManualPayoutAsset(e.target.value);
-                      }}
-                      style={{ minWidth: 130 }}
-                    >
-                      <option value="">More assets</option>
-                      {overflowPayoutAssets.map((asset) => (
-                        <option key={asset} value={asset}>
-                          {asset}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
+                <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
+                  <option value="USDC">USDC</option>
+                  <option value="USDT">USDT</option>
+                  <option value={String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}>
+                    {String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}
+                  </option>
+                </select>
                 <div className="muted tiny" style={{ marginTop: 6 }}>
-                  Chain-specific payout assets are shown dynamically. The first two stay visible; additional assets move into the dropdown automatically.
+                  Profit result will be swapped immediately into this asset when the target is hit.
                 </div>
               </div>
 
@@ -8349,29 +8183,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   border: "1px solid rgba(255,255,255,.06)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
-                  <div style={{ fontWeight: 800 }}>Risk & settlement preview</div>
-                  <div
-                    style={{
-                      padding: "6px 10px",
-                      borderRadius: 999,
-                      background: manualRiskState.tone,
-                      border: manualRiskState.border,
-                      color: manualRiskState.color,
-                      fontWeight: 800,
-                      fontSize: 12,
-                    }}
-                  >
-                    {manualRiskState.label}
-                  </div>
-                </div>
+                <div style={{ fontWeight: 800, marginBottom: 8 }}>Risk & settlement preview</div>
                 <div className="tiny muted" style={{ display: "grid", gap: 4 }}>
-                  <div>Chain: <b>{activeGridChainSymbol}</b></div>
-                  <div>Pool liquidity: <b>{manualPoolLiquidityUsd == null ? "Backend pending" : fmtUsd(manualPoolLiquidityUsd)}</b></div>
+                  <div>Chain: <b>{String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}</b></div>
                   <div>Open exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></div>
                   <div>After this order: <b>{fmtUsd(manualExposureAfterUsd)}</b></div>
-                  <div>Estimated impact: <b>{manualEstimatedImpactPct == null ? "Backend pending" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></div>
                   <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
+                  <div>Liquidity check: <b>Backend pending</b></div>
                   <div>Settlement: <b>{manualSettlementPreview}</b></div>
                 </div>
               </div>
@@ -8530,6 +8348,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
               >
                 {gridBusy.add ? "Adding..." : "Add Order"}
               </button>
+
+              {txMsg ? (
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    background: txMsg.includes("❌") ? "rgba(120,20,20,.25)" : "rgba(20,120,60,.20)",
+                    border: txMsg.includes("❌") ? "1px solid rgba(255,80,80,.35)" : "1px solid rgba(80,255,160,.20)",
+                    color: txMsg.includes("❌") ? "#ffb3b3" : "#bfffd6",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  {txMsg}
+                </div>
+              ) : null}
 
               {!token && <div className="muted tiny">Wallet connected. First protected action may require one signature.</div>}
 </div>

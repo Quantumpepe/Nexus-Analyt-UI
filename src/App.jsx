@@ -8397,15 +8397,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <button
                         key={asset}
                         type="button"
-                        className={`segBtn ${active ? "active" : ""}`}
                         onClick={() => setManualPayoutAsset(String(asset).toUpperCase())}
+                        style={{
+                          ...compactGridChipStyle,
+                          minWidth: 66,
+                          background: active ? "linear-gradient(90deg, #22c55e, #16a34a)" : "rgba(34,197,94,.16)",
+                          color: active ? "#071512" : "#d9fff0",
+                          border: active ? "1px solid rgba(34,197,94,.55)" : "1px solid rgba(34,197,94,.32)",
+                          boxShadow: active ? "0 0 12px rgba(34,197,94,.28)" : "none",
+                          fontWeight: active ? 800 : 700,
+                        }}
+                        title={`Set payout asset to ${asset}`}
                       >
                         {asset}
                       </button>
                     );
                   })}
                   {extraPayoutAssets.length > 0 && (
-                    <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)} style={{ minWidth: 170 }}>
+                    <select
+                      value={extraPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? String(manualPayoutAsset || "").toUpperCase() : ""}
+                      onChange={(e) => { if (e.target.value) setManualPayoutAsset(e.target.value); }}
+                      style={{
+                        minWidth: 190,
+                        height: isCompactMobile ? 32 : 36,
+                        padding: "0 10px",
+                        borderRadius: 10,
+                        background: "rgba(34,197,94,.12)",
+                        color: "#d9fff0",
+                        border: "1px solid rgba(34,197,94,.28)",
+                      }}
+                    >
+                      <option value="">More payout assets</option>
                       {extraPayoutAssets.map((asset) => (
                         <option key={asset} value={asset}>{asset}</option>
                       ))}
@@ -8451,6 +8473,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div>Estimated impact: <b>{manualEstimatedImpactPct == null ? "Backend pending" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></div>
                   <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
                   <div>Settlement: <b>{manualSettlementPreview}</b></div>
+                </div>
+                <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 10, fontSize: 11, color: "#bdebd8" }}>
+                  <span>In chain: <b>{fmtUsd(Number(manualVaultTotalQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
+                  <span>Allocated: <b>{fmtUsd(Number(manualVaultAllocatedQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
+                  <span>Settled: <b>{fmtUsd(Number(manualVaultSettledQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
+                  <span>Cycle out: <b>{fmtUsd((Number(manualVaultAvailableQty || 0) + Number(manualVaultAllocatedQty || 0) + Number(manualVaultSettledQty || 0)) * Number(activeGridNativeUsd || 0))}</b></span>
                 </div>
               </div>
 
@@ -8679,28 +8707,47 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               const payout = inferOrderPayoutAsset(o);
                               const statusTxt = inferOrderStatus(o);
 
+                              const investedUsd = Number(
+                                o?.investedUsd ??
+                                o?.invested_usd ??
+                                o?.invested ??
+                                o?.cost_basis ??
+                                ((Number(o?.qty || 0) || 0) * (Number(o?.price || 0) || 0))
+                              ) || 0;
+                              const atTargetUsd = Number(
+                                o?.targetValue ??
+                                o?.target_value ??
+                                o?.expectedOutUsd ??
+                                o?.expected_out_usd ??
+                                o?.expectedPayoutUsd ??
+                                o?.expected_payout_usd ??
+                                ((Number(o?.qty || 0) || 0) * (Number(o?.price || 0) || 0))
+                              ) || 0;
+
                               return (
                                 <div
                                   key={idOf(o) || `${chainKey}-${o.side}-${o.price}-${o.created_ts}`}
                                   className="orderRow"
-                                  style={{ padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
+                                  style={{ padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
                                 >
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0, flex: "1 1 420px" }}>
-                                      <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
-                                      <span className="orderPx" style={{ whiteSpace: "nowrap" }}>{fmtUsd(Number(o?.price || 0))}</span>
-                                      <span className="muted" style={{ whiteSpace: "nowrap" }}>{o?.qty ? `qty ${fmtQty(Number(o.qty))}` : ""}</span>
-                                      <span className="pill silver">{statusTxt}</span>
-                                      <span className="muted tiny" style={{ whiteSpace: "nowrap" }}><b>Payout:</b> {payout}</span>
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0, flex: "1 1 460px", fontSize: 11 }}>
+                                      <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`} style={{ fontSize: 10, padding: "4px 7px" }}>{o.side}</span>
+                                      <span className="orderPx" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{fmtUsd(Number(o?.price || 0))}</span>
+                                      <span className="muted" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{o?.qty ? `qty ${fmtQty(Number(o.qty), 4)}` : ""}</span>
+                                      <span className="pill silver" style={{ fontSize: 10, padding: "4px 7px" }}>{statusTxt}</span>
+                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>Payout:</b> {payout}</span>
+                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>Inv:</b> {fmtUsd(investedUsd)}</span>
+                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>At target:</b> {fmtUsd(atTargetUsd)}</span>
                                       {profitText ? (
-                                        <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap" }}>{profitText}</span>
+                                        <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: 11 }}>{profitText}</span>
                                       ) : null}
                                     </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end", flex: "0 0 auto" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", flex: "0 0 auto" }}>
                                       <button
                                         type="button"
                                         className="btn ghost"
-                                        style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                        style={{ height: 26, paddingInline: 9, fontSize: 11 }}
                                         disabled={!idOf(o) || !["OPEN","PAUSED"].includes(statusTxt) || gridBusy.stopOrderId === String(idOf(o))}
                                         onClick={() => (statusTxt === "PAUSED" ? resumeGridOrder(idOf(o)) : stopGridOrder(idOf(o)))}
                                         title={statusTxt === "PAUSED" ? "Resume this paused order." : "Pause this order without deleting it."}
@@ -8710,7 +8757,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <button
                                         type="button"
                                         className="btn ghost"
-                                        style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                        style={{ height: 26, paddingInline: 9, fontSize: 11 }}
                                         disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
                                         onClick={() => deleteGridOrder(idOf(o))}
                                         title="Delete this order from DB (only if backend supports it)."

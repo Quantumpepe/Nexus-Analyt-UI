@@ -3908,6 +3908,92 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
   const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
 
+
+  const inferOrderChainKey = useCallback((o) => {
+    const raw =
+      o?.chain ||
+      o?.chainKey ||
+      o?.chain_key ||
+      o?.network ||
+      o?.vault_chain ||
+      o?.vaultChain ||
+      o?.item_chain ||
+      o?.itemChain ||
+      (typeof o?.item === "string" ? String(o.item).split(":")[0] : "") ||
+      (typeof o?.gridItemId === "string" ? String(o.gridItemId).split(":")[0] : "") ||
+      activeGridChainKey ||
+      DEFAULT_CHAIN;
+    const norm = String(raw || DEFAULT_CHAIN).toUpperCase().trim();
+    if (["POL", "BNB", "ETH"].includes(norm)) return norm;
+    return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+  }, [activeGridChainKey]);
+
+  const inferOrderPayoutAsset = useCallback((o) => {
+    return String(
+      o?.payout_asset ||
+      o?.payoutAsset ||
+      o?.settlement_asset ||
+      o?.settlementAsset ||
+      o?.return_asset ||
+      o?.returnAsset ||
+      "—"
+    ).toUpperCase();
+  }, []);
+
+  const inferOrderStatus = useCallback((o) => {
+    return String(o?.status || o?.state || "OPEN").toUpperCase();
+  }, []);
+
+  const orderNotionalUsd = useCallback((o) => {
+    const px = Number(o?.price || o?.limit_price || 0);
+    const qty = Number(o?.qty || o?.quantity || 0);
+    if (Number.isFinite(px) && px > 0 && Number.isFinite(qty) && qty > 0) return px * qty;
+    return 0;
+  }, []);
+
+  const openGridOrders = useMemo(() => {
+    return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) === "OPEN");
+  }, [gridOrders, inferOrderStatus]);
+
+  const gridOrdersGroupedByChain = useMemo(() => {
+    const map = {};
+    for (const o of openGridOrders) {
+      const ck = inferOrderChainKey(o);
+      if (!map[ck]) map[ck] = [];
+      map[ck].push(o);
+    }
+    const pref = ["POL", "BNB", "ETH"];
+    return Object.entries(map).sort((a, b) => {
+      const ai = pref.indexOf(a[0]);
+      const bi = pref.indexOf(b[0]);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+  }, [openGridOrders, inferOrderChainKey]);
+
+  const manualOrderNotionalUsd = useMemo(() => {
+    const px = Number(manualPrice || shownGridPrice || 0);
+    const qty = Number(manualQty || 0);
+    if (Number.isFinite(px) && px > 0 && Number.isFinite(qty) && qty > 0) return px * qty;
+    const usd = Number(manualUsd || 0);
+    return Number.isFinite(usd) && usd > 0 ? usd : 0;
+  }, [manualPrice, shownGridPrice, manualQty, manualUsd]);
+
+  const manualOpenExposureUsd = useMemo(() => {
+    const chain = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+    return openGridOrders
+      .filter((o) => inferOrderChainKey(o) === chain)
+      .reduce((sum, o) => sum + orderNotionalUsd(o), 0);
+  }, [openGridOrders, inferOrderChainKey, orderNotionalUsd, activeGridChainKey]);
+
+  const manualExposureAfterUsd = useMemo(() => {
+    return manualOpenExposureUsd + manualOrderNotionalUsd;
+  }, [manualOpenExposureUsd, manualOrderNotionalUsd]);
+
+  const manualSettlementPreview = useMemo(() => {
+    const payout = String(manualPayoutAsset || "USDC").toUpperCase();
+    return `On target hit -> swap immediately into ${payout} -> hold in vault until withdraw.`;
+  }, [manualPayoutAsset]);
+
   // AI
   const [aiSelected, setAiSelected] = useLocalStorageState("nexus_ai_selected", []);
   const syncAppStateFromServer = useCallback(async () => {
@@ -5300,92 +5386,6 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     setManualPrice(next.toFixed(12));
   };
 
-  const inferOrderChainKey = useCallback((o) => {
-    const raw =
-      o?.chain ||
-      o?.chainKey ||
-      o?.chain_key ||
-      o?.network ||
-      o?.vault_chain ||
-      o?.vaultChain ||
-      o?.item_chain ||
-      o?.itemChain ||
-      (typeof o?.item === "string" ? String(o.item).split(":")[0] : "") ||
-      (typeof o?.gridItemId === "string" ? String(o.gridItemId).split(":")[0] : "") ||
-      activeGridChainKey ||
-      DEFAULT_CHAIN;
-    const norm = String(raw || DEFAULT_CHAIN).toUpperCase().trim();
-    return ["POL", "BNB", "ETH"].includes(norm)
-      ? norm
-      : String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-  }, [activeGridChainKey]);
-
-  const inferOrderPayoutAsset = useCallback((o) => {
-    return String(
-      o?.payout_asset ||
-      o?.payoutAsset ||
-      o?.settlement_asset ||
-      o?.settlementAsset ||
-      o?.return_asset ||
-      o?.returnAsset ||
-      "—"
-    ).toUpperCase();
-  }, []);
-
-  const inferOrderStatus = useCallback((o) => {
-    return String(o?.status || o?.state || "OPEN").toUpperCase();
-  }, []);
-
-  const orderNotionalUsd = useCallback((o) => {
-    const px = Number(o?.price || o?.limit_price || 0);
-    const qty = Number(o?.qty || o?.quantity || 0);
-    if (Number.isFinite(px) && px > 0 && Number.isFinite(qty) && qty > 0) return px * qty;
-    return 0;
-  }, []);
-
-  const openGridOrders = useMemo(() => {
-    return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) === "OPEN");
-  }, [gridOrders, inferOrderStatus]);
-
-  const gridOrdersGroupedByChain = useMemo(() => {
-    const map = {};
-    for (const o of openGridOrders) {
-      const ck = inferOrderChainKey(o);
-      if (!map[ck]) map[ck] = [];
-      map[ck].push(o);
-    }
-    const pref = ["POL", "BNB", "ETH"];
-    return Object.entries(map).sort((a, b) => {
-      const ai = pref.indexOf(a[0]);
-      const bi = pref.indexOf(b[0]);
-      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-    });
-  }, [openGridOrders, inferOrderChainKey]);
-
-  const manualOrderNotionalUsd = useMemo(() => {
-    const px = Number(manualPrice || shownGridPrice || 0);
-    const qty = Number(manualQty || 0);
-    if (Number.isFinite(px) && px > 0 && Number.isFinite(qty) && qty > 0) return px * qty;
-    const usd = Number(manualUsd || 0);
-    return Number.isFinite(usd) && usd > 0 ? usd : 0;
-  }, [manualPrice, shownGridPrice, manualQty, manualUsd]);
-
-  const manualOpenExposureUsd = useMemo(() => {
-    const chain = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-    return openGridOrders
-      .filter((o) => inferOrderChainKey(o) === chain)
-      .reduce((sum, o) => sum + orderNotionalUsd(o), 0);
-  }, [openGridOrders, inferOrderChainKey, orderNotionalUsd, activeGridChainKey]);
-
-  const manualExposureAfterUsd = useMemo(() => {
-    return manualOpenExposureUsd + manualOrderNotionalUsd;
-  }, [manualOpenExposureUsd, manualOrderNotionalUsd]);
-
-  const manualSettlementPreview = useMemo(() => {
-    const payout = String(manualPayoutAsset || "USDC").toUpperCase();
-    return `On target hit -> swap immediately into ${payout} -> hold in vault until withdraw.`;
-  }, [manualPayoutAsset]);
-
 
   // watchlist actions
   function toggleCompare(sym) {
@@ -6145,6 +6145,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
         .dashboardPanel {
           transition: transform .22s ease, opacity .22s ease, box-shadow .22s ease;
+        }
+        @media (max-width: 820px) {
+          .ordersList .orderRow > div:first-child {
+            grid-template-columns: 1fr 1fr !important;
+          }
         }
         @media (min-width: 981px) {
           .dashboardGrid {
@@ -8115,6 +8120,40 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="e.g. 94442" />
               </div>
 
+              <div className="formRow">
+                <label>Payout asset</label>
+                <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
+                  <option value="USDC">USDC</option>
+                  <option value="USDT">USDT</option>
+                  <option value={String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}>
+                    {String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}
+                  </option>
+                </select>
+                <div className="muted tiny" style={{ marginTop: 6 }}>
+                  Profit result will be swapped immediately into this asset when the target is hit.
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 8,
+                  marginBottom: 12,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  background: "rgba(255,255,255,.04)",
+                  border: "1px solid rgba(255,255,255,.06)",
+                }}
+              >
+                <div style={{ fontWeight: 800, marginBottom: 8 }}>Risk & settlement preview</div>
+                <div className="tiny muted" style={{ display: "grid", gap: 4 }}>
+                  <div>Chain: <b>{String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}</b></div>
+                  <div>Open exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></div>
+                  <div>After this order: <b>{fmtUsd(manualExposureAfterUsd)}</b></div>
+                  <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
+                  <div>Liquidity check: <b>Backend pending</b></div>
+                  <div>Settlement: <b>{manualSettlementPreview}</b></div>
+                </div>
+              </div>
 
               <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -6, marginBottom: 12 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>
@@ -8333,8 +8372,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               const currentPrice = Number(shownGridPrice || 0);
                               let estProfit = null;
                               if (Number.isFinite(currentPrice) && currentPrice > 0) {
-                                if (String(o?.side || "").toUpperCase() === "BUY") estProfit = (currentPrice - Number(o?.price || 0)) * Number(o?.qty || 0);
-                                else if (String(o?.side || "").toUpperCase() === "SELL") estProfit = (Number(o?.price || 0) - currentPrice) * Number(o?.qty || 0);
+                                if (String(o?.side || "").toUpperCase() === "BUY") {
+                                  estProfit = (currentPrice - Number(o?.price || 0)) * Number(o?.qty || 0);
+                                } else if (String(o?.side || "").toUpperCase() === "SELL") {
+                                  estProfit = (Number(o?.price || 0) - currentPrice) * Number(o?.qty || 0);
+                                }
                               }
                               const profitColor = estProfit == null ? "rgba(232,242,240,.7)" : (estProfit >= 0 ? "#39d98a" : "#ff6b6b");
                               const profitText = estProfit == null ? "" : `${estProfit >= 0 ? "+" : ""}${Math.abs(estProfit).toFixed(4)} $`;

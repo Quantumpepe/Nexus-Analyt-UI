@@ -6283,13 +6283,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
             overflow-x: hidden !important;
           }
           .section-compare .pairsScroll{
-            max-height: 420px !important;
+            max-height: 388px !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
-            padding-right: 6px !important;
-            padding-bottom: 18px !important;
-            margin-bottom: 6px !important;
-            scroll-padding-bottom: 18px !important;
+            padding-right: 8px !important;
+            padding-bottom: 28px !important;
+            margin-top: 6px !important;
+            margin-bottom: 10px !important;
+            scroll-padding-bottom: 28px !important;
             overscroll-behavior: contain !important;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
           }
@@ -6307,6 +6308,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-compare .pairsScroll::-webkit-scrollbar-track{
             background: rgba(0,0,0,.10);
             border-radius: 999px;
+          }
+          .section-compare .pairsScroll::after{
+            content: "";
+            position: sticky;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: block;
+            height: 18px;
+            margin-top: -18px;
+            background: linear-gradient(180deg, rgba(6,24,22,0), rgba(6,24,22,.95));
+            pointer-events: none;
           }
         }
 
@@ -7729,8 +7742,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     border: "1px solid rgba(255,255,255,.06)",
                     borderRadius: 14,
                     background: "rgba(255,255,255,.02)",
-                    padding: "6px 6px 16px 6px",
+                    padding: "8px 8px 26px 8px",
                     boxSizing: "border-box",
+                    marginTop: 6,
                   }}
                 >
                   {bestPairsToShow.length ? (

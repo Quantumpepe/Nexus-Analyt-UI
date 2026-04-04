@@ -6053,30 +6053,33 @@ const handlePanelActivate = useCallback((name) => (e) => {
         .dashboardPanel {
           transition: transform .22s ease, opacity .22s ease, box-shadow .22s ease;
         }
+        .panelScroll{
+          min-height: 0;
+        }
         @media (min-width: 981px) {
           html, body, #root {
             height: 100%;
             overflow: hidden;
           }
-          .app.nexusApp {
+          .app.nexusApp{
             height: 100vh;
             overflow: hidden;
           }
-          main.main.mobileStack {
+          main.main.mobileStack{
             height: calc(100vh - 110px);
-            max-height: calc(100vh - 110px);
+            min-height: calc(100vh - 110px);
             overflow: hidden;
             padding-bottom: 14px;
           }
           .dashboardGrid {
             display: grid;
-            height: 100%;
-            max-height: 100%;
-            min-height: 0;
             grid-template-columns: minmax(0,1fr) minmax(0,1fr);
             grid-template-rows: minmax(0,1fr) minmax(0,1fr);
             gap: 18px;
             align-items: stretch;
+            height: 100%;
+            min-height: 0;
+            max-height: 100%;
             overflow: hidden;
           }
           .dashboardPanel {
@@ -6090,19 +6093,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
             display: flex;
             flex-direction: column;
           }
-          .dashboardPanel > .cardHead {
+          .dashboardPanel .cardHead{
             flex: 0 0 auto;
           }
-          .dashboardPanel > :not(.cardHead) {
+          .dashboardPanel .panelScroll{
+            flex: 1 1 auto;
             min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-right: 6px;
           }
           .dashboardGrid.hasFocus {
-            grid-template-columns: minmax(0,1.18fr) minmax(0,1.18fr) minmax(250px,0.72fr);
+            grid-template-columns: minmax(0,1.15fr) minmax(0,1.15fr) minmax(260px,0.72fr);
             grid-template-rows: repeat(3, minmax(0,1fr));
+            height: 100%;
+            min-height: 0;
           }
           .dashboardGrid.hasFocus .dashboardPanel {
+            min-height: 0;
             opacity: .84;
-            transform: scale(.965);
+            transform: scale(.97);
           }
           .dashboardGrid.hasFocus .dashboardPanel:hover {
             opacity: .95;
@@ -6111,12 +6121,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             opacity: 1;
             transform: none;
             box-shadow: 0 20px 60px rgba(0,0,0,.42), inset 0 0 0 1px rgba(46,204,113,.10);
-            overflow-y: auto;
-            overflow-x: hidden;
-            padding-right: 6px;
-          }
-          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) {
-            overflow: hidden;
           }
           .dashboardGrid.focus-compare .section-compare { grid-column: 1 / span 2; grid-row: 1 / span 3; }
           .dashboardGrid.focus-compare .section-grid { grid-column: 3; grid-row: 1; }
@@ -6137,17 +6141,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .dashboardGrid.focus-ai .section-compare { grid-column: 3; grid-row: 1; }
           .dashboardGrid.focus-ai .section-grid { grid-column: 3; grid-row: 2; }
           .dashboardGrid.focus-ai .section-watch { grid-column: 3; grid-row: 3; }
-
-          /* active panel inner blocks should also scroll instead of growing the page */
-          .dashboardPanel.panelActive .compareGrid,
-          .dashboardPanel.panelActive .gridLayout,
-          .dashboardPanel.panelActive .aiWrap,
-          .dashboardPanel.panelActive .watchTable {
-            min-height: 0;
+        }
+        @media (max-width: 980px){
+          html, body, #root {
+            overflow: auto;
+            height: auto;
           }
-          .dashboardPanel.panelActive .gridRight {
-            position: static;
-            width: 100%;
+          .app.nexusApp,
+          main.main.mobileStack{
+            height: auto;
+            min-height: 0;
+            overflow: visible;
+          }
+          .dashboardPanel .panelScroll{
+            overflow: visible;
+            padding-right: 0;
           }
         }
 `}</style>
@@ -7430,7 +7438,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="compareGrid">
+          <div className="compareGrid panelScroll">
             {/* Live list */}
             <div className="compareLive">
               <div className="label">Live Prices (USD)</div>
@@ -7827,7 +7835,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="gridLayout">
+          <div className="gridLayout panelScroll">
             <div className="gridLeft">
 
           <div className="gridWrap">
@@ -8262,7 +8270,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="watchTable">
+          <div className="watchTable panelScroll">
             <div className="watchHead watchStickyHead">
               <div>Compare</div>
               <div>Coin</div>
@@ -8319,7 +8327,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="aiWrap">
+          <div className="aiWrap panelScroll">
             <div className="aiSelect">
               <div className="label">Coins (from Compare)</div>
               <div className="aiChips">

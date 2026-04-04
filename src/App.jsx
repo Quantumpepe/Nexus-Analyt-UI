@@ -3905,6 +3905,94 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
     return Array.isArray(arr) ? arr : [0.5, 1, 2];
   }, [GRID_PRICE_PRESETS, manualPricePreset]);
   const [manualQty, setManualQty] = useState("");
+  const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
+  const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
+
+
+  const inferOrderChainKey = useCallback((o) => {
+    const raw =
+      o?.chain ||
+      o?.chainKey ||
+      o?.chain_key ||
+      o?.network ||
+      o?.vault_chain ||
+      o?.vaultChain ||
+      o?.item_chain ||
+      o?.itemChain ||
+      (typeof o?.item === "string" ? String(o.item).split(":")[0] : "") ||
+      (typeof o?.gridItemId === "string" ? String(o.gridItemId).split(":")[0] : "") ||
+      activeGridChainKey ||
+      DEFAULT_CHAIN;
+    const norm = String(raw || DEFAULT_CHAIN).toUpperCase().trim();
+    if (["POL", "BNB", "ETH"].includes(norm)) return norm;
+    return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+  }, [activeGridChainKey]);
+
+  const inferOrderPayoutAsset = useCallback((o) => {
+    return String(
+      o?.payout_asset ||
+      o?.payoutAsset ||
+      o?.settlement_asset ||
+      o?.settlementAsset ||
+      o?.return_asset ||
+      o?.returnAsset ||
+      "—"
+    ).toUpperCase();
+  }, []);
+
+  const inferOrderStatus = useCallback((o) => {
+    return String(o?.status || o?.state || "OPEN").toUpperCase();
+  }, []);
+
+  const orderNotionalUsd = useCallback((o) => {
+    const px = Number(o?.price || o?.limit_price || 0);
+    const qty = Number(o?.qty || o?.quantity || 0);
+    if (Number.isFinite(px) && px > 0 && Number.isFinite(qty) && qty > 0) return px * qty;
+    return 0;
+  }, []);
+
+  const openGridOrders = useMemo(() => {
+    return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) === "OPEN");
+  }, [gridOrders, inferOrderStatus]);
+
+  const gridOrdersGroupedByChain = useMemo(() => {
+    const map = {};
+    for (const o of openGridOrders) {
+      const ck = inferOrderChainKey(o);
+      if (!map[ck]) map[ck] = [];
+      map[ck].push(o);
+    }
+    const pref = ["POL", "BNB", "ETH"];
+    return Object.entries(map).sort((a, b) => {
+      const ai = pref.indexOf(a[0]);
+      const bi = pref.indexOf(b[0]);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+  }, [openGridOrders, inferOrderChainKey]);
+
+  const manualOrderNotionalUsd = useMemo(() => {
+    const px = Number(manualPrice || shownGridPrice || 0);
+    const qty = Number(manualQty || 0);
+    if (Number.isFinite(px) && px > 0 && Number.isFinite(qty) && qty > 0) return px * qty;
+    const usd = Number(manualUsd || 0);
+    return Number.isFinite(usd) && usd > 0 ? usd : 0;
+  }, [manualPrice, shownGridPrice, manualQty, manualUsd]);
+
+  const manualOpenExposureUsd = useMemo(() => {
+    const chain = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+    return openGridOrders
+      .filter((o) => inferOrderChainKey(o) === chain)
+      .reduce((sum, o) => sum + orderNotionalUsd(o), 0);
+  }, [openGridOrders, inferOrderChainKey, orderNotionalUsd, activeGridChainKey]);
+
+  const manualExposureAfterUsd = useMemo(() => {
+    return manualOpenExposureUsd + manualOrderNotionalUsd;
+  }, [manualOpenExposureUsd, manualOrderNotionalUsd]);
+
+  const manualSettlementPreview = useMemo(() => {
+    const payout = String(manualPayoutAsset || "USDC").toUpperCase();
+    return `On target hit -> swap immediately into ${payout} -> hold in vault until withdraw.`;
+  }, [manualPayoutAsset]);
 
   // AI
   const [aiSelected, setAiSelected] = useLocalStorageState("nexus_ai_selected", []);
@@ -5030,8 +5118,13 @@ try {
       const body = {
         item: gridItemId,
         addr: walletAddress || undefined,
+        wallet: walletAddress || undefined,
         side: manualSide,
         price,
+        chain: String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase(),
+        payout_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
+        payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+        settlement_mode: "swap_on_fill_hold_until_withdraw",
         slippage_bps: Math.round(slp * 100),
         deadline_sec: deadlineSec,
       };
@@ -6052,6 +6145,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
         .dashboardPanel {
           transition: transform .22s ease, opacity .22s ease, box-shadow .22s ease;
+        }
+        @media (max-width: 820px) {
+          .ordersList .orderRow > div:first-child {
+            grid-template-columns: 1fr 1fr !important;
+          }
         }
         @media (min-width: 981px) {
           .dashboardGrid {
@@ -8022,6 +8120,40 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="e.g. 94442" />
               </div>
 
+              <div className="formRow">
+                <label>Payout asset</label>
+                <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
+                  <option value="USDC">USDC</option>
+                  <option value="USDT">USDT</option>
+                  <option value={String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}>
+                    {String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}
+                  </option>
+                </select>
+                <div className="muted tiny" style={{ marginTop: 6 }}>
+                  Profit result will be swapped immediately into this asset when the target is hit.
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 8,
+                  marginBottom: 12,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  background: "rgba(255,255,255,.04)",
+                  border: "1px solid rgba(255,255,255,.06)",
+                }}
+              >
+                <div style={{ fontWeight: 800, marginBottom: 8 }}>Risk & settlement preview</div>
+                <div className="tiny muted" style={{ display: "grid", gap: 4 }}>
+                  <div>Chain: <b>{String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}</b></div>
+                  <div>Open exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></div>
+                  <div>After this order: <b>{fmtUsd(manualExposureAfterUsd)}</b></div>
+                  <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
+                  <div>Liquidity check: <b>Backend pending</b></div>
+                  <div>Settlement: <b>{manualSettlementPreview}</b></div>
+                </div>
+              </div>
 
               <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -6, marginBottom: 12 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>
@@ -8200,110 +8332,104 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               {gridOrders.length ? (
                 gridOrdersOpen ? (
-                  <div className="ordersList" style={{ maxHeight: 260, overflowY: "auto", paddingRight: 4 }}>
-                    {gridOrders.map((o) => {
-                      const currentPrice = Number(shownGridPrice || 0);
-                      let estProfit = null;
-                      if (Number.isFinite(currentPrice) && currentPrice > 0) {
-                        if (String(o?.side || "").toUpperCase() === "BUY") {
-                          estProfit = (currentPrice - Number(o?.price || 0)) * Number(o?.qty || 0);
-                        } else if (String(o?.side || "").toUpperCase() === "SELL") {
-                          estProfit = (Number(o?.price || 0) - currentPrice) * Number(o?.qty || 0);
-                        }
-                      }
-                      const profitColor = estProfit == null ? "rgba(232,242,240,.7)" : (estProfit >= 0 ? "#39d98a" : "#ff6b6b");
-                      const profitText = estProfit == null ? "" : `${estProfit >= 0 ? "+" : ""}${Math.abs(estProfit).toFixed(4)} $`;
-                      const isMobileOrder = typeof window !== "undefined" ? window.innerWidth <= 640 : false;
-                      const mobileTextSize = isMobileOrder ? 12 : 14;
-                      const mobileBtnFont = isMobileOrder ? 11 : 12;
-                      const mobileBtnHeight = isMobileOrder ? 24 : 28;
-                      const mobileBtnPad = isMobileOrder ? 8 : 10;
+                  <div className="ordersList" style={{ maxHeight: 320, overflowY: "auto", paddingRight: 4, display: "grid", gap: 10 }}>
+                    {gridOrdersGroupedByChain.map(([chainKey, chainOrders]) => {
+                      const totalExposure = chainOrders.reduce((sum, o) => sum + orderNotionalUsd(o), 0);
+                      const isExpanded = !!gridOrderChainOpen[chainKey];
+                      const visibleOrders = isExpanded ? chainOrders : chainOrders.slice(0, 2);
+                      const hiddenCount = Math.max(0, chainOrders.length - visibleOrders.length);
 
                       return (
                         <div
-                          key={idOf(o) || `${o.side}-${o.price}-${o.created_ts}`}
-                          className="orderRow"
+                          key={chainKey}
                           style={{
-                            padding: "8px 0",
-                            borderBottom: "1px solid rgba(255,255,255,.06)",
+                            border: "1px solid rgba(255,255,255,.06)",
+                            borderRadius: 12,
+                            padding: "10px 12px",
+                            background: "rgba(255,255,255,.03)",
                           }}
                         >
-                          {isMobileOrder ? (
-                            <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "auto auto auto auto auto auto auto",
-                                gap: 6,
-                                alignItems: "center",
-                                fontSize: mobileTextSize,
-                              }}
-                            >
-                              <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`} style={{ fontSize: 11, padding: "4px 8px" }}>{o.side}</span>
-                              <span className="orderPx" style={{ fontSize: mobileTextSize }}>{fmtUsd(o.price)}</span>
-                              <span className="muted" style={{ fontSize: mobileTextSize }}>{o.qty ? `qty ${o.qty}` : ""}</span>
-                              <span className="pill silver" style={{ fontSize: 11, padding: "4px 8px" }}>{o.status || "OPEN"}</span>
-                              <button
-                                type="button"
-                                className="btn ghost"
-                                style={{ height: mobileBtnHeight, paddingInline: mobileBtnPad, fontSize: mobileBtnFont }}
-                                disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
-                                onClick={() => stopGridOrder(idOf(o))}
-                                title="Stop this single order (backend will mark it as STOPPED)."
-                              >
-                                Stop
-                              </button>
-                              <button
-                                type="button"
-                                className="btn ghost"
-                                style={{ height: mobileBtnHeight, paddingInline: mobileBtnPad, fontSize: mobileBtnFont }}
-                                disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
-                                onClick={() => deleteGridOrder(idOf(o))}
-                                title="Delete this order from DB (only if backend supports it)."
-                              >
-                                Delete
-                              </button>
-                              {profitText ? (
-                                <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: 11, justifySelf: "end" }}>{profitText}</span>
-                              ) : <span />}
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span className="pill silver">{chainKey}</span>
+                              <span className="muted tiny">{chainOrders.length} open</span>
+                              <span className="muted tiny">Exposure {fmtUsd(totalExposure)}</span>
                             </div>
-                          ) : (
-                            <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "auto auto auto auto auto auto auto",
-                                gap: 10,
-                                alignItems: "center",
-                              }}
-                            >
-                              <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
-                              <span className="orderPx">{fmtUsd(o.price)}</span>
-                              <span className="muted">{o.qty ? `qty ${o.qty}` : ""}</span>
-                              <span className="pill silver">{o.status || "OPEN"}</span>
+                            {chainOrders.length > 2 ? (
                               <button
                                 type="button"
-                                className="btn ghost"
-                                style={{ height: mobileBtnHeight, paddingInline: mobileBtnPad, fontSize: mobileBtnFont }}
-                                disabled={!idOf(o) || String(o?.status || o?.state || "").toUpperCase() !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
-                                onClick={() => stopGridOrder(idOf(o))}
-                                title="Stop this single order (backend will mark it as STOPPED)."
+                                className="btnGhost"
+                                onClick={() => setGridOrderChainOpen((prev) => ({ ...prev, [chainKey]: !prev?.[chainKey] }))}
+                                style={{ height: 30, paddingInline: 10, fontSize: 12 }}
                               >
-                                Stop
+                                {isExpanded ? "Show less" : `+${chainOrders.length - 2} more`}
                               </button>
-                              <button
-                                type="button"
-                                className="btn ghost"
-                                style={{ height: mobileBtnHeight, paddingInline: mobileBtnPad, fontSize: mobileBtnFont }}
-                                disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
-                                onClick={() => deleteGridOrder(idOf(o))}
-                                title="Delete this order from DB (only if backend supports it)."
-                              >
-                                Delete
-                              </button>
-                              {profitText ? (
-                                <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", justifySelf: "end" }}>{profitText}</span>
-                              ) : <span />}
-                            </div>
-                          )}
+                            ) : null}
+                          </div>
+
+                          <div style={{ display: "grid", gap: 8 }}>
+                            {visibleOrders.map((o) => {
+                              const currentPrice = Number(shownGridPrice || 0);
+                              let estProfit = null;
+                              if (Number.isFinite(currentPrice) && currentPrice > 0) {
+                                if (String(o?.side || "").toUpperCase() === "BUY") {
+                                  estProfit = (currentPrice - Number(o?.price || 0)) * Number(o?.qty || 0);
+                                } else if (String(o?.side || "").toUpperCase() === "SELL") {
+                                  estProfit = (Number(o?.price || 0) - currentPrice) * Number(o?.qty || 0);
+                                }
+                              }
+                              const profitColor = estProfit == null ? "rgba(232,242,240,.7)" : (estProfit >= 0 ? "#39d98a" : "#ff6b6b");
+                              const profitText = estProfit == null ? "" : `${estProfit >= 0 ? "+" : ""}${Math.abs(estProfit).toFixed(4)} $`;
+                              const payout = inferOrderPayoutAsset(o);
+                              const statusTxt = inferOrderStatus(o);
+
+                              return (
+                                <div
+                                  key={idOf(o) || `${chainKey}-${o.side}-${o.price}-${o.created_ts}`}
+                                  className="orderRow"
+                                  style={{ padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
+                                >
+                                  <div style={{ display: "grid", gridTemplateColumns: "auto auto auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
+                                    <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
+                                    <span className="orderPx">{fmtUsd(Number(o?.price || 0))}</span>
+                                    <span className="muted">{o?.qty ? `qty ${fmtQty(Number(o.qty))}` : ""}</span>
+                                    <span className="pill silver">{statusTxt}</span>
+                                    <span className="muted tiny">Payout {payout}</span>
+                                    <button
+                                      type="button"
+                                      className="btn ghost"
+                                      style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                      disabled={!idOf(o) || statusTxt !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
+                                      onClick={() => stopGridOrder(idOf(o))}
+                                      title="Stop this single order (backend will mark it as STOPPED)."
+                                    >
+                                      Stop
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn ghost"
+                                      style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                      disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
+                                      onClick={() => deleteGridOrder(idOf(o))}
+                                      title="Delete this order from DB (only if backend supports it)."
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                                    <span className="muted tiny">Settlement: swap on fill -> hold in vault</span>
+                                    {profitText ? (
+                                      <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap" }}>{profitText}</span>
+                                    ) : <span />}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {hiddenCount > 0 ? (
+                            <div className="muted tiny" style={{ marginTop: 8 }}>+{hiddenCount} more hidden in this chain</div>
+                          ) : null}
                         </div>
                       );
                     })}

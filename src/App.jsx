@@ -3925,6 +3925,8 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   }, [activeGridChainKey]);
   const visiblePayoutAssets = useMemo(() => currentPayoutAssets.slice(0, 2), [currentPayoutAssets]);
   const extraPayoutAssets = useMemo(() => currentPayoutAssets.slice(2), [currentPayoutAssets]);
+  const [payoutMenuOpen, setPayoutMenuOpen] = useState(false);
+  const payoutMenuRef = useRef(null);
   useEffect(() => {
     if (!currentPayoutAssets.length) return;
     const cur = String(manualPayoutAsset || "").toUpperCase();
@@ -3932,6 +3934,16 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
       setManualPayoutAsset(currentPayoutAssets[0]);
     }
   }, [currentPayoutAssets, manualPayoutAsset]);
+  useEffect(() => {
+    if (!payoutMenuOpen) return;
+    const onDown = (e) => {
+      if (payoutMenuRef.current && !payoutMenuRef.current.contains(e.target)) {
+        setPayoutMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [payoutMenuOpen]);
   const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
 
   // AI
@@ -8414,24 +8426,73 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     );
                   })}
                   {extraPayoutAssets.length > 0 && (
-                    <select
-                      value={extraPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? String(manualPayoutAsset || "").toUpperCase() : ""}
-                      onChange={(e) => { if (e.target.value) setManualPayoutAsset(e.target.value); }}
-                      style={{
-                        minWidth: 190,
-                        height: isCompactMobile ? 32 : 36,
-                        padding: "0 10px",
-                        borderRadius: 10,
-                        background: "rgba(34,197,94,.12)",
-                        color: "#d9fff0",
-                        border: "1px solid rgba(34,197,94,.28)",
-                      }}
-                    >
-                      <option value="">More payout assets</option>
-                      {extraPayoutAssets.map((asset) => (
-                        <option key={asset} value={asset}>{asset}</option>
-                      ))}
-                    </select>
+                    <div ref={payoutMenuRef} style={{ position: "relative", minWidth: 220 }}>
+                      <button
+                        type="button"
+                        onClick={() => setPayoutMenuOpen((v) => !v)}
+                        style={{
+                          width: "100%",
+                          height: isCompactMobile ? 32 : 36,
+                          padding: "0 12px",
+                          borderRadius: 10,
+                          background: "rgba(34,197,94,.16)",
+                          color: "#071512",
+                          border: "1px solid rgba(34,197,94,.38)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          fontWeight: 800,
+                          boxShadow: payoutMenuOpen ? "0 0 12px rgba(34,197,94,.22)" : "none",
+                        }}
+                      >
+                        <span>{extraPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? String(manualPayoutAsset || "").toUpperCase() : "More payout assets"}</span>
+                        <span style={{ fontSize: 12 }}>{payoutMenuOpen ? "▲" : "▼"}</span>
+                      </button>
+                      {payoutMenuOpen && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "calc(100% + 6px)",
+                            left: 0,
+                            right: 0,
+                            zIndex: 50,
+                            borderRadius: 12,
+                            overflow: "hidden",
+                            background: "rgba(11,26,23,.98)",
+                            border: "1px solid rgba(34,197,94,.32)",
+                            boxShadow: "0 16px 34px rgba(0,0,0,.35)",
+                          }}
+                        >
+                          {extraPayoutAssets.map((asset) => {
+                            const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
+                            return (
+                              <button
+                                key={asset}
+                                type="button"
+                                onClick={() => {
+                                  setManualPayoutAsset(String(asset).toUpperCase());
+                                  setPayoutMenuOpen(false);
+                                }}
+                                style={{
+                                  width: "100%",
+                                  textAlign: "left",
+                                  padding: "10px 12px",
+                                  background: active ? "linear-gradient(90deg, #4ade80, #22c55e)" : "rgba(255,255,255,.02)",
+                                  color: "#071512",
+                                  border: "none",
+                                  borderTop: "1px solid rgba(255,255,255,.05)",
+                                  fontWeight: active ? 800 : 700,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {asset}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="muted tiny" style={{ marginTop: 6 }}>

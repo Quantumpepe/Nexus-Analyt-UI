@@ -1107,37 +1107,39 @@ body::before {
 
 
 /* =========================================================
-   Desktop dashboard fit fix
-   Goal:
-   - no full-page scrolling on desktop
-   - the 4 main panels stay visible
-   - each panel scrolls internally if content is taller
+   Desktop dashboard active-panel fix
+   - keep whole dashboard inside viewport
+   - active panel scrolls internally
+   - smaller panels remain visible
    ========================================================= */
-
-html, body, #root {
-  min-height: 100%;
-}
-
 @media (min-width: 981px){
+  html, body, #root{
+    height: 100%;
+  }
+
   body{
-    overflow: hidden;
+    overflow: hidden !important;
   }
 
   .app,
   .nexusApp{
-    min-height: 100vh;
     height: 100vh;
+    min-height: 100vh;
     overflow: hidden;
+  }
+
+  .topbar{
+    padding: 14px 20px 10px;
   }
 
   .main{
-    height: calc(100vh - 96px);
-    max-height: calc(100vh - 96px);
+    height: calc(100vh - 92px);
+    max-height: calc(100vh - 92px);
     overflow: hidden;
-    padding-bottom: 14px;
+    padding: 0 18px 14px;
   }
 
-  /* Support several possible dashboard wrapper class names */
+  /* Dashboard wrappers used across versions */
   .dashboardGrid,
   .appDashboard,
   .homeDashboard,
@@ -1149,172 +1151,225 @@ html, body, #root {
     align-items: stretch;
   }
 
-  /* Common panel containers */
-  .dashboardPanel,
+  /* Generic panel shells */
+  .dashboardGrid > *,
+  .appDashboard > *,
+  .homeDashboard > *,
+  .mainDashboard > *,
   .panel,
-  .dashboardGrid > .card,
-  .appDashboard > .card,
-  .homeDashboard > .card,
-  .mainDashboard > .card,
+  .dashboardPanel,
   .section-compare,
   .section-grid,
   .section-watch,
   .section-ai{
-    min-height: 0;
-    height: 100%;
-    max-height: 100%;
-    overflow: hidden;
+    min-height: 0 !important;
+    max-height: 100% !important;
   }
 
-  /* Cards inside the 4-panel dashboard must not grow the page */
-  .dashboardPanel.card,
-  .panel.card,
+  /* Cards inside the dashboard must not push page height */
   .dashboardGrid > .card,
   .appDashboard > .card,
   .homeDashboard > .card,
-  .mainDashboard > .card{
+  .mainDashboard > .card,
+  .panel.card,
+  .dashboardPanel.card{
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
     margin-bottom: 0 !important;
     display: flex;
     flex-direction: column;
-  }
-
-  .dashboardPanel .cardHead,
-  .panel .cardHead,
-  .dashboardGrid > .card .cardHead,
-  .appDashboard > .card .cardHead,
-  .homeDashboard > .card .cardHead,
-  .mainDashboard > .card .cardHead{
-    flex: 0 0 auto;
-  }
-
-  .dashboardPanel .cardBody,
-  .panel .cardBody,
-  .dashboardPanel .compareGrid,
-  .dashboardPanel .gridWrap,
-  .dashboardPanel .aiWrap,
-  .panel .compareGrid,
-  .panel .gridWrap,
-  .panel .aiWrap,
-  .dashboardGrid > .card .cardBody,
-  .dashboardGrid > .card .compareGrid,
-  .dashboardGrid > .card .gridWrap,
-  .dashboardGrid > .card .aiWrap,
-  .appDashboard > .card .cardBody,
-  .appDashboard > .card .compareGrid,
-  .appDashboard > .card .gridWrap,
-  .appDashboard > .card .aiWrap,
-  .homeDashboard > .card .cardBody,
-  .homeDashboard > .card .compareGrid,
-  .homeDashboard > .card .gridWrap,
-  .homeDashboard > .card .aiWrap,
-  .mainDashboard > .card .cardBody,
-  .mainDashboard > .card .compareGrid,
-  .mainDashboard > .card .gridWrap,
-  .mainDashboard > .card .aiWrap{
-    min-height: 0;
-    height: 100%;
-    max-height: 100%;
     overflow: hidden;
   }
 
-  /* Inner columns / panels scroll internally */
+  .dashboardGrid > .card .cardHead,
+  .appDashboard > .card .cardHead,
+  .homeDashboard > .card .cardHead,
+  .mainDashboard > .card .cardHead,
+  .panel.card .cardHead,
+  .dashboardPanel.card .cardHead{
+    flex: 0 0 auto;
+  }
+
+  .dashboardGrid > .card .cardBody,
+  .appDashboard > .card .cardBody,
+  .homeDashboard > .card .cardBody,
+  .mainDashboard > .card .cardBody,
+  .panel.card .cardBody,
+  .dashboardPanel.card .cardBody{
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* When a panel is active, its own content should scroll internally */
+  .panel.active,
+  .dashboardPanel.active,
+  .dashboardGrid > .active,
+  .appDashboard > .active,
+  .homeDashboard > .active,
+  .mainDashboard > .active{
+    overflow: hidden !important;
+  }
+
+  .panel.active .cardBody,
+  .dashboardPanel.active .cardBody,
+  .dashboardGrid > .active .cardBody,
+  .appDashboard > .active .cardBody,
+  .homeDashboard > .active .cardBody,
+  .mainDashboard > .active .cardBody{
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding-right: 6px;
+  }
+
+  /* Keep non-active cards compact and visible */
+  .panel:not(.active),
+  .dashboardPanel:not(.active),
+  .dashboardGrid > :not(.active),
+  .appDashboard > :not(.active),
+  .homeDashboard > :not(.active),
+  .mainDashboard > :not(.active){
+    overflow: hidden !important;
+  }
+
+  /* Inner layouts must not exceed parent height */
+  .compareGrid,
+  .gridWrap,
+  .aiWrap{
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    align-items: stretch;
+  }
+
+  .compareGrid{
+    grid-template-columns: minmax(210px, 260px) 1fr;
+    gap: 12px;
+  }
+
+  .gridWrap{
+    grid-template-columns: minmax(320px, 360px) 1fr;
+    gap: 12px;
+  }
+
+  .aiWrap{
+    grid-template-columns: minmax(300px, 360px) 1fr;
+    gap: 12px;
+  }
+
+  /* Columns/panels inside active cards scroll individually */
   .compareLive,
   .compareChart,
   .gridLeft,
   .gridRight,
   .gridControls,
   .gridOrders,
-  .pairsBox,
-  .aiSelect,
-  .aiOut,
   .watchTable,
-  .watchScroll,
-  .pairsScroll,
-  .ordersList,
-  .liveListBox,
-  .aiPanel{
+  .aiSelect,
+  .aiOut{
     min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
   }
 
   .compareLive,
+  .compareChart,
   .gridLeft,
   .gridRight,
   .gridControls,
   .gridOrders,
-  .pairsBox,
   .aiSelect,
-  .aiOut,
-  .watchTable,
-  .aiPanel{
-    overflow: hidden;
-  }
-
-  .watchScroll,
-  .pairsScroll,
-  .ordersList,
-  .liveListBox{
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-
-  /* Compare panel: both sides fit and scroll inside */
-  .compareGrid{
-    grid-template-columns: minmax(220px, 280px) 1fr;
-  }
-
-  .compareLive,
-  .compareChart{
+  .aiOut{
     height: 100%;
-    max-height: 100%;
-  }
-
-  /* Grid panel: keep the order form visible, scroll inside the panel */
-  .gridWrap{
-    grid-template-columns: minmax(320px, 360px) 1fr;
-    align-items: stretch;
   }
 
   .gridLeft,
-  .gridRight{
-    height: 100%;
-    max-height: 100%;
+  .gridRight,
+  .gridControls,
+  .gridOrders,
+  .aiSelect,
+  .aiOut{
     overflow-y: auto;
     overflow-x: hidden;
     padding-right: 4px;
   }
 
-  /* Watchlist + AI panels */
   .watchTable{
-    height: 100%;
-    max-height: 100%;
     display: flex;
     flex-direction: column;
+    height: 100%;
   }
 
   .watchScroll{
     flex: 1 1 auto;
-    max-height: none;
+    min-height: 0;
+    max-height: none !important;
+    overflow-y: auto !important;
+    overflow-x: auto;
   }
 
-  .aiWrap{
-    grid-template-columns: minmax(320px, 380px) 1fr;
-    align-items: stretch;
-  }
-
-  .aiSelect,
-  .aiOut{
-    height: 100%;
-    max-height: 100%;
-    overflow-y: auto;
+  .pairsScroll,
+  .ordersList,
+  .liveListBox{
+    max-height: none !important;
+    overflow-y: auto !important;
     overflow-x: hidden;
-    padding-right: 4px;
+  }
+
+  /* Better fit for the "big-left + three-small-right" state */
+  .panel.active,
+  .dashboardPanel.active,
+  .dashboardGrid > .active,
+  .appDashboard > .active,
+  .homeDashboard > .active,
+  .mainDashboard > .active{
+    transform: none !important;
+  }
+
+  .panel:not(.active),
+  .dashboardPanel:not(.active),
+  .dashboardGrid > :not(.active),
+  .appDashboard > :not(.active),
+  .homeDashboard > :not(.active),
+  .mainDashboard > :not(.active){
+    transform: scale(.94);
+    transform-origin: center;
+  }
+
+  /* Scrollbar polish */
+  .panel.active .cardBody::-webkit-scrollbar,
+  .dashboardPanel.active .cardBody::-webkit-scrollbar,
+  .gridLeft::-webkit-scrollbar,
+  .gridRight::-webkit-scrollbar,
+  .gridControls::-webkit-scrollbar,
+  .gridOrders::-webkit-scrollbar,
+  .watchScroll::-webkit-scrollbar,
+  .aiSelect::-webkit-scrollbar,
+  .aiOut::-webkit-scrollbar{
+    width: 10px;
+  }
+
+  .panel.active .cardBody::-webkit-scrollbar-thumb,
+  .dashboardPanel.active .cardBody::-webkit-scrollbar-thumb,
+  .gridLeft::-webkit-scrollbar-thumb,
+  .gridRight::-webkit-scrollbar-thumb,
+  .gridControls::-webkit-scrollbar-thumb,
+  .gridOrders::-webkit-scrollbar-thumb,
+  .watchScroll::-webkit-scrollbar-thumb,
+  .aiSelect::-webkit-scrollbar-thumb,
+  .aiOut::-webkit-scrollbar-thumb{
+    background: rgba(210,220,230,.22);
+    border-radius: 999px;
+    border: 2px solid rgba(0,0,0,.10);
   }
 }
 
-/* On tablet/mobile keep normal page scrolling */
+/* Desktop/tablet fallback: allow normal page scroll below dashboard mode */
 @media (max-width: 980px){
   body{
-    overflow: auto;
+    overflow: auto !important;
   }
   .app,
   .nexusApp,

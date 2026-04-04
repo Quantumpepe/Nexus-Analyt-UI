@@ -8115,6 +8115,40 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="e.g. 94442" />
               </div>
 
+              <div className="formRow">
+                <label>Payout asset</label>
+                <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
+                  <option value="USDC">USDC</option>
+                  <option value="USDT">USDT</option>
+                  <option value={String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}>
+                    {String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}
+                  </option>
+                </select>
+                <div className="muted tiny" style={{ marginTop: 6 }}>
+                  Profit result will be swapped immediately into this asset when the target is hit.
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 8,
+                  marginBottom: 12,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  background: "rgba(255,255,255,.04)",
+                  border: "1px solid rgba(255,255,255,.06)",
+                }}
+              >
+                <div style={{ fontWeight: 800, marginBottom: 8 }}>Risk & settlement preview</div>
+                <div className="tiny muted" style={{ display: "grid", gap: 4 }}>
+                  <div>Chain: <b>{String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}</b></div>
+                  <div>Open exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></div>
+                  <div>After this order: <b>{fmtUsd(manualExposureAfterUsd)}</b></div>
+                  <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
+                  <div>Liquidity check: <b>Backend pending</b></div>
+                  <div>Settlement: <b>{manualSettlementPreview}</b></div>
+                </div>
+              </div>
 
               <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -6, marginBottom: 12 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>

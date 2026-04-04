@@ -1103,3 +1103,224 @@ body::before {
 @media (min-width: 981px){
   .vaultCompactBar{display:none !important;}
 }
+
+
+
+/* =========================================================
+   Desktop dashboard fit fix
+   Goal:
+   - no full-page scrolling on desktop
+   - the 4 main panels stay visible
+   - each panel scrolls internally if content is taller
+   ========================================================= */
+
+html, body, #root {
+  min-height: 100%;
+}
+
+@media (min-width: 981px){
+  body{
+    overflow: hidden;
+  }
+
+  .app,
+  .nexusApp{
+    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .main{
+    height: calc(100vh - 96px);
+    max-height: calc(100vh - 96px);
+    overflow: hidden;
+    padding-bottom: 14px;
+  }
+
+  /* Support several possible dashboard wrapper class names */
+  .dashboardGrid,
+  .appDashboard,
+  .homeDashboard,
+  .mainDashboard{
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    align-items: stretch;
+  }
+
+  /* Common panel containers */
+  .dashboardPanel,
+  .panel,
+  .dashboardGrid > .card,
+  .appDashboard > .card,
+  .homeDashboard > .card,
+  .mainDashboard > .card,
+  .section-compare,
+  .section-grid,
+  .section-watch,
+  .section-ai{
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  /* Cards inside the 4-panel dashboard must not grow the page */
+  .dashboardPanel.card,
+  .panel.card,
+  .dashboardGrid > .card,
+  .appDashboard > .card,
+  .homeDashboard > .card,
+  .mainDashboard > .card{
+    margin-bottom: 0 !important;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dashboardPanel .cardHead,
+  .panel .cardHead,
+  .dashboardGrid > .card .cardHead,
+  .appDashboard > .card .cardHead,
+  .homeDashboard > .card .cardHead,
+  .mainDashboard > .card .cardHead{
+    flex: 0 0 auto;
+  }
+
+  .dashboardPanel .cardBody,
+  .panel .cardBody,
+  .dashboardPanel .compareGrid,
+  .dashboardPanel .gridWrap,
+  .dashboardPanel .aiWrap,
+  .panel .compareGrid,
+  .panel .gridWrap,
+  .panel .aiWrap,
+  .dashboardGrid > .card .cardBody,
+  .dashboardGrid > .card .compareGrid,
+  .dashboardGrid > .card .gridWrap,
+  .dashboardGrid > .card .aiWrap,
+  .appDashboard > .card .cardBody,
+  .appDashboard > .card .compareGrid,
+  .appDashboard > .card .gridWrap,
+  .appDashboard > .card .aiWrap,
+  .homeDashboard > .card .cardBody,
+  .homeDashboard > .card .compareGrid,
+  .homeDashboard > .card .gridWrap,
+  .homeDashboard > .card .aiWrap,
+  .mainDashboard > .card .cardBody,
+  .mainDashboard > .card .compareGrid,
+  .mainDashboard > .card .gridWrap,
+  .mainDashboard > .card .aiWrap{
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  /* Inner columns / panels scroll internally */
+  .compareLive,
+  .compareChart,
+  .gridLeft,
+  .gridRight,
+  .gridControls,
+  .gridOrders,
+  .pairsBox,
+  .aiSelect,
+  .aiOut,
+  .watchTable,
+  .watchScroll,
+  .pairsScroll,
+  .ordersList,
+  .liveListBox,
+  .aiPanel{
+    min-height: 0;
+  }
+
+  .compareLive,
+  .gridLeft,
+  .gridRight,
+  .gridControls,
+  .gridOrders,
+  .pairsBox,
+  .aiSelect,
+  .aiOut,
+  .watchTable,
+  .aiPanel{
+    overflow: hidden;
+  }
+
+  .watchScroll,
+  .pairsScroll,
+  .ordersList,
+  .liveListBox{
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* Compare panel: both sides fit and scroll inside */
+  .compareGrid{
+    grid-template-columns: minmax(220px, 280px) 1fr;
+  }
+
+  .compareLive,
+  .compareChart{
+    height: 100%;
+    max-height: 100%;
+  }
+
+  /* Grid panel: keep the order form visible, scroll inside the panel */
+  .gridWrap{
+    grid-template-columns: minmax(320px, 360px) 1fr;
+    align-items: stretch;
+  }
+
+  .gridLeft,
+  .gridRight{
+    height: 100%;
+    max-height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+  }
+
+  /* Watchlist + AI panels */
+  .watchTable{
+    height: 100%;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .watchScroll{
+    flex: 1 1 auto;
+    max-height: none;
+  }
+
+  .aiWrap{
+    grid-template-columns: minmax(320px, 380px) 1fr;
+    align-items: stretch;
+  }
+
+  .aiSelect,
+  .aiOut{
+    height: 100%;
+    max-height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 4px;
+  }
+}
+
+/* On tablet/mobile keep normal page scrolling */
+@media (max-width: 980px){
+  body{
+    overflow: auto;
+  }
+  .app,
+  .nexusApp,
+  .main{
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+}

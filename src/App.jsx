@@ -5987,12 +5987,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
           grid-template-columns: 1.15fr 0.85fr;
           gap: 16px;
           align-items: start;
-          min-width: 0;
         }
-        .gridLeft,
-        .gridRight{
-          min-width: 0;
-        }
+        .gridLeft{min-width:0;}
         .gridLeft{justify-self:start;}
 
         /* Ensure controls stack and never center */
@@ -6005,6 +6001,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
         .gridLeft .gridControls > *{ width: 100%; }
         .gridLeft .formRow{ width: 100%; display: flex; flex-direction: column; align-items: flex-start; }
+
 
         /* --- Force manual/grid inputs to align left (no centering) --- */
         .gridLeft .formRow select,
@@ -6020,16 +6017,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
           width: 100%;
           max-width: 560px;
         }
+        /* Keep inline rows (slippage/deadline/quick steps) anchored left */
         .gridLeft .row {
           justify-content: flex-start !important;
           align-items: center;
         }
+        
         .gridLeft .row{justify-content:flex-start;}
-
-        /* no sticky mini-scroll on desktop */
+        
         .gridRight{
-          position: static;
-          top: auto;
+          position: sticky;
+          top: 16px;
           justify-self: end;
           width: min(420px, 100%);
         }
@@ -6039,7 +6037,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .gridRight{
             position: static;
-            width: 100%;
           }
         }
 
@@ -6056,46 +6053,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
         .dashboardPanel {
           transition: transform .22s ease, opacity .22s ease, box-shadow .22s ease;
         }
-
         @media (min-width: 981px) {
-          html, body, #root, .app {
-            height: 100%;
-          }
-          body{
-            overflow: hidden;
-          }
-          .main{
-            height: calc(100vh - 96px);
-            overflow: hidden;
-          }
-
           .dashboardGrid {
             display: grid;
             grid-template-columns: minmax(0,1fr) minmax(0,1fr);
-            grid-template-rows: minmax(0,1fr) minmax(0,1fr);
+            grid-template-rows: minmax(320px,auto) minmax(320px,auto);
             gap: 18px;
             align-items: stretch;
-            height: 100%;
-            min-height: 0;
           }
           .dashboardPanel {
             margin-bottom: 0;
             min-width: 0;
-            min-height: 0;
-            height: 100%;
-            max-height: 100%;
-            overflow-y: auto !important;
-            overflow-x: hidden !important;
+            min-height: 320px;
+            overflow: hidden;
             cursor: pointer;
-            display: block;
-            scrollbar-gutter: stable;
           }
           .dashboardGrid.hasFocus {
-            grid-template-columns: minmax(0,1.18fr) minmax(0,1.18fr) minmax(260px,0.82fr);
-            grid-template-rows: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);
+            grid-template-columns: minmax(0,1.35fr) minmax(0,1.35fr) minmax(280px,0.9fr);
+            grid-template-rows: repeat(3, minmax(180px, auto));
           }
           .dashboardGrid.hasFocus .dashboardPanel {
-            min-height: 0;
+            min-height: 180px;
             opacity: .84;
             transform: scale(.97);
           }
@@ -6126,42 +6104,93 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .dashboardGrid.focus-ai .section-compare { grid-column: 3; grid-row: 1; }
           .dashboardGrid.focus-ai .section-grid { grid-column: 3; grid-row: 2; }
           .dashboardGrid.focus-ai .section-watch { grid-column: 3; grid-row: 3; }
+        }
 
-          /* kill inner desktop scroll strips so the whole card scrolls */
-          .section-watch .watchScroll,
-          .section-compare .liveListBox,
-          .section-compare .pairsScroll,
-          .section-ai .aiPanel,
-          .section-ai .aiOut,
-          .section-ai .aiSelect,
-          .section-grid .gridLeft,
-          .section-grid .gridRight,
-          .section-grid .ordersList{
-            overflow: visible !important;
-            max-height: none !important;
-            height: auto !important;
-          }
-          .section-watch .watchTable,
-          .section-compare .compareGrid,
-          .section-grid .gridLayout,
-          .section-ai .aiWrap{
-            overflow: visible !important;
+        /* --- FINAL OVERRIDE: whole panel scroll on desktop --- */
+        @media (min-width: 981px) {
+          html, body, #root, .app { height: 100%; }
+          body { overflow: hidden; }
+          .main { height: calc(100vh - 96px); overflow: hidden; }
+
+          .dashboardGrid{
+            height: 100%;
             min-height: 0;
+            display: grid;
+            grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+            grid-template-rows: minmax(0,1fr) minmax(0,1fr);
+            gap: 18px;
+          }
+          .dashboardGrid.hasFocus{
+            grid-template-columns: minmax(0,1.18fr) minmax(0,1.18fr) minmax(260px,0.82fr);
+            grid-template-rows: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);
           }
 
-          .dashboardPanel::-webkit-scrollbar{
+          .dashboardPanel{
+            min-height: 0 !important;
+            height: 100% !important;
+            max-height: 100% !important;
+            overflow: hidden !important;
+            display: flex !important;
+            flex-direction: column !important;
+          }
+          .dashboardPanel.panelActive{
+            transform: none;
+          }
+          .panelScroll{
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            padding-right: 6px;
+            scrollbar-gutter: stable;
+          }
+          .panelScroll::-webkit-scrollbar{
             width: 10px;
           }
-          .dashboardPanel::-webkit-scrollbar-thumb{
+          .panelScroll::-webkit-scrollbar-thumb{
             background: rgba(210,220,230,.22);
             border-radius: 999px;
             border: 2px solid rgba(0,0,0,.10);
           }
-          .dashboardPanel::-webkit-scrollbar-track{
+          .panelScroll::-webkit-scrollbar-track{
             background: rgba(0,0,0,.10);
             border-radius: 999px;
           }
+
+          /* disable inner desktop scroll strips */
+          .dashboardPanel .watchScroll,
+          .dashboardPanel .pairsScroll,
+          .dashboardPanel .liveListBox,
+          .dashboardPanel .ordersList,
+          .dashboardPanel .aiPanel,
+          .dashboardPanel .aiOut,
+          .dashboardPanel .aiSelect,
+          .dashboardPanel .gridLeft,
+          .dashboardPanel .gridRight{
+            overflow: visible !important;
+            max-height: none !important;
+            height: auto !important;
+          }
+          .dashboardPanel .watchTable,
+          .dashboardPanel .compareGrid,
+          .dashboardPanel .gridLayout,
+          .dashboardPanel .aiWrap{
+            overflow: visible !important;
+            min-height: 0 !important;
+          }
+          .gridRight{
+            position: static !important;
+            top: auto !important;
+          }
         }
+
+        @media (max-width: 980px) {
+          .panelScroll{
+            overflow: visible !important;
+            padding-right: 0;
+          }
+        }
+
 `}</style>
 <header className="topbar">
         <div className="brand">
@@ -7442,7 +7471,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="compareGrid">
+          <div className="panelScroll"><div className="compareGrid">
             {/* Live list */}
             <div className="compareLive">
               <div className="label">Live Prices (USD)</div>
@@ -7584,7 +7613,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               </div>
             </div>
-          </div>
+          </div></div>
         </section>
 
 
@@ -7839,7 +7868,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="gridLayout">
+          <div className="panelScroll"><div className="gridLayout">
             <div className="gridLeft">
 
           <div className="gridWrap">
@@ -8255,7 +8284,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               )}
             </div>
             </div>
-          </div>
+          </div></div>
         </section>
 
         {/* Watchlist */}
@@ -8274,7 +8303,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="watchTable">
+          <div className="panelScroll"><div className="watchTable">
             <div className="watchHead watchStickyHead">
               <div>Compare</div>
               <div>Coin</div>
@@ -8314,7 +8343,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
 
           <div className="muted tiny">Compare selection is the single source of truth (max 10).</div>
-        </section>
+        </div></section>
 
         {/* AI */}
         <section className={`card section-ai dashboardPanel ${activePanel === "ai" ? "panelActive" : ""}`} onClick={handlePanelActivate("ai")}>
@@ -8331,7 +8360,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="aiWrap">
+          <div className="panelScroll"><div className="aiWrap">
             <div className="aiSelect">
               <div className="label">Coins (from Compare)</div>
               <div className="aiChips">
@@ -8404,7 +8433,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div className="label">Output</div>
               <div className="aiPanel">{aiOutput ? <div className="aiText" style={{ whiteSpace: "pre-wrap" }}>{aiOutput}</div> : <div className="muted">No output yet.</div>}</div>
             </div>
-          </div>
+          </div></div>
         </section>
         </div>
       </main>

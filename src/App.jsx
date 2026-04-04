@@ -8151,17 +8151,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <label>Budget (Qty)</label>
                 <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
               </div>
-<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.95, display: "grid", gap: 4 }}>
-  <div>
-    {tB("Available:")} <b>{manualVaultAvailableQty.toFixed(6)}</b> {activeGridChainSymbol}
-    {" · "}
-    {tB("Allocated:")} <b>{manualVaultAllocatedQty.toFixed(6)}</b> {activeGridChainSymbol}
-    {" · "}
-    {tB("Settled:")} <b>{manualVaultSettledQty.toFixed(6)}</b> {String(manualPayoutAsset || "USDC").toUpperCase()}
-  </div>
-  <div className="tiny muted">
-    Total vault: <b>{manualVaultTotalQty.toFixed(6)}</b> {activeGridChainSymbol}
-  </div>
+<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.95 }}>
+  {tB("Available:")} <b>{manualVaultAvailableQty.toFixed(6)}</b> {activeGridChainSymbol}
+  {" · "}
+  {tB("Allocated:")} <b>{manualVaultAllocatedQty.toFixed(6)}</b> {activeGridChainSymbol}
+  {" · "}
+  {tB("Settled:")} <b>{manualVaultSettledQty.toFixed(6)}</b> {String(manualPayoutAsset || "USDC").toUpperCase()}
 </div>{isEthChain ? (
 
 
@@ -8308,9 +8303,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div>After this order: <b>{fmtUsd(manualExposureAfterUsd)}</b></div>
                   <div>Estimated impact: <b>{manualEstimatedImpactPct == null ? "Backend pending" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></div>
                   <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
-                  <div>Available: <b>{manualVaultAvailableQty.toFixed(6)} {activeGridChainSymbol}</b></div>
-                  <div>Allocated: <b>{manualVaultAllocatedQty.toFixed(6)} {activeGridChainSymbol}</b></div>
-                  <div>Settled: <b>{manualVaultSettledQty.toFixed(6)} {String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
                   <div>Settlement: <b>{manualSettlementPreview}</b></div>
                 </div>
               </div>

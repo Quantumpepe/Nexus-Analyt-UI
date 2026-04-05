@@ -47,16 +47,10 @@ function getGridMetaFromResponse(r, fallback = {}) {
 
   return {
     tick:
-      gm?.current_tick ??
-      gm?.tick ??
-      r?.data?.gridMeta?.current_tick ??
-      r?.data?.grid_meta?.current_tick ??
-      r?.data?.grid?.current_tick ??
-      r?.data?.gridMeta?.tick ??
-      r?.data?.grid_meta?.tick ??
-      r?.data?.grid?.tick ??
-      r?.data?.tick ??
       r?.tick ??
+      r?.data?.tick ??
+      gm?.tick ??
+      gm?.current_tick ??
       fallback?.tick ??
       null,
     price:
@@ -1536,10 +1530,37 @@ function computeBestPairs(chart, limit = 30) {
 // ------------------------
 function AppInner() {
 
-  // Multi-chain config (UI is ready; test phase enables POL + BNB)
+  // Multi-chain config
+  // Build the UI dynamically so new chains / payout assets can be added without rewriting JSX.
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
-  const ENABLED_CHAINS = ["POL","BNB","ETH"];
-  const DEFAULT_CHAIN = "POL";
+  const CHAIN_OPTIONS = [
+    { k: "POL", label: "POL (Polygon)", enabled: true, payoutAssets: ["USDC", "USDT", "POL"] },
+    { k: "BNB", label: "BNB (BNB Chain)", enabled: true, payoutAssets: ["USDC", "USDT", "BNB"] },
+    { k: "ETH", label: "ETH (Ethereum)", enabled: true, payoutAssets: ["USDC", "USDT", "ETH"] },
+    { k: "ARB", label: "ARB (Arbitrum)", enabled: false, payoutAssets: ["USDC", "USDT", "ARB"] },
+    { k: "BASE", label: "BASE (Base)", enabled: false, payoutAssets: ["USDC", "USDT", "BASE"] },
+    { k: "OP", label: "OP (Optimism)", enabled: false, payoutAssets: ["USDC", "USDT", "OP"] },
+    { k: "AVAX", label: "AVAX (Avalanche)", enabled: false, payoutAssets: ["USDC", "USDT", "AVAX"] },
+    { k: "FTM", label: "FTM (Fantom)", enabled: false, payoutAssets: ["USDC", "USDT", "FTM"] },
+    { k: "SOL", label: "SOL (soon)", enabled: false, payoutAssets: ["USDC", "USDT", "SOL"] },
+    { k: "BTC", label: "BTC (soon)", enabled: false, payoutAssets: ["USDC", "USDT", "BTC"] },
+  ];
+  const ENABLED_CHAINS = CHAIN_OPTIONS.filter((c) => c.enabled).map((c) => c.k);
+  const ENABLED_NATIVE_CHAINS = ENABLED_CHAINS.filter((c) => Number.isFinite(Number(CHAIN_ID?.[c])));
+  const DEFAULT_CHAIN = ENABLED_CHAINS[0] || "POL";
+  const CHAIN_PREF_ORDER = CHAIN_OPTIONS.map((c) => c.k);
+
+  const PAYOUT_ASSETS_BY_CHAIN = CHAIN_OPTIONS.reduce((acc, c) => {
+    const whitelistSymbols = (TOKEN_WHITELIST?.[c.k] || [])
+      .map((t) => String(t?.symbol || "").toUpperCase().trim())
+      .filter(Boolean);
+    const configured = Array.isArray(c?.payoutAssets) ? c.payoutAssets : [];
+    const merged = [...configured, ...whitelistSymbols, c.k]
+      .map((v) => String(v || "").toUpperCase().trim())
+      .filter(Boolean);
+    acc[c.k] = Array.from(new Set(merged));
+    return acc;
+  }, {});
 
 // One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
 useEffect(() => {
@@ -2229,7 +2250,7 @@ useEffect(() => {
       const savedCoin = String(
         localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || ""
       ).toUpperCase().trim();
-      if (["POL", "BNB", "ETH"].includes(savedCoin)) {
+      if (ENABLED_NATIVE_CHAINS.includes(savedCoin)) {
         forcedChain = savedCoin;
       }
     } catch (_) {}
@@ -3689,7 +3710,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
   const activeGridChainKey = useMemo(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
-    if (["POL", "BNB", "ETH"].includes(sym)) return sym;
+    if (ENABLED_NATIVE_CHAINS.includes(sym)) return sym;
     return String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [gridItem, balActiveChain, wsChainKey]);
 
@@ -3704,7 +3725,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   useEffect(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
     if (!wallet) return;
-    if (!["POL", "BNB", "ETH"].includes(sym)) return;
+    if (!ENABLED_NATIVE_CHAINS.includes(sym)) return;
 
     const t1 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 250);
     const t2 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 1200);
@@ -3912,38 +3933,6 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   }, [GRID_PRICE_PRESETS, manualPricePreset]);
   const [manualQty, setManualQty] = useState("");
   const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
-  const currentPayoutAssets = useMemo(() => {
-    const ck = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-    const base = ["USDC", "USDT", ck];
-    const uniq = [];
-    for (const a of base) {
-      const v = String(a || "").toUpperCase().trim();
-      if (!v || uniq.includes(v)) continue;
-      uniq.push(v);
-    }
-    return uniq;
-  }, [activeGridChainKey]);
-  const visiblePayoutAssets = useMemo(() => currentPayoutAssets.slice(0, 2), [currentPayoutAssets]);
-  const extraPayoutAssets = useMemo(() => currentPayoutAssets.slice(2), [currentPayoutAssets]);
-  const [payoutMenuOpen, setPayoutMenuOpen] = useState(false);
-  const payoutMenuRef = useRef(null);
-  useEffect(() => {
-    if (!currentPayoutAssets.length) return;
-    const cur = String(manualPayoutAsset || "").toUpperCase();
-    if (!currentPayoutAssets.includes(cur)) {
-      setManualPayoutAsset(currentPayoutAssets[0]);
-    }
-  }, [currentPayoutAssets, manualPayoutAsset]);
-  useEffect(() => {
-    if (!payoutMenuOpen) return;
-    const onDown = (e) => {
-      if (payoutMenuRef.current && !payoutMenuRef.current.contains(e.target)) {
-        setPayoutMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [payoutMenuOpen]);
   const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
 
   // AI
@@ -4667,7 +4656,7 @@ useEffect(() => {
       }
 
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-      applyGridMetaResponse(r, srvItemId || gridItemId);
+      setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: srvItemId || gridItemId }) }));
       if (r?.vault_state) setVaultState((prev) => ({ ...(prev || {}), ...(r.vault_state || {}) }));
     } catch (e) {
       setErrorMsg((prev) => prev || `Grid init: ${e?.message || e}`);
@@ -4689,45 +4678,21 @@ const isGridReady = useMemo(() => {
   return !!walletAddress && !!gridItemId && gridUiHydrated;
 }, [walletAddress, gridItemId, gridUiHydrated]);
 
-const mergeGridMetaStable = useCallback((prev, incoming) => {
-  const out = { ...(prev || {}), ...(incoming || {}) };
-  const prevTick = Number(prev?.tick || 0);
-  const nextTick = Number(incoming?.tick || 0);
-
-  if (Number.isFinite(prevTick) && prevTick > 0) {
-    if (!Number.isFinite(nextTick) || nextTick <= 0) {
-      out.tick = prevTick;
-    } else {
-      // Never let stale/alternate streams move the tick backwards.
-      if (nextTick < prevTick) out.tick = prevTick;
-      // Ignore alternate/global counters that jump far away from the current grid tick.
-      else if (nextTick - prevTick > Math.max(25, Math.ceil(prevTick * 0.5))) out.tick = prevTick;
-    }
-  } else if (Number.isFinite(nextTick) && nextTick > 500) {
-    // When no stable tick exists yet, ignore obviously wrong large counter values.
-    out.tick = prev?.tick ?? null;
-  }
-
-  const prevPrice = Number(prev?.price || 0);
-  const nextPrice = Number(incoming?.price || 0);
-  if (Number.isFinite(prevPrice) && prevPrice > 0 && (!Number.isFinite(nextPrice) || nextPrice <= 0)) {
-    out.price = prevPrice;
-  }
-  return out;
-}, []);
-
-const applyGridMetaResponse = useCallback((r, fallbackItemId = gridItemId) => {
-  setGridMeta((prev) => {
-    const incoming = getGridMetaFromResponse(r, { ...prev, gridItemId: fallbackItemId });
-    return mergeGridMetaStable(prev, incoming);
-  });
-}, [gridItemId, mergeGridMetaStable]);
-
 
 const mergeGridOrders = useCallback((baseArr, incomingArr) => {
   const base = Array.isArray(baseArr) ? baseArr : [];
   const incoming = Array.isArray(incomingArr) ? incomingArr : [];
-  return normalizeGridOrders([...incoming, ...base]);
+  const out = [];
+  const seen = new Set();
+  for (const o of [...incoming, ...base]) {
+    if (!o) continue;
+    const id = idOf(o);
+    const key = id != null ? String(id) : JSON.stringify(o);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(o);
+  }
+  return normalizeGridOrders(out);
 }, [normalizeGridOrders]);
 
 useEffect(() => {
@@ -4826,7 +4791,7 @@ setGridOrders(nextOrders);
 
 	try {
       const sym = String(gridItem || "").toUpperCase().trim();
-      if (["POL", "BNB", "ETH"].includes(sym)) {
+      if (ENABLED_NATIVE_CHAINS.includes(sym)) {
         setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
       }
     } catch (_) {}
@@ -4835,7 +4800,7 @@ setGridOrders(nextOrders);
       lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
     }
 
-    applyGridMetaResponse(r, gridItemId);
+    setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
   } catch (e) {
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
@@ -4875,7 +4840,8 @@ useInterval(
     if (!gridItemId || !walletAddress) return;
     try {
       const r = await setGridExecute(gridItemId);
-      applyGridMetaResponse(r, gridItemId);
+      const execMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
+      setGridMeta((prev) => ({ ...prev, ...execMeta }));
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
       const execOrdersRaw = getGridOrdersFromResponse(r);
@@ -4887,7 +4853,7 @@ useInterval(
 
       try {
         const sym = String(gridItem || "").toUpperCase().trim();
-        if (["POL", "BNB", "ETH"].includes(sym)) {
+        if (ENABLED_NATIVE_CHAINS.includes(sym)) {
           setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
         }
       } catch (_) {}
@@ -4982,7 +4948,8 @@ setGridBusy((s) => ({ ...s, start: true }));
         auto_path: !!gridAutoPath,
       };
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
-      applyGridMetaResponse(r, itemId);
+      const startMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId: itemId });
+      setGridMeta((prev) => ({ ...prev, ...startMeta }));
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const startOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(startOrdersRaw)) {
@@ -5056,7 +5023,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         gridMeta?.id ||
         `${chainKey}:${String(gridItem || "").toUpperCase()}`;
       const r = await api("/api/grid/stop", { method: "POST", token, wallet: walletAddress, body: { item: gridItemId, addr: walletAddress || undefined }, });
-      applyGridMetaResponse(r, itemId);
+      setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: itemId }) }));
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const stopOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(stopOrdersRaw)) {
@@ -5130,7 +5097,8 @@ body.qty = qty;
       // Mark recent add so a transient empty poll right after add can't wipe the UI.
       lastGridActionRef.current = { type: "add", ts: Date.now() };
 
-      applyGridMetaResponse(r, gridItemId);
+      const addMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
+      setGridMeta((prev) => ({ ...prev, ...addMeta }));
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
       const addOrdersRaw = getGridOrdersFromResponse(r);
@@ -5184,7 +5152,7 @@ body.qty = qty;
     // Optimistic UI: mark CANCELLED locally, but keep in list until backend confirms
     setGridBusy((s) => ({ ...s, stopOrderId: null }));
 
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
+    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "CANCELLING" } : o)));
 
     let lastErr = null;
     for (const a of attempts) {
@@ -5194,17 +5162,12 @@ body.qty = qty;
           const _arrRaw = r?.orders || r?.data?.orders;
           const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
           if (_arr.length) {
-            setGridOrders((prev) => {
-              const merged = mergeGridOrders(_arr, prev || []);
-              return merged.map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o));
-            });
-          } else {
-            setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
+            setGridOrders(_arr);
           }
         }
         setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         // Do not mark as "add" here; stopping an order must not trigger the recent-add guard.
-applyGridMetaResponse(r, gridItemId);
+setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
         fetchGridOrders();
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;
@@ -5220,61 +5183,6 @@ applyGridMetaResponse(r, gridItemId);
     setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o)));
     setErrorMsg(`Stop order: ${lastErr?.message || "failed"}`);
   }
-  async function resumeGridOrder(orderId) {
-    setErrorMsg("");
-    if (!token) return setErrorMsg("");
-    if (!gridItem) return;
-
-    const _oid = String(orderId);
-    if (gridBusy.stopOrderId === _oid) return;
-    if (!isGridReady) {
-      setErrorMsg("Grid not ready yet (connect wallet + select coin).");
-      return;
-    }
-    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
-
-    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
-    const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
-    const addrPayload = walletAddress || undefined;
-    const attempts = [
-      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/start", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/restart", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
-      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
-    ];
-
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o)));
-
-    let lastErr = null;
-    for (const a of attempts) {
-      try {
-        const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-        const _arrRaw = r?.orders || r?.data?.orders;
-        const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
-        if (_arr.length) {
-          setGridOrders((prev) => {
-            const merged = mergeGridOrders(_arr, prev || []);
-            return merged.map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o));
-          });
-        }
-        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-        applyGridMetaResponse(r, gridItemId);
-        fetchGridOrders();
-        setGridBusy((s) => ({ ...s, stopOrderId: null }));
-        return;
-      } catch (e) {
-        lastErr = e;
-        const msg = String(e?.message || "");
-        if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) break;
-      }
-    }
-
-    setGridBusy((s) => ({ ...s, stopOrderId: null }));
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
-    setErrorMsg(`Resume order: ${lastErr?.message || "failed"}`);
-  }
-
   async function deleteGridOrder(orderId) {
     setErrorMsg("");
     if (!token) return setErrorMsg("");
@@ -5329,7 +5237,7 @@ applyGridMetaResponse(r, gridItemId);
             setGridOrders(delOrders);
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-          applyGridMetaResponse(r, gridItemId);
+          setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
           kickGridRefresh();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
@@ -5337,7 +5245,7 @@ applyGridMetaResponse(r, gridItemId);
           const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
           safeSetGridOrdersFromResponse(r, setGridOrders);
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-          applyGridMetaResponse(r, gridItemId);
+          setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           kickGridRefresh();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
@@ -5434,46 +5342,25 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       activeGridChainKey ||
       DEFAULT_CHAIN;
     const norm = String(raw || DEFAULT_CHAIN).toUpperCase().trim();
-    return ["POL", "BNB", "ETH"].includes(norm)
+    return ENABLED_CHAINS.includes(norm)
       ? norm
       : String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [activeGridChainKey]);
 
   const inferOrderPayoutAsset = useCallback((o) => {
-    const raw =
+    return String(
       o?.payout_asset ||
       o?.payoutAsset ||
-      o?.payout ||
       o?.settlement_asset ||
       o?.settlementAsset ||
-      o?.settlement ||
-      o?.asset_out ||
-      o?.assetOut ||
-      o?.quote_asset ||
-      o?.quoteAsset ||
       o?.return_asset ||
       o?.returnAsset ||
-      o?.meta?.payout_asset ||
-      o?.meta?.payoutAsset ||
-      o?.meta?.settlement_asset ||
-      o?.meta?.settlementAsset ||
-      o?.data?.payout_asset ||
-      o?.data?.payoutAsset ||
-      o?.data?.settlement_asset ||
-      o?.data?.settlementAsset ||
-      manualPayoutAsset ||
-      "—";
-    return String(raw || "—").toUpperCase();
-  }, [manualPayoutAsset]);
+      "—"
+    ).toUpperCase();
+  }, []);
 
   const inferOrderStatus = useCallback((o) => {
-    const raw = String(o?.status || o?.state || "OPEN").toUpperCase();
-    if (["OPEN", "ACTIVE", "RUNNING", "LIVE"].includes(raw)) return "OPEN";
-    if (["STOPPED", "STOP", "PAUSED", "CANCELLED", "CANCELED", "CANCELLING", "PAUSING"].includes(raw)) return "PAUSED";
-    if (["FILLED", "EXECUTED", "DONE", "COMPLETED", "SETTLED"].includes(raw)) return "FILLED";
-    if (["FAILED", "ERROR", "REJECTED"].includes(raw)) return "FAILED";
-    if (["DELETED", "REMOVED"].includes(raw)) return "DELETED";
-    return raw || "OPEN";
+    return String(o?.status || o?.state || "OPEN").toUpperCase();
   }, []);
 
   const orderNotionalUsd = useCallback((o) => {
@@ -5487,24 +5374,20 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) === "OPEN");
   }, [gridOrders, inferOrderStatus]);
 
-  const visibleGridOrders = useMemo(() => {
-    return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) !== "DELETED");
-  }, [gridOrders, inferOrderStatus]);
-
   const gridOrdersGroupedByChain = useMemo(() => {
     const map = {};
-    for (const o of visibleGridOrders) {
+    for (const o of openGridOrders) {
       const ck = inferOrderChainKey(o);
       if (!map[ck]) map[ck] = [];
       map[ck].push(o);
     }
-    const pref = ["POL", "BNB", "ETH"];
+    const pref = CHAIN_PREF_ORDER;
     return Object.entries(map).sort((a, b) => {
       const ai = pref.indexOf(a[0]);
       const bi = pref.indexOf(b[0]);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
-  }, [visibleGridOrders, inferOrderChainKey]);
+  }, [openGridOrders, inferOrderChainKey, CHAIN_PREF_ORDER]);
 
   const manualOrderNotionalUsd = useMemo(() => {
     const px = Number(manualPrice || shownGridPrice || 0);
@@ -5533,6 +5416,23 @@ useInterval(fetchGridOrders, 15000, isGridReady);
   const activeGridChainSymbol = useMemo(() => {
     return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [activeGridChainKey]);
+
+  const activePayoutAssets = useMemo(() => {
+    const chain = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+    const arr = PAYOUT_ASSETS_BY_CHAIN?.[chain];
+    return Array.isArray(arr) && arr.length ? arr : ["USDC", "USDT", chain];
+  }, [activeGridChainKey, PAYOUT_ASSETS_BY_CHAIN]);
+
+  const primaryPayoutAssets = useMemo(() => activePayoutAssets.slice(0, 2), [activePayoutAssets]);
+  const overflowPayoutAssets = useMemo(() => activePayoutAssets.slice(2), [activePayoutAssets]);
+
+  useEffect(() => {
+    if (!activePayoutAssets.length) return;
+    const cur = String(manualPayoutAsset || "").toUpperCase().trim();
+    if (!cur || !activePayoutAssets.includes(cur)) {
+      setManualPayoutAsset(activePayoutAssets[0]);
+    }
+  }, [activePayoutAssets, manualPayoutAsset]);
 
   const activeGridNativeUsd = useMemo(() => {
     const px = Number(walletPx?.native?.[activeGridChainSymbol]);
@@ -7227,15 +7127,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   onChange={(e) => setWsChainKey(e.target.value)}
                   style={{ marginLeft: 8, padding: "6px 10px", borderRadius: 10 }}
                 >
-                  {[
-                    { k: "BNB", label: "BNB (BNB Chain)", enabled: true },
-                    { k: "POL", label: "POL (Polygon)", enabled: true },
-                    { k: "ETH", label: "ETH (Ethereum)", enabled: true },
-                    { k: "SOL", label: "SOL (soon)", enabled: false },
-                    { k: "BTC", label: "BTC (soon)", enabled: false },
-                  ].map((c) => (
+                  {CHAIN_OPTIONS.map((c) => (
                     <option key={c.k} value={c.k} disabled={!ENABLED_CHAINS.includes(c.k)}>
-                      {c.label}{!ENABLED_CHAINS.includes(c.k) ? " — soon" : ""}
+                      {c.label}{!ENABLED_CHAINS.includes(c.k) && !String(c.label || "").toLowerCase().includes("soon") ? " — soon" : ""}
                     </option>
                   ))}
                 </select>
@@ -8274,6 +8168,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
+          <div style={{ display: "flex", gap: 10, marginTop: 10, marginBottom: 10, flexWrap: "wrap" }}>
+            <span className="pill silver">Vault: {fmtUsd(Number(gridVaultStats?.vault || 0))}</span>
+            <span className="pill silver">Reserved: {fmtUsd(Number(gridVaultStats?.reserved || 0))}</span>
+            <span className="pill silver">Free: {fmtUsd(Number(gridVaultStats?.free || 0))}</span>
+            <span className="pill silver">Profit: {fmtUsd(Number(totalGridProfitUsd || 0))}</span>
+          </div>
+
           <div className="panelScroll"><div className="gridLayout">
             <div className="gridLeft">
 
@@ -8402,101 +8303,46 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="formRow">
                 <label>Payout asset</label>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  {visiblePayoutAssets.map((asset) => {
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  {primaryPayoutAssets.map((asset) => {
                     const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
                     return (
                       <button
                         key={asset}
                         type="button"
-                        onClick={() => setManualPayoutAsset(String(asset).toUpperCase())}
+                        onClick={() => setManualPayoutAsset(asset)}
                         style={{
                           ...compactGridChipStyle,
-                          minWidth: 66,
-                          background: active ? "linear-gradient(90deg, #22c55e, #16a34a)" : "rgba(34,197,94,.16)",
-                          color: active ? "#071512" : "#d9fff0",
-                          border: active ? "1px solid rgba(34,197,94,.55)" : "1px solid rgba(34,197,94,.32)",
-                          boxShadow: active ? "0 0 12px rgba(34,197,94,.28)" : "none",
-                          fontWeight: active ? 800 : 700,
+                          border: active ? "1px solid rgba(34,197,94,.45)" : "1px solid rgba(255,255,255,.10)",
+                          background: active ? "rgba(34,197,94,.16)" : "rgba(255,255,255,.04)",
+                          color: active ? "rgba(220,255,232,.98)" : "rgba(232,242,240,.92)",
+                          cursor: "pointer",
                         }}
-                        title={`Set payout asset to ${asset}`}
                       >
                         {asset}
                       </button>
                     );
                   })}
-                  {extraPayoutAssets.length > 0 && (
-                    <div ref={payoutMenuRef} style={{ position: "relative", minWidth: 220 }}>
-                      <button
-                        type="button"
-                        onClick={() => setPayoutMenuOpen((v) => !v)}
-                        style={{
-                          width: "100%",
-                          height: isCompactMobile ? 32 : 36,
-                          padding: "0 12px",
-                          borderRadius: 10,
-                          background: "rgba(34,197,94,.16)",
-                          color: "#ffffff",
-                          border: "1px solid rgba(34,197,94,.38)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 10,
-                          fontWeight: 800,
-                          boxShadow: payoutMenuOpen ? "0 0 12px rgba(34,197,94,.22)" : "none",
-                        }}
-                      >
-                        <span>{extraPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? String(manualPayoutAsset || "").toUpperCase() : "More payout assets"}</span>
-                        <span style={{ fontSize: 12 }}>{payoutMenuOpen ? "▲" : "▼"}</span>
-                      </button>
-                      {payoutMenuOpen && (
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "calc(100% + 6px)",
-                            left: 0,
-                            right: 0,
-                            zIndex: 50,
-                            borderRadius: 12,
-                            overflow: "hidden",
-                            background: "linear-gradient(180deg, rgba(74,222,128,.98), rgba(34,197,94,.98))",
-                            border: "1px solid rgba(34,197,94,.55)",
-                            boxShadow: "0 16px 34px rgba(0,0,0,.35)",
-                          }}
-                        >
-                          {extraPayoutAssets.map((asset) => {
-                            const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
-                            return (
-                              <button
-                                key={asset}
-                                type="button"
-                                onClick={() => {
-                                  setManualPayoutAsset(String(asset).toUpperCase());
-                                  setPayoutMenuOpen(false);
-                                }}
-                                style={{
-                                  width: "100%",
-                                  textAlign: "left",
-                                  padding: "10px 12px",
-                                  background: active ? "linear-gradient(90deg, #86efac, #4ade80)" : "rgba(255,255,255,.10)",
-                                  color: "#071512",
-                                  border: "none",
-                                  borderTop: "1px solid rgba(7,21,18,.10)",
-                                  fontWeight: active ? 800 : 700,
-                                  cursor: "pointer",
-                                }}
-                              >
-                                {asset}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
+
+                  {overflowPayoutAssets.length > 0 && (
+                    <select
+                      value={overflowPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? manualPayoutAsset : ""}
+                      onChange={(e) => {
+                        if (e.target.value) setManualPayoutAsset(e.target.value);
+                      }}
+                      style={{ minWidth: 130 }}
+                    >
+                      <option value="">More assets</option>
+                      {overflowPayoutAssets.map((asset) => (
+                        <option key={asset} value={asset}>
+                          {asset}
+                        </option>
+                      ))}
+                    </select>
                   )}
                 </div>
                 <div className="muted tiny" style={{ marginTop: 6 }}>
-                  Profit result will be swapped immediately into this asset when the target is hit.
+                  Chain-specific payout assets are shown dynamically. The first two stay visible; additional assets move into the dropdown automatically.
                 </div>
               </div>
 
@@ -8534,12 +8380,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div>Estimated impact: <b>{manualEstimatedImpactPct == null ? "Backend pending" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></div>
                   <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
                   <div>Settlement: <b>{manualSettlementPreview}</b></div>
-                </div>
-                <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 10, fontSize: 11, color: "#bdebd8" }}>
-                  <span>In chain: <b>{fmtUsd(Number(manualVaultTotalQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
-                  <span>Allocated: <b>{fmtUsd(Number(manualVaultAllocatedQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
-                  <span>Settled: <b>{fmtUsd(Number(manualVaultSettledQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
-                  <span>Cycle out: <b>{fmtUsd((Number(manualVaultAvailableQty || 0) + Number(manualVaultAllocatedQty || 0) + Number(manualVaultSettledQty || 0)) * Number(activeGridNativeUsd || 0))}</b></span>
                 </div>
               </div>
 
@@ -8764,68 +8604,55 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 else if (String(o?.side || "").toUpperCase() === "SELL") estProfit = (Number(o?.price || 0) - currentPrice) * Number(o?.qty || 0);
                               }
                               const profitColor = estProfit == null ? "rgba(232,242,240,.7)" : (estProfit >= 0 ? "#39d98a" : "#ff6b6b");
-                              const profitText = estProfit == null ? "" : `${estProfit >= 0 ? "+" : ""}${Math.abs(estProfit).toFixed(4)} $`;
+                              const profitText = estProfit == null ? "$0.00" : `${estProfit >= 0 ? "+" : "-"}${Math.abs(estProfit).toFixed(4)} $`;
                               const payout = inferOrderPayoutAsset(o);
                               const statusTxt = inferOrderStatus(o);
-
-                              const investedUsd = Number(
-                                o?.investedUsd ??
-                                o?.invested_usd ??
-                                o?.invested ??
-                                o?.cost_basis ??
-                                ((Number(o?.qty || 0) || 0) * (Number(o?.price || 0) || 0))
-                              ) || 0;
-                              const atTargetUsd = Number(
-                                o?.targetValue ??
-                                o?.target_value ??
-                                o?.expectedOutUsd ??
-                                o?.expected_out_usd ??
-                                o?.expectedPayoutUsd ??
-                                o?.expected_payout_usd ??
-                                ((Number(o?.qty || 0) || 0) * (Number(o?.price || 0) || 0))
-                              ) || 0;
+                              const statusLabel =
+                                statusTxt === "OPEN" ? "🟢 RUNNING" :
+                                statusTxt === "STOPPED" ? "⏸ PAUSED" :
+                                statusTxt === "FILLED" ? "⚪ COMPLETED" :
+                                statusTxt;
+                              const investedUsd = Number((Number(o?.qty || 0) || 0) * (Number(o?.price || 0) || 0)) || 0;
+                              const atTargetUsd = investedUsd + (Number.isFinite(estProfit) ? Number(estProfit) : 0);
 
                               return (
                                 <div
                                   key={idOf(o) || `${chainKey}-${o.side}-${o.price}-${o.created_ts}`}
                                   className="orderRow"
-                                  style={{ padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
+                                  style={{ padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
                                 >
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0, flex: "1 1 460px", fontSize: 11 }}>
-                                      <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`} style={{ fontSize: 10, padding: "4px 7px" }}>{o.side}</span>
-                                      <span className="orderPx" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{fmtUsd(Number(o?.price || 0))}</span>
-                                      <span className="muted" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{o?.qty ? `qty ${fmtQty(Number(o.qty), 4)}` : ""}</span>
-                                      <span className="pill silver" style={{ fontSize: 10, padding: "4px 7px" }}>{statusTxt}</span>
-                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>Payout:</b> {payout}</span>
-                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>Inv:</b> {fmtUsd(investedUsd)}</span>
-                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>At target:</b> {fmtUsd(atTargetUsd)}</span>
-                                      {profitText ? (
-                                        <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: 11 }}>{profitText}</span>
-                                      ) : null}
-                                    </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", flex: "0 0 auto" }}>
-                                      <button
-                                        type="button"
-                                        className="btn ghost"
-                                        style={{ height: 26, paddingInline: 9, fontSize: 11 }}
-                                        disabled={!idOf(o) || !["OPEN","PAUSED"].includes(statusTxt) || gridBusy.stopOrderId === String(idOf(o))}
-                                        onClick={() => (statusTxt === "PAUSED" ? resumeGridOrder(idOf(o)) : stopGridOrder(idOf(o)))}
-                                        title={statusTxt === "PAUSED" ? "Resume this paused order." : "Pause this order without deleting it."}
-                                      >
-                                        {gridBusy.stopOrderId === String(idOf(o)) ? (statusTxt === "PAUSED" ? "Resuming..." : "Pausing...") : (statusTxt === "PAUSED" ? "Resume" : "Stop")}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn ghost"
-                                        style={{ height: 26, paddingInline: 9, fontSize: 11 }}
-                                        disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
-                                        onClick={() => deleteGridOrder(idOf(o))}
-                                        title="Delete this order from DB (only if backend supports it)."
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
+                                  <div style={{ display: "grid", gridTemplateColumns: "auto auto auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
+                                    <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
+                                    <span className="orderPx">{fmtUsd(Number(o?.price || 0))}</span>
+                                    <span className="muted">{o?.qty ? `qty ${fmtQty(Number(o.qty))}` : ""}</span>
+                                    <span className="pill silver">{statusLabel}</span>
+                                    <span className="muted tiny">Payout {payout}</span>
+                                    <button
+                                      type="button"
+                                      className="btn ghost"
+                                      style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                      disabled={!idOf(o) || statusTxt !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
+                                      onClick={() => stopGridOrder(idOf(o))}
+                                      title="Stop this single order (backend will mark it as STOPPED)."
+                                    >
+                                      Stop
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn ghost"
+                                      style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                      disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
+                                      onClick={() => deleteGridOrder(idOf(o))}
+                                      title="Delete this order from DB (only if backend supports it)."
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+                                    <span className="muted tiny">Settlement: swap on fill -> hold in vault</span>
+                                    <span className="muted tiny">Invested {fmtUsd(investedUsd)}</span>
+                                    <span className="muted tiny">At target {fmtUsd(atTargetUsd)}</span>
+                                    <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap" }}>{profitText}</span>
                                   </div>
                                 </div>
                               );

@@ -5413,6 +5413,20 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     return `On target hit -> swap immediately into ${payout} -> hold in vault until withdraw.`;
   }, [manualPayoutAsset]);
 
+  const totalGridProfitUsd = useMemo(() => {
+    const currentPrice = Number(shownGridPrice || 0);
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return 0;
+    return openGridOrders.reduce((sum, o) => {
+      const side = String(o?.side || "").toUpperCase();
+      const price = Number(o?.price || o?.limit_price || 0);
+      const qty = Number(o?.qty || o?.quantity || 0);
+      if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(qty) || qty <= 0) return sum;
+      if (side === "BUY") return sum + ((currentPrice - price) * qty);
+      if (side === "SELL") return sum + ((price - currentPrice) * qty);
+      return sum;
+    }, 0);
+  }, [openGridOrders, shownGridPrice]);
+
   const activeGridChainSymbol = useMemo(() => {
     return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [activeGridChainKey]);

@@ -47,10 +47,16 @@ function getGridMetaFromResponse(r, fallback = {}) {
 
   return {
     tick:
-      r?.tick ??
-      r?.data?.tick ??
-      gm?.tick ??
       gm?.current_tick ??
+      gm?.tick ??
+      r?.data?.gridMeta?.current_tick ??
+      r?.data?.grid_meta?.current_tick ??
+      r?.data?.grid?.current_tick ??
+      r?.data?.gridMeta?.tick ??
+      r?.data?.grid_meta?.tick ??
+      r?.data?.grid?.tick ??
+      r?.data?.tick ??
+      r?.tick ??
       fallback?.tick ??
       null,
     price:
@@ -3812,24 +3818,18 @@ useEffect(() => {
   // Helper: extract order id from different backend schemas
   const idOf = (o) => o?.order_id ?? o?.orderId ?? o?.id ?? o?._id ?? o?.uuid ?? null;
 
-  const visibleGridOrders = useMemo(() => {
-    return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) =>
-      String(o?.status || o?.state || 'OPEN').toUpperCase() !== 'DELETED'
-    );
-  }, [gridOrders]);
-
   // Normalize orders coming from backend/polling so the UI can't show duplicates.
   // (Some backend revisions may return the same order twice during eventual consistency.)
 
   useEffect(() => {
-    if (visibleGridOrders.length === 0) {
+    if (gridOrders.length === 0) {
       setGridOrdersOpen(false);
       return;
     }
-    if (visibleGridOrders.length <= 3) {
+    if (gridOrders.length <= 3) {
       setGridOrdersOpen(true);
     }
-  }, [visibleGridOrders.length]);
+  }, [gridOrders.length]);
 
   const normalizeGridOrders = useCallback(
     (arr) => {
@@ -3890,16 +3890,6 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   savePersistedGridOrders(itemId, ordersArr);
 }, [savePersistedGridOrders]);
 
-const commitGridOrders = useCallback((itemId, nextOrders) => {
-  const arr = normalizeGridOrders(Array.isArray(nextOrders) ? nextOrders : []);
-  rememberGridOrders(itemId, arr);
-  setGridOrders(arr);
-  if (arr.length > 0) {
-    lastNonEmptyOrdersRef.current = { ts: Date.now(), count: arr.length };
-  }
-  return arr;
-}, [normalizeGridOrders, rememberGridOrders]);
-
   const [manualSide, setManualSide] = useState("BUY");
   const [manualPrice, setManualPrice] = useState("");
   const [manualBuyMode, setManualBuyMode] = useState("QTY"); // USD | QTY (only used for BUY)
@@ -3922,46 +3912,39 @@ const commitGridOrders = useCallback((itemId, nextOrders) => {
   }, [GRID_PRICE_PRESETS, manualPricePreset]);
   const [manualQty, setManualQty] = useState("");
   const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
-  const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
-
-  const MANUAL_PAYOUT_ASSETS_BY_CHAIN = useMemo(
-    () => ({
-      ETH: ["USDC", "USDT", "ETH", "DAI"],
-      POL: ["USDC", "USDT", "POL", "DAI"],
-      BNB: ["USDC", "USDT", "BNB", "DAI"],
-      ARB: ["USDC", "USDT", "ARB", "DAI"],
-      OP: ["USDC", "USDT", "OP", "DAI"],
-      BASE: ["USDC", "USDT", "ETH", "DAI"],
-      AVAX: ["USDC", "USDT", "AVAX", "DAI"],
-      FTM: ["USDC", "USDT", "FTM", "DAI"],
-    }),
-    []
-  );
-
-  const manualActiveChainKey = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-  const manualPayoutOptions = useMemo(() => {
-    const fallback = ["USDC", "USDT", manualActiveChainKey].filter(Boolean);
-    const arr = MANUAL_PAYOUT_ASSETS_BY_CHAIN?.[manualActiveChainKey] || fallback;
-    const seen = new Set();
-    return (Array.isArray(arr) ? arr : fallback)
-      .map((x) => String(x || "").toUpperCase().trim())
-      .filter((x) => {
-        if (!x || seen.has(x)) return false;
-        seen.add(x);
-        return true;
-      });
-  }, [MANUAL_PAYOUT_ASSETS_BY_CHAIN, manualActiveChainKey]);
-
-  const manualPayoutPrimaryOptions = useMemo(() => manualPayoutOptions.slice(0, 2), [manualPayoutOptions]);
-  const manualPayoutExtraOptions = useMemo(() => manualPayoutOptions.slice(2), [manualPayoutOptions]);
-
-  useEffect(() => {
-    if (!manualPayoutOptions.length) return;
-    const current = String(manualPayoutAsset || "").toUpperCase();
-    if (!current || !manualPayoutOptions.includes(current)) {
-      setManualPayoutAsset(manualPayoutOptions[0]);
+  const currentPayoutAssets = useMemo(() => {
+    const ck = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+    const base = ["USDC", "USDT", ck];
+    const uniq = [];
+    for (const a of base) {
+      const v = String(a || "").toUpperCase().trim();
+      if (!v || uniq.includes(v)) continue;
+      uniq.push(v);
     }
-  }, [manualPayoutOptions, manualPayoutAsset]);
+    return uniq;
+  }, [activeGridChainKey]);
+  const visiblePayoutAssets = useMemo(() => currentPayoutAssets.slice(0, 2), [currentPayoutAssets]);
+  const extraPayoutAssets = useMemo(() => currentPayoutAssets.slice(2), [currentPayoutAssets]);
+  const [payoutMenuOpen, setPayoutMenuOpen] = useState(false);
+  const payoutMenuRef = useRef(null);
+  useEffect(() => {
+    if (!currentPayoutAssets.length) return;
+    const cur = String(manualPayoutAsset || "").toUpperCase();
+    if (!currentPayoutAssets.includes(cur)) {
+      setManualPayoutAsset(currentPayoutAssets[0]);
+    }
+  }, [currentPayoutAssets, manualPayoutAsset]);
+  useEffect(() => {
+    if (!payoutMenuOpen) return;
+    const onDown = (e) => {
+      if (payoutMenuRef.current && !payoutMenuRef.current.contains(e.target)) {
+        setPayoutMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [payoutMenuOpen]);
+  const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
 
   // AI
   const [aiSelected, setAiSelected] = useLocalStorageState("nexus_ai_selected", []);
@@ -4676,11 +4659,15 @@ useEffect(() => {
       const initOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(initOrdersRaw)) {
         const initOrders = normalizeGridOrders(initOrdersRaw);
-        commitGridOrders(srvItemId || gridItemId, initOrders);
+        rememberGridOrders(srvItemId || gridItemId, initOrders);
+        setGridOrders(initOrders);
+        if (initOrders.length > 0) {
+          lastNonEmptyOrdersRef.current = { ts: Date.now(), count: initOrders.length };
+        }
       }
 
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-      setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: srvItemId || gridItemId }) }));
+      applyGridMetaResponse(r, srvItemId || gridItemId);
       if (r?.vault_state) setVaultState((prev) => ({ ...(prev || {}), ...(r.vault_state || {}) }));
     } catch (e) {
       setErrorMsg((prev) => prev || `Grid init: ${e?.message || e}`);
@@ -4688,7 +4675,7 @@ useEffect(() => {
   })();
 
   return () => { cancelled = true; };
-}, [gridUiHydrated, walletAddress, token, activeGridChainKey, gridItemId, commitGridOrders]);
+}, [gridUiHydrated, walletAddress, token, activeGridChainKey, gridItemId]);
 
 const [gridBusy, setGridBusy] = useState({
   start: false,
@@ -4702,21 +4689,45 @@ const isGridReady = useMemo(() => {
   return !!walletAddress && !!gridItemId && gridUiHydrated;
 }, [walletAddress, gridItemId, gridUiHydrated]);
 
+const mergeGridMetaStable = useCallback((prev, incoming) => {
+  const out = { ...(prev || {}), ...(incoming || {}) };
+  const prevTick = Number(prev?.tick || 0);
+  const nextTick = Number(incoming?.tick || 0);
+
+  if (Number.isFinite(prevTick) && prevTick > 0) {
+    if (!Number.isFinite(nextTick) || nextTick <= 0) {
+      out.tick = prevTick;
+    } else {
+      // Never let stale/alternate streams move the tick backwards.
+      if (nextTick < prevTick) out.tick = prevTick;
+      // Ignore alternate/global counters that jump far away from the current grid tick.
+      else if (nextTick - prevTick > Math.max(25, Math.ceil(prevTick * 0.5))) out.tick = prevTick;
+    }
+  } else if (Number.isFinite(nextTick) && nextTick > 500) {
+    // When no stable tick exists yet, ignore obviously wrong large counter values.
+    out.tick = prev?.tick ?? null;
+  }
+
+  const prevPrice = Number(prev?.price || 0);
+  const nextPrice = Number(incoming?.price || 0);
+  if (Number.isFinite(prevPrice) && prevPrice > 0 && (!Number.isFinite(nextPrice) || nextPrice <= 0)) {
+    out.price = prevPrice;
+  }
+  return out;
+}, []);
+
+const applyGridMetaResponse = useCallback((r, fallbackItemId = gridItemId) => {
+  setGridMeta((prev) => {
+    const incoming = getGridMetaFromResponse(r, { ...prev, gridItemId: fallbackItemId });
+    return mergeGridMetaStable(prev, incoming);
+  });
+}, [gridItemId, mergeGridMetaStable]);
+
 
 const mergeGridOrders = useCallback((baseArr, incomingArr) => {
   const base = Array.isArray(baseArr) ? baseArr : [];
   const incoming = Array.isArray(incomingArr) ? incomingArr : [];
-  const out = [];
-  const seen = new Set();
-  for (const o of [...incoming, ...base]) {
-    if (!o) continue;
-    const id = idOf(o);
-    const key = id != null ? String(id) : JSON.stringify(o);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(o);
-  }
-  return normalizeGridOrders(out);
+  return normalizeGridOrders([...incoming, ...base]);
 }, [normalizeGridOrders]);
 
 useEffect(() => {
@@ -4810,7 +4821,8 @@ if (nextOrders.length === 0) {
 }
 
 // 🔥 WICHTIG: Orders speichern + setzen
-commitGridOrders(gridItemId, nextOrders);
+rememberGridOrders(gridItemId, nextOrders);
+setGridOrders(nextOrders);
 
 	try {
       const sym = String(gridItem || "").toUpperCase().trim();
@@ -4823,12 +4835,12 @@ commitGridOrders(gridItemId, nextOrders);
       lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
     }
 
-    setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
+    applyGridMetaResponse(r, gridItemId);
   } catch (e) {
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState, commitGridOrders, loadPersistedGridOrders, rememberGridOrders, gridOrders]);
+}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -4863,14 +4875,14 @@ useInterval(
     if (!gridItemId || !walletAddress) return;
     try {
       const r = await setGridExecute(gridItemId);
-      const execMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
-      setGridMeta((prev) => ({ ...prev, ...execMeta }));
+      applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
       const execOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(execOrdersRaw)) {
         const execOrders = normalizeGridOrders(execOrdersRaw);
-        commitGridOrders(gridItemId, execOrders);
+        rememberGridOrders(gridItemId, execOrders);
+        setGridOrders(execOrders);
       }
 
       try {
@@ -4970,13 +4982,12 @@ setGridBusy((s) => ({ ...s, start: true }));
         auto_path: !!gridAutoPath,
       };
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
-      const startMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId: itemId });
-      setGridMeta((prev) => ({ ...prev, ...startMeta }));
+      applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const startOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(startOrdersRaw)) {
         const startOrders = normalizeGridOrders(startOrdersRaw);
-        commitGridOrders(gridItemId, startOrders);
+        setGridOrders(startOrders);
       }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
@@ -5045,12 +5056,12 @@ setGridBusy((s) => ({ ...s, stop: true }));
         gridMeta?.id ||
         `${chainKey}:${String(gridItem || "").toUpperCase()}`;
       const r = await api("/api/grid/stop", { method: "POST", token, wallet: walletAddress, body: { item: gridItemId, addr: walletAddress || undefined }, });
-      setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId: itemId }) }));
+      applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const stopOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(stopOrdersRaw)) {
         const stopOrders = normalizeGridOrders(stopOrdersRaw);
-        commitGridOrders(gridItemId, stopOrders);
+        setGridOrders(stopOrders);
       }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
@@ -5062,7 +5073,6 @@ setGridBusy((s) => ({ ...s, stop: true }));
 
   async function addManualOrder() {
     setErrorMsg("");
-    setTxMsg("");
     if (!token) return setErrorMsg("");
     if (!requirePro("Placing a new order")) return;
     if (!gridItemId) return setErrorMsg('Select coin first.');
@@ -5120,41 +5130,26 @@ body.qty = qty;
       // Mark recent add so a transient empty poll right after add can't wipe the UI.
       lastGridActionRef.current = { type: "add", ts: Date.now() };
 
-      const addMeta = getGridMetaFromResponse(r, { ...gridMeta, gridItemId });
-      setGridMeta((prev) => ({ ...prev, ...addMeta }));
+      applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
       const addOrdersRaw = getGridOrdersFromResponse(r);
       const addSingleOrder = getGridSingleOrderFromResponse(r);
       if (Array.isArray(addOrdersRaw)) {
         const addOrders = normalizeGridOrders(addOrdersRaw);
-        commitGridOrders(gridItemId, addOrders);
+        setGridOrders(addOrders);
       } else if (addSingleOrder) {
         setGridOrders((prev) => {
           const merged = mergeGridOrders(prev, [addSingleOrder]);
-          rememberGridOrders(gridItemId, merged);
-          if (merged.length > 0) {
-            lastNonEmptyOrdersRef.current = { ts: Date.now(), count: merged.length };
-          }
           return merged;
         });
       }
-
-      const riskRaw = String(r?.risk || r?.risk_level || r?.data?.risk || r?.data?.risk_level || "").toLowerCase();
-      const impactVal = Number(r?.impact_pct ?? r?.impact ?? r?.data?.impact_pct ?? r?.data?.impact);
-      const riskLabel = riskRaw === "green" ? "LOW RISK" : riskRaw === "yellow" ? "MEDIUM RISK" : riskRaw === "red" ? "HIGH RISK" : "ORDER CREATED";
-      const impactTxt = Number.isFinite(impactVal) ? ` · Impact ${impactVal.toFixed(2)}%` : "";
-      setTxMsg(`✅ ${riskLabel}${impactTxt}`);
-      setGridOrdersOpen(true);
-
       // Always reload from backend so the server can commit the order and the UI stays live.
       kickGridRefresh();
-      setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 350);
       setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
-      const msg = String(e?.message || "Order failed");
-      setErrorMsg(`Manual add: ${msg}`);
-      setTxMsg(`❌ ${msg}`);
+      setErrorMsg(`Manual add: ${e.message}`);
+    
       setGridBusy((s) => ({ ...s, add: false }));}
   }
   
@@ -5189,7 +5184,7 @@ body.qty = qty;
     // Optimistic UI: mark CANCELLED locally, but keep in list until backend confirms
     setGridBusy((s) => ({ ...s, stopOrderId: null }));
 
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "CANCELLING" } : o)));
+    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
 
     let lastErr = null;
     for (const a of attempts) {
@@ -5199,12 +5194,17 @@ body.qty = qty;
           const _arrRaw = r?.orders || r?.data?.orders;
           const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
           if (_arr.length) {
-            setGridOrders(_arr);
+            setGridOrders((prev) => {
+              const merged = mergeGridOrders(_arr, prev || []);
+              return merged.map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o));
+            });
+          } else {
+            setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
           }
         }
         setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         // Do not mark as "add" here; stopping an order must not trigger the recent-add guard.
-setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
+applyGridMetaResponse(r, gridItemId);
         fetchGridOrders();
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;
@@ -5220,6 +5220,61 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
     setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o)));
     setErrorMsg(`Stop order: ${lastErr?.message || "failed"}`);
   }
+  async function resumeGridOrder(orderId) {
+    setErrorMsg("");
+    if (!token) return setErrorMsg("");
+    if (!gridItem) return;
+
+    const _oid = String(orderId);
+    if (gridBusy.stopOrderId === _oid) return;
+    if (!isGridReady) {
+      setErrorMsg("Grid not ready yet (connect wallet + select coin).");
+      return;
+    }
+    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
+
+    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
+    const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
+    const addrPayload = walletAddress || undefined;
+    const attempts = [
+      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/start", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/restart", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
+      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
+    ];
+
+    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o)));
+
+    let lastErr = null;
+    for (const a of attempts) {
+      try {
+        const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
+        const _arrRaw = r?.orders || r?.data?.orders;
+        const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
+        if (_arr.length) {
+          setGridOrders((prev) => {
+            const merged = mergeGridOrders(_arr, prev || []);
+            return merged.map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o));
+          });
+        }
+        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+        applyGridMetaResponse(r, gridItemId);
+        fetchGridOrders();
+        setGridBusy((s) => ({ ...s, stopOrderId: null }));
+        return;
+      } catch (e) {
+        lastErr = e;
+        const msg = String(e?.message || "");
+        if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) break;
+      }
+    }
+
+    setGridBusy((s) => ({ ...s, stopOrderId: null }));
+    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
+    setErrorMsg(`Resume order: ${lastErr?.message || "failed"}`);
+  }
+
   async function deleteGridOrder(orderId) {
     setErrorMsg("");
     if (!token) return setErrorMsg("");
@@ -5271,19 +5326,18 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           const delOrdersRaw = getGridOrdersFromResponse(r);
           if (Array.isArray(delOrdersRaw)) {
             const delOrders = normalizeGridOrders(delOrdersRaw);
-            commitGridOrders(gridItemId, delOrders);
+            setGridOrders(delOrders);
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-          setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
+          applyGridMetaResponse(r, gridItemId);
           kickGridRefresh();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
         } else {
           const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-          const _raw = getGridOrdersFromResponse(r);
-          if (Array.isArray(_raw)) commitGridOrders(gridItemId, _raw);
+          safeSetGridOrdersFromResponse(r, setGridOrders);
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-          setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
+          applyGridMetaResponse(r, gridItemId);
           kickGridRefresh();
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
@@ -5386,19 +5440,40 @@ useInterval(fetchGridOrders, 15000, isGridReady);
   }, [activeGridChainKey]);
 
   const inferOrderPayoutAsset = useCallback((o) => {
-    return String(
+    const raw =
       o?.payout_asset ||
       o?.payoutAsset ||
+      o?.payout ||
       o?.settlement_asset ||
       o?.settlementAsset ||
+      o?.settlement ||
+      o?.asset_out ||
+      o?.assetOut ||
+      o?.quote_asset ||
+      o?.quoteAsset ||
       o?.return_asset ||
       o?.returnAsset ||
-      "—"
-    ).toUpperCase();
-  }, []);
+      o?.meta?.payout_asset ||
+      o?.meta?.payoutAsset ||
+      o?.meta?.settlement_asset ||
+      o?.meta?.settlementAsset ||
+      o?.data?.payout_asset ||
+      o?.data?.payoutAsset ||
+      o?.data?.settlement_asset ||
+      o?.data?.settlementAsset ||
+      manualPayoutAsset ||
+      "—";
+    return String(raw || "—").toUpperCase();
+  }, [manualPayoutAsset]);
 
   const inferOrderStatus = useCallback((o) => {
-    return String(o?.status || o?.state || "OPEN").toUpperCase();
+    const raw = String(o?.status || o?.state || "OPEN").toUpperCase();
+    if (["OPEN", "ACTIVE", "RUNNING", "LIVE"].includes(raw)) return "OPEN";
+    if (["STOPPED", "STOP", "PAUSED", "CANCELLED", "CANCELED", "CANCELLING", "PAUSING"].includes(raw)) return "PAUSED";
+    if (["FILLED", "EXECUTED", "DONE", "COMPLETED", "SETTLED"].includes(raw)) return "FILLED";
+    if (["FAILED", "ERROR", "REJECTED"].includes(raw)) return "FAILED";
+    if (["DELETED", "REMOVED"].includes(raw)) return "DELETED";
+    return raw || "OPEN";
   }, []);
 
   const orderNotionalUsd = useCallback((o) => {
@@ -5412,9 +5487,13 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) === "OPEN");
   }, [gridOrders, inferOrderStatus]);
 
+  const visibleGridOrders = useMemo(() => {
+    return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) !== "DELETED");
+  }, [gridOrders, inferOrderStatus]);
+
   const gridOrdersGroupedByChain = useMemo(() => {
     const map = {};
-    for (const o of openGridOrders) {
+    for (const o of visibleGridOrders) {
       const ck = inferOrderChainKey(o);
       if (!map[ck]) map[ck] = [];
       map[ck].push(o);
@@ -5425,7 +5504,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       const bi = pref.indexOf(b[0]);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
-  }, [openGridOrders, inferOrderChainKey]);
+  }, [visibleGridOrders, inferOrderChainKey]);
 
   const manualOrderNotionalUsd = useMemo(() => {
     const px = Number(manualPrice || shownGridPrice || 0);
@@ -5450,6 +5529,15 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     const payout = String(manualPayoutAsset || "USDC").toUpperCase();
     return `On target hit -> swap immediately into ${payout} -> hold in vault until withdraw.`;
   }, [manualPayoutAsset]);
+
+  const activeGridChainSymbol = useMemo(() => {
+    return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+  }, [activeGridChainKey]);
+
+  const activeGridNativeUsd = useMemo(() => {
+    const px = Number(walletPx?.native?.[activeGridChainSymbol]);
+    return Number.isFinite(px) && px > 0 ? px : null;
+  }, [walletPx, activeGridChainSymbol]);
 
 
   // watchlist actions
@@ -6037,6 +6125,101 @@ const vaultFreeQty = useMemo(
   () => Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reservedQtyOpen) || 0)),
   [vaultNativeBal, reservedQtyOpen]
 );
+
+
+const manualVaultAvailableQty = useMemo(() => {
+  const v = Number(gridVaultStats?.free);
+  return Number.isFinite(v) ? v : (Number(vaultFreeQty) || 0);
+}, [gridVaultStats, vaultFreeQty]);
+
+const manualVaultAllocatedQty = useMemo(() => {
+  const v = Number(gridVaultStats?.reserved);
+  return Number.isFinite(v) ? v : (Number(reservedQtyOpen) || 0);
+}, [gridVaultStats, reservedQtyOpen]);
+
+const manualVaultTotalQty = useMemo(() => {
+  const v = Number(gridVaultStats?.vault);
+  return Number.isFinite(v) && v > 0 ? v : (Number(vaultNativeBal) || 0);
+}, [gridVaultStats, vaultNativeBal]);
+
+const manualVaultSettledQty = useMemo(() => {
+  const v = Number(vaultState?.heldTokenBal);
+  return Number.isFinite(v) ? v : 0;
+}, [vaultState]);
+
+const manualPoolLiquidityUsd = useMemo(() => {
+  if (!Number.isFinite(Number(activeGridNativeUsd)) || Number(activeGridNativeUsd) <= 0) return null;
+  const qty = Number(manualVaultTotalQty || 0);
+  if (!Number.isFinite(qty) || qty <= 0) return 0;
+  return qty * Number(activeGridNativeUsd);
+}, [manualVaultTotalQty, activeGridNativeUsd]);
+
+const manualEstimatedImpactPct = useMemo(() => {
+  const liq = Number(manualPoolLiquidityUsd);
+  const after = Number(manualExposureAfterUsd);
+  if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(after) || after <= 0) return null;
+  return (after / liq) * 100;
+}, [manualPoolLiquidityUsd, manualExposureAfterUsd]);
+
+const manualRiskState = useMemo(() => {
+  const liq = Number(manualPoolLiquidityUsd);
+  const impact = Number(manualEstimatedImpactPct);
+  if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(impact) || impact < 0) {
+    return {
+      key: "pending",
+      label: "⏳ Backend pending",
+      tone: "rgba(245, 193, 108, 0.18)",
+      border: "1px solid rgba(245, 193, 108, 0.28)",
+      color: "#f5c16c",
+    };
+  }
+
+  let greenMax = 1;
+  let yellowMax = 2.5;
+
+  if (liq < 5000) {
+    greenMax = 1;
+    yellowMax = 2.5;
+  } else if (liq < 25000) {
+    greenMax = 1.75;
+    yellowMax = 4;
+  } else if (liq < 100000) {
+    greenMax = 2.5;
+    yellowMax = 6;
+  } else if (liq < 350000) {
+    greenMax = 3.5;
+    yellowMax = 8;
+  } else {
+    greenMax = 5;
+    yellowMax = 10;
+  }
+
+  if (impact < greenMax) {
+    return {
+      key: "green",
+      label: "🟢 Green · normal execution",
+      tone: "rgba(34, 197, 94, 0.16)",
+      border: "1px solid rgba(34, 197, 94, 0.28)",
+      color: "#86efac",
+    };
+  }
+  if (impact <= yellowMax) {
+    return {
+      key: "yellow",
+      label: "🟡 Yellow · warning, review before submit",
+      tone: "rgba(245, 193, 108, 0.16)",
+      border: "1px solid rgba(245, 193, 108, 0.28)",
+      color: "#f5c16c",
+    };
+  }
+  return {
+    key: "red",
+    label: "🔴 Red · high impact / critical",
+    tone: "rgba(239, 68, 68, 0.15)",
+    border: "1px solid rgba(239, 68, 68, 0.28)",
+    color: "#fca5a5",
+  };
+}, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
 
 const [activePanel, setActivePanel] = useState(null);
 const handlePanelActivate = useCallback((name) => (e) => {
@@ -8112,8 +8295,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <label>Budget (Qty)</label>
                 <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
               </div>
-<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
-  {tB("Vault:")} <b>{vaultNativeBal.toFixed(6)}</b> · {tB("Reserved (OPEN):")} <b>{reservedQtyOpen.toFixed(6)}</b> · {tB("Free:")} <b>{vaultFreeQty.toFixed(6)}</b>
+<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.95 }}>
+  {tB("Available:")} <b>{manualVaultAvailableQty.toFixed(6)}</b> {activeGridChainSymbol}
+  {" · "}
+  {tB("Allocated:")} <b>{manualVaultAllocatedQty.toFixed(6)}</b> {activeGridChainSymbol}
+  {" · "}
+  {tB("Settled:")} <b>{manualVaultSettledQty.toFixed(6)}</b> {String(manualPayoutAsset || "USDC").toUpperCase()}
 </div>{isEthChain ? (
 
 
@@ -8215,36 +8402,99 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="formRow">
                 <label>Payout asset</label>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: manualPayoutExtraOptions.length ? 8 : 0 }}>
-                  {manualPayoutPrimaryOptions.map((asset) => {
-                    const active = String(manualPayoutAsset || "").toUpperCase() === asset;
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  {visiblePayoutAssets.map((asset) => {
+                    const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
                     return (
                       <button
                         key={asset}
                         type="button"
-                        className={active ? "btn" : "btnGhost"}
-                        onClick={() => setManualPayoutAsset(asset)}
-                        style={{ minWidth: 74, height: 32, paddingInline: 12, fontWeight: 800 }}
+                        onClick={() => setManualPayoutAsset(String(asset).toUpperCase())}
+                        style={{
+                          ...compactGridChipStyle,
+                          minWidth: 66,
+                          background: active ? "linear-gradient(90deg, #22c55e, #16a34a)" : "rgba(34,197,94,.16)",
+                          color: active ? "#071512" : "#d9fff0",
+                          border: active ? "1px solid rgba(34,197,94,.55)" : "1px solid rgba(34,197,94,.32)",
+                          boxShadow: active ? "0 0 12px rgba(34,197,94,.28)" : "none",
+                          fontWeight: active ? 800 : 700,
+                        }}
+                        title={`Set payout asset to ${asset}`}
                       >
                         {asset}
                       </button>
                     );
                   })}
+                  {extraPayoutAssets.length > 0 && (
+                    <div ref={payoutMenuRef} style={{ position: "relative", minWidth: 220 }}>
+                      <button
+                        type="button"
+                        onClick={() => setPayoutMenuOpen((v) => !v)}
+                        style={{
+                          width: "100%",
+                          height: isCompactMobile ? 32 : 36,
+                          padding: "0 12px",
+                          borderRadius: 10,
+                          background: "rgba(34,197,94,.16)",
+                          color: "#ffffff",
+                          border: "1px solid rgba(34,197,94,.38)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          fontWeight: 800,
+                          boxShadow: payoutMenuOpen ? "0 0 12px rgba(34,197,94,.22)" : "none",
+                        }}
+                      >
+                        <span>{extraPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? String(manualPayoutAsset || "").toUpperCase() : "More payout assets"}</span>
+                        <span style={{ fontSize: 12 }}>{payoutMenuOpen ? "▲" : "▼"}</span>
+                      </button>
+                      {payoutMenuOpen && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "calc(100% + 6px)",
+                            left: 0,
+                            right: 0,
+                            zIndex: 50,
+                            borderRadius: 12,
+                            overflow: "hidden",
+                            background: "linear-gradient(180deg, rgba(74,222,128,.98), rgba(34,197,94,.98))",
+                            border: "1px solid rgba(34,197,94,.55)",
+                            boxShadow: "0 16px 34px rgba(0,0,0,.35)",
+                          }}
+                        >
+                          {extraPayoutAssets.map((asset) => {
+                            const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
+                            return (
+                              <button
+                                key={asset}
+                                type="button"
+                                onClick={() => {
+                                  setManualPayoutAsset(String(asset).toUpperCase());
+                                  setPayoutMenuOpen(false);
+                                }}
+                                style={{
+                                  width: "100%",
+                                  textAlign: "left",
+                                  padding: "10px 12px",
+                                  background: active ? "linear-gradient(90deg, #86efac, #4ade80)" : "rgba(255,255,255,.10)",
+                                  color: "#071512",
+                                  border: "none",
+                                  borderTop: "1px solid rgba(7,21,18,.10)",
+                                  fontWeight: active ? 800 : 700,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {asset}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {manualPayoutExtraOptions.length ? (
-                  <select
-                    value={manualPayoutPrimaryOptions.includes(String(manualPayoutAsset || "").toUpperCase()) ? "" : String(manualPayoutAsset || "").toUpperCase()}
-                    onChange={(e) => {
-                      const v = String(e.target.value || "").toUpperCase();
-                      if (v) setManualPayoutAsset(v);
-                    }}
-                  >
-                    <option value="">More payout assets</option>
-                    {manualPayoutExtraOptions.map((asset) => (
-                      <option key={asset} value={asset}>{asset}</option>
-                    ))}
-                  </select>
-                ) : null}
                 <div className="muted tiny" style={{ marginTop: 6 }}>
                   Profit result will be swapped immediately into this asset when the target is hit.
                 </div>
@@ -8260,14 +8510,36 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   border: "1px solid rgba(255,255,255,.06)",
                 }}
               >
-                <div style={{ fontWeight: 800, marginBottom: 8 }}>Risk & settlement preview</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                  <div style={{ fontWeight: 800 }}>Risk & settlement preview</div>
+                  <div
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 999,
+                      background: manualRiskState.tone,
+                      border: manualRiskState.border,
+                      color: manualRiskState.color,
+                      fontWeight: 800,
+                      fontSize: 12,
+                    }}
+                  >
+                    {manualRiskState.label}
+                  </div>
+                </div>
                 <div className="tiny muted" style={{ display: "grid", gap: 4 }}>
-                  <div>Chain: <b>{String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}</b></div>
+                  <div>Chain: <b>{activeGridChainSymbol}</b></div>
+                  <div>Pool liquidity: <b>{manualPoolLiquidityUsd == null ? "Backend pending" : fmtUsd(manualPoolLiquidityUsd)}</b></div>
                   <div>Open exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></div>
                   <div>After this order: <b>{fmtUsd(manualExposureAfterUsd)}</b></div>
+                  <div>Estimated impact: <b>{manualEstimatedImpactPct == null ? "Backend pending" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></div>
                   <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
-                  <div>Liquidity check: <b>Backend pending</b></div>
                   <div>Settlement: <b>{manualSettlementPreview}</b></div>
+                </div>
+                <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 10, fontSize: 11, color: "#bdebd8" }}>
+                  <span>In chain: <b>{fmtUsd(Number(manualVaultTotalQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
+                  <span>Allocated: <b>{fmtUsd(Number(manualVaultAllocatedQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
+                  <span>Settled: <b>{fmtUsd(Number(manualVaultSettledQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
+                  <span>Cycle out: <b>{fmtUsd((Number(manualVaultAvailableQty || 0) + Number(manualVaultAllocatedQty || 0) + Number(manualVaultSettledQty || 0)) * Number(activeGridNativeUsd || 0))}</b></span>
                 </div>
               </div>
 
@@ -8426,23 +8698,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {gridBusy.add ? "Adding..." : "Add Order"}
               </button>
 
-              {txMsg ? (
-                <div
-                  style={{
-                    marginTop: 8,
-                    padding: "10px 12px",
-                    borderRadius: 12,
-                    background: txMsg.includes("❌") ? "rgba(120,20,20,.25)" : "rgba(20,120,60,.20)",
-                    border: txMsg.includes("❌") ? "1px solid rgba(255,80,80,.35)" : "1px solid rgba(80,255,160,.20)",
-                    color: txMsg.includes("❌") ? "#ffb3b3" : "#bfffd6",
-                    fontSize: 13,
-                    fontWeight: 700,
-                  }}
-                >
-                  {txMsg}
-                </div>
-              ) : null}
-
               {!token && <div className="muted tiny">Wallet connected. First protected action may require one signature.</div>}
 </div>
 
@@ -8454,16 +8709,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <button
                   type="button"
                   className="btnGhost"
-                  onClick={() => visibleGridOrders.length && setGridOrdersOpen((v) => !v)}
+                  onClick={() => gridOrders.length && setGridOrdersOpen((v) => !v)}
                   style={{ height: 32, paddingInline: 12, fontSize: 13 }}
-                  title={visibleGridOrders.length ? (gridOrdersOpen ? "Hide orders" : "Show orders") : "No orders"}
+                  title={gridOrders.length ? (gridOrdersOpen ? "Hide orders" : "Show orders") : "No orders"}
                 >
-                  Orders {visibleGridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
+                  Orders {gridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
                 </button>
-                <span className="pill silver">{visibleGridOrders.length} orders</span>
+                <span className="pill silver">{gridOrders.length} orders</span>
               </div>
 
-              {visibleGridOrders.length ? (
+              {gridOrders.length ? (
                 gridOrdersOpen ? (
                   <div className="ordersList" style={{ maxHeight: 320, overflowY: "auto", paddingRight: 4, display: "grid", gap: 10 }}>
                     {gridOrdersGroupedByChain.map(([chainKey, chainOrders]) => {
@@ -8513,44 +8768,64 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               const payout = inferOrderPayoutAsset(o);
                               const statusTxt = inferOrderStatus(o);
 
+                              const investedUsd = Number(
+                                o?.investedUsd ??
+                                o?.invested_usd ??
+                                o?.invested ??
+                                o?.cost_basis ??
+                                ((Number(o?.qty || 0) || 0) * (Number(o?.price || 0) || 0))
+                              ) || 0;
+                              const atTargetUsd = Number(
+                                o?.targetValue ??
+                                o?.target_value ??
+                                o?.expectedOutUsd ??
+                                o?.expected_out_usd ??
+                                o?.expectedPayoutUsd ??
+                                o?.expected_payout_usd ??
+                                ((Number(o?.qty || 0) || 0) * (Number(o?.price || 0) || 0))
+                              ) || 0;
+
                               return (
                                 <div
                                   key={idOf(o) || `${chainKey}-${o.side}-${o.price}-${o.created_ts}`}
                                   className="orderRow"
-                                  style={{ padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
+                                  style={{ padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
                                 >
-                                  <div style={{ display: "grid", gridTemplateColumns: "auto auto auto auto 1fr auto auto", gap: 10, alignItems: "center" }}>
-                                    <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
-                                    <span className="orderPx">{fmtUsd(Number(o?.price || 0))}</span>
-                                    <span className="muted">{o?.qty ? `qty ${fmtQty(Number(o.qty))}` : ""}</span>
-                                    <span className="pill silver">{statusTxt}</span>
-                                    <span className="muted tiny">Payout {payout}</span>
-                                    <button
-                                      type="button"
-                                      className="btn ghost"
-                                      style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                                      disabled={!idOf(o) || statusTxt !== "OPEN" || gridBusy.stopOrderId === String(idOf(o))}
-                                      onClick={() => stopGridOrder(idOf(o))}
-                                      title="Stop this single order (backend will mark it as STOPPED)."
-                                    >
-                                      Stop
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn ghost"
-                                      style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                                      disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
-                                      onClick={() => deleteGridOrder(idOf(o))}
-                                      title="Delete this order from DB (only if backend supports it)."
-                                    >
-                                      Delete
-                                    </button>
-                                  </div>
-                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
-                                    <span className="muted tiny">Settlement: swap on fill -> hold in vault</span>
-                                    {profitText ? (
-                                      <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap" }}>{profitText}</span>
-                                    ) : <span />}
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0, flex: "1 1 460px", fontSize: 11 }}>
+                                      <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`} style={{ fontSize: 10, padding: "4px 7px" }}>{o.side}</span>
+                                      <span className="orderPx" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{fmtUsd(Number(o?.price || 0))}</span>
+                                      <span className="muted" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{o?.qty ? `qty ${fmtQty(Number(o.qty), 4)}` : ""}</span>
+                                      <span className="pill silver" style={{ fontSize: 10, padding: "4px 7px" }}>{statusTxt}</span>
+                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>Payout:</b> {payout}</span>
+                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>Inv:</b> {fmtUsd(investedUsd)}</span>
+                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>At target:</b> {fmtUsd(atTargetUsd)}</span>
+                                      {profitText ? (
+                                        <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: 11 }}>{profitText}</span>
+                                      ) : null}
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", flex: "0 0 auto" }}>
+                                      <button
+                                        type="button"
+                                        className="btn ghost"
+                                        style={{ height: 26, paddingInline: 9, fontSize: 11 }}
+                                        disabled={!idOf(o) || !["OPEN","PAUSED"].includes(statusTxt) || gridBusy.stopOrderId === String(idOf(o))}
+                                        onClick={() => (statusTxt === "PAUSED" ? resumeGridOrder(idOf(o)) : stopGridOrder(idOf(o)))}
+                                        title={statusTxt === "PAUSED" ? "Resume this paused order." : "Pause this order without deleting it."}
+                                      >
+                                        {gridBusy.stopOrderId === String(idOf(o)) ? (statusTxt === "PAUSED" ? "Resuming..." : "Pausing...") : (statusTxt === "PAUSED" ? "Resume" : "Stop")}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn ghost"
+                                        style={{ height: 26, paddingInline: 9, fontSize: 11 }}
+                                        disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
+                                        onClick={() => deleteGridOrder(idOf(o))}
+                                        title="Delete this order from DB (only if backend supports it)."
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               );

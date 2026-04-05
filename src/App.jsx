@@ -8187,7 +8187,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <span className="pill silver">Reserved: {fmtQty(Number(gridVaultStats?.reserved || 0))} {activeGridChainSymbol}</span>
             <span className="pill silver">Free: {fmtQty(Number(gridVaultStats?.free || 0))} {activeGridChainSymbol}</span>
             <span className="pill silver">Profit: {fmtUsd(Number(totalGridProfitUsd || 0))}</span>
-            <span className="pill silver">Cycle out: {fmtQty(Number(manualVaultAvailableQty || 0) + Number(manualVaultAllocatedQty || 0) + Number(manualVaultSettledQty || 0))} {activeGridChainSymbol}</span>
           </div>
 
           <div className="panelScroll"><div className="gridLayout">
@@ -8389,10 +8388,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
                 <div className="tiny muted" style={{ display: "grid", gap: 4 }}>
                   <div>Chain: <b>{activeGridChainSymbol}</b></div>
-                  <div>Pool liquidity: <b>{manualPoolLiquidityUsd == null ? "🟡 Loading" : fmtUsd(manualPoolLiquidityUsd)}</b></div>
+                  <div>Pool liquidity: <b>{manualPoolLiquidityUsd == null ? "Backend pending" : fmtUsd(manualPoolLiquidityUsd)}</b></div>
                   <div>Open exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></div>
                   <div>After this order: <b>{fmtUsd(manualExposureAfterUsd)}</b></div>
-                  <div>Estimated impact: <b>{manualEstimatedImpactPct == null ? "🟡 Loading" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></div>
+                  <div>Estimated impact: <b>{manualEstimatedImpactPct == null ? "Backend pending" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></div>
                   <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
                   <div>Settlement: <b>{manualSettlementPreview}</b></div>
                 </div>
@@ -8650,7 +8649,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       onClick={() => stopGridOrder(idOf(o))}
                                       title="Stop this single order (backend will mark it as STOPPED)."
                                     >
-                                      {statusTxt === "STOPPED" ? "Resume" : "Stop"}
+                                      Stop
                                     </button>
                                     <button
                                       type="button"
@@ -8666,7 +8665,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
                                     <span className="muted tiny">Settlement: swap on fill -> hold in vault</span>
                                     <span className="muted tiny">Invested {fmtUsd(investedUsd)}</span>
-                                    <span className="muted tiny">Current {fmtUsd(Math.max(0, investedUsd + (Number.isFinite(estProfit) ? Number(estProfit) : 0)))}</span>
                                     <span className="muted tiny">At target {fmtUsd(atTargetUsd)}</span>
                                     <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap" }}>{profitText}</span>
                                   </div>

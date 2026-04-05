@@ -1379,4 +1379,9 @@ body::before {
     overflow: visible;
   }
 }
-
+/* Payout Dropdown Label (Button Text) */
+.payout-dropdown,
+.payout-dropdown span,
+.payout-dropdown button {
+  color: #ffffff !important;
+}

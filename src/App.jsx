@@ -1530,37 +1530,10 @@ function computeBestPairs(chart, limit = 30) {
 // ------------------------
 function AppInner() {
 
-  // Multi-chain config
-  // Build the UI dynamically so new chains / payout assets can be added without rewriting JSX.
+  // Multi-chain config (UI is ready; test phase enables POL + BNB)
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
-  const CHAIN_OPTIONS = [
-    { k: "POL", label: "POL (Polygon)", enabled: true, payoutAssets: ["USDC", "USDT", "POL"] },
-    { k: "BNB", label: "BNB (BNB Chain)", enabled: true, payoutAssets: ["USDC", "USDT", "BNB"] },
-    { k: "ETH", label: "ETH (Ethereum)", enabled: true, payoutAssets: ["USDC", "USDT", "ETH"] },
-    { k: "ARB", label: "ARB (Arbitrum)", enabled: false, payoutAssets: ["USDC", "USDT", "ARB"] },
-    { k: "BASE", label: "BASE (Base)", enabled: false, payoutAssets: ["USDC", "USDT", "BASE"] },
-    { k: "OP", label: "OP (Optimism)", enabled: false, payoutAssets: ["USDC", "USDT", "OP"] },
-    { k: "AVAX", label: "AVAX (Avalanche)", enabled: false, payoutAssets: ["USDC", "USDT", "AVAX"] },
-    { k: "FTM", label: "FTM (Fantom)", enabled: false, payoutAssets: ["USDC", "USDT", "FTM"] },
-    { k: "SOL", label: "SOL (soon)", enabled: false, payoutAssets: ["USDC", "USDT", "SOL"] },
-    { k: "BTC", label: "BTC (soon)", enabled: false, payoutAssets: ["USDC", "USDT", "BTC"] },
-  ];
-  const ENABLED_CHAINS = CHAIN_OPTIONS.filter((c) => c.enabled).map((c) => c.k);
-  const ENABLED_NATIVE_CHAINS = ENABLED_CHAINS.filter((c) => Number.isFinite(Number(CHAIN_ID?.[c])));
-  const DEFAULT_CHAIN = ENABLED_CHAINS[0] || "POL";
-  const CHAIN_PREF_ORDER = CHAIN_OPTIONS.map((c) => c.k);
-
-  const PAYOUT_ASSETS_BY_CHAIN = CHAIN_OPTIONS.reduce((acc, c) => {
-    const whitelistSymbols = (TOKEN_WHITELIST?.[c.k] || [])
-      .map((t) => String(t?.symbol || "").toUpperCase().trim())
-      .filter(Boolean);
-    const configured = Array.isArray(c?.payoutAssets) ? c.payoutAssets : [];
-    const merged = [...configured, ...whitelistSymbols, c.k]
-      .map((v) => String(v || "").toUpperCase().trim())
-      .filter(Boolean);
-    acc[c.k] = Array.from(new Set(merged));
-    return acc;
-  }, {});
+  const ENABLED_CHAINS = ["POL","BNB","ETH"];
+  const DEFAULT_CHAIN = "POL";
 
 // One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
 useEffect(() => {
@@ -2250,7 +2223,7 @@ useEffect(() => {
       const savedCoin = String(
         localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || ""
       ).toUpperCase().trim();
-      if (ENABLED_NATIVE_CHAINS.includes(savedCoin)) {
+      if (["POL", "BNB", "ETH"].includes(savedCoin)) {
         forcedChain = savedCoin;
       }
     } catch (_) {}
@@ -3710,7 +3683,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
   const activeGridChainKey = useMemo(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
-    if (ENABLED_NATIVE_CHAINS.includes(sym)) return sym;
+    if (["POL", "BNB", "ETH"].includes(sym)) return sym;
     return String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [gridItem, balActiveChain, wsChainKey]);
 
@@ -3725,7 +3698,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   useEffect(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
     if (!wallet) return;
-    if (!ENABLED_NATIVE_CHAINS.includes(sym)) return;
+    if (!["POL", "BNB", "ETH"].includes(sym)) return;
 
     const t1 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 250);
     const t2 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 1200);
@@ -3843,14 +3816,14 @@ useEffect(() => {
   // (Some backend revisions may return the same order twice during eventual consistency.)
 
   useEffect(() => {
-    if (gridOrders.length === 0) {
+    if (visibleGridOrders.length === 0) {
       setGridOrdersOpen(false);
       return;
     }
-    if (gridOrders.length <= 3) {
+    if (visibleGridOrders.length <= 3) {
       setGridOrdersOpen(true);
     }
-  }, [gridOrders.length]);
+  }, [visibleGridOrders.length]);
 
   const normalizeGridOrders = useCallback(
     (arr) => {
@@ -3911,6 +3884,16 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   savePersistedGridOrders(itemId, ordersArr);
 }, [savePersistedGridOrders]);
 
+const commitGridOrders = useCallback((itemId, nextOrders) => {
+  const arr = normalizeGridOrders(Array.isArray(nextOrders) ? nextOrders : []);
+  rememberGridOrders(itemId, arr);
+  setGridOrders(arr);
+  if (arr.length > 0) {
+    lastNonEmptyOrdersRef.current = { ts: Date.now(), count: arr.length };
+  }
+  return arr;
+}, [normalizeGridOrders, rememberGridOrders]);
+
   const [manualSide, setManualSide] = useState("BUY");
   const [manualPrice, setManualPrice] = useState("");
   const [manualBuyMode, setManualBuyMode] = useState("QTY"); // USD | QTY (only used for BUY)
@@ -3934,6 +3917,45 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   const [manualQty, setManualQty] = useState("");
   const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
   const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
+
+  const MANUAL_PAYOUT_ASSETS_BY_CHAIN = useMemo(
+    () => ({
+      ETH: ["USDC", "USDT", "ETH", "DAI"],
+      POL: ["USDC", "USDT", "POL", "DAI"],
+      BNB: ["USDC", "USDT", "BNB", "DAI"],
+      ARB: ["USDC", "USDT", "ARB", "DAI"],
+      OP: ["USDC", "USDT", "OP", "DAI"],
+      BASE: ["USDC", "USDT", "ETH", "DAI"],
+      AVAX: ["USDC", "USDT", "AVAX", "DAI"],
+      FTM: ["USDC", "USDT", "FTM", "DAI"],
+    }),
+    []
+  );
+
+  const manualActiveChainKey = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+  const manualPayoutOptions = useMemo(() => {
+    const fallback = ["USDC", "USDT", manualActiveChainKey].filter(Boolean);
+    const arr = MANUAL_PAYOUT_ASSETS_BY_CHAIN?.[manualActiveChainKey] || fallback;
+    const seen = new Set();
+    return (Array.isArray(arr) ? arr : fallback)
+      .map((x) => String(x || "").toUpperCase().trim())
+      .filter((x) => {
+        if (!x || seen.has(x)) return false;
+        seen.add(x);
+        return true;
+      });
+  }, [MANUAL_PAYOUT_ASSETS_BY_CHAIN, manualActiveChainKey]);
+
+  const manualPayoutPrimaryOptions = useMemo(() => manualPayoutOptions.slice(0, 2), [manualPayoutOptions]);
+  const manualPayoutExtraOptions = useMemo(() => manualPayoutOptions.slice(2), [manualPayoutOptions]);
+
+  useEffect(() => {
+    if (!manualPayoutOptions.length) return;
+    const current = String(manualPayoutAsset || "").toUpperCase();
+    if (!current || !manualPayoutOptions.includes(current)) {
+      setManualPayoutAsset(manualPayoutOptions[0]);
+    }
+  }, [manualPayoutOptions, manualPayoutAsset]);
 
   // AI
   const [aiSelected, setAiSelected] = useLocalStorageState("nexus_ai_selected", []);
@@ -4648,11 +4670,7 @@ useEffect(() => {
       const initOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(initOrdersRaw)) {
         const initOrders = normalizeGridOrders(initOrdersRaw);
-        rememberGridOrders(srvItemId || gridItemId, initOrders);
-        setGridOrders(initOrders);
-        if (initOrders.length > 0) {
-          lastNonEmptyOrdersRef.current = { ts: Date.now(), count: initOrders.length };
-        }
+        commitGridOrders(srvItemId || gridItemId, initOrders);
       }
 
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
@@ -4664,7 +4682,7 @@ useEffect(() => {
   })();
 
   return () => { cancelled = true; };
-}, [gridUiHydrated, walletAddress, token, activeGridChainKey, gridItemId]);
+}, [gridUiHydrated, walletAddress, token, activeGridChainKey, gridItemId, commitGridOrders]);
 
 const [gridBusy, setGridBusy] = useState({
   start: false,
@@ -4786,12 +4804,11 @@ if (nextOrders.length === 0) {
 }
 
 // 🔥 WICHTIG: Orders speichern + setzen
-rememberGridOrders(gridItemId, nextOrders);
-setGridOrders(nextOrders);
+commitGridOrders(gridItemId, nextOrders);
 
 	try {
       const sym = String(gridItem || "").toUpperCase().trim();
-      if (ENABLED_NATIVE_CHAINS.includes(sym)) {
+      if (["POL", "BNB", "ETH"].includes(sym)) {
         setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
       }
     } catch (_) {}
@@ -4805,7 +4822,7 @@ setGridOrders(nextOrders);
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
+}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState, commitGridOrders, loadPersistedGridOrders, rememberGridOrders, gridOrders]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -4847,13 +4864,12 @@ useInterval(
       const execOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(execOrdersRaw)) {
         const execOrders = normalizeGridOrders(execOrdersRaw);
-        rememberGridOrders(gridItemId, execOrders);
-        setGridOrders(execOrders);
+        commitGridOrders(gridItemId, execOrders);
       }
 
       try {
         const sym = String(gridItem || "").toUpperCase().trim();
-        if (ENABLED_NATIVE_CHAINS.includes(sym)) {
+        if (["POL", "BNB", "ETH"].includes(sym)) {
           setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
         }
       } catch (_) {}
@@ -4954,7 +4970,7 @@ setGridBusy((s) => ({ ...s, start: true }));
       const startOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(startOrdersRaw)) {
         const startOrders = normalizeGridOrders(startOrdersRaw);
-        setGridOrders(startOrders);
+        commitGridOrders(gridItemId, startOrders);
       }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
@@ -5028,7 +5044,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
       const stopOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(stopOrdersRaw)) {
         const stopOrders = normalizeGridOrders(stopOrdersRaw);
-        setGridOrders(stopOrders);
+        commitGridOrders(gridItemId, stopOrders);
       }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
@@ -5040,6 +5056,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
 
   async function addManualOrder() {
     setErrorMsg("");
+    setTxMsg("");
     if (!token) return setErrorMsg("");
     if (!requirePro("Placing a new order")) return;
     if (!gridItemId) return setErrorMsg('Select coin first.');
@@ -5105,19 +5122,33 @@ body.qty = qty;
       const addSingleOrder = getGridSingleOrderFromResponse(r);
       if (Array.isArray(addOrdersRaw)) {
         const addOrders = normalizeGridOrders(addOrdersRaw);
-        setGridOrders(addOrders);
+        commitGridOrders(gridItemId, addOrders);
       } else if (addSingleOrder) {
         setGridOrders((prev) => {
           const merged = mergeGridOrders(prev, [addSingleOrder]);
+          rememberGridOrders(gridItemId, merged);
+          if (merged.length > 0) {
+            lastNonEmptyOrdersRef.current = { ts: Date.now(), count: merged.length };
+          }
           return merged;
         });
       }
+
+      const riskRaw = String(r?.risk || r?.risk_level || r?.data?.risk || r?.data?.risk_level || "").toLowerCase();
+      const impactVal = Number(r?.impact_pct ?? r?.impact ?? r?.data?.impact_pct ?? r?.data?.impact);
+      const riskLabel = riskRaw === "green" ? "LOW RISK" : riskRaw === "yellow" ? "MEDIUM RISK" : riskRaw === "red" ? "HIGH RISK" : "ORDER CREATED";
+      const impactTxt = Number.isFinite(impactVal) ? ` · Impact ${impactVal.toFixed(2)}%` : "";
+      setTxMsg(`✅ ${riskLabel}${impactTxt}`);
+      setGridOrdersOpen(true);
+
       // Always reload from backend so the server can commit the order and the UI stays live.
       kickGridRefresh();
+      setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 350);
       setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
-      setErrorMsg(`Manual add: ${e.message}`);
-    
+      const msg = String(e?.message || "Order failed");
+      setErrorMsg(`Manual add: ${msg}`);
+      setTxMsg(`❌ ${msg}`);
       setGridBusy((s) => ({ ...s, add: false }));}
   }
   
@@ -5234,7 +5265,7 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           const delOrdersRaw = getGridOrdersFromResponse(r);
           if (Array.isArray(delOrdersRaw)) {
             const delOrders = normalizeGridOrders(delOrdersRaw);
-            setGridOrders(delOrders);
+            commitGridOrders(gridItemId, delOrders);
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridItemId }) }));
@@ -5243,7 +5274,8 @@ setGridMeta((prev) => ({ ...prev, ...getGridMetaFromResponse(r, { ...prev, gridI
           return;
         } else {
           const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-          safeSetGridOrdersFromResponse(r, setGridOrders);
+          const _raw = getGridOrdersFromResponse(r);
+          if (Array.isArray(_raw)) commitGridOrders(gridItemId, _raw);
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           setGridMeta({ tick: r?.tick ?? null, price: r?.price ?? null, gridItemId });
           kickGridRefresh();
@@ -5342,7 +5374,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       activeGridChainKey ||
       DEFAULT_CHAIN;
     const norm = String(raw || DEFAULT_CHAIN).toUpperCase().trim();
-    return ENABLED_CHAINS.includes(norm)
+    return ["POL", "BNB", "ETH"].includes(norm)
       ? norm
       : String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
   }, [activeGridChainKey]);
@@ -5381,13 +5413,13 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       if (!map[ck]) map[ck] = [];
       map[ck].push(o);
     }
-    const pref = CHAIN_PREF_ORDER;
+    const pref = ["POL", "BNB", "ETH"];
     return Object.entries(map).sort((a, b) => {
       const ai = pref.indexOf(a[0]);
       const bi = pref.indexOf(b[0]);
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
-  }, [openGridOrders, inferOrderChainKey, CHAIN_PREF_ORDER]);
+  }, [openGridOrders, inferOrderChainKey]);
 
   const manualOrderNotionalUsd = useMemo(() => {
     const px = Number(manualPrice || shownGridPrice || 0);
@@ -5412,46 +5444,6 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     const payout = String(manualPayoutAsset || "USDC").toUpperCase();
     return `On target hit -> swap immediately into ${payout} -> hold in vault until withdraw.`;
   }, [manualPayoutAsset]);
-
-  const totalGridProfitUsd = useMemo(() => {
-    const currentPrice = Number(shownGridPrice || 0);
-    if (!Number.isFinite(currentPrice) || currentPrice <= 0) return 0;
-    return openGridOrders.reduce((sum, o) => {
-      const side = String(o?.side || "").toUpperCase();
-      const price = Number(o?.price || o?.limit_price || 0);
-      const qty = Number(o?.qty || o?.quantity || 0);
-      if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(qty) || qty <= 0) return sum;
-      if (side === "BUY") return sum + ((currentPrice - price) * qty);
-      if (side === "SELL") return sum + ((price - currentPrice) * qty);
-      return sum;
-    }, 0);
-  }, [openGridOrders, shownGridPrice]);
-
-  const activeGridChainSymbol = useMemo(() => {
-    return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-  }, [activeGridChainKey]);
-
-  const activePayoutAssets = useMemo(() => {
-    const chain = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-    const arr = PAYOUT_ASSETS_BY_CHAIN?.[chain];
-    return Array.isArray(arr) && arr.length ? arr : ["USDC", "USDT", chain];
-  }, [activeGridChainKey, PAYOUT_ASSETS_BY_CHAIN]);
-
-  const primaryPayoutAssets = useMemo(() => activePayoutAssets.slice(0, 2), [activePayoutAssets]);
-  const overflowPayoutAssets = useMemo(() => activePayoutAssets.slice(2), [activePayoutAssets]);
-
-  useEffect(() => {
-    if (!activePayoutAssets.length) return;
-    const cur = String(manualPayoutAsset || "").toUpperCase().trim();
-    if (!cur || !activePayoutAssets.includes(cur)) {
-      setManualPayoutAsset(activePayoutAssets[0]);
-    }
-  }, [activePayoutAssets, manualPayoutAsset]);
-
-  const activeGridNativeUsd = useMemo(() => {
-    const px = Number(walletPx?.native?.[activeGridChainSymbol]);
-    return Number.isFinite(px) && px > 0 ? px : null;
-  }, [walletPx, activeGridChainSymbol]);
 
 
   // watchlist actions
@@ -6039,101 +6031,6 @@ const vaultFreeQty = useMemo(
   () => Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reservedQtyOpen) || 0)),
   [vaultNativeBal, reservedQtyOpen]
 );
-
-
-const manualVaultAvailableQty = useMemo(() => {
-  const v = Number(gridVaultStats?.free);
-  return Number.isFinite(v) ? v : (Number(vaultFreeQty) || 0);
-}, [gridVaultStats, vaultFreeQty]);
-
-const manualVaultAllocatedQty = useMemo(() => {
-  const v = Number(gridVaultStats?.reserved);
-  return Number.isFinite(v) ? v : (Number(reservedQtyOpen) || 0);
-}, [gridVaultStats, reservedQtyOpen]);
-
-const manualVaultTotalQty = useMemo(() => {
-  const v = Number(gridVaultStats?.vault);
-  return Number.isFinite(v) && v > 0 ? v : (Number(vaultNativeBal) || 0);
-}, [gridVaultStats, vaultNativeBal]);
-
-const manualVaultSettledQty = useMemo(() => {
-  const v = Number(vaultState?.heldTokenBal);
-  return Number.isFinite(v) ? v : 0;
-}, [vaultState]);
-
-const manualPoolLiquidityUsd = useMemo(() => {
-  if (!Number.isFinite(Number(activeGridNativeUsd)) || Number(activeGridNativeUsd) <= 0) return null;
-  const qty = Number(manualVaultTotalQty || 0);
-  if (!Number.isFinite(qty) || qty <= 0) return 0;
-  return qty * Number(activeGridNativeUsd);
-}, [manualVaultTotalQty, activeGridNativeUsd]);
-
-const manualEstimatedImpactPct = useMemo(() => {
-  const liq = Number(manualPoolLiquidityUsd);
-  const after = Number(manualExposureAfterUsd);
-  if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(after) || after <= 0) return null;
-  return (after / liq) * 100;
-}, [manualPoolLiquidityUsd, manualExposureAfterUsd]);
-
-const manualRiskState = useMemo(() => {
-  const liq = Number(manualPoolLiquidityUsd);
-  const impact = Number(manualEstimatedImpactPct);
-  if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(impact) || impact < 0) {
-    return {
-      key: "pending",
-      label: "⏳ Backend pending",
-      tone: "rgba(245, 193, 108, 0.18)",
-      border: "1px solid rgba(245, 193, 108, 0.28)",
-      color: "#f5c16c",
-    };
-  }
-
-  let greenMax = 1;
-  let yellowMax = 2.5;
-
-  if (liq < 5000) {
-    greenMax = 1;
-    yellowMax = 2.5;
-  } else if (liq < 25000) {
-    greenMax = 1.75;
-    yellowMax = 4;
-  } else if (liq < 100000) {
-    greenMax = 2.5;
-    yellowMax = 6;
-  } else if (liq < 350000) {
-    greenMax = 3.5;
-    yellowMax = 8;
-  } else {
-    greenMax = 5;
-    yellowMax = 10;
-  }
-
-  if (impact < greenMax) {
-    return {
-      key: "green",
-      label: "🟢 Green · normal execution",
-      tone: "rgba(34, 197, 94, 0.16)",
-      border: "1px solid rgba(34, 197, 94, 0.28)",
-      color: "#86efac",
-    };
-  }
-  if (impact <= yellowMax) {
-    return {
-      key: "yellow",
-      label: "🟡 Yellow · warning, review before submit",
-      tone: "rgba(245, 193, 108, 0.16)",
-      border: "1px solid rgba(245, 193, 108, 0.28)",
-      color: "#f5c16c",
-    };
-  }
-  return {
-    key: "red",
-    label: "🔴 Red · high impact / critical",
-    tone: "rgba(239, 68, 68, 0.15)",
-    border: "1px solid rgba(239, 68, 68, 0.28)",
-    color: "#fca5a5",
-  };
-}, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
 
 const [activePanel, setActivePanel] = useState(null);
 const handlePanelActivate = useCallback((name) => (e) => {
@@ -7141,9 +7038,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   onChange={(e) => setWsChainKey(e.target.value)}
                   style={{ marginLeft: 8, padding: "6px 10px", borderRadius: 10 }}
                 >
-                  {CHAIN_OPTIONS.map((c) => (
+                  {[
+                    { k: "BNB", label: "BNB (BNB Chain)", enabled: true },
+                    { k: "POL", label: "POL (Polygon)", enabled: true },
+                    { k: "ETH", label: "ETH (Ethereum)", enabled: true },
+                    { k: "SOL", label: "SOL (soon)", enabled: false },
+                    { k: "BTC", label: "BTC (soon)", enabled: false },
+                  ].map((c) => (
                     <option key={c.k} value={c.k} disabled={!ENABLED_CHAINS.includes(c.k)}>
-                      {c.label}{!ENABLED_CHAINS.includes(c.k) && !String(c.label || "").toLowerCase().includes("soon") ? " — soon" : ""}
+                      {c.label}{!ENABLED_CHAINS.includes(c.k) ? " — soon" : ""}
                     </option>
                   ))}
                 </select>
@@ -8182,13 +8085,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 10, marginTop: 10, marginBottom: 10, flexWrap: "wrap" }}>
-            <span className="pill silver">Vault: {fmtQty(Number(gridVaultStats?.vault || 0))} {activeGridChainSymbol}</span>
-            <span className="pill silver">Reserved: {fmtQty(Number(gridVaultStats?.reserved || 0))} {activeGridChainSymbol}</span>
-            <span className="pill silver">Free: {fmtQty(Number(gridVaultStats?.free || 0))} {activeGridChainSymbol}</span>
-            <span className="pill silver">Profit: {fmtUsd(Number(totalGridProfitUsd || 0))}</span>
-          </div>
-
           <div className="panelScroll"><div className="gridLayout">
             <div className="gridLeft">
 
@@ -8210,12 +8106,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <label>Budget (Qty)</label>
                 <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
               </div>
-<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.95 }}>
-  {tB("Available:")} <b>{manualVaultAvailableQty.toFixed(6)}</b> {activeGridChainSymbol}
-  {" · "}
-  {tB("Allocated:")} <b>{manualVaultAllocatedQty.toFixed(6)}</b> {activeGridChainSymbol}
-  {" · "}
-  {tB("Settled:")} <b>{manualVaultSettledQty.toFixed(6)}</b> {String(manualPayoutAsset || "USDC").toUpperCase()}
+<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.9 }}>
+  {tB("Vault:")} <b>{vaultNativeBal.toFixed(6)}</b> · {tB("Reserved (OPEN):")} <b>{reservedQtyOpen.toFixed(6)}</b> · {tB("Free:")} <b>{vaultFreeQty.toFixed(6)}</b>
 </div>{isEthChain ? (
 
 
@@ -8317,46 +8209,38 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="formRow">
                 <label>Payout asset</label>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  {primaryPayoutAssets.map((asset) => {
-                    const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: manualPayoutExtraOptions.length ? 8 : 0 }}>
+                  {manualPayoutPrimaryOptions.map((asset) => {
+                    const active = String(manualPayoutAsset || "").toUpperCase() === asset;
                     return (
                       <button
                         key={asset}
                         type="button"
+                        className={active ? "btn" : "btnGhost"}
                         onClick={() => setManualPayoutAsset(asset)}
-                        style={{
-                          ...compactGridChipStyle,
-                          border: active ? "1px solid rgba(34,197,94,.45)" : "1px solid rgba(255,255,255,.10)",
-                          background: active ? "rgba(34,197,94,.16)" : "rgba(255,255,255,.04)",
-                          color: active ? "rgba(220,255,232,.98)" : "rgba(232,242,240,.92)",
-                          cursor: "pointer",
-                        }}
+                        style={{ minWidth: 74, height: 32, paddingInline: 12, fontWeight: 800 }}
                       >
                         {asset}
                       </button>
                     );
                   })}
-
-                  {overflowPayoutAssets.length > 0 && (
-                    <select
-                      value={overflowPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? manualPayoutAsset : ""}
-                      onChange={(e) => {
-                        if (e.target.value) setManualPayoutAsset(e.target.value);
-                      }}
-                      style={{ minWidth: 130 }}
-                    >
-                      <option value="">More assets</option>
-                      {overflowPayoutAssets.map((asset) => (
-                        <option key={asset} value={asset}>
-                          {asset}
-                        </option>
-                      ))}
-                    </select>
-                  )}
                 </div>
+                {manualPayoutExtraOptions.length ? (
+                  <select
+                    value={manualPayoutPrimaryOptions.includes(String(manualPayoutAsset || "").toUpperCase()) ? "" : String(manualPayoutAsset || "").toUpperCase()}
+                    onChange={(e) => {
+                      const v = String(e.target.value || "").toUpperCase();
+                      if (v) setManualPayoutAsset(v);
+                    }}
+                  >
+                    <option value="">More payout assets</option>
+                    {manualPayoutExtraOptions.map((asset) => (
+                      <option key={asset} value={asset}>{asset}</option>
+                    ))}
+                  </select>
+                ) : null}
                 <div className="muted tiny" style={{ marginTop: 6 }}>
-                  Chain-specific payout assets are shown dynamically. The first two stay visible; additional assets move into the dropdown automatically.
+                  Profit result will be swapped immediately into this asset when the target is hit.
                 </div>
               </div>
 
@@ -8370,29 +8254,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   border: "1px solid rgba(255,255,255,.06)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
-                  <div style={{ fontWeight: 800 }}>Risk & settlement preview</div>
-                  <div
-                    style={{
-                      padding: "6px 10px",
-                      borderRadius: 999,
-                      background: manualRiskState.tone,
-                      border: manualRiskState.border,
-                      color: manualRiskState.color,
-                      fontWeight: 800,
-                      fontSize: 12,
-                    }}
-                  >
-                    {manualRiskState.label}
-                  </div>
-                </div>
+                <div style={{ fontWeight: 800, marginBottom: 8 }}>Risk & settlement preview</div>
                 <div className="tiny muted" style={{ display: "grid", gap: 4 }}>
-                  <div>Chain: <b>{activeGridChainSymbol}</b></div>
-                  <div>Pool liquidity: <b>{manualPoolLiquidityUsd == null ? "Backend pending" : fmtUsd(manualPoolLiquidityUsd)}</b></div>
+                  <div>Chain: <b>{String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase()}</b></div>
                   <div>Open exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></div>
                   <div>After this order: <b>{fmtUsd(manualExposureAfterUsd)}</b></div>
-                  <div>Estimated impact: <b>{manualEstimatedImpactPct == null ? "Backend pending" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></div>
                   <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
+                  <div>Liquidity check: <b>Backend pending</b></div>
                   <div>Settlement: <b>{manualSettlementPreview}</b></div>
                 </div>
               </div>
@@ -8552,6 +8420,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {gridBusy.add ? "Adding..." : "Add Order"}
               </button>
 
+              {txMsg ? (
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    background: txMsg.includes("❌") ? "rgba(120,20,20,.25)" : "rgba(20,120,60,.20)",
+                    border: txMsg.includes("❌") ? "1px solid rgba(255,80,80,.35)" : "1px solid rgba(80,255,160,.20)",
+                    color: txMsg.includes("❌") ? "#ffb3b3" : "#bfffd6",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  {txMsg}
+                </div>
+              ) : null}
+
               {!token && <div className="muted tiny">Wallet connected. First protected action may require one signature.</div>}
 </div>
 
@@ -8563,16 +8448,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <button
                   type="button"
                   className="btnGhost"
-                  onClick={() => gridOrders.length && setGridOrdersOpen((v) => !v)}
+                  onClick={() => visibleGridOrders.length && setGridOrdersOpen((v) => !v)}
                   style={{ height: 32, paddingInline: 12, fontSize: 13 }}
-                  title={gridOrders.length ? (gridOrdersOpen ? "Hide orders" : "Show orders") : "No orders"}
+                  title={visibleGridOrders.length ? (gridOrdersOpen ? "Hide orders" : "Show orders") : "No orders"}
                 >
-                  Orders {gridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
+                  Orders {visibleGridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
                 </button>
-                <span className="pill silver">{gridOrders.length} orders</span>
+                <span className="pill silver">{visibleGridOrders.length} orders</span>
               </div>
 
-              {gridOrders.length ? (
+              {visibleGridOrders.length ? (
                 gridOrdersOpen ? (
                   <div className="ordersList" style={{ maxHeight: 320, overflowY: "auto", paddingRight: 4, display: "grid", gap: 10 }}>
                     {gridOrdersGroupedByChain.map(([chainKey, chainOrders]) => {
@@ -8618,16 +8503,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 else if (String(o?.side || "").toUpperCase() === "SELL") estProfit = (Number(o?.price || 0) - currentPrice) * Number(o?.qty || 0);
                               }
                               const profitColor = estProfit == null ? "rgba(232,242,240,.7)" : (estProfit >= 0 ? "#39d98a" : "#ff6b6b");
-                              const profitText = estProfit == null ? "$0.00" : `${estProfit >= 0 ? "+" : "-"}${Math.abs(estProfit).toFixed(4)} $`;
+                              const profitText = estProfit == null ? "" : `${estProfit >= 0 ? "+" : ""}${Math.abs(estProfit).toFixed(4)} $`;
                               const payout = inferOrderPayoutAsset(o);
                               const statusTxt = inferOrderStatus(o);
-                              const statusLabel =
-                                statusTxt === "OPEN" ? "🟢 RUNNING" :
-                                statusTxt === "STOPPED" ? "⏸ PAUSED" :
-                                statusTxt === "FILLED" ? "⚪ COMPLETED" :
-                                statusTxt;
-                              const investedUsd = Number((Number(o?.qty || 0) || 0) * (Number(o?.price || 0) || 0)) || 0;
-                              const atTargetUsd = investedUsd + (Number.isFinite(estProfit) ? Number(estProfit) : 0);
 
                               return (
                                 <div
@@ -8639,7 +8517,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`}>{o.side}</span>
                                     <span className="orderPx">{fmtUsd(Number(o?.price || 0))}</span>
                                     <span className="muted">{o?.qty ? `qty ${fmtQty(Number(o.qty))}` : ""}</span>
-                                    <span className="pill silver">{statusLabel}</span>
+                                    <span className="pill silver">{statusTxt}</span>
                                     <span className="muted tiny">Payout {payout}</span>
                                     <button
                                       type="button"
@@ -8664,9 +8542,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   </div>
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
                                     <span className="muted tiny">Settlement: swap on fill -> hold in vault</span>
-                                    <span className="muted tiny">Invested {fmtUsd(investedUsd)}</span>
-                                    <span className="muted tiny">At target {fmtUsd(atTargetUsd)}</span>
-                                    <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap" }}>{profitText}</span>
+                                    {profitText ? (
+                                      <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap" }}>{profitText}</span>
+                                    ) : <span />}
                                   </div>
                                 </div>
                               );

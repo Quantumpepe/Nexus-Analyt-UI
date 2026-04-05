@@ -8436,7 +8436,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           padding: "0 12px",
                           borderRadius: 10,
                           background: "rgba(34,197,94,.16)",
-                          color: "#071512",
+                          color: "#ffffff",
                           border: "1px solid rgba(34,197,94,.38)",
                           display: "flex",
                           alignItems: "center",

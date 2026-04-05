@@ -3812,6 +3812,12 @@ useEffect(() => {
   // Helper: extract order id from different backend schemas
   const idOf = (o) => o?.order_id ?? o?.orderId ?? o?.id ?? o?._id ?? o?.uuid ?? null;
 
+  const visibleGridOrders = useMemo(() => {
+    return (Array.isArray(gridOrders) ? gridOrders : []).filter((o) =>
+      String(o?.status || o?.state || 'OPEN').toUpperCase() !== 'DELETED'
+    );
+  }, [gridOrders]);
+
   // Normalize orders coming from backend/polling so the UI can't show duplicates.
   // (Some backend revisions may return the same order twice during eventual consistency.)
 

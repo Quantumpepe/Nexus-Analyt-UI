@@ -8183,9 +8183,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
 
           <div style={{ display: "flex", gap: 10, marginTop: 10, marginBottom: 10, flexWrap: "wrap" }}>
-            <span className="pill silver">Vault: {fmtUsd(Number(gridVaultStats?.vault || 0))}</span>
-            <span className="pill silver">Reserved: {fmtUsd(Number(gridVaultStats?.reserved || 0))}</span>
-            <span className="pill silver">Free: {fmtUsd(Number(gridVaultStats?.free || 0))}</span>
+            <span className="pill silver">Vault: {fmtQty(Number(gridVaultStats?.vault || 0))} {activeGridChainSymbol}</span>
+            <span className="pill silver">Reserved: {fmtQty(Number(gridVaultStats?.reserved || 0))} {activeGridChainSymbol}</span>
+            <span className="pill silver">Free: {fmtQty(Number(gridVaultStats?.free || 0))} {activeGridChainSymbol}</span>
             <span className="pill silver">Profit: {fmtUsd(Number(totalGridProfitUsd || 0))}</span>
           </div>
 

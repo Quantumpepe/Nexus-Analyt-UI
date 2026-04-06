@@ -4700,8 +4700,7 @@ const mergeGridMetaStable = useCallback((prev, incoming) => {
     } else {
       // Never let stale/alternate streams move the tick backwards.
       if (nextTick < prevTick) out.tick = prevTick;
-      // Ignore alternate/global counters that jump far away from the current grid tick.
-      else if (nextTick - prevTick > Math.max(25, Math.ceil(prevTick * 0.5))) out.tick = prevTick;
+      // Forward jumps are allowed so the visible tick can continue advancing.
     }
   } else if (Number.isFinite(nextTick) && nextTick > 500) {
     // When no stable tick exists yet, ignore obviously wrong large counter values.
@@ -4796,6 +4795,24 @@ const fetchGridOrders = useCallback(async () => {
     if (nextOrders.length === 0 && recentAdd && gridOrders.length > 0) {
   return;
 }
+
+    const recentDelete = last.type === "delete" && now - (last.ts || 0) < 2 * 60 * 1000;
+    if (nextOrders.length === 0 && recentDelete) {
+      try {
+        rememberGridOrders(gridItemId, []);
+        gridOrdersCacheRef.current[gridItemId] = {
+          ...(gridOrdersCacheRef.current[gridItemId] || {}),
+          ts: Date.now(),
+          orders: [],
+          lastNonEmptyOrders: [],
+          lastNonEmptyTs: 0,
+        };
+        lastNonEmptyOrdersRef.current = { ts: 0, count: 0 };
+      } catch (_) {}
+      setGridOrders([]);
+      applyGridMetaResponse(r, gridItemId);
+      return;
+    }
 
 // 🔥 WICHTIG: Fallback wenn Backend leer liefert
 if (nextOrders.length === 0) {
@@ -4895,7 +4912,7 @@ useInterval(
       // silent: polling should never spam the UI
     }
   },
-  8000,
+  3000,
   !!isGridReady &&
     !!gridItemId &&
     !!walletAddress &&
@@ -5304,6 +5321,7 @@ applyGridMetaResponse(r, gridItemId);
     // Optimistic UI: hide immediately
     const prevOrders = gridOrders;
     const nextOrdersOptimistic = (gridOrders || []).filter((o) => String(idOf(o)) !== String(orderId));
+    lastGridActionRef.current = { type: "delete", ts: Date.now() };
     setGridOrders(nextOrdersOptimistic);
     try {
       rememberGridOrders(gridItemId, nextOrdersOptimistic);

@@ -4700,8 +4700,7 @@ const mergeGridMetaStable = useCallback((prev, incoming) => {
     } else {
       // Never let stale/alternate streams move the tick backwards.
       if (nextTick < prevTick) out.tick = prevTick;
-      // Ignore alternate/global counters that jump far away from the current grid tick.
-      else if (nextTick - prevTick > Math.max(25, Math.ceil(prevTick * 0.5))) out.tick = prevTick;
+      // Forward jumps are allowed now, otherwise the visible tick can freeze.
     }
   } else if (Number.isFinite(nextTick) && nextTick > 500) {
     // When no stable tick exists yet, ignore obviously wrong large counter values.
@@ -4895,7 +4894,7 @@ useInterval(
       // silent: polling should never spam the UI
     }
   },
-  8000,
+  3000,
   !!isGridReady &&
     !!gridItemId &&
     !!walletAddress &&

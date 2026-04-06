@@ -594,6 +594,11 @@ async function api(
   };
 
   const doFetch = async (bearer) => {
+  // 👉 FIX: automatisch /api hinzufügen wenn fehlt
+  let fixedPath = path;
+  if (!fixedPath.startsWith("/api")) {
+    fixedPath = "/api" + fixedPath;
+  }
     // Hard safety timeout so UI never gets stuck due to Render sleep/hanging connections.
     const ctrl = new AbortController();
     const timeoutMs =
@@ -619,7 +624,7 @@ async function api(
     } catch {}
 
     try {
-      return await fetch(`${API_BASE}${path}`, {
+      return await fetch(`${API_BASE}${fixedPath}`, {
         method,
         signal: merged.signal,
         headers: makeHeaders(bearer),

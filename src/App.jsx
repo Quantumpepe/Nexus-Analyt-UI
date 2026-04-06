@@ -594,11 +594,6 @@ async function api(
   };
 
   const doFetch = async (bearer) => {
-  // 👉 FIX: automatisch /api hinzufügen wenn fehlt
-  let fixedPath = path;
-  if (!fixedPath.startsWith("/api")) {
-    fixedPath = "/api" + fixedPath;
-  }
     // Hard safety timeout so UI never gets stuck due to Render sleep/hanging connections.
     const ctrl = new AbortController();
     const timeoutMs =
@@ -624,7 +619,7 @@ async function api(
     } catch {}
 
     try {
-      return await fetch(`${API_BASE}${fixedPath}`, {
+      return await fetch(`${API_BASE}${path}`, {
         method,
         signal: merged.signal,
         headers: makeHeaders(bearer),
@@ -6108,12 +6103,18 @@ async function runAi() {
 
 
 // --- Grid Vault usage (vault-contract only) ---
-// Vault must come ONLY from the on-chain Vault contract balance, never from wallet balance.
-// Reserved stays based on OPEN grid orders. Free = vault contract balance - reserved.
+// IMPORTANT:
+// Use the on-chain vault balance as the single source of truth.
+// Do NOT trust accumulated backend vault/free values here, because they can drift during
+// start/stop/resume/delete test cycles.
+// Reserved includes OPEN + PAUSED orders, so a paused order still keeps funds allocated.
 const reservedQtyOpen = useMemo(() => {
   try {
     return (gridOrders || [])
-      .filter((o) => o && String(o.status || "").toUpperCase() === "OPEN")
+      .filter((o) => {
+        const st = String(o?.status || "").toUpperCase();
+        return st === "OPEN" || st === "PAUSED";
+      })
       .reduce((s, o) => s + (Number(o.qty) || 0), 0);
   } catch {
     return 0;
@@ -6131,21 +6132,17 @@ const vaultFreeQty = useMemo(
   [vaultNativeBal, reservedQtyOpen]
 );
 
-
 const manualVaultAvailableQty = useMemo(() => {
-  const v = Number(gridVaultStats?.free);
-  return Number.isFinite(v) ? v : (Number(vaultFreeQty) || 0);
-}, [gridVaultStats, vaultFreeQty]);
+  return Number(vaultFreeQty) || 0;
+}, [vaultFreeQty]);
 
 const manualVaultAllocatedQty = useMemo(() => {
-  const v = Number(gridVaultStats?.reserved);
-  return Number.isFinite(v) ? v : (Number(reservedQtyOpen) || 0);
-}, [gridVaultStats, reservedQtyOpen]);
+  return Number(reservedQtyOpen) || 0;
+}, [reservedQtyOpen]);
 
 const manualVaultTotalQty = useMemo(() => {
-  const v = Number(gridVaultStats?.vault);
-  return Number.isFinite(v) && v > 0 ? v : (Number(vaultNativeBal) || 0);
-}, [gridVaultStats, vaultNativeBal]);
+  return Number(vaultNativeBal) || 0;
+}, [vaultNativeBal]);
 
 const manualVaultSettledQty = useMemo(() => {
   const v = Number(vaultState?.heldTokenBal);

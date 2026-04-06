@@ -5303,14 +5303,29 @@ applyGridMetaResponse(r, gridItemId);
 
     // Optimistic UI: hide immediately
     const prevOrders = gridOrders;
-    setGridOrders((prev) => (prev || []).filter((o) => String(idOf(o)) !== String(orderId)));
+    const nextOrdersOptimistic = (gridOrders || []).filter((o) => String(idOf(o)) !== String(orderId));
+    setGridOrders(nextOrdersOptimistic);
+    try {
+      rememberGridOrders(gridItemId, nextOrdersOptimistic);
+      gridOrdersCacheRef.current[gridItemId] = {
+        ...(gridOrdersCacheRef.current[gridItemId] || {}),
+        ts: Date.now(),
+        orders: nextOrdersOptimistic,
+        lastNonEmptyOrders: nextOrdersOptimistic,
+        lastNonEmptyTs: nextOrdersOptimistic.length ? Date.now() : 0,
+      };
+      lastNonEmptyOrdersRef.current = {
+        ts: nextOrdersOptimistic.length ? Date.now() : 0,
+        count: nextOrdersOptimistic.length,
+      };
+    } catch {}
 
     let lastErr = null;
     for (const a of attempts) {
       try {
         // api() may not allow DELETE bodies on some fetch impls; fall back to raw fetch if needed
         if (a.method === "DELETE") {
-          const res = await fetch(a.url, {
+          const res = await fetch(`${API_BASE}${a.url}`, {
             method: "DELETE",
             headers: {
               "Content-Type": "application/json",
@@ -5327,6 +5342,22 @@ applyGridMetaResponse(r, gridItemId);
           if (Array.isArray(delOrdersRaw)) {
             const delOrders = normalizeGridOrders(delOrdersRaw);
             setGridOrders(delOrders);
+            try {
+              rememberGridOrders(gridItemId, delOrders);
+              gridOrdersCacheRef.current[gridItemId] = {
+                ...(gridOrdersCacheRef.current[gridItemId] || {}),
+                ts: Date.now(),
+                orders: delOrders,
+                lastNonEmptyOrders: delOrders,
+                lastNonEmptyTs: delOrders.length ? Date.now() : 0,
+              };
+              lastNonEmptyOrdersRef.current = {
+                ts: delOrders.length ? Date.now() : 0,
+                count: delOrders.length,
+              };
+            } catch {}
+          } else {
+            try { rememberGridOrders(gridItemId, nextOrdersOptimistic); } catch {}
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           applyGridMetaResponse(r, gridItemId);
@@ -5335,7 +5366,28 @@ applyGridMetaResponse(r, gridItemId);
           return;
         } else {
           const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-          safeSetGridOrdersFromResponse(r, setGridOrders);
+          const respOrdersRaw = getGridOrdersFromResponse(r);
+          if (Array.isArray(respOrdersRaw)) {
+            const respOrders = normalizeGridOrders(respOrdersRaw);
+            setGridOrders(respOrders);
+            try {
+              rememberGridOrders(gridItemId, respOrders);
+              gridOrdersCacheRef.current[gridItemId] = {
+                ...(gridOrdersCacheRef.current[gridItemId] || {}),
+                ts: Date.now(),
+                orders: respOrders,
+                lastNonEmptyOrders: respOrders,
+                lastNonEmptyTs: respOrders.length ? Date.now() : 0,
+              };
+              lastNonEmptyOrdersRef.current = {
+                ts: respOrders.length ? Date.now() : 0,
+                count: respOrders.length,
+              };
+            } catch {}
+          } else {
+            safeSetGridOrdersFromResponse(r, setGridOrders);
+            try { rememberGridOrders(gridItemId, nextOrdersOptimistic); } catch {}
+          }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           applyGridMetaResponse(r, gridItemId);
           kickGridRefresh();
@@ -5363,6 +5415,20 @@ applyGridMetaResponse(r, gridItemId);
 
     // Revert if all failed
     setGridOrders(prevOrders);
+    try {
+      rememberGridOrders(gridItemId, prevOrders || []);
+      gridOrdersCacheRef.current[gridItemId] = {
+        ...(gridOrdersCacheRef.current[gridItemId] || {}),
+        ts: Date.now(),
+        orders: prevOrders || [],
+        lastNonEmptyOrders: (prevOrders || []).length ? (prevOrders || []) : [],
+        lastNonEmptyTs: (prevOrders || []).length ? Date.now() : 0,
+      };
+      lastNonEmptyOrdersRef.current = {
+        ts: (prevOrders || []).length ? Date.now() : 0,
+        count: (prevOrders || []).length,
+      };
+    } catch {}
     setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
 useInterval(fetchGridOrders, 15000, isGridReady);

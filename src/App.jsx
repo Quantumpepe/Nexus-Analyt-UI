@@ -6082,15 +6082,31 @@ async function runAi() {
     setAiLoading(true);
     try {
       const authToken = await ensureBackendAuthToken();
-      // Chart timeframe is the source of truth for Pro mode.
-      const tf = String(timeframe || "").toUpperCase();
 
-      // Build per-coin stats from the SAME series used by the chart (selected timeframe)
-      // IMPORTANT: compareSeries can contain a broader cached range (e.g. 1Y).
-      // Always slice it to the active timeframe before computing AI stats.
-      const aiSeries = sliceCompareSeries(compareSeries || {}, tf);
+      const uiTf = String(timeframe || "").toUpperCase() || "90D";
+
+      const detectRequestedTimeframe = (input) => {
+        const s = String(input || "").toLowerCase();
+        if (!s.trim()) return null;
+
+        if (/\b(2\s*y(ears?)?|2\s*jah(re|ren)?|24\s*months?|24\s*monate?)\b/i.test(s)) return "2Y";
+        if (/\b(1\s*y(ear)?|1\s*jahr|12\s*months?|12\s*monate?)\b/i.test(s)) return "1Y";
+        if (/\b(90\s*d(ays?)?|90\s*tage?)\b/i.test(s)) return "90D";
+        if (/\b(30\s*d(ays?)?|30\s*tage?)\b/i.test(s)) return "30D";
+        if (/\b(7\s*d(ays?)?|7\s*tage?|1\s*week|1\s*woche)\b/i.test(s)) return "7D";
+        if (/\b(1\s*d(ay)?|24\s*h(ours?)?|24h|heute|today|intraday)\b/i.test(s)) return "1D";
+        return null;
+      };
+
+      // Explicit timeframe in the user's question overrides the UI timeframe.
+      const requestedTf = detectRequestedTimeframe(q) || uiTf;
+
+      // IMPORTANT: use the SAME raw chart series, but slice it to the requested timeframe
+      // so AI can answer 7D/30D/90D/1Y/2Y even if the visible UI timeframe differs.
+      const seriesForAi = sliceCompareSeries(compareSeries, requestedTf);
+
       const statsForSym = (sym) => {
-        const pts = ((aiSeries && aiSeries[sym]) || []).slice().sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
+        const pts = ((seriesForAi && seriesForAi[sym]) || []).slice().sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
         const vals = pts.map(p => p && Number.isFinite(p.v) ? p.v : null).filter(v => v != null);
         if (vals.length < 2) return null;
 
@@ -6111,7 +6127,7 @@ async function runAi() {
         let maxDD = 0;
         for (const v of vals) {
           if (v > peak) peak = v;
-          const dd = peak ? (v / peak) - 1 : 0; // negative
+          const dd = peak ? (v / peak) - 1 : 0;
           if (dd < maxDD) maxDD = dd;
         }
         const min = Math.min(...vals);
@@ -6130,17 +6146,20 @@ async function runAi() {
         .map(([s, stats]) => `${s}: change=${(stats.changePct ?? 0).toFixed(2)}%, vol=${(stats.volPct ?? 0).toFixed(2)}%, maxDD=${(stats.maxDDPct ?? 0).toFixed(2)}%, range=[${stats.min}, ${stats.max}], points=${stats.points}`)
         .join("\\n");
 
-
-      // Keep short history for follow-ups (optional)
       const trimmedHist = (aiHistory || []).slice(-10);
       const historyText = trimmedHist
         .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
         .join("\n");
 
+      const timeframeHeader =
+        requestedTf === uiTf
+          ? `Timeframe: ${requestedTf} (use ONLY this timeframe's series stats below; do NOT talk about 24h unless Timeframe is 1D/24H).\n`
+          : `Requested timeframe: ${requestedTf}. Active UI timeframe: ${uiTf}. Use the REQUESTED timeframe's series stats below for the answer.\n`;
+
       const header =
-        `Timeframe: ${tf} (use ONLY this timeframe's series stats below; do NOT talk about 24h unless Timeframe is 1D/24H).\n` +
+        timeframeHeader +
         `Coins: ${syms.join(", ")}\n` +
-        (statsText ? `Series stats (${tf}):\n${statsText}\n` : "");
+        (statsText ? `Series stats (${requestedTf}):\n${statsText}\n` : "");
 
       const questionText =
         aiFollowUp && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;
@@ -6150,13 +6169,13 @@ async function runAi() {
         symbols: syms,
         profile: aiProfile,
         question: questionText,
-        timeframe: tf,
+        timeframe: requestedTf,
+        ui_timeframe: uiTf,
         index_mode: !!indexMode,
         history: isFollowUpAsk ? trimmedHist : [],
         series_stats: seriesStats,
       };
 
-      // AI endpoint requires BACKEND token (issued by /api/auth/verify).
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
       const r = await api("/api/ai/run", { method: "POST", token, body });
 
@@ -6169,7 +6188,7 @@ async function runAi() {
 
       if (!text) text = "No AI response.";
       text = String(text).replace(/\\n/g, "\n");
-      text = normalizeAiOutput(text, tf, q, seriesStats);
+      text = normalizeAiOutput(text, requestedTf, q, seriesStats);
       setAiOutput(text);
 
       // Update history only for explicit follow-up asks

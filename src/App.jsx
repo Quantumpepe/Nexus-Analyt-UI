@@ -6086,8 +6086,11 @@ async function runAi() {
       const tf = String(timeframe || "").toUpperCase();
 
       // Build per-coin stats from the SAME series used by the chart (selected timeframe)
+      // IMPORTANT: compareSeries can contain a broader cached range (e.g. 1Y).
+      // Always slice it to the active timeframe before computing AI stats.
+      const aiSeries = sliceCompareSeries(compareSeries || {}, tf);
       const statsForSym = (sym) => {
-        const pts = ((compareSeries && compareSeries[sym]) || []).slice().sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
+        const pts = ((aiSeries && aiSeries[sym]) || []).slice().sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
         const vals = pts.map(p => p && Number.isFinite(p.v) ? p.v : null).filter(v => v != null);
         if (vals.length < 2) return null;
 

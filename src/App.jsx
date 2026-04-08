@@ -6253,8 +6253,7 @@ async function runAi() {
         (typeof r === "string" ? r : "");
 
       if (!text) text = "No AI response.";
-      text = String(text).replace(/\n/g, "
-");
+      text = String(text).replace(/\n/g, "\n");
       text = normalizeAiOutput(text, tf, qFinal, seriesStats);
       setAiOutput(text);
 

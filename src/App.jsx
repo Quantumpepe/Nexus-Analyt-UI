@@ -1639,6 +1639,8 @@ useEffect(() => {
   const [watchErr, setWatchErr] = useState("");
 const [errorMsg, setErrorMsg] = useState("");
 
+  const isDesktopWide = typeof window !== "undefined" ? window.innerWidth >= 981 : true;
+
   const isCompactMobile = typeof window !== "undefined" && window.innerWidth <= 768;
   const compactGridChipStyle = {
     minHeight: isCompactMobile ? "28px" : "34px",
@@ -6408,6 +6410,8 @@ const manualRiskState = useMemo(() => {
 }, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
 
 const [activePanel, setActivePanel] = useState(null);
+const isWatchSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "watchlist";
+const isGridSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "vault";
 const handlePanelActivate = useCallback((name) => (e) => {
   if (typeof window !== "undefined" && window.innerWidth <= 980) return;
   const el = e?.target;
@@ -6756,177 +6760,140 @@ const handlePanelActivate = useCallback((name) => (e) => {
             pointer-events: none;
           }
 
-          /* keep the pair list fully visible at the bottom in the large compare panel */
+          /* focused desktop: give Compare more usable pair-list height */
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsScroll{
-            max-height: min(44vh, 460px) !important;
-            padding-bottom: 42px !important;
-            scroll-padding-bottom: 42px !important;
-            margin-bottom: 14px !important;
+            max-height: clamp(340px, 44vh, 620px) !important;
+            min-height: 340px !important;
+            padding-bottom: 44px !important;
+            scroll-padding-bottom: 44px !important;
           }
 
-          /* right-side compact cards need to reflow instead of overlapping */
-          .dashboardGrid.hasFocus.focus-compare .section-grid .cardHead,
-          .dashboardGrid.hasFocus.focus-compare .section-watch .cardHead,
-          .dashboardGrid.hasFocus.focus-compare .section-ai .cardHead,
-          .dashboardGrid.hasFocus.focus-vault .section-compare .cardHead,
-          .dashboardGrid.hasFocus.focus-vault .section-watch .cardHead,
-          .dashboardGrid.hasFocus.focus-vault .section-ai .cardHead,
-          .dashboardGrid.hasFocus.focus-watchlist .section-compare .cardHead,
-          .dashboardGrid.hasFocus.focus-watchlist .section-grid .cardHead,
-          .dashboardGrid.hasFocus.focus-watchlist .section-ai .cardHead,
-          .dashboardGrid.hasFocus.focus-ai .section-compare .cardHead,
-          .dashboardGrid.hasFocus.focus-ai .section-grid .cardHead,
-          .dashboardGrid.hasFocus.focus-ai .section-watch .cardHead{
-            flex-wrap: wrap;
-            align-items: flex-start;
-            gap: 10px;
+          /* focused desktop: compact sidebar panels */
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .cardHead,
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .cardHead,
+          .dashboardGrid.hasFocus .section-ai:not(.panelActive) .cardHead{
+            flex-wrap: wrap !important;
+            align-items: flex-start !important;
+            gap: 10px !important;
           }
-          .dashboardGrid.hasFocus.focus-compare .section-grid .cardActions,
-          .dashboardGrid.hasFocus.focus-compare .section-watch .cardActions,
-          .dashboardGrid.hasFocus.focus-compare .section-ai .cardActions,
-          .dashboardGrid.hasFocus.focus-vault .section-compare .cardActions,
-          .dashboardGrid.hasFocus.focus-vault .section-watch .cardActions,
-          .dashboardGrid.hasFocus.focus-vault .section-ai .cardActions,
-          .dashboardGrid.hasFocus.focus-watchlist .section-compare .cardActions,
-          .dashboardGrid.hasFocus.focus-watchlist .section-grid .cardActions,
-          .dashboardGrid.hasFocus.focus-watchlist .section-ai .cardActions,
-          .dashboardGrid.hasFocus.focus-ai .section-compare .cardActions,
-          .dashboardGrid.hasFocus.focus-ai .section-grid .cardActions,
-          .dashboardGrid.hasFocus.focus-ai .section-watch .cardActions{
-            width: 100%;
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: flex-start;
-            gap: 8px;
-            overflow: hidden;
-          }
-          .dashboardGrid.hasFocus.focus-compare .section-grid .pill,
-          .dashboardGrid.hasFocus.focus-compare .section-watch .pill,
-          .dashboardGrid.hasFocus.focus-compare .section-ai .pill,
-          .dashboardGrid.hasFocus.focus-vault .section-compare .pill,
-          .dashboardGrid.hasFocus.focus-vault .section-watch .pill,
-          .dashboardGrid.hasFocus.focus-vault .section-ai .pill,
-          .dashboardGrid.hasFocus.focus-watchlist .section-compare .pill,
-          .dashboardGrid.hasFocus.focus-watchlist .section-grid .pill,
-          .dashboardGrid.hasFocus.focus-watchlist .section-ai .pill,
-          .dashboardGrid.hasFocus.focus-ai .section-compare .pill,
-          .dashboardGrid.hasFocus.focus-ai .section-grid .pill,
-          .dashboardGrid.hasFocus.focus-ai .section-watch .pill{
-            max-width: 100%;
-            white-space: nowrap;
-            font-size: 11px;
-            padding: 6px 10px;
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .cardActions,
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .cardActions,
+          .dashboardGrid.hasFocus .section-ai:not(.panelActive) .cardActions{
+            display: flex !important;
+            flex-wrap: wrap !important;
+            justify-content: flex-start !important;
+            gap: 8px !important;
+            max-width: 100% !important;
+            overflow: hidden !important;
           }
 
-          /* narrow right-column grid card: stack orders below controls */
-          .dashboardGrid.hasFocus.focus-compare .section-grid .gridLayout,
-          .dashboardGrid.hasFocus.focus-watchlist .section-grid .gridLayout,
-          .dashboardGrid.hasFocus.focus-ai .section-grid .gridLayout{
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridLayout{
             grid-template-columns: 1fr !important;
-            gap: 12px !important;
+            gap: 10px !important;
           }
-          .dashboardGrid.hasFocus.focus-compare .section-grid .gridRight,
-          .dashboardGrid.hasFocus.focus-watchlist .section-grid .gridRight,
-          .dashboardGrid.hasFocus.focus-ai .section-grid .gridRight{
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridRight{
+            position: static !important;
             width: 100% !important;
             justify-self: stretch !important;
-            position: static !important;
           }
-          .dashboardGrid.hasFocus.focus-compare .section-grid .ordersList,
-          .dashboardGrid.hasFocus.focus-watchlist .section-grid .ordersList,
-          .dashboardGrid.hasFocus.focus-ai .section-grid .ordersList{
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .ordersHead{
+            gap: 8px !important;
+          }
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .ordersList{
             max-height: 220px !important;
-            overflow-y: auto !important;
-            padding-right: 4px !important;
           }
-          .dashboardGrid.hasFocus.focus-compare .section-grid select,
-          .dashboardGrid.hasFocus.focus-compare .section-grid input,
-          .dashboardGrid.hasFocus.focus-watchlist .section-grid select,
-          .dashboardGrid.hasFocus.focus-watchlist .section-grid input,
-          .dashboardGrid.hasFocus.focus-ai .section-grid select,
-          .dashboardGrid.hasFocus.focus-ai .section-grid input{
-            max-width: 100% !important;
-            min-width: 0 !important;
-          }
-          .dashboardGrid.hasFocus.focus-compare .section-grid .btnRow,
-          .dashboardGrid.hasFocus.focus-watchlist .section-grid .btnRow,
-          .dashboardGrid.hasFocus.focus-ai .section-grid .btnRow{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridControls .hint,
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridControls .muted,
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridControls .tiny{
+            font-size: 11px !important;
+            line-height: 1.3 !important;
           }
 
-          /* narrow right-column watchlist: convert rows to compact cards */
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchHead,
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchHead,
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchHead{
-            display: none !important;
-          }
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchScroll,
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchScroll,
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchScroll{
+          .watchCompact{
             display: grid;
-            gap: 8px;
+            gap: 10px;
           }
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchRow,
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchRow,
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchRow{
+          .watchCompactCard{
             display: grid;
-            grid-template-columns: 24px minmax(0,1fr) auto;
-            grid-template-areas:
-              "chk coin remove"
-              "chk price price"
-              "chk meta meta";
-            gap: 6px 10px;
+            grid-template-columns: auto 1fr auto;
+            gap: 10px;
             align-items: center;
-            padding: 10px 8px;
-            border: 1px solid rgba(255,255,255,.08);
-            border-radius: 12px;
-            background: rgba(255,255,255,.02);
+            padding: 10px 12px;
+            border: 1px solid rgba(255,255,255,.06);
+            border-radius: 14px;
+            background: rgba(255,255,255,.03);
           }
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchRow > :nth-child(1),
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchRow > :nth-child(1),
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchRow > :nth-child(1){ grid-area: chk; }
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchRow > :nth-child(2),
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchRow > :nth-child(2),
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchRow > :nth-child(2){ grid-area: coin; min-width: 0; }
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchRow > :nth-child(3),
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchRow > :nth-child(3),
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchRow > :nth-child(3){
-            grid-area: price;
-            text-align: left !important;
-            font-weight: 800;
+          .watchCompactMain{
+            min-width: 0;
+            display: grid;
+            gap: 4px;
           }
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchRow > :nth-child(4),
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchRow > :nth-child(4),
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchRow > :nth-child(4),
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchRow > :nth-child(5),
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchRow > :nth-child(5),
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchRow > :nth-child(5),
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchRow > :nth-child(6),
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchRow > :nth-child(6),
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchRow > :nth-child(6){
-            grid-area: meta;
-            text-align: left !important;
-            font-size: 12px;
-            color: rgba(232,242,240,.78);
-          }
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchRow > :nth-child(7),
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchRow > :nth-child(7),
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchRow > :nth-child(7){ grid-area: remove; }
-          .dashboardGrid.hasFocus.focus-compare .section-watch .watchCoin,
-          .dashboardGrid.hasFocus.focus-vault .section-watch .watchCoin,
-          .dashboardGrid.hasFocus.focus-ai .section-watch .watchCoin{
+          .watchCompactTop{
+            display: flex;
+            align-items: center;
+            gap: 8px;
             min-width: 0;
           }
-
-          /* narrow right-column AI card: allow chips to breathe */
-          .dashboardGrid.hasFocus.focus-compare .section-ai .aiChips,
-          .dashboardGrid.hasFocus.focus-vault .section-ai .aiChips,
-          .dashboardGrid.hasFocus.focus-watchlist .section-ai .aiChips{
+          .watchCompactMeta{
+            display: grid;
+            gap: 2px;
+            min-width: 0;
+          }
+          .watchCompactPrice{
+            text-align: right;
+            display: grid;
+            gap: 2px;
+            justify-items: end;
+            min-width: 0;
+          }
+          .watchCompactStats{
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
+            align-items: center;
+            min-width: 0;
+          }
+          .watchCompactStats .muted{
+            white-space: nowrap;
+          }
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchTable{
+            display: block !important;
+          }
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchHead{
+            display: none !important;
+          }
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchScroll{
+            display: grid !important;
+            gap: 10px !important;
+            overflow-y: auto !important;
+            max-height: clamp(180px, 26vh, 320px) !important;
+            padding-right: 6px !important;
+          }
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow{
+            display: grid !important;
+            grid-template-columns: auto 1fr auto !important;
+            gap: 10px !important;
+            align-items: center !important;
+            padding: 10px 12px !important;
+            border: 1px solid rgba(255,255,255,.06) !important;
+            border-radius: 14px !important;
+            background: rgba(255,255,255,.03) !important;
+          }
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow > :nth-child(4),
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow > :nth-child(5),
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow > :nth-child(6){
+            display: none !important;
+          }
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchCoin{
+            min-width: 0 !important;
+          }
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchCoin > div:last-child{
+            min-width: 0 !important;
+          }
+          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchSym{
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
           }
         }
 
@@ -9302,42 +9269,79 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
 
           <div className="panelScroll"><div className="watchTable">
-            <div className="watchHead watchStickyHead">
-              <div>Compare</div>
-              <div>Coin</div>
-              <div className="right">Price</div>
-              <div className="right">24h</div>
-              <div className="right">Vol</div>
-              <div className="right">Source</div>
-              <div className="right"> </div>
-            </div>
+            {!isWatchSidebarCompact ? (
+              <>
+                <div className="watchHead watchStickyHead">
+                  <div>Compare</div>
+                  <div>Coin</div>
+                  <div className="right">Price</div>
+                  <div className="right">24h</div>
+                  <div className="right">Vol</div>
+                  <div className="right">Source</div>
+                  <div className="right"> </div>
+                </div>
 
-            <div className="watchScroll">
-              {watchRows.map((r, idx) => {
-                const sym = String(r.symbol || "").toUpperCase();
-                const checked = compareSymbols.includes(sym);
-                return (
-                  <div key={`${sym}-${idx}`} className="watchRow">
-                    <div>
-                      <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 10} />
-                    </div>
-                    <div className="watchCoin">
-                      <div className="coinLogo small">{sym.slice(0, 1)}</div>
+                <div className="watchScroll">
+                  {watchRows.map((r, idx) => {
+                    const sym = String(r.symbol || "").toUpperCase();
+                    const checked = compareSymbols.includes(sym);
+                    return (
+                      <div key={`${sym}-${idx}`} className="watchRow">
+                        <div>
+                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 10} />
+                        </div>
+                        <div className="watchCoin">
+                          <div className="coinLogo small">{sym.slice(0, 1)}</div>
+                          <div>
+                            <div className="watchSym">{sym}</div>
+                            <div className="muted tiny">{r.mode === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
+                          </div>
+                        </div>
+                        <div className="right mono">{fmtUsd(r.price)}</div>
+                        <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
+                        <div className="right mono">{fmtUsd(r.volume24h)}</div>
+                        <div className="right muted">{r.source || "—"}</div>
+                        <div className="right"><button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
+                      </div>
+                    );
+                  })}
+                  {!watchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
+                </div>
+              </>
+            ) : (
+              <div className="watchCompact">
+                {watchRows.map((r, idx) => {
+                  const sym = String(r.symbol || "").toUpperCase();
+                  const checked = compareSymbols.includes(sym);
+                  const mm = (r.mode || "market");
+                  return (
+                    <div key={`${sym}-${idx}`} className="watchCompactCard">
                       <div>
-                        <div className="watchSym">{sym}</div>
-                        <div className="muted tiny">{r.mode === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
+                        <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 10} />
+                      </div>
+                      <div className="watchCompactMain">
+                        <div className="watchCompactTop">
+                          <div className="coinLogo small">{sym.slice(0, 1)}</div>
+                          <div className="watchCompactMeta">
+                            <div className="watchSym">{sym}</div>
+                            <div className="muted tiny">{mm === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
+                          </div>
+                        </div>
+                        <div className="watchCompactStats">
+                          <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
+                          <span className="muted tiny">{r.source || "—"}</span>
+                        </div>
+                      </div>
+                      <div className="watchCompactPrice">
+                        <div className="mono" style={{ fontWeight: 900 }}>{fmtUsd(r.price)}</div>
+                        <button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : ""), contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button>
                       </div>
                     </div>
-                    <div className="right mono">{fmtUsd(r.price)}</div>
-                    <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
-                    <div className="right mono">{fmtUsd(r.volume24h)}</div>
-                    <div className="right muted">{r.source || "—"}</div>
-                    <div className="right"><button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
-                  </div>
-                );
-              })}
-              {!watchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
-            </div>
+                  );
+                })}
+                {!watchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
+              </div>
+            )}
           </div>
 
           <div className="muted tiny">Compare selection is the single source of truth (max 10).</div>

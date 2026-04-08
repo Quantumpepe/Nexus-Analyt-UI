@@ -6739,16 +6739,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
             overflow-x: hidden !important;
           }
           .section-compare .pairsScroll{
-            flex: 1 1 auto !important;
-            min-height: clamp(320px, 40vh, 560px) !important;
-            max-height: clamp(320px, 50vh, 760px) !important;
+            flex: 0 1 auto !important;
+            min-height: 0 !important;
+            max-height: clamp(220px, 28vh, 420px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 8px !important;
-            padding-bottom: 40px !important;
+            padding-bottom: 56px !important;
             margin-top: 6px !important;
             margin-bottom: 10px !important;
-            scroll-padding-bottom: 40px !important;
+            scroll-padding-bottom: 56px !important;
             overscroll-behavior: contain !important;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
           }
@@ -6782,10 +6782,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           /* focused desktop: give Compare more usable pair-list height */
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsScroll{
-            min-height: clamp(420px, 46vh, 620px) !important;
-            max-height: clamp(420px, 58vh, 860px) !important;
-            padding-bottom: 52px !important;
-            scroll-padding-bottom: 52px !important;
+            min-height: 0 !important;
+            max-height: clamp(260px, 34vh, 520px) !important;
+            padding-bottom: 64px !important;
+            scroll-padding-bottom: 64px !important;
           }
 
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsBox{
@@ -9652,13 +9652,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
             overflow-x: hidden !important;
           }
           .section-compare .pairsScroll{
-            min-height: clamp(320px, 40vh, 560px) !important;
-            max-height: clamp(320px, 50vh, 760px) !important;
+            min-height: 0 !important;
+            max-height: clamp(220px, 28vh, 420px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 6px;
-            padding-bottom: 40px !important;
-            scroll-padding-bottom: 40px !important;
+            padding-bottom: 56px !important;
+            scroll-padding-bottom: 56px !important;
           }
           .section-compare .liveListBox::-webkit-scrollbar,
           .section-compare .pairsScroll::-webkit-scrollbar{

@@ -6715,20 +6715,40 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
 
           /* re-enable Compare internal scrolls after the global desktop override */
+          .section-compare .compareGrid{
+            display: grid !important;
+            grid-template-columns: minmax(220px, 240px) minmax(0, 1fr) !important;
+            align-items: start !important;
+            min-height: 0 !important;
+            gap: 16px !important;
+          }
+          .section-compare .compareChart{
+            display: flex !important;
+            flex-direction: column !important;
+            min-height: 0 !important;
+          }
+          .section-compare .pairsBox{
+            display: flex !important;
+            flex-direction: column !important;
+            min-height: 0 !important;
+            flex: 1 1 auto !important;
+          }
           .section-compare .liveListBox{
-            max-height: 320px !important;
+            max-height: clamp(260px, 34vh, 420px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
           }
           .section-compare .pairsScroll{
-            max-height: 388px !important;
+            flex: 1 1 auto !important;
+            min-height: clamp(320px, 40vh, 560px) !important;
+            max-height: clamp(320px, 50vh, 760px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 8px !important;
-            padding-bottom: 28px !important;
+            padding-bottom: 40px !important;
             margin-top: 6px !important;
             margin-bottom: 10px !important;
-            scroll-padding-bottom: 28px !important;
+            scroll-padding-bottom: 40px !important;
             overscroll-behavior: contain !important;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
           }
@@ -6762,13 +6782,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           /* focused desktop: give Compare more usable pair-list height */
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsScroll{
-            max-height: clamp(340px, 44vh, 620px) !important;
-            min-height: 340px !important;
-            padding-bottom: 44px !important;
-            scroll-padding-bottom: 44px !important;
+            min-height: clamp(420px, 46vh, 620px) !important;
+            max-height: clamp(420px, 58vh, 860px) !important;
+            padding-bottom: 52px !important;
+            scroll-padding-bottom: 52px !important;
           }
 
-          /* focused desktop: compact sidebar panels */
+          .dashboardGrid.hasFocus.focus-compare .section-compare .pairsBox{
+            flex: 1 1 auto !important;
+          }
+
+                    /* focused desktop: compact sidebar panels */
           .dashboardGrid.hasFocus .section-grid:not(.panelActive) .cardHead,
           .dashboardGrid.hasFocus .section-watch:not(.panelActive) .cardHead,
           .dashboardGrid.hasFocus .section-ai:not(.panelActive) .cardHead{
@@ -9623,15 +9647,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
       <style>{`
         @media (min-width: 981px){
           .section-compare .liveListBox{
-            max-height: 320px !important;
+            max-height: clamp(260px, 34vh, 420px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
           }
           .section-compare .pairsScroll{
-            max-height: 420px !important;
+            min-height: clamp(320px, 40vh, 560px) !important;
+            max-height: clamp(320px, 50vh, 760px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 6px;
+            padding-bottom: 40px !important;
+            scroll-padding-bottom: 40px !important;
           }
           .section-compare .liveListBox::-webkit-scrollbar,
           .section-compare .pairsScroll::-webkit-scrollbar{

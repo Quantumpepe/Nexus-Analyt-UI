@@ -966,6 +966,78 @@ function _compareFetchRange(timeframe) {
   return "1Y"; // fetch once, slice for 7D/30D/90D/1Y views
 }
 
+function _extractExplicitTfFromQuestion(q) {
+  const s = String(q || "").toLowerCase();
+  if (!s) return null;
+
+  const patterns = [
+    ["2Y", [/\b2\s*(year|years|yr|yrs|jahre|jahr|jahren)\b/i, /\btwo\s+years\b/i]],
+    ["1Y", [/\b1\s*(year|years|yr|yrs|jahr|jahre|jahren)\b/i, /\bone\s+year\b/i]],
+    ["90D", [/\b90\s*(day|days|tage|tagen)\b/i]],
+    ["30D", [/\b30\s*(day|days|tage|tagen)\b/i]],
+    ["7D", [/\b7\s*(day|days|tage|tagen)\b/i, /\b1\s*(week|weeks|woche|wochen)\b/i]],
+    ["1D", [/\b1\s*(day|days|tag|tage)\b/i, /\b24\s*h\b/i, /\b24\s*hours?\b/i]],
+  ];
+  for (const [tf, regs] of patterns) {
+    if (regs.some((rx) => rx.test(s))) return tf;
+  }
+  return null;
+}
+
+function _seriesStatsFromSeriesMap(seriesMap, syms) {
+  const out = {};
+  const statsForPts = (pts) => {
+    const vals = (Array.isArray(pts) ? pts : [])
+      .map((p) => (p && Number.isFinite(p.v) ? p.v : null))
+      .filter((v) => v != null);
+    if (vals.length < 2) return null;
+
+    const first = vals[0];
+    const last = vals[vals.length - 1];
+    const changePct = first !== 0 ? ((last / first) - 1) * 100 : null;
+
+    const rets = [];
+    for (let i = 1; i < vals.length; i++) {
+      const a = vals[i - 1], b = vals[i];
+      if (a && b && a !== 0) rets.push((b / a) - 1);
+    }
+    const mean = rets.length ? rets.reduce((s, x) => s + x, 0) / rets.length : 0;
+    const variance = rets.length ? rets.reduce((s, x) => s + (x - mean) ** 2, 0) / rets.length : 0;
+    const volPct = Math.sqrt(variance) * 100;
+
+    let peak = vals[0];
+    let maxDD = 0;
+    for (const v of vals) {
+      if (v > peak) peak = v;
+      const dd = peak ? (v / peak) - 1 : 0;
+      if (dd < maxDD) maxDD = dd;
+    }
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+
+    return { first, last, changePct, volPct, maxDDPct: maxDD * 100, min, max, points: vals.length };
+  };
+
+  for (const s of (syms || [])) {
+    const pts = ((seriesMap && seriesMap[s]) || []).slice().sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
+    const stats = statsForPts(pts);
+    if (stats) out[s] = stats;
+  }
+  return out;
+}
+
+function _buildInsightWindows(compareSeries, syms) {
+  const windows = ["7D", "30D", "90D", "1Y"];
+  const out = {};
+  for (const tf of windows) {
+    const sliced = sliceCompareSeries(compareSeries || {}, tf);
+    const stats = _seriesStatsFromSeriesMap(sliced, syms);
+    if (Object.keys(stats).length) out[tf] = stats;
+  }
+  return out;
+}
+
+
 
 function buildUnifiedChart(seriesBySym) {
   const syms = Object.keys(seriesBySym || {});
@@ -3468,23 +3540,60 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }, [selectedPair?.pair, timeframe]);
 
   async function runAiExplain() {
-    // Optional AI: keep it local for now (no backend/web). Fast + cheap.
     if (!requirePro("AI explain")) return;
     if (!selectedPair) return;
     setAiExplainLoading(true);
     try {
       const [a, b] = _pairSyms(selectedPair.pair);
-      const ra = _retPctForExplain(a);
-      const rb = _retPctForExplain(b);
-      const spread = (Number.isFinite(ra) && Number.isFinite(rb)) ? (ra - rb) : null;
       const corr = Number(selectedPair?.corr);
 
-      const winner = Number.isFinite(ra) && Number.isFinite(rb)
-        ? (ra >= rb ? a : b)
-        : null;
-      const loser = Number.isFinite(ra) && Number.isFinite(rb)
-        ? (ra >= rb ? b : a)
-        : null;
+      const windowDefs = ["7D", "30D", "90D", "1Y"];
+      const pairWindows = {};
+      for (const tf of windowDefs) {
+        const sliced = sliceCompareSeries(pairExplainSeries || {}, tf);
+        const stats = _seriesStatsFromSeriesMap(sliced, [a, b]);
+        pairWindows[tf] = stats || {};
+      }
+
+      const getRet = (sym, tf) => {
+        const st = pairWindows?.[tf]?.[sym];
+        return Number.isFinite(Number(st?.changePct)) ? Number(st.changePct) : null;
+      };
+
+      const ra = getRet(a, "30D");
+      const rb = getRet(b, "30D");
+      const spread = (Number.isFinite(ra) && Number.isFinite(rb)) ? (ra - rb) : null;
+
+      const winner = Number.isFinite(ra) && Number.isFinite(rb) ? (ra >= rb ? a : b) : null;
+      const loser = Number.isFinite(ra) && Number.isFinite(rb) ? (ra >= rb ? b : a) : null;
+
+      const classify = (v) => {
+        if (!Number.isFinite(v)) return "n/a";
+        if (v >= 8) return "bullish";
+        if (v <= -8) return "bearish";
+        return "neutral";
+      };
+
+      const avgRet = (tf) => {
+        const aa = getRet(a, tf);
+        const bb = getRet(b, tf);
+        if (Number.isFinite(aa) && Number.isFinite(bb)) return (aa + bb) / 2;
+        if (Number.isFinite(aa)) return aa;
+        if (Number.isFinite(bb)) return bb;
+        return null;
+      };
+
+      const trendStructure = windowDefs
+        .map((tf) => `${tf} ${classify(avgRet(tf))}`)
+        .join(" · ");
+
+      const shortBias = classify(avgRet("30D"));
+      const longBias = classify(avgRet("1Y"));
+
+      let momentumShift = "Momentum is mixed across timeframes.";
+      if (shortBias === "bearish" && longBias === "bullish") momentumShift = "Short-term weakness inside a stronger long-term structure.";
+      else if (shortBias === "bullish" && longBias === "bearish") momentumShift = "Short-term recovery attempt against a weaker long-term backdrop.";
+      else if (shortBias === longBias && shortBias !== "n/a") momentumShift = `Short-term and long-term momentum are aligned ${shortBias}.`;
 
       let setup = "Neutral";
       let confidence = 5.4;
@@ -3514,7 +3623,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       if (Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(spread) && Math.abs(spread) >= 0.75 && winner && loser) {
         setup = "MEAN REVERSION";
         action = `1. SELL ${winner}\n2. BUY ${loser}\n3. Start Grid: Mode ${gridMode}, Range ${gridRange}\n4. Expectation: mean reversion (${winner} cools off, ${loser} catches up).`;
-        verdictText = `${winner} outperformed ${loser} over ${PAIR_EXPLAIN_TF}. With a relatively high correlation, this looks like a mean-reversion/grid candidate.`;
+        verdictText = `${winner} outperformed ${loser} over 30D. With a relatively high correlation, this looks like a mean-reversion/grid candidate.`;
         why.push(`High correlation (${corr >= 0 ? "+" : ""}${corr.toFixed(2)}) means both coins often move together.`);
         why.push(`The performance spread of ${_fmtPctLocal(spread)} creates a usable imbalance for a reversion idea.`);
         why.push(`${winner} is currently the stronger side, ${loser} the weaker side.`);
@@ -3525,10 +3634,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         } else if (Math.abs(spread) >= 2) {
           gridMode = "Standard";
           gridRange = "3–5%";
-          risk = "Medium";
-        } else {
-          gridMode = "Standard";
-          gridRange = "2–4%";
           risk = "Medium";
         }
       } else if (Number.isFinite(corr) && corr < 0.45) {
@@ -3564,47 +3669,49 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         verdictText = `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence grid setup.`;
         why.push("There is a leader and a laggard, but the data is not perfectly aligned for a strong reversion setup.");
         why.push("Mixed conditions increase the chance of trend continuation.");
-        why.push("If you trade it, reduce size and widen the grid.");
-        gridMode = "Wide";
-        gridRange = "4–6%";
+        why.push("If you trade it, reduce size and widen spacing.");
       }
 
-      confidence = Math.max(1, Math.min(9.9, Number(confidence.toFixed(1))));
-      if (confidence >= 8.2) confidenceLabel = "HIGH";
-      else if (confidence >= 6.6) confidenceLabel = "MEDIUM";
-      else if (confidenceLabel === "MEDIUM") confidenceLabel = "LOW-MED";
+      confidence = Math.max(1, Math.min(10, Math.round(confidence * 10) / 10));
+      if (confidence >= 8) confidenceLabel = "HIGH";
+      else if (confidence <= 4.9) confidenceLabel = "LOW";
 
-      const bullets = [];
-      if (Number.isFinite(ra) && Number.isFinite(rb)) {
-        bullets.push(`${a} moved ${_fmtPctLocal(ra)} while ${b} moved ${_fmtPctLocal(rb)} over ${PAIR_EXPLAIN_TF}.`);
-        bullets.push(`Performance spread is ${_fmtPctLocal(spread)} (A minus B).`);
-      } else {
-        bullets.push("Not enough data to compute reliable performance spread for this range.");
-      }
-      if (Number.isFinite(corr)) {
-        bullets.push(`Correlation is ${(corr >= 0 ? "+" : "") + corr.toFixed(2)} (higher means they often move together).`);
-      }
-      bullets.push(`Suggested grid mode: ${gridMode}.`);
-      bullets.push(`Suggested range: ${gridRange}.`);
-      bullets.push(`Risk profile: ${risk}.`);
+      const insightSummary =
+        longBias === "bullish" && shortBias === "bearish"
+          ? "Short-term pressure is visible, but the broader structure still looks stronger."
+          : longBias === "bearish" && shortBias === "bullish"
+            ? "There is a rebound attempt, but the broader structure remains weaker."
+            : "The pair structure is currently mixed and should be monitored across multiple windows.";
 
+      const textOut = [
+        `Trend Structure: ${trendStructure}`,
+        `Momentum Shift: ${momentumShift}`,
+        `Risk View: ${risk}`,
+        `Interpretation: ${verdictText}`,
+        `Insight Summary: ${insightSummary}`,
+      ].join("\n");
+
+      setAiExplainText(textOut);
       setAiExplainData({
         setup,
         confidence,
         confidenceLabel,
         risk,
         action,
-        mode: gridMode,
-        range: gridRange,
+        gridMode,
+        gridRange,
+        why,
         verdictText,
         winner,
         loser,
-        bullets: Array.isArray(why) ? why : [],
+        trendStructure,
+        momentumShift,
+        insightSummary,
+        windows: pairWindows,
       });
-      setAiExplainText("• " + bullets.join("\n• "));
     } catch (e) {
+      setAiExplainText("");
       setAiExplainData(null);
-      setAiExplainText("AI commentary failed.");
     } finally {
       setAiExplainLoading(false);
     }
@@ -6063,7 +6170,6 @@ async function runAi() {
     if (!requirePro("AI analysis")) return;
     const q = (aiQuestion || "").trim();
 
-    // Require at least 1 coin context from AI selection or Compare selection
     const syms = (aiSelected && aiSelected.length ? aiSelected : compareSymbols).slice(0, 6);
     if (!syms.length) return setErrorMsg("Select at least 1 coin in Compare (or AI).");
 
@@ -6078,102 +6184,79 @@ async function runAi() {
           ? `Give ${aiProfile} trading signals and key levels based on the selected timeframe.`
           : `Provide a ${aiProfile} ${aiKind.toLowerCase()} based on the selected timeframe, and summarize key trends, risks, and actionable takeaways.`);
 
-
     setAiLoading(true);
     try {
-      const authToken = await ensureBackendAuthToken();
+      await ensureBackendAuthToken();
 
-      const uiTf = String(timeframe || "").toUpperCase() || "90D";
+      const uiTf = String(timeframe || "").toUpperCase();
+      const explicitTf = _extractExplicitTfFromQuestion(qFinal);
+      const tf = String(explicitTf || uiTf || "90D").toUpperCase();
 
-      const detectRequestedTimeframe = (input) => {
-        const s = String(input || "").toLowerCase();
-        if (!s.trim()) return null;
-
-        if (/\b(2\s*y(ears?)?|2\s*jah(re|ren)?|24\s*months?|24\s*monate?)\b/i.test(s)) return "2Y";
-        if (/\b(1\s*y(ear)?|1\s*jahr|12\s*months?|12\s*monate?)\b/i.test(s)) return "1Y";
-        if (/\b(90\s*d(ays?)?|90\s*tage?)\b/i.test(s)) return "90D";
-        if (/\b(30\s*d(ays?)?|30\s*tage?)\b/i.test(s)) return "30D";
-        if (/\b(7\s*d(ays?)?|7\s*tage?|1\s*week|1\s*woche)\b/i.test(s)) return "7D";
-        if (/\b(1\s*d(ay)?|24\s*h(ours?)?|24h|heute|today|intraday)\b/i.test(s)) return "1D";
-        return null;
-      };
-
-      // Explicit timeframe in the user's question overrides the UI timeframe.
-      const requestedTf = detectRequestedTimeframe(q) || uiTf;
-
-      // IMPORTANT: use the SAME raw chart series, but slice it to the requested timeframe
-      // so AI can answer 7D/30D/90D/1Y/2Y even if the visible UI timeframe differs.
-      const seriesForAi = sliceCompareSeries(compareSeries, requestedTf);
-
-      const statsForSym = (sym) => {
-        const pts = ((seriesForAi && seriesForAi[sym]) || []).slice().sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
-        const vals = pts.map(p => p && Number.isFinite(p.v) ? p.v : null).filter(v => v != null);
-        if (vals.length < 2) return null;
-
-        const first = vals[0];
-        const last = vals[vals.length - 1];
-        const changePct = first !== 0 ? ((last / first) - 1) * 100 : null;
-
-        const rets = [];
-        for (let i = 1; i < vals.length; i++) {
-          const a = vals[i - 1], b = vals[i];
-          if (a && b && a !== 0) rets.push((b / a) - 1);
-        }
-        const mean = rets.length ? rets.reduce((s, x) => s + x, 0) / rets.length : 0;
-        const variance = rets.length ? rets.reduce((s, x) => s + (x - mean) ** 2, 0) / rets.length : 0;
-        const volPct = Math.sqrt(variance) * 100;
-
-        let peak = vals[0];
-        let maxDD = 0;
-        for (const v of vals) {
-          if (v > peak) peak = v;
-          const dd = peak ? (v / peak) - 1 : 0;
-          if (dd < maxDD) maxDD = dd;
-        }
-        const min = Math.min(...vals);
-        const max = Math.max(...vals);
-
-        return { first, last, changePct, volPct, maxDDPct: maxDD * 100, min, max, points: vals.length };
-      };
-
-      const seriesStats = {};
-      for (const s of syms) {
-        const stats = statsForSym(s);
-        if (stats) seriesStats[s] = stats;
-      }
+      const slicedSeries = sliceCompareSeries(compareSeries || {}, tf);
+      const seriesStats = _seriesStatsFromSeriesMap(slicedSeries, syms);
+      const insightWindows = _buildInsightWindows(compareSeries || {}, syms);
 
       const statsText = Object.entries(seriesStats)
         .map(([s, stats]) => `${s}: change=${(stats.changePct ?? 0).toFixed(2)}%, vol=${(stats.volPct ?? 0).toFixed(2)}%, maxDD=${(stats.maxDDPct ?? 0).toFixed(2)}%, range=[${stats.min}, ${stats.max}], points=${stats.points}`)
-        .join("\\n");
+        .join("
+");
+
+      const insightText = Object.entries(insightWindows)
+        .map(([windowTf, bySym]) => {
+          const lines = Object.entries(bySym || {}).map(([s, stats]) =>
+            `${s}: change=${(stats.changePct ?? 0).toFixed(2)}%, vol=${(stats.volPct ?? 0).toFixed(2)}%, maxDD=${(stats.maxDDPct ?? 0).toFixed(2)}%, points=${stats.points}`
+          );
+          return lines.length ? `Insight window ${windowTf}:
+${lines.join("
+")}` : "";
+        })
+        .filter(Boolean)
+        .join("
+
+");
 
       const trimmedHist = (aiHistory || []).slice(-10);
       const historyText = trimmedHist
         .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
-        .join("\n");
-
-      const timeframeHeader =
-        requestedTf === uiTf
-          ? `Timeframe: ${requestedTf} (use ONLY this timeframe's series stats below; do NOT talk about 24h unless Timeframe is 1D/24H).\n`
-          : `Requested timeframe: ${requestedTf}. Active UI timeframe: ${uiTf}. Use the REQUESTED timeframe's series stats below for the answer.\n`;
+        .join("
+");
 
       const header =
-        timeframeHeader +
-        `Coins: ${syms.join(", ")}\n` +
-        (statsText ? `Series stats (${requestedTf}):\n${statsText}\n` : "");
+        `UI timeframe: ${uiTf}.
+` +
+        `Active analysis timeframe: ${tf}.
+` +
+        (explicitTf
+          ? `The user explicitly asked for ${explicitTf}, so this overrides the current UI timeframe.
+`
+          : `No explicit timeframe was found in the user's question, so use the current UI timeframe.
+`) +
+        `Coins: ${syms.join(", ")}
+` +
+        (statsText ? `Series stats (${tf}):
+${statsText}
+` : "") +
+        (insightText ? `
+Multi-timeframe insight context (use this for AI Insight / trend-structure comparison):
+${insightText}
+` : "");
 
       const questionText =
-        aiFollowUp && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;
+        isFollowUpAsk && historyText ? `${header}${historyText}
+User: ${qFinal}` : `${header}User: ${qFinal}`;
 
       const body = {
         kind: aiKind,
         symbols: syms,
         profile: aiProfile,
         question: questionText,
-        timeframe: requestedTf,
-        ui_timeframe: uiTf,
+        timeframe: tf,
+        selected_timeframe: uiTf,
+        explicit_question_timeframe: explicitTf || null,
         index_mode: !!indexMode,
         history: isFollowUpAsk ? trimmedHist : [],
         series_stats: seriesStats,
+        insight_windows: insightWindows,
       };
 
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
@@ -6187,11 +6270,11 @@ async function runAi() {
         (typeof r === "string" ? r : "");
 
       if (!text) text = "No AI response.";
-      text = String(text).replace(/\\n/g, "\n");
-      text = normalizeAiOutput(text, requestedTf, q, seriesStats);
+      text = String(text).replace(/\n/g, "
+");
+      text = normalizeAiOutput(text, tf, qFinal, seriesStats);
       setAiOutput(text);
 
-      // Update history only for explicit follow-up asks
       if (isFollowUpAsk) {
         setAiHistory((prev) => {
           const next = [...(prev || []), { role: "user", content: qFinal }, { role: "assistant", content: text }];
@@ -8288,6 +8371,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.risk}</div>
                         </div>
                       </div>
+
+                      {(aiExplainData.trendStructure || aiExplainData.momentumShift || aiExplainData.insightSummary) ? (
+                        <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                          <div className="label" style={{ marginBottom: 0 }}>Multi-timeframe AI Insight</div>
+                          {aiExplainData.trendStructure ? (
+                            <div><span className="muted tiny">Trend Structure</span><div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.trendStructure}</div></div>
+                          ) : null}
+                          {aiExplainData.momentumShift ? (
+                            <div><span className="muted tiny">Momentum Shift</span><div style={{ marginTop: 4 }}>{aiExplainData.momentumShift}</div></div>
+                          ) : null}
+                          {aiExplainData.insightSummary ? (
+                            <div><span className="muted tiny">Insight Summary</span><div style={{ marginTop: 4 }}>{aiExplainData.insightSummary}</div></div>
+                          ) : null}
+                        </div>
+                      ) : null}
 
                       <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                         <div className="label" style={{ marginBottom: 0 }}>What to do now</div>

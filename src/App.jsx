@@ -3891,8 +3891,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         `Risk View: ${risk}`,
         `Interpretation: ${verdictText}`,
         `Insight Summary: ${insightSummary}`,
-      ].join("
-");
+      ].join("\n");
 
       setAiExplainText(textOut);
       setAiExplainData({

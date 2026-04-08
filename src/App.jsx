@@ -4084,7 +4084,7 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   const [aiProfile, setAiProfile] = useState("balanced");
 const [aiQuestion, setAiQuestion] = useState("");
   
-  const [aiFollowUp, setAiFollowUp] = useState(true);
+  const [aiFollowUp, setAiFollowUp] = useState(false);
   const [aiHistory, setAiHistory] = useState([]); // [{role:"user"|"assistant", content:string}]
 const [aiLoading, setAiLoading] = useState(false);
   const [aiOutput, setAiOutput] = useState("");
@@ -6066,9 +6066,17 @@ async function runAi() {
     // Require at least 1 coin context from AI selection or Compare selection
     const syms = (aiSelected && aiSelected.length ? aiSelected : compareSymbols).slice(0, 6);
     if (!syms.length) return setErrorMsg("Select at least 1 coin in Compare (or AI).");
-    const qFinal = q || (aiKind === "Signals"
-      ? `Give ${aiProfile} trading signals and key levels based on the selected timeframe.`
-      : `Provide a ${aiProfile} ${aiKind.toLowerCase()} based on the selected timeframe, and summarize key trends, risks, and actionable takeaways.`);
+
+    const isFollowUpAsk = !!aiFollowUp && !!q;
+    if (aiFollowUp && !aiOutput && q) {
+      return setErrorMsg("Run an AI analysis first, then ask a follow-up question.");
+    }
+
+    const qFinal = isFollowUpAsk
+      ? q
+      : (aiKind === "Signals"
+          ? `Give ${aiProfile} trading signals and key levels based on the selected timeframe.`
+          : `Provide a ${aiProfile} ${aiKind.toLowerCase()} based on the selected timeframe, and summarize key trends, risks, and actionable takeaways.`);
 
 
     setAiLoading(true);
@@ -6141,7 +6149,7 @@ async function runAi() {
         question: questionText,
         timeframe: tf,
         index_mode: !!indexMode,
-        history: aiFollowUp ? trimmedHist : [],
+        history: isFollowUpAsk ? trimmedHist : [],
         series_stats: seriesStats,
       };
 
@@ -6161,13 +6169,18 @@ async function runAi() {
       text = normalizeAiOutput(text, tf, q, seriesStats);
       setAiOutput(text);
 
-      // Update history (only when follow-up enabled)
-      if (aiFollowUp) {
+      // Update history only for explicit follow-up asks
+      if (isFollowUpAsk) {
         setAiHistory((prev) => {
           const next = [...(prev || []), { role: "user", content: qFinal }, { role: "assistant", content: text }];
           return next.slice(-10);
         });
-  }
+      }
+      if (isFollowUpAsk) {
+        setAiQuestion("");
+      } else if (!aiFollowUp) {
+        setAiHistory([]);
+      }
     } catch (e) {
       setErrorMsg("");
     } finally {
@@ -9043,14 +9056,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <option value="volatility">Volatility</option>
                 </select>
               </div>
-<div className="formRow">
-                <label>Question (optional)</label>
-                <input value={aiQuestion} onChange={(e) => setAiQuestion(e.target.value)} placeholder="Ask the analyst..." />
-              </div>
-
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+<div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <label className="muted" style={{ display: "inline-flex", gap: 8, alignItems: "center", userSelect: "none" }}>
-                  <input type="checkbox" checked={aiFollowUp} onChange={(e) => setAiFollowUp(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={aiFollowUp}
+                    onChange={(e) => {
+                      const on = !!e.target.checked;
+                      setAiFollowUp(on);
+                      setAiQuestion("");
+                      if (!on) setAiHistory([]);
+                    }}
+                  />
                   Follow-up
                 </label>
                 <button
@@ -9081,6 +9098,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="aiOut">
               <div className="label">Output</div>
               <div className="aiPanel">{aiOutput ? <div className="aiText" style={{ whiteSpace: "pre-wrap" }}>{aiOutput}</div> : <div className="muted">No output yet.</div>}</div>
+
+              {aiFollowUp ? (
+                <div style={{ marginTop: 12 }}>
+                  <div className="label" style={{ marginBottom: 6 }}>Ask about this analysis</div>
+                  <div className="formRow" style={{ marginBottom: 8 }}>
+                    <input
+                      value={aiQuestion}
+                      onChange={(e) => setAiQuestion(e.target.value)}
+                      placeholder={aiOutput ? "Ask something about this analysis..." : "Run the analysis first, then ask a follow-up..."}
+                      disabled={!aiOutput || aiLoading}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && aiQuestion.trim() && aiOutput && !aiLoading) {
+                          e.preventDefault();
+                          runAi();
+                        }
+                      }}
+                    />
+                  </div>
+                  {aiQuestion.trim() ? (
+                    <button className="btn" onClick={runAi} disabled={!aiOutput || aiLoading}>
+                      {aiLoading ? "Asking…" : "Ask"}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div></div>
         </section>

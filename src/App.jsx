@@ -8354,6 +8354,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
 
+                      <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                        <div className="label" style={{ marginBottom: 0 }}>AI Conclusion</div>
+                        <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.4 }}>
+                          {aiExplainData.verdictText || "No clear AI conclusion available yet."}
+                        </div>
+                        <div className="muted tiny" style={{ lineHeight: 1.5 }}>
+                          {aiExplainData.winner && aiExplainData.loser
+                            ? `Current bias: rotate away from ${aiExplainData.winner} toward ${aiExplainData.loser}, but only if the setup matches your risk tolerance.`
+                            : "This conclusion should be treated as a directional hint, not an automatic trade command."}
+                        </div>
+                      </div>
+
                       {(aiExplainData.trendStructure || aiExplainData.momentumShift || aiExplainData.insightSummary) ? (
                         <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                           <div className="label" style={{ marginBottom: 0 }}>Multi-timeframe AI Insight</div>
@@ -8370,7 +8382,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       ) : null}
 
                       <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>What to do now</div>
+                        <div className="label" style={{ marginBottom: 0 }}>Suggested Action</div>
 
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -8390,6 +8402,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             ))}
                         </div>
 
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                            <div className="muted tiny">Suggested Grid</div>
+                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridRange || aiExplainData.range || "—"}</div>
+                          </div>
+                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                            <div className="muted tiny">Mode</div>
+                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridMode || aiExplainData.mode || "—"}</div>
+                          </div>
+                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                            <div className="muted tiny">Time horizon</div>
+                            <div style={{ fontWeight: 900, marginTop: 4 }}>
+                              {String(aiExplainData.setup || "").includes("MEAN")
+                                ? "Short to medium term"
+                                : String(aiExplainData.setup || "").includes("TREND")
+                                  ? "Short-term tactical"
+                                  : "Wait / monitor"}
+                            </div>
+                          </div>
+                        </div>
+
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <>
                             <div className="tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -8403,23 +8436,51 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         ) : null}
                       </div>
 
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
-                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                          <div className="muted tiny">Suggested Grid</div>
-                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.range}</div>
-                        </div>
-                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                          <div className="muted tiny">Mode</div>
-                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.mode}</div>
+                      <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                        <div className="label" style={{ marginBottom: 0 }}>Why this setup</div>
+                        <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
+                          {(Array.isArray(aiExplainData.why) ? aiExplainData.why : Array.isArray(aiExplainData.bullets) ? aiExplainData.bullets : []).map((line, idx) => (
+                            <div key={idx}>• {line}</div>
+                          ))}
                         </div>
                       </div>
 
-                      <div style={{ display: "grid", gap: 6 }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Why this setup</div>
+                      <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                        <div className="label" style={{ marginBottom: 0 }}>Invalidation</div>
                         <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
-                          {(Array.isArray(aiExplainData.bullets) ? aiExplainData.bullets : []).map((line, idx) => (
-                            <div key={idx}>• {line}</div>
-                          ))}
+                          {(() => {
+                            const lines = [];
+                            if (aiExplainData.winner && aiExplainData.loser) {
+                              lines.push(`If ${aiExplainData.winner} keeps outperforming while ${aiExplainData.loser} stays weak, the catch-up idea weakens.`);
+                            }
+                            if (String(aiExplainData.gridMode || aiExplainData.mode || "").toLowerCase() === "wait") {
+                              lines.push("If spread and correlation do not improve, there is still no valid entry.");
+                            } else {
+                              lines.push("If the spread widens sharply without any stabilization, reduce trust in mean reversion.");
+                            }
+                            lines.push("If short-term structure deteriorates further across 7D and 30D, the setup should be reassessed.");
+                            return lines.map((line, idx) => <div key={idx}>• {line}</div>);
+                          })()}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                        <div className="label" style={{ marginBottom: 0 }}>Best for</div>
+                        <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
+                          {(() => {
+                            const lines = [];
+                            const riskTxt = String(aiExplainData.risk || "").toLowerCase();
+                            if (riskTxt.includes("high")) lines.push("Best suited for active users who can handle medium to high risk.");
+                            else if (riskTxt.includes("medium")) lines.push("Best suited for users comfortable with moderate tactical positioning.");
+                            else lines.push("Best suited for cautious users who prefer patience over aggressive entries.");
+                            if (String(aiExplainData.gridMode || aiExplainData.mode || "").toLowerCase() === "wait") {
+                              lines.push("Less suitable for users who want an immediate trade right now.");
+                            } else {
+                              lines.push("Better for users who understand pair rotation and short-term reversion setups.");
+                            }
+                            lines.push("Not ideal as a blind long-term allocation decision without rechecking the structure.");
+                            return lines.map((line, idx) => <div key={idx}>• {line}</div>);
+                          })()}
                         </div>
                       </div>
                     </div>

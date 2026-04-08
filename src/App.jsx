@@ -6198,52 +6198,35 @@ async function runAi() {
 
       const statsText = Object.entries(seriesStats)
         .map(([s, stats]) => `${s}: change=${(stats.changePct ?? 0).toFixed(2)}%, vol=${(stats.volPct ?? 0).toFixed(2)}%, maxDD=${(stats.maxDDPct ?? 0).toFixed(2)}%, range=[${stats.min}, ${stats.max}], points=${stats.points}`)
-        .join("
-");
+        .join("\n");
 
       const insightText = Object.entries(insightWindows)
         .map(([windowTf, bySym]) => {
           const lines = Object.entries(bySym || {}).map(([s, stats]) =>
             `${s}: change=${(stats.changePct ?? 0).toFixed(2)}%, vol=${(stats.volPct ?? 0).toFixed(2)}%, maxDD=${(stats.maxDDPct ?? 0).toFixed(2)}%, points=${stats.points}`
           );
-          return lines.length ? `Insight window ${windowTf}:
-${lines.join("
-")}` : "";
+          return lines.length ? `Insight window ${windowTf}:\n${lines.join("\n")}` : "";
         })
         .filter(Boolean)
-        .join("
-
-");
+        .join("\n\n");
 
       const trimmedHist = (aiHistory || []).slice(-10);
       const historyText = trimmedHist
         .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
-        .join("
-");
+        .join("\n");
 
       const header =
-        `UI timeframe: ${uiTf}.
-` +
-        `Active analysis timeframe: ${tf}.
-` +
+        `UI timeframe: ${uiTf}.\n` +
+        `Active analysis timeframe: ${tf}.\n` +
         (explicitTf
-          ? `The user explicitly asked for ${explicitTf}, so this overrides the current UI timeframe.
-`
-          : `No explicit timeframe was found in the user's question, so use the current UI timeframe.
-`) +
-        `Coins: ${syms.join(", ")}
-` +
-        (statsText ? `Series stats (${tf}):
-${statsText}
-` : "") +
-        (insightText ? `
-Multi-timeframe insight context (use this for AI Insight / trend-structure comparison):
-${insightText}
-` : "");
+          ? `The user explicitly asked for ${explicitTf}, so this overrides the current UI timeframe.\n`
+          : `No explicit timeframe was found in the user's question, so use the current UI timeframe.\n`) +
+        `Coins: ${syms.join(", ")}\n` +
+        (statsText ? `Series stats (${tf}):\n${statsText}\n` : "") +
+        (insightText ? `\nMulti-timeframe insight context (use this for AI Insight / trend-structure comparison):\n${insightText}\n` : "");
 
       const questionText =
-        isFollowUpAsk && historyText ? `${header}${historyText}
-User: ${qFinal}` : `${header}User: ${qFinal}`;
+        isFollowUpAsk && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;
 
       const body = {
         kind: aiKind,

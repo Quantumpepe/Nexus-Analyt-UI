@@ -3636,9 +3636,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       let confidence = 5.4;
       let confidenceLabel = "MEDIUM";
       let risk = "Medium";
-      let action = "1. WAIT
-2. Keep this pair on the watchlist
-3. Recheck when correlation or spread improves.";
+      let action = "1. WAIT\n2. Keep this pair on the watchlist\n3. Recheck when correlation or spread improves.";
       let gridMode = "Standard";
       let gridRange = "2–4%";
       let timeHorizon = "Short-term tactical";
@@ -3673,9 +3671,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         gridMode = "Wait";
         gridRange = "No setup";
         timeHorizon = "No tactical edge";
-        action = "1. DO NOT START GRID
-2. Wait for stronger correlation
-3. Recheck later with a clearer pair structure.";
+        action = "1. DO NOT START GRID\n2. Wait for stronger correlation\n3. Recheck later with a clearer pair structure.";
         verdictText = "This pair is not moving together reliably enough for a clean pair trade or grid rotation setup.";
         conclusion = "Avoid this pair for now. The relationship is too weak for a dependable pair structure.";
         suggestedAction = "No trade. Put capital elsewhere until the coins move together more consistently.";
@@ -3702,9 +3698,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         gridMode = "Wait";
         gridRange = "Below 2%";
         timeHorizon = "Wait for clearer imbalance";
-        action = "1. WAIT
-2. Do not open the grid yet
-3. Recheck when spread is larger than the current level.";
+        action = "1. WAIT\n2. Do not open the grid yet\n3. Recheck when spread is larger than the current level.";
         verdictText = "The pair is correlated enough, but the spread is still too small to create a strong trading edge.";
         conclusion = "There is not enough imbalance yet. A trade now would likely be forced rather than earned.";
         suggestedAction = "Stay patient. Wait for a clearer move between the two coins before acting.";

@@ -3559,13 +3559,37 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         const st = pairWindows?.[tf]?.[sym];
         return Number.isFinite(Number(st?.changePct)) ? Number(st.changePct) : null;
       };
+      const getVol = (sym, tf) => {
+        const st = pairWindows?.[tf]?.[sym];
+        return Number.isFinite(Number(st?.volPct)) ? Number(st.volPct) : null;
+      };
+      const getMdd = (sym, tf) => {
+        const st = pairWindows?.[tf]?.[sym];
+        return Number.isFinite(Number(st?.maxDDPct)) ? Number(st.maxDDPct) : null;
+      };
 
-      const ra = getRet(a, "30D");
-      const rb = getRet(b, "30D");
-      const spread = (Number.isFinite(ra) && Number.isFinite(rb)) ? (ra - rb) : null;
+      const ra7 = getRet(a, "7D");
+      const rb7 = getRet(b, "7D");
+      const ra30 = getRet(a, "30D");
+      const rb30 = getRet(b, "30D");
+      const ra90 = getRet(a, "90D");
+      const rb90 = getRet(b, "90D");
+      const ra1y = getRet(a, "1Y");
+      const rb1y = getRet(b, "1Y");
 
-      const winner = Number.isFinite(ra) && Number.isFinite(rb) ? (ra >= rb ? a : b) : null;
-      const loser = Number.isFinite(ra) && Number.isFinite(rb) ? (ra >= rb ? b : a) : null;
+      const spread7 = (Number.isFinite(ra7) && Number.isFinite(rb7)) ? (ra7 - rb7) : null;
+      const spread30 = (Number.isFinite(ra30) && Number.isFinite(rb30)) ? (ra30 - rb30) : null;
+      const spread90 = (Number.isFinite(ra90) && Number.isFinite(rb90)) ? (ra90 - rb90) : null;
+      const spread1y = (Number.isFinite(ra1y) && Number.isFinite(rb1y)) ? (ra1y - rb1y) : null;
+      const spread = spread30;
+
+      const winnerFor = (x, y) => (Number.isFinite(x) && Number.isFinite(y) ? (x >= y ? a : b) : null);
+      const loserFor = (x, y) => (Number.isFinite(x) && Number.isFinite(y) ? (x >= y ? b : a) : null);
+      const winner = winnerFor(ra30, rb30);
+      const loser = loserFor(ra30, rb30);
+      const winner7 = winnerFor(ra7, rb7);
+      const winner90 = winnerFor(ra90, rb90);
+      const winner1Y = winnerFor(ra1y, rb1y);
 
       const classify = (v) => {
         if (!Number.isFinite(v)) return "n/a";
@@ -3573,7 +3597,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         if (v <= -8) return "bearish";
         return "neutral";
       };
-
       const avgRet = (tf) => {
         const aa = getRet(a, tf);
         const bb = getRet(b, tf);
@@ -3583,10 +3606,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         return null;
       };
 
-      const trendStructure = windowDefs
-        .map((tf) => `${tf} ${classify(avgRet(tf))}`)
-        .join(" · ");
-
+      const trendStructure = windowDefs.map((tf) => `${tf} ${classify(avgRet(tf))}`).join(" · ");
       const shortBias = classify(avgRet("30D"));
       const longBias = classify(avgRet("1Y"));
 
@@ -3595,15 +3615,39 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       else if (shortBias === "bullish" && longBias === "bearish") momentumShift = "Short-term recovery attempt against a weaker long-term backdrop.";
       else if (shortBias === longBias && shortBias !== "n/a") momentumShift = `Short-term and long-term momentum are aligned ${shortBias}.`;
 
-      let setup = "Neutral";
+      const corrAbs = Number.isFinite(corr) ? Math.abs(corr) : null;
+      const absSpread30 = Number.isFinite(spread30) ? Math.abs(spread30) : null;
+      const absSpread7 = Number.isFinite(spread7) ? Math.abs(spread7) : null;
+      const absSpread90 = Number.isFinite(spread90) ? Math.abs(spread90) : null;
+      const avgVol30 = [getVol(a, "30D"), getVol(b, "30D")].filter((v) => Number.isFinite(v));
+      const avgVol30Val = avgVol30.length ? avgVol30.reduce((s, v) => s + v, 0) / avgVol30.length : null;
+      const avgMdd30 = [getMdd(a, "30D"), getMdd(b, "30D")].filter((v) => Number.isFinite(v));
+      const avgMdd30Val = avgMdd30.length ? avgMdd30.reduce((s, v) => s + v, 0) / avgMdd30.length : null;
+      const sameLeaderMultiTf = winner && winner7 && winner90 && winner === winner7 && winner === winner90;
+      const wideningSpread = Number.isFinite(absSpread30) && Number.isFinite(absSpread7) && absSpread7 > absSpread30 * 0.85;
+      const compressingSpread = Number.isFinite(absSpread30) && Number.isFinite(absSpread7) && absSpread7 < absSpread30 * 0.6;
+      const bothBull30 = Number.isFinite(ra30) && Number.isFinite(rb30) && ra30 > 3 && rb30 > 3;
+      const bothBear30 = Number.isFinite(ra30) && Number.isFinite(rb30) && ra30 < -3 && rb30 < -3;
+      const bothSameDirection = bothBull30 || bothBear30;
+      const lowEdge = Number.isFinite(absSpread30) && absSpread30 < 0.75;
+
+      let setup = "NEUTRAL";
+      let setupFamily = "neutral";
       let confidence = 5.4;
       let confidenceLabel = "MEDIUM";
       let risk = "Medium";
-      let action = "Watch this pair and wait for a cleaner setup.";
+      let action = "1. WAIT
+2. Keep this pair on the watchlist
+3. Recheck when correlation or spread improves.";
       let gridMode = "Standard";
       let gridRange = "2–4%";
+      let timeHorizon = "Short-term tactical";
       let why = [];
+      let invalidation = [];
+      let bestFor = [];
       let verdictText = "This pair is interesting, but the signal is not strong enough for a clear grid bias yet.";
+      let conclusion = "No strong edge yet. Keep the pair under observation rather than forcing a trade.";
+      let suggestedAction = "No immediate pair trade. Wait for either a stronger spread or clearer momentum alignment.";
 
       if (Number.isFinite(corr)) {
         if (corr >= 0.9) confidence += 1.8;
@@ -3611,77 +3655,241 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         else if (corr >= 0.65) confidence += 0.6;
         else if (corr < 0.45) confidence -= 1.4;
       }
-
-      if (Number.isFinite(spread)) {
-        const absSpread = Math.abs(spread);
-        if (absSpread >= 4) confidence += 1.6;
-        else if (absSpread >= 2) confidence += 1.0;
-        else if (absSpread >= 1) confidence += 0.5;
-        else confidence -= 0.4;
+      if (Number.isFinite(absSpread30)) {
+        if (absSpread30 >= 8) confidence += 2.0;
+        else if (absSpread30 >= 4) confidence += 1.5;
+        else if (absSpread30 >= 2) confidence += 0.9;
+        else if (absSpread30 >= 1) confidence += 0.4;
+        else confidence -= 0.5;
       }
+      if (Number.isFinite(avgVol30Val) && avgVol30Val > 14) confidence -= 0.4;
+      if (Number.isFinite(avgMdd30Val) && avgMdd30Val < -18) confidence -= 0.4;
 
-      if (Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(spread) && Math.abs(spread) >= 0.75 && winner && loser) {
+      if (Number.isFinite(corr) && corr < 0.45) {
+        setup = "AVOID";
+        setupFamily = "avoid";
+        confidence -= 1.2;
+        risk = "High";
+        gridMode = "Wait";
+        gridRange = "No setup";
+        timeHorizon = "No tactical edge";
+        action = "1. DO NOT START GRID
+2. Wait for stronger correlation
+3. Recheck later with a clearer pair structure.";
+        verdictText = "This pair is not moving together reliably enough for a clean pair trade or grid rotation setup.";
+        conclusion = "Avoid this pair for now. The relationship is too weak for a dependable pair structure.";
+        suggestedAction = "No trade. Put capital elsewhere until the coins move together more consistently.";
+        why = [
+          `Low correlation (${Number.isFinite(corr) ? ((corr >= 0 ? "+" : "") + corr.toFixed(2)) : "—"}) weakens the pair logic.`,
+          "Low-correlation pairs can drift apart instead of reverting.",
+          "That increases the chance of being stuck on the wrong side while the trend keeps running.",
+        ];
+        invalidation = [
+          "Revisit only if correlation improves clearly above the current level.",
+          "A wider spread alone is not enough if the pair still lacks stable co-movement.",
+          "If one coin starts behaving independently of the other, avoid pair trades entirely.",
+        ];
+        bestFor = [
+          "Users who prefer discipline and would rather skip weak setups.",
+          "Not suitable for aggressive grid entries.",
+          "Better used as a watchlist candidate than an active trade.",
+        ];
+      } else if (lowEdge) {
+        setup = "WAIT";
+        setupFamily = "wait";
+        confidence -= 0.6;
+        risk = "Low-Medium";
+        gridMode = "Wait";
+        gridRange = "Below 2%";
+        timeHorizon = "Wait for clearer imbalance";
+        action = "1. WAIT
+2. Do not open the grid yet
+3. Recheck when spread is larger than the current level.";
+        verdictText = "The pair is correlated enough, but the spread is still too small to create a strong trading edge.";
+        conclusion = "There is not enough imbalance yet. A trade now would likely be forced rather than earned.";
+        suggestedAction = "Stay patient. Wait for a clearer move between the two coins before acting.";
+        why = [
+          "The current performance gap is still narrow.",
+          "Without enough spread, entries can feel random and weak.",
+          "A cleaner imbalance usually gives the better tactical setup.",
+        ];
+        invalidation = [
+          "If the spread stays compressed, there is still no edge.",
+          "If correlation fades while waiting, the setup quality drops instead of improving.",
+          "A breakout in one coin without response from the other can shift this into a momentum setup instead.",
+        ];
+        bestFor = [
+          "Patient users who prefer selective entries.",
+          "Not ideal for users who need immediate action.",
+          "Good as a monitored setup, not yet as an execution setup.",
+        ];
+      } else if (sameLeaderMultiTf && wideningSpread && winner && loser && Number.isFinite(corr) && corr >= 0.65) {
+        setup = "MOMENTUM CONTINUATION";
+        setupFamily = "momentum";
+        confidence += 0.8;
+        risk = "Medium-High";
+        gridMode = "Trend / No pair grid";
+        gridRange = "Not ideal for grid";
+        timeHorizon = "Short to medium term";
+        action = `1. BUY / KEEP ${winner}
+2. AVOID or reduce ${loser}
+3. Do not assume a quick catch-up while the spread is still widening.`;
+        verdictText = `${winner} keeps leading across multiple windows, while ${loser} remains the weaker leg. This currently looks more like momentum continuation than clean mean reversion.`;
+        conclusion = `${winner} is still in control. This setup favors strength-following rather than betting on an immediate catch-up from ${loser}.`;
+        suggestedAction = `Favor ${winner} over ${loser}. For pair traders, caution is better than forcing a reversion trade.`;
+        why = [
+          `${winner} remains the stronger side across 7D, 30D and 90D.`,
+          `The spread is not compressing yet, which weakens the catch-up case for ${loser}.`,
+          "Momentum continuation is often stronger than early mean-reversion guesses.",
+        ];
+        invalidation = [
+          `If ${winner} loses leadership on 7D while the spread starts to compress, momentum weakens.`,
+          `If ${loser} begins outperforming on short-term windows, the setup can rotate into reversion instead.`,
+          "A sharp drop in correlation would also reduce confidence in any pair-based read.",
+        ];
+        bestFor = [
+          "Users comfortable following strength rather than buying weakness too early.",
+          "More suitable for tactical traders than classic mean-reversion users.",
+          "Not ideal for users who want an immediate catch-up trade.",
+        ];
+      } else if (Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(absSpread30) && absSpread30 >= 1.25 && winner && loser) {
         setup = "MEAN REVERSION";
-        action = `1. SELL ${winner}\n2. BUY ${loser}\n3. Start Grid: Mode ${gridMode}, Range ${gridRange}\n4. Expectation: mean reversion (${winner} cools off, ${loser} catches up).`;
-        verdictText = `${winner} outperformed ${loser} over 30D. With a relatively high correlation, this looks like a mean-reversion/grid candidate.`;
-        why.push(`High correlation (${corr >= 0 ? "+" : ""}${corr.toFixed(2)}) means both coins often move together.`);
-        why.push(`The performance spread of ${_fmtPctLocal(spread)} creates a usable imbalance for a reversion idea.`);
-        why.push(`${winner} is currently the stronger side, ${loser} the weaker side.`);
-        if (Math.abs(spread) >= 4) {
+        setupFamily = "mean_reversion";
+        if (compressingSpread) confidence += 0.5;
+        if (absSpread30 >= 4) {
           gridMode = "Wide";
           gridRange = "4–6%";
           risk = "Medium-High";
-        } else if (Math.abs(spread) >= 2) {
+          timeHorizon = "Short to medium term";
+        } else if (absSpread30 >= 2) {
           gridMode = "Standard";
           gridRange = "3–5%";
           risk = "Medium";
+          timeHorizon = "Short-term tactical";
+        } else {
+          gridMode = "Standard";
+          gridRange = "2–4%";
+          risk = "Medium";
+          timeHorizon = "Short-term tactical";
         }
-      } else if (Number.isFinite(corr) && corr < 0.45) {
-        setup = "AVOID";
-        confidence -= 1.2;
-        confidenceLabel = "LOW";
-        risk = "High";
-        action = "1. DO NOT START GRID\n2. Wait for stronger correlation\n3. Recheck later with a clearer pair setup.";
-        verdictText = "This pair is not moving together reliably enough for a clean grid/rebalance setup.";
-        why.push(`Low correlation (${Number.isFinite(corr) ? ((corr >= 0 ? "+" : "") + corr.toFixed(2)) : "—"}) weakens the grid logic.`);
-        why.push("Pairs with weak correlation can drift apart instead of reverting.");
-        why.push("This increases the chance of holding the wrong side while trend continues.");
-        gridMode = "Wait";
-        gridRange = "No setup";
-      } else if (Number.isFinite(spread) && Math.abs(spread) < 0.75) {
-        setup = "WAIT";
-        confidence -= 0.6;
-        confidenceLabel = "LOW-MED";
-        risk = "Low-Medium";
-        action = "1. WAIT\n2. Do not open the grid yet\n3. Recheck when spread is larger than the current level.";
-        verdictText = "The pair is correlated enough, but the spread is still too small to create a strong reversion edge.";
-        why.push("The current performance gap is still narrow.");
-        why.push("Without enough spread, grid entries can feel random and weak.");
-        why.push("A clearer imbalance usually gives the better setup.");
-        gridMode = "Wait";
-        gridRange = "Below 2%";
+        action = `1. SELL ${winner}
+2. BUY ${loser}
+3. Start Grid: Mode ${gridMode}, Range ${gridRange}
+4. Expectation: mean reversion (${winner} cools off, ${loser} catches up).`;
+        verdictText = `${winner} outperformed ${loser} over 30D while the pair still shows strong co-movement. This looks like a usable mean-reversion candidate.`;
+        conclusion = `${winner} looks stretched relative to ${loser}. If the relationship normalizes, ${loser} has room to catch up.`;
+        suggestedAction = `For pair traders, a SELL ${winner} / BUY ${loser} rotation is reasonable, but risk should match the spread size.`;
+        why = [
+          `High correlation (${corr >= 0 ? "+" : ""}${corr.toFixed(2)}) means both coins often move together.`,
+          `The 30D spread of ${_fmtPctLocal(spread30)} is large enough to create a real imbalance.`,
+          compressingSpread
+            ? "Short-term spread behavior is already starting to compress, which supports the reversion case."
+            : `${winner} is the stronger side and ${loser} the weaker side, which creates the tactical catch-up idea.`,
+        ];
+        invalidation = [
+          `If ${winner} keeps outperforming while ${loser} stays weak, the catch-up idea weakens.`,
+          "If the spread widens sharply without any stabilization, reduce trust in mean reversion.",
+          "If short-term structure deteriorates further across 7D and 30D, the setup should be reassessed.",
+        ];
+        bestFor = [
+          `Users who understand pair rotation and short-term reversion setups.`,
+          `Best suited for tactical traders, not passive long-term allocation decisions.`,
+          `Works better when the user can actively monitor spread behavior after entry.`,
+        ];
+      } else if (bothSameDirection && Number.isFinite(corr) && corr >= 0.7) {
+        setup = "TREND ALIGNMENT";
+        setupFamily = "trend_alignment";
+        confidence += 0.3;
+        risk = bothBear30 ? "Medium-High" : "Medium";
+        gridMode = "No pair edge";
+        gridRange = "Trend following";
+        timeHorizon = bothBull30 ? "Trend continuation" : "Defensive / bearish";
+        action = bothBull30
+          ? `1. Both coins are trending up
+2. Prefer directional exposure instead of forcing a pair trade
+3. Use pair mode only if a new spread opens later.`
+          : `1. Both coins are trending down
+2. Defensive stance is better than forcing a catch-up idea
+3. Wait for stronger divergence before considering a pair rotation.`;
+        verdictText = bothBull30
+          ? "Both coins are aligned to the upside. This is stronger as a trend-following read than as a pair-reversion trade."
+          : "Both coins are aligned to the downside. That weakens the case for a constructive pair rotation right now.";
+        conclusion = bothBull30
+          ? "The market structure supports the broader direction, but not necessarily a relative-value trade between these two coins."
+          : "Both legs are weak together, so the pair lacks a clean reversion edge for now.";
+        suggestedAction = bothBull30
+          ? "Treat this more like a directional market opportunity than a classic pair trade."
+          : "Stay defensive. Wait for a real divergence before taking a pair-based position.";
+        why = bothBull30
+          ? [
+              "Both assets are already moving in the same positive direction.",
+              "That reduces the need to bet on one catching up to the other immediately.",
+              "In this state, pair trading often adds complexity without adding much edge.",
+            ]
+          : [
+              "Both assets are weak on the active timeframe.",
+              "A falling market in both coins makes pair reversion less attractive.",
+              "Defensive positioning is often better than forcing a relative-value setup here.",
+            ];
+        invalidation = [
+          "If a clear spread opens while correlation stays strong, the setup can rotate into mean reversion.",
+          "If one coin breaks away from the shared direction, reassess leadership and spread quality.",
+          "A major drop in correlation would weaken the pair view entirely.",
+        ];
+        bestFor = [
+          "Users who want market structure context before forcing a pair trade.",
+          "Better for directional thinkers than pure pair-grid users.",
+          "Useful when deciding whether to skip pair mode and keep things simpler.",
+        ];
       } else if (winner && loser) {
         setup = "TREND BIAS";
-        confidence += 0.2;
-        confidenceLabel = "MEDIUM";
+        setupFamily = "trend_bias";
+        confidence += 0.1;
         risk = "Medium-High";
-        action = `1. Small position only\n2. If you trade, SELL ${winner} / BUY ${loser}\n3. Use Wide mode and reduced budget because the setup is mixed.`;
-        verdictText = `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence grid setup.`;
-        why.push("There is a leader and a laggard, but the data is not perfectly aligned for a strong reversion setup.");
-        why.push("Mixed conditions increase the chance of trend continuation.");
-        why.push("If you trade it, reduce size and widen spacing.");
+        gridMode = "Wide";
+        gridRange = "4–6%";
+        timeHorizon = "Short-term tactical";
+        action = `1. Small position only
+2. If you trade, SELL ${winner} / BUY ${loser}
+3. Use Wide mode and reduced budget because the setup is mixed.`;
+        verdictText = `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence setup.`;
+        conclusion = `There is a leader and a laggard, but the structure is still mixed. This is more of a cautious bias than a strong signal.`;
+        suggestedAction = `Only small tactical exposure makes sense here. This is not a full-conviction setup.`;
+        why = [
+          "There is a stronger and a weaker coin, but the evidence is not fully aligned.",
+          "Mixed conditions increase the chance of trend continuation instead of clean catch-up.",
+          "If you trade it, reducing size and widening spacing is safer than forcing an aggressive entry.",
+        ];
+        invalidation = [
+          "If the stronger coin keeps widening the gap, the setup weakens further.",
+          "If correlation falls, the pair logic becomes less trustworthy.",
+          "If short-term momentum flips clearly, reassess whether this becomes reversion or momentum instead.",
+        ];
+        bestFor = [
+          "Users comfortable with tactical, moderate-conviction setups.",
+          "Better for active monitoring than set-and-forget trading.",
+          "Not ideal for users who want only very clean, high-conviction signals.",
+        ];
       }
 
       confidence = Math.max(1, Math.min(10, Math.round(confidence * 10) / 10));
-      if (confidence >= 8) confidenceLabel = "HIGH";
-      else if (confidence <= 4.9) confidenceLabel = "LOW";
+      if (confidence >= 8.2) confidenceLabel = "HIGH";
+      else if (confidence >= 6.6) confidenceLabel = "MEDIUM";
+      else if (confidence >= 4.8) confidenceLabel = "LOW-MED";
+      else confidenceLabel = "LOW";
 
       const insightSummary =
-        longBias === "bullish" && shortBias === "bearish"
-          ? "Short-term pressure is visible, but the broader structure still looks stronger."
-          : longBias === "bearish" && shortBias === "bullish"
-            ? "There is a rebound attempt, but the broader structure remains weaker."
-            : "The pair structure is currently mixed and should be monitored across multiple windows.";
+        setupFamily === "momentum"
+          ? `${winner} keeps the relative edge for now, so this looks more like continuation than quick reversion.`
+          : setupFamily === "mean_reversion"
+            ? `${winner} looks stretched relative to ${loser}, which creates a tactical catch-up case if the spread normalizes.`
+            : setupFamily === "trend_alignment"
+              ? "Both coins currently point in the same broad direction, so the edge is more directional than pair-specific."
+              : setupFamily === "avoid"
+                ? "The pair relationship is too weak to trust for an active setup right now."
+                : setupFamily === "wait"
+                  ? "The structure is not broken, but the current gap is still too small to justify action."
+                  : "The pair structure is mixed and should be monitored across multiple windows.";
 
       const textOut = [
         `Trend Structure: ${trendStructure}`,
@@ -3689,19 +3897,26 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         `Risk View: ${risk}`,
         `Interpretation: ${verdictText}`,
         `Insight Summary: ${insightSummary}`,
-      ].join("\n");
+      ].join("
+");
 
       setAiExplainText(textOut);
       setAiExplainData({
         setup,
+        setupFamily,
         confidence,
         confidenceLabel,
         risk,
         action,
         gridMode,
         gridRange,
+        timeHorizon,
         why,
+        invalidation,
+        bestFor,
         verdictText,
+        conclusion,
+        suggestedAction,
         winner,
         loser,
         trendStructure,
@@ -8354,18 +8569,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
 
-                      <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>AI Conclusion</div>
-                        <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.4 }}>
-                          {aiExplainData.verdictText || "No clear AI conclusion available yet."}
-                        </div>
-                        <div className="muted tiny" style={{ lineHeight: 1.5 }}>
-                          {aiExplainData.winner && aiExplainData.loser
-                            ? `Current bias: rotate away from ${aiExplainData.winner} toward ${aiExplainData.loser}, but only if the setup matches your risk tolerance.`
-                            : "This conclusion should be treated as a directional hint, not an automatic trade command."}
-                        </div>
-                      </div>
-
                       {(aiExplainData.trendStructure || aiExplainData.momentumShift || aiExplainData.insightSummary) ? (
                         <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                           <div className="label" style={{ marginBottom: 0 }}>Multi-timeframe AI Insight</div>
@@ -8382,7 +8585,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       ) : null}
 
                       <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Suggested Action</div>
+                        <div className="label" style={{ marginBottom: 0 }}>What to do now</div>
 
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -8402,27 +8605,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             ))}
                         </div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
-                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                            <div className="muted tiny">Suggested Grid</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridRange || aiExplainData.range || "—"}</div>
-                          </div>
-                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                            <div className="muted tiny">Mode</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridMode || aiExplainData.mode || "—"}</div>
-                          </div>
-                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                            <div className="muted tiny">Time horizon</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>
-                              {String(aiExplainData.setup || "").includes("MEAN")
-                                ? "Short to medium term"
-                                : String(aiExplainData.setup || "").includes("TREND")
-                                  ? "Short-term tactical"
-                                  : "Wait / monitor"}
-                            </div>
-                          </div>
-                        </div>
-
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <>
                             <div className="tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -8436,51 +8618,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         ) : null}
                       </div>
 
-                      <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div className="muted tiny">Suggested Grid</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.range}</div>
+                        </div>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div className="muted tiny">Mode</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.mode}</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "grid", gap: 6 }}>
                         <div className="label" style={{ marginBottom: 0 }}>Why this setup</div>
                         <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
-                          {(Array.isArray(aiExplainData.why) ? aiExplainData.why : Array.isArray(aiExplainData.bullets) ? aiExplainData.bullets : []).map((line, idx) => (
+                          {(Array.isArray(aiExplainData.bullets) ? aiExplainData.bullets : []).map((line, idx) => (
                             <div key={idx}>• {line}</div>
                           ))}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Invalidation</div>
-                        <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
-                          {(() => {
-                            const lines = [];
-                            if (aiExplainData.winner && aiExplainData.loser) {
-                              lines.push(`If ${aiExplainData.winner} keeps outperforming while ${aiExplainData.loser} stays weak, the catch-up idea weakens.`);
-                            }
-                            if (String(aiExplainData.gridMode || aiExplainData.mode || "").toLowerCase() === "wait") {
-                              lines.push("If spread and correlation do not improve, there is still no valid entry.");
-                            } else {
-                              lines.push("If the spread widens sharply without any stabilization, reduce trust in mean reversion.");
-                            }
-                            lines.push("If short-term structure deteriorates further across 7D and 30D, the setup should be reassessed.");
-                            return lines.map((line, idx) => <div key={idx}>• {line}</div>);
-                          })()}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Best for</div>
-                        <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
-                          {(() => {
-                            const lines = [];
-                            const riskTxt = String(aiExplainData.risk || "").toLowerCase();
-                            if (riskTxt.includes("high")) lines.push("Best suited for active users who can handle medium to high risk.");
-                            else if (riskTxt.includes("medium")) lines.push("Best suited for users comfortable with moderate tactical positioning.");
-                            else lines.push("Best suited for cautious users who prefer patience over aggressive entries.");
-                            if (String(aiExplainData.gridMode || aiExplainData.mode || "").toLowerCase() === "wait") {
-                              lines.push("Less suitable for users who want an immediate trade right now.");
-                            } else {
-                              lines.push("Better for users who understand pair rotation and short-term reversion setups.");
-                            }
-                            lines.push("Not ideal as a blind long-term allocation decision without rechecking the structure.");
-                            return lines.map((line, idx) => <div key={idx}>• {line}</div>);
-                          })()}
                         </div>
                       </div>
                     </div>

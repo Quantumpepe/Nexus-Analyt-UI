@@ -6739,16 +6739,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
             overflow-x: hidden !important;
           }
           .section-compare .pairsScroll{
-            flex: 0 1 auto !important;
+            flex: 1 1 auto !important;
             min-height: 0 !important;
-            max-height: clamp(220px, 28vh, 420px) !important;
+            max-height: none !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 8px !important;
-            padding-bottom: 56px !important;
+            padding-bottom: 24px !important;
             margin-top: 6px !important;
             margin-bottom: 10px !important;
-            scroll-padding-bottom: 56px !important;
+            scroll-padding-bottom: 24px !important;
             overscroll-behavior: contain !important;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
           }

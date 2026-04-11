@@ -7943,7 +7943,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="panelScroll"><div className="compareGrid">
+          <div
+            className="panelScroll"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0
+            }}
+          >
+			<div className="compareGrid">
             {/* Live list */}
             <div className="compareLive">
               <div className="label">Live Prices (USD)</div>

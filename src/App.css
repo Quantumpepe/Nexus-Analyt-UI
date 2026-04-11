@@ -350,13 +350,7 @@ body::before {
 }
 .iconBtn:hover{ border-color: rgba(210,220,230,.28); }
 
-/* Best pairs – readable rows */
-.pairsScroll{
-  max-height:180px;
-  overflow-y:auto;
-  padding-right:6px;
-  margin-top:8px;
-}
+
 .pairRow{
   display:flex;
   align-items:center;

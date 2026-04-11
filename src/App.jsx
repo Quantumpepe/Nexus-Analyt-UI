@@ -7979,7 +7979,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               {viewMode === "overlay" ? (
               <>
-                <SvgChart chart={chartRaw} height={320} highlightedSyms={highlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                <SvgChart chart={chartRaw} height={360} highlightedSyms={highlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                 <div style={{ marginTop: 10 }}>
                   <Legend symbols={compareSymbols} highlightedSyms={highlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                 </div>

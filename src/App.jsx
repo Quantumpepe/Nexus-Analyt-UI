@@ -6486,7 +6486,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             padding-right: 8px !important;
             padding-bottom: 48px !important;
             margin-top: 6px !important;
-            margin-bottom: 10px !important;
+            margin-bottom: 24px !important;
             scroll-padding-bottom: 48px !important;
             overscroll-behavior: contain !important;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);

@@ -8075,9 +8075,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     border: "1px solid rgba(255,255,255,.06)",
                     borderRadius: 14,
                     background: "rgba(255,255,255,.02)",
-                    padding: "8px 8px 26px 8px",
+                    padding: "8px",
                     boxSizing: "border-box",
                     marginTop: 6,
+
+                    maxHeight: 320,
+                    overflowY: "auto",
                   }}
                 >
                   {bestPairsToShow.length ? (

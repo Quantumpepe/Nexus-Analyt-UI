@@ -1486,7 +1486,7 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
       type="button"
-      title="Click to highlight in overlay"
+      title="Click to open chart"
     >
       <div className="sparkTop">
         <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]) }} />
@@ -3796,6 +3796,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [highlightedSyms, setHighlightedSyms] = useState([]);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
+  const [gridModalSym, setGridModalSym] = useState(null);
 
   useEffect(() => {
     setHighlightedSyms((prev) => {
@@ -3806,11 +3807,26 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     });
   }, [compareSymbols.join("|")]);
 
+  useEffect(() => {
+    const sym = String(gridModalSym || "").toUpperCase().trim();
+    if (!sym) return;
+    if (!(compareSymbols || []).includes(sym)) setGridModalSym(null);
+  }, [gridModalSym, compareSymbols.join("|")]);
+
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
 
   // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/2Y)
   const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
   const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
+  const gridModalChart = useMemo(() => {
+    const sym = String(gridModalSym || "").toUpperCase().trim();
+    if (!sym) return { x: [], lines: {}, order: [] };
+    return buildUnifiedChart({ [sym]: compareSeriesView?.[sym] || [] });
+  }, [gridModalSym, compareSeriesView]);
+  const gridModalRow = useMemo(() => {
+    const sym = String(gridModalSym || "").toUpperCase().trim();
+    return sym ? (watchRows || []).find((r) => String(r?.symbol || "").toUpperCase() === sym) || null : null;
+  }, [gridModalSym, watchRows]);
     const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000), [compareSeries]);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsAll.slice(0, 10) : bestPairsAll), [showTop10Pairs, bestPairsAll]);
 
@@ -8292,12 +8308,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       indexMode={indexMode}
                       timeframe={timeframe}
                       active={highlightedSyms.length === 0 || highlightedSyms.includes(sym)}
-                      onClick={() => setHighlightedSyms((prev) => {
-                        const prevArr = Array.isArray(prev) ? prev.map((s) => String(s || "").toUpperCase()) : [];
-                        return prevArr.includes(sym)
-                          ? prevArr.filter((x) => x !== sym)
-                          : [...prevArr, sym];
-                      })}
+                      onClick={() => setGridModalSym(sym)}
                       colorForSym={colorForSym}
                       lineClassForSym={lineClassForSym}
                     />
@@ -8408,6 +8419,62 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div></div>
         </section>
 
+
+        {/* Grid chart modal */}
+        {gridModalSym && (
+          <div
+            className="modalBackdrop"
+            onClick={() => setGridModalSym(null)}
+            style={{ zIndex: 10010, padding: 16 }}
+          >
+            <div
+              className="card"
+              style={{
+                width: "min(1100px, 96vw)",
+                maxHeight: "88vh",
+                overflow: "auto",
+                cursor: "default",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="cardHead" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                <div>
+                  <div className="cardTitle">{gridModalSym} chart</div>
+                  <div className="muted tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+                    <span>{timeframe}</span>
+                    <span>{indexMode ? "Index 100" : "Price (USD)"}</span>
+                    {gridModalRow ? <span>{fmtUsd(Number(gridModalRow?.price))}</span> : null}
+                    {gridModalRow?.change24h != null ? (
+                      <span style={{ color: Number(gridModalRow?.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>
+                        {fmtPct(Number(gridModalRow?.change24h))}
+                      </span>
+                    ) : null}
+                    <span>Hover for date + value</span>
+                  </div>
+                </div>
+                <button className="btnGhost" onClick={() => setGridModalSym(null)} type="button">
+                  Close
+                </button>
+              </div>
+
+              <div className="cardBody" style={{ display: "grid", gap: 12 }}>
+                <SvgChart
+                  chart={gridModalChart}
+                  height={440}
+                  highlightedSyms={[]}
+                  onHoverSym={() => {}}
+                  indexMode={indexMode}
+                  timeframe={timeframe}
+                  colorForSym={colorForSym}
+                  lineClassForSym={lineClassForSym}
+                />
+                <div className="muted tiny">
+                  Tip: Move the mouse over the chart to see the exact date and value.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Pair explain modal */}
         {selectedPair && (

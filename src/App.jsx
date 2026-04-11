@@ -8008,7 +8008,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
             )}
 
-                            <div className="pairsBox">
+                            <div
+                              className="pairsBox"
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                minHeight: 0
+                              }}
+                            >
                 <div className="pairsHead">
                   <div className="label">Best pairs (data fit)</div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

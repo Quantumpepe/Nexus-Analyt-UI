@@ -888,7 +888,7 @@ body::before {
   .sparkVal,
   .sparkFoot{ font-size:10px; }
 
-  .pairsScroll{ max-height:160px; }
+  
   .pairRow{
     padding:7px 8px;
     gap:8px;

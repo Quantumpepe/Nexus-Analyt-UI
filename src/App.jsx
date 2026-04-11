@@ -190,16 +190,16 @@ import "./App.css";
 // Chart palette (10 colors). Kept inline (no external dep) to avoid runtime ReferenceError.
 // Used for consistent compare/index chart series coloring.
 const PALETTE10 = [
-  "#22c55e", // green
-  "#60a5fa", // blue
-  "#f59e0b", // amber
-  "#a78bfa", // violet
-  "#f472b6", // pink
-  "#34d399", // emerald
-  "#fb7185", // rose
-  "#38bdf8", // sky
-  "#eab308", // yellow
-  "#c084fc", // purple
+  "#00E5FF", // electric cyan
+  "#FFB000", // amber gold
+  "#FF4D6D", // vivid rose red
+  "#7C4DFF", // deep violet
+  "#00C853", // neon green
+  "#FF6D00", // bright orange
+  "#00B0FF", // azure blue
+  "#E040FB", // magenta
+  "#AEEA00", // lime
+  "#FFD54F", // warm yellow
 ];
 
 // Local cache (stale-while-revalidate) so live refresh/cold-start won't blank the UI
@@ -966,78 +966,6 @@ function _compareFetchRange(timeframe) {
   return "1Y"; // fetch once, slice for 7D/30D/90D/1Y views
 }
 
-function _extractExplicitTfFromQuestion(q) {
-  const s = String(q || "").toLowerCase();
-  if (!s) return null;
-
-  const patterns = [
-    ["2Y", [/\b2\s*(year|years|yr|yrs|jahre|jahr|jahren)\b/i, /\btwo\s+years\b/i]],
-    ["1Y", [/\b1\s*(year|years|yr|yrs|jahr|jahre|jahren)\b/i, /\bone\s+year\b/i]],
-    ["90D", [/\b90\s*(day|days|tage|tagen)\b/i]],
-    ["30D", [/\b30\s*(day|days|tage|tagen)\b/i]],
-    ["7D", [/\b7\s*(day|days|tage|tagen)\b/i, /\b1\s*(week|weeks|woche|wochen)\b/i]],
-    ["1D", [/\b1\s*(day|days|tag|tage)\b/i, /\b24\s*h\b/i, /\b24\s*hours?\b/i]],
-  ];
-  for (const [tf, regs] of patterns) {
-    if (regs.some((rx) => rx.test(s))) return tf;
-  }
-  return null;
-}
-
-function _seriesStatsFromSeriesMap(seriesMap, syms) {
-  const out = {};
-  const statsForPts = (pts) => {
-    const vals = (Array.isArray(pts) ? pts : [])
-      .map((p) => (p && Number.isFinite(p.v) ? p.v : null))
-      .filter((v) => v != null);
-    if (vals.length < 2) return null;
-
-    const first = vals[0];
-    const last = vals[vals.length - 1];
-    const changePct = first !== 0 ? ((last / first) - 1) * 100 : null;
-
-    const rets = [];
-    for (let i = 1; i < vals.length; i++) {
-      const a = vals[i - 1], b = vals[i];
-      if (a && b && a !== 0) rets.push((b / a) - 1);
-    }
-    const mean = rets.length ? rets.reduce((s, x) => s + x, 0) / rets.length : 0;
-    const variance = rets.length ? rets.reduce((s, x) => s + (x - mean) ** 2, 0) / rets.length : 0;
-    const volPct = Math.sqrt(variance) * 100;
-
-    let peak = vals[0];
-    let maxDD = 0;
-    for (const v of vals) {
-      if (v > peak) peak = v;
-      const dd = peak ? (v / peak) - 1 : 0;
-      if (dd < maxDD) maxDD = dd;
-    }
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
-
-    return { first, last, changePct, volPct, maxDDPct: maxDD * 100, min, max, points: vals.length };
-  };
-
-  for (const s of (syms || [])) {
-    const pts = ((seriesMap && seriesMap[s]) || []).slice().sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
-    const stats = statsForPts(pts);
-    if (stats) out[s] = stats;
-  }
-  return out;
-}
-
-function _buildInsightWindows(compareSeries, syms) {
-  const windows = ["7D", "30D", "90D", "1Y"];
-  const out = {};
-  for (const tf of windows) {
-    const sliced = sliceCompareSeries(compareSeries || {}, tf);
-    const stats = _seriesStatsFromSeriesMap(sliced, syms);
-    if (Object.keys(stats).length) out[tf] = stats;
-  }
-  return out;
-}
-
-
 
 function buildUnifiedChart(seriesBySym) {
   const syms = Object.keys(seriesBySym || {});
@@ -1132,9 +1060,14 @@ function buildMonthlyTicks(tMin, tMax) {
 // ------------------------
 // SVG chart with y-scale + x labels
 // ------------------------
-function SvgChart({ chart, height = 320, highlightSym, onHoverSym, indexMode, timeframe, colorForSym, lineClassForSym }) {
+function SvgChart({ chart, height = 320, selectedSyms = [], onHoverSym, indexMode, timeframe, colorForSym, lineClassForSym }) {
   const { x, lines, order } = chart || { x: [], lines: {}, order: [] };
   const syms = order?.length ? order : Object.keys(lines || {});
+  const selectedSet = useMemo(
+    () => new Set((Array.isArray(selectedSyms) ? selectedSyms : []).map((s) => String(s || "").toUpperCase())),
+    [Array.isArray(selectedSyms) ? selectedSyms.join("|") : ""]
+  );
+  const hasSelection = selectedSet.size > 0;
 
   if (!x?.length || !syms.length) {
     return (
@@ -1144,7 +1077,7 @@ function SvgChart({ chart, height = 320, highlightSym, onHoverSym, indexMode, ti
     );
   }
 
-    const plotLines = indexMode ? normalizeToIndex(lines) : lines;
+  const plotLines = indexMode ? normalizeToIndex(lines) : lines;
 
   // Hover: show crosshair + tooltip for ALL series (like finanzen.net)
   const [hoverIdx, setHoverIdx] = useState(null);
@@ -1169,7 +1102,6 @@ function SvgChart({ chart, height = 320, highlightSym, onHoverSym, indexMode, ti
   const hoverDate = (t) => {
     try {
       const d = new Date(t);
-      // show full date for longer ranges; time for 1D
       if (timeframe === "1D") {
         return d.toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
       }
@@ -1179,73 +1111,72 @@ function SvgChart({ chart, height = 320, highlightSym, onHoverSym, indexMode, ti
     }
   };
 
-    // Overlay + Price: use log scale so vastly different price magnitudes remain readable (BTC vs small coins).
-    // Index 100 stays linear (already normalized).
-    const logMode = !indexMode && syms.length > 1;
-    const EPS = 1e-12;
-    const tVal = (v) => (logMode ? Math.log10(Math.max(EPS, v)) : v);
-    const invTVal = (tv) => (logMode ? Math.pow(10, tv) : tv);
+  // Overlay + Price: use log scale so vastly different price magnitudes remain readable (BTC vs small coins).
+  // Index 100 stays linear (already normalized).
+  const logMode = !indexMode && syms.length > 1;
+  const EPS = 1e-12;
+  const tVal = (v) => (logMode ? Math.log10(Math.max(EPS, v)) : v);
+  const invTVal = (tv) => (logMode ? Math.pow(10, tv) : tv);
 
-    let min = Infinity,
-      max = -Infinity;
-    for (const sym of syms) {
-      for (const v0 of plotLines[sym] || []) {
-        if (v0 === null || v0 === undefined) continue;
-        if (!Number.isFinite(v0)) continue;
-        const tv = tVal(v0);
-        if (!Number.isFinite(tv)) continue;
-        min = Math.min(min, tv);
-        max = Math.max(max, tv);
-      }
+  let min = Infinity;
+  let max = -Infinity;
+  for (const sym of syms) {
+    for (const v0 of plotLines[sym] || []) {
+      if (v0 === null || v0 === undefined) continue;
+      if (!Number.isFinite(v0)) continue;
+      const tv = tVal(v0);
+      if (!Number.isFinite(tv)) continue;
+      min = Math.min(min, tv);
+      max = Math.max(max, tv);
     }
-    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
-      // safe fallback for empty/flat charts
-      min = logMode ? 0 : 0.8;
-      max = logMode ? 1 : 1.2;
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+    min = logMode ? 0 : 0.8;
+    max = logMode ? 1 : 1.2;
+  }
+
+  const w = 1000;
+  const h = height;
+  const padL = 70;
+  const padR = 12;
+  const padT = 12;
+  const padB = 34;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+
+  const sx = (i) => padL + (i * innerW) / Math.max(1, x.length - 1);
+
+  const syTV = (tv) => {
+    const t = (tv - min) / (max - min);
+    return padT + (1 - t) * innerH;
+  };
+  const sy = (v) => syTV(tVal(v));
+  const GRID_TICKS = 6;
+  const ticksTV = Array.from({ length: GRID_TICKS }, (_, i) => min + ((max - min) * i) / (GRID_TICKS - 1));
+  const tMin = x[0];
+  const tMid = x[Math.floor(x.length / 2)];
+  const tMax = x[x.length - 1];
+
+  const makePath = (sym) => {
+    const arr = plotLines[sym] || [];
+    let d = "";
+    for (let i = 0; i < arr.length; i++) {
+      const v = arr[i];
+      if (v === null || v === undefined || !Number.isFinite(v)) continue;
+      const X = sx(i);
+      const Y = sy(v);
+      d += d ? ` L ${X} ${Y}` : `M ${X} ${Y}`;
     }
+    return d;
+  };
 
-    const w = 1000;
-    const h = height;
-    const padL = 70;
-    const padR = 12;
-    const padT = 12;
-    const padB = 34;
-    const innerW = w - padL - padR;
-    const innerH = h - padT - padB;
+  const yFmt = (tv) => (indexMode ? fmtDeltaPct(tv) : fmtUsd(invTVal(tv)));
 
-    const sx = (i) => padL + (i * innerW) / Math.max(1, x.length - 1);
-
-    const syTV = (tv) => {
-      const t = (tv - min) / (max - min);
-      return padT + (1 - t) * innerH;
-    };
-    const sy = (v) => syTV(tVal(v));
-    const GRID_TICKS = 6;
-    const ticksTV = Array.from({ length: GRID_TICKS }, (_, i) => min + ((max - min) * i) / (GRID_TICKS - 1));
-const tMin = x[0];
-    const tMid = x[Math.floor(x.length / 2)];
-    const tMax = x[x.length - 1];
-
-    const makePath = (sym) => {
-      const arr = plotLines[sym] || [];
-      let d = "";
-      for (let i = 0; i < arr.length; i++) {
-        const v = arr[i];
-        if (v === null || v === undefined || !Number.isFinite(v)) continue;
-        const X = sx(i);
-        const Y = sy(v);
-        d += d ? ` L ${X} ${Y}` : `M ${X} ${Y}`;
-      }
-      return d;
-    };
-
-    const yFmt = (tv) => (indexMode ? fmtDeltaPct(tv) : fmtUsd(invTVal(tv)));
   return (
     <div className="chartWrap" style={{ width: "100%", position: "relative" }}>
       <svg className="chartSvg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
         <line x1={padL} y1={h - padB} x2={w - padR} y2={h - padB} className="chartAxis" />
         <line x1={padL} y1={padT} x2={padL} y2={h - padB} className="chartAxis" />
-        {/* grid + y labels */}
         {ticksTV.map((tv, i) => (
           <g key={i}>
             <line x1={padL} y1={syTV(tv)} x2={w - padR} y2={syTV(tv)} className="chartGrid" />
@@ -1254,7 +1185,6 @@ const tMin = x[0];
             </text>
           </g>
         ))}
-{/* X labels */}
         <text x={padL} y={h - 8} className="chartLabel">
           {formatXAxisLabel(tMin, timeframe)}
         </text>
@@ -1265,23 +1195,19 @@ const tMin = x[0];
           {formatXAxisLabel(tMax, timeframe)}
         </text>
 
-{/* lines */}
-
         {syms.map((sym, idx) => {
           const d = makePath(sym);
           if (!d) return null;
-
-          // IMPORTANT: only dim when user CLICK-highlighted; hover must not change visibility
-          const isHi = !highlightSym || highlightSym === sym;
-          const opacity = highlightSym ? (isHi ? 0.95 : 0.18) : 0.90;
-          const strokeWidth = highlightSym ? (isHi ? 3.2 : 2.2) : 3.0;
+          const isSelected = !hasSelection || selectedSet.has(sym);
+          const opacity = hasSelection ? (isSelected ? 0.98 : 0.12) : 0.92;
+          const strokeWidth = hasSelection ? (isSelected ? 3.35 : 1.8) : 3.0;
 
           return (
             <path
               key={sym}
               d={d}
               className={`chartLine ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`}
-              style={{ opacity, strokeWidth, stroke: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]) }}
+              style={{ opacity, strokeWidth, stroke: colorForSym ? colorForSym(sym) : PALETTE10[idx % 10] }}
               onMouseEnter={() => onHoverSym?.(sym)}
               onMouseLeave={() => onHoverSym?.(null)}
             />
@@ -1305,8 +1231,6 @@ const tMin = x[0];
           const rect = e.currentTarget.getBoundingClientRect();
           const px = e.clientX - rect.left;
           const svgX = (px / rect.width) * w;
-
-          // Map mouse X onto plot area (between padL and w-padR)
           const clamped = Math.max(padL, Math.min(svgX, w - padR));
           const frac = (clamped - padL) / (w - padL - padR);
           const i = clampIdx(Math.round(frac * (n - 1)));
@@ -1334,53 +1258,82 @@ const tMin = x[0];
             {hoverDate(x[hoverIdx])}
           </div>
 
-          {syms.map((sym) => (
-            <div
-              key={sym}
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 12,
-                fontWeight: 800,
-                opacity: highlightSym && highlightSym !== sym ? 0.55 : 1,
-              }}
-            >
-              <span>{sym}</span>
-              <span
+          {syms.map((sym) => {
+            const isSelected = !hasSelection || selectedSet.has(sym);
+            return (
+              <div
+                key={sym}
                 style={{
-                  color: indexMode
-                    ? (() => {
-                        const v = plotLines?.[sym]?.[hoverIdx];
-                        if (!Number.isFinite(v)) return "rgba(232,242,240,.85)";
-                        return v - 100 >= 0 ? "var(--green)" : "var(--red)";
-                      })()
-                    : "rgba(232,242,240,.92)",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  fontWeight: 800,
+                  opacity: isSelected ? 1 : 0.4,
                 }}
               >
-                {fmtHoverVal(sym)}
-              </span>
-            </div>
-          ))}
+                <span>{sym}</span>
+                <span
+                  style={{
+                    color: indexMode
+                      ? (() => {
+                          const v = plotLines?.[sym]?.[hoverIdx];
+                          if (!Number.isFinite(v)) return "rgba(232,242,240,.85)";
+                          return v - 100 >= 0 ? "var(--green)" : "var(--red)";
+                        })()
+                      : "rgba(232,242,240,.92)",
+                  }}
+                >
+                  {fmtHoverVal(sym)}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
-
     </div>
   );
 }
 
-function Legend({ symbols, highlightSym, setHighlightSym, colorForSym, lineClassForSym }) {
+function Legend({ symbols, selectedSyms = [], setSelectedSyms, colorForSym, lineClassForSym }) {
+  const selectedSet = new Set((Array.isArray(selectedSyms) ? selectedSyms : []).map((s) => String(s || "").toUpperCase()));
+  const hasSelection = selectedSet.size > 0;
+
+  const toggleSym = (sym) => {
+    if (typeof setSelectedSyms !== "function") return;
+    setSelectedSyms((prev) => {
+      const arr = Array.isArray(prev) ? prev.map((s) => String(s || "").toUpperCase()) : [];
+      const next = new Set(arr);
+      const S = String(sym || "").toUpperCase();
+      if (next.has(S)) next.delete(S);
+      else next.add(S);
+      return Array.from(next);
+    });
+  };
+
   return (
     <div className="chartLegend">
+      <button
+        className={`legendItem ${!hasSelection ? "active" : ""}`}
+        onClick={() => setSelectedSyms?.([])}
+        title="Show all coins"
+      >
+        <span className="legendDot" style={{ background: "linear-gradient(90deg, #00E5FF, #00C853, #FFB000)" }} />
+        <span className="legendSym">ALL</span>
+      </button>
+
       {symbols.map((sym, idx) => {
-        const active = !highlightSym || highlightSym === sym;
+        const active = !hasSelection || selectedSet.has(sym);
         return (
           <button
             key={sym}
             className={`legendItem ${active ? "active" : ""}`}
-            onClick={() => setHighlightSym((v) => (v === sym ? null : sym))}
-            title="Click to highlight"
+            onClick={() => toggleSym(sym)}
+            title="Click to select or deselect"
           >
-            <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]) }} />
+            <span
+              className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`}
+              style={{ backgroundColor: colorForSym ? colorForSym(sym) : PALETTE10[idx % 10] }}
+            />
             <span className="legendSym">{sym}</span>
           </button>
         );
@@ -1638,8 +1591,6 @@ useEffect(() => {
   
   const [watchErr, setWatchErr] = useState("");
 const [errorMsg, setErrorMsg] = useState("");
-
-  const isDesktopWide = typeof window !== "undefined" ? window.innerWidth >= 981 : true;
 
   const isCompactMobile = typeof window !== "undefined" && window.innerWidth <= 768;
   const compactGridChipStyle = {
@@ -3542,60 +3493,23 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }, [selectedPair?.pair, timeframe]);
 
   async function runAiExplain() {
+    // Optional AI: keep it local for now (no backend/web). Fast + cheap.
     if (!requirePro("AI explain")) return;
     if (!selectedPair) return;
     setAiExplainLoading(true);
     try {
       const [a, b] = _pairSyms(selectedPair.pair);
+      const ra = _retPctForExplain(a);
+      const rb = _retPctForExplain(b);
+      const spread = (Number.isFinite(ra) && Number.isFinite(rb)) ? (ra - rb) : null;
       const corr = Number(selectedPair?.corr);
 
-      const windowDefs = ["7D", "30D", "90D", "1Y"];
-      const pairWindows = {};
-      for (const tf of windowDefs) {
-        const sliced = sliceCompareSeries(pairExplainSeries || {}, tf);
-        const stats = _seriesStatsFromSeriesMap(sliced, [a, b]);
-        pairWindows[tf] = stats || {};
-      }
-
-      const getRet = (sym, tf) => {
-        const st = pairWindows?.[tf]?.[sym];
-        return Number.isFinite(Number(st?.changePct)) ? Number(st.changePct) : null;
-      };
-
-      const ra = getRet(a, "30D");
-      const rb = getRet(b, "30D");
-      const spread = (Number.isFinite(ra) && Number.isFinite(rb)) ? (ra - rb) : null;
-
-      const winner = Number.isFinite(ra) && Number.isFinite(rb) ? (ra >= rb ? a : b) : null;
-      const loser = Number.isFinite(ra) && Number.isFinite(rb) ? (ra >= rb ? b : a) : null;
-
-      const classify = (v) => {
-        if (!Number.isFinite(v)) return "n/a";
-        if (v >= 8) return "bullish";
-        if (v <= -8) return "bearish";
-        return "neutral";
-      };
-
-      const avgRet = (tf) => {
-        const aa = getRet(a, tf);
-        const bb = getRet(b, tf);
-        if (Number.isFinite(aa) && Number.isFinite(bb)) return (aa + bb) / 2;
-        if (Number.isFinite(aa)) return aa;
-        if (Number.isFinite(bb)) return bb;
-        return null;
-      };
-
-      const trendStructure = windowDefs
-        .map((tf) => `${tf} ${classify(avgRet(tf))}`)
-        .join(" · ");
-
-      const shortBias = classify(avgRet("30D"));
-      const longBias = classify(avgRet("1Y"));
-
-      let momentumShift = "Momentum is mixed across timeframes.";
-      if (shortBias === "bearish" && longBias === "bullish") momentumShift = "Short-term weakness inside a stronger long-term structure.";
-      else if (shortBias === "bullish" && longBias === "bearish") momentumShift = "Short-term recovery attempt against a weaker long-term backdrop.";
-      else if (shortBias === longBias && shortBias !== "n/a") momentumShift = `Short-term and long-term momentum are aligned ${shortBias}.`;
+      const winner = Number.isFinite(ra) && Number.isFinite(rb)
+        ? (ra >= rb ? a : b)
+        : null;
+      const loser = Number.isFinite(ra) && Number.isFinite(rb)
+        ? (ra >= rb ? b : a)
+        : null;
 
       let setup = "Neutral";
       let confidence = 5.4;
@@ -3625,7 +3539,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       if (Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(spread) && Math.abs(spread) >= 0.75 && winner && loser) {
         setup = "MEAN REVERSION";
         action = `1. SELL ${winner}\n2. BUY ${loser}\n3. Start Grid: Mode ${gridMode}, Range ${gridRange}\n4. Expectation: mean reversion (${winner} cools off, ${loser} catches up).`;
-        verdictText = `${winner} outperformed ${loser} over 30D. With a relatively high correlation, this looks like a mean-reversion/grid candidate.`;
+        verdictText = `${winner} outperformed ${loser} over ${PAIR_EXPLAIN_TF}. With a relatively high correlation, this looks like a mean-reversion/grid candidate.`;
         why.push(`High correlation (${corr >= 0 ? "+" : ""}${corr.toFixed(2)}) means both coins often move together.`);
         why.push(`The performance spread of ${_fmtPctLocal(spread)} creates a usable imbalance for a reversion idea.`);
         why.push(`${winner} is currently the stronger side, ${loser} the weaker side.`);
@@ -3636,6 +3550,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         } else if (Math.abs(spread) >= 2) {
           gridMode = "Standard";
           gridRange = "3–5%";
+          risk = "Medium";
+        } else {
+          gridMode = "Standard";
+          gridRange = "2–4%";
           risk = "Medium";
         }
       } else if (Number.isFinite(corr) && corr < 0.45) {
@@ -3671,49 +3589,47 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         verdictText = `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence grid setup.`;
         why.push("There is a leader and a laggard, but the data is not perfectly aligned for a strong reversion setup.");
         why.push("Mixed conditions increase the chance of trend continuation.");
-        why.push("If you trade it, reduce size and widen spacing.");
+        why.push("If you trade it, reduce size and widen the grid.");
+        gridMode = "Wide";
+        gridRange = "4–6%";
       }
 
-      confidence = Math.max(1, Math.min(10, Math.round(confidence * 10) / 10));
-      if (confidence >= 8) confidenceLabel = "HIGH";
-      else if (confidence <= 4.9) confidenceLabel = "LOW";
+      confidence = Math.max(1, Math.min(9.9, Number(confidence.toFixed(1))));
+      if (confidence >= 8.2) confidenceLabel = "HIGH";
+      else if (confidence >= 6.6) confidenceLabel = "MEDIUM";
+      else if (confidenceLabel === "MEDIUM") confidenceLabel = "LOW-MED";
 
-      const insightSummary =
-        longBias === "bullish" && shortBias === "bearish"
-          ? "Short-term pressure is visible, but the broader structure still looks stronger."
-          : longBias === "bearish" && shortBias === "bullish"
-            ? "There is a rebound attempt, but the broader structure remains weaker."
-            : "The pair structure is currently mixed and should be monitored across multiple windows.";
+      const bullets = [];
+      if (Number.isFinite(ra) && Number.isFinite(rb)) {
+        bullets.push(`${a} moved ${_fmtPctLocal(ra)} while ${b} moved ${_fmtPctLocal(rb)} over ${PAIR_EXPLAIN_TF}.`);
+        bullets.push(`Performance spread is ${_fmtPctLocal(spread)} (A minus B).`);
+      } else {
+        bullets.push("Not enough data to compute reliable performance spread for this range.");
+      }
+      if (Number.isFinite(corr)) {
+        bullets.push(`Correlation is ${(corr >= 0 ? "+" : "") + corr.toFixed(2)} (higher means they often move together).`);
+      }
+      bullets.push(`Suggested grid mode: ${gridMode}.`);
+      bullets.push(`Suggested range: ${gridRange}.`);
+      bullets.push(`Risk profile: ${risk}.`);
 
-      const textOut = [
-        `Trend Structure: ${trendStructure}`,
-        `Momentum Shift: ${momentumShift}`,
-        `Risk View: ${risk}`,
-        `Interpretation: ${verdictText}`,
-        `Insight Summary: ${insightSummary}`,
-      ].join("\n");
-
-      setAiExplainText(textOut);
       setAiExplainData({
         setup,
         confidence,
         confidenceLabel,
         risk,
         action,
-        gridMode,
-        gridRange,
-        why,
+        mode: gridMode,
+        range: gridRange,
         verdictText,
         winner,
         loser,
-        trendStructure,
-        momentumShift,
-        insightSummary,
-        windows: pairWindows,
+        bullets: Array.isArray(why) ? why : [],
       });
+      setAiExplainText("• " + bullets.join("\n• "));
     } catch (e) {
-      setAiExplainText("");
       setAiExplainData(null);
+      setAiExplainText("AI commentary failed.");
     } finally {
       setAiExplainLoading(false);
     }
@@ -3772,8 +3688,19 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
-  const [highlightSym, setHighlightSym] = useState(null);
+  const [selectedCompareSyms, setSelectedCompareSyms] = useLocalStorageState("nexus_compare_selected_syms_v1", []);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
+
+  useEffect(() => {
+    setSelectedCompareSyms((prev) => {
+      const arr = Array.isArray(prev) ? prev.map((s) => String(s || "").toUpperCase()) : [];
+      const allowed = new Set((compareSymbols || []).map((s) => String(s || "").toUpperCase()));
+      const next = arr.filter((s) => allowed.has(s));
+      if (next.length === arr.length) return prev;
+      return next;
+    });
+  }, [compareSymbols.join("|"), setSelectedCompareSyms]);
+
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
 
@@ -4193,7 +4120,7 @@ const rememberGridOrders = useCallback((itemId, ordersArr) => {
   const [aiProfile, setAiProfile] = useState("balanced");
 const [aiQuestion, setAiQuestion] = useState("");
   
-  const [aiFollowUp, setAiFollowUp] = useState(false);
+  const [aiFollowUp, setAiFollowUp] = useState(true);
   const [aiHistory, setAiHistory] = useState([]); // [{role:"user"|"assistant", content:string}]
 const [aiLoading, setAiLoading] = useState(false);
   const [aiOutput, setAiOutput] = useState("");
@@ -6172,63 +6099,76 @@ async function runAi() {
     if (!requirePro("AI analysis")) return;
     const q = (aiQuestion || "").trim();
 
+    // Require at least 1 coin context from AI selection or Compare selection
     const syms = (aiSelected && aiSelected.length ? aiSelected : compareSymbols).slice(0, 6);
     if (!syms.length) return setErrorMsg("Select at least 1 coin in Compare (or AI).");
+    const qFinal = q || (aiKind === "Signals"
+      ? `Give ${aiProfile} trading signals and key levels based on the selected timeframe.`
+      : `Provide a ${aiProfile} ${aiKind.toLowerCase()} based on the selected timeframe, and summarize key trends, risks, and actionable takeaways.`);
 
-    const isFollowUpAsk = !!aiFollowUp && !!q;
-    if (aiFollowUp && !aiOutput && q) {
-      return setErrorMsg("Run an AI analysis first, then ask a follow-up question.");
-    }
-
-    const qFinal = isFollowUpAsk
-      ? q
-      : (aiKind === "Signals"
-          ? `Give ${aiProfile} trading signals and key levels based on the selected timeframe.`
-          : `Provide a ${aiProfile} ${aiKind.toLowerCase()} based on the selected timeframe, and summarize key trends, risks, and actionable takeaways.`);
 
     setAiLoading(true);
     try {
-      await ensureBackendAuthToken();
+      const authToken = await ensureBackendAuthToken();
+      // Chart timeframe is the source of truth for Pro mode.
+      const tf = String(timeframe || "").toUpperCase();
 
-      const uiTf = String(timeframe || "").toUpperCase();
-      const explicitTf = _extractExplicitTfFromQuestion(qFinal);
-      const tf = String(explicitTf || uiTf || "90D").toUpperCase();
+      // Build per-coin stats from the SAME series used by the chart (selected timeframe)
+      const statsForSym = (sym) => {
+        const pts = ((compareSeries && compareSeries[sym]) || []).slice().sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
+        const vals = pts.map(p => p && Number.isFinite(p.v) ? p.v : null).filter(v => v != null);
+        if (vals.length < 2) return null;
 
-      const slicedSeries = sliceCompareSeries(compareSeries || {}, tf);
-      const seriesStats = _seriesStatsFromSeriesMap(slicedSeries, syms);
-      const insightWindows = _buildInsightWindows(compareSeries || {}, syms);
+        const first = vals[0];
+        const last = vals[vals.length - 1];
+        const changePct = first !== 0 ? ((last / first) - 1) * 100 : null;
+
+        const rets = [];
+        for (let i = 1; i < vals.length; i++) {
+          const a = vals[i - 1], b = vals[i];
+          if (a && b && a !== 0) rets.push((b / a) - 1);
+        }
+        const mean = rets.length ? rets.reduce((s, x) => s + x, 0) / rets.length : 0;
+        const variance = rets.length ? rets.reduce((s, x) => s + (x - mean) ** 2, 0) / rets.length : 0;
+        const volPct = Math.sqrt(variance) * 100;
+
+        let peak = vals[0];
+        let maxDD = 0;
+        for (const v of vals) {
+          if (v > peak) peak = v;
+          const dd = peak ? (v / peak) - 1 : 0; // negative
+          if (dd < maxDD) maxDD = dd;
+        }
+        const min = Math.min(...vals);
+        const max = Math.max(...vals);
+
+        return { first, last, changePct, volPct, maxDDPct: maxDD * 100, min, max, points: vals.length };
+      };
+
+      const seriesStats = {};
+      for (const s of syms) {
+        const stats = statsForSym(s);
+        if (stats) seriesStats[s] = stats;
+      }
 
       const statsText = Object.entries(seriesStats)
         .map(([s, stats]) => `${s}: change=${(stats.changePct ?? 0).toFixed(2)}%, vol=${(stats.volPct ?? 0).toFixed(2)}%, maxDD=${(stats.maxDDPct ?? 0).toFixed(2)}%, range=[${stats.min}, ${stats.max}], points=${stats.points}`)
-        .join("\n");
+        .join("\\n");
 
-      const insightText = Object.entries(insightWindows)
-        .map(([windowTf, bySym]) => {
-          const lines = Object.entries(bySym || {}).map(([s, stats]) =>
-            `${s}: change=${(stats.changePct ?? 0).toFixed(2)}%, vol=${(stats.volPct ?? 0).toFixed(2)}%, maxDD=${(stats.maxDDPct ?? 0).toFixed(2)}%, points=${stats.points}`
-          );
-          return lines.length ? `Insight window ${windowTf}:\n${lines.join("\n")}` : "";
-        })
-        .filter(Boolean)
-        .join("\n\n");
 
+      // Keep short history for follow-ups (optional)
       const trimmedHist = (aiHistory || []).slice(-10);
       const historyText = trimmedHist
         .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
         .join("\n");
 
       const header =
-        `UI timeframe: ${uiTf}.\n` +
-        `Active analysis timeframe: ${tf}.\n` +
-        (explicitTf
-          ? `The user explicitly asked for ${explicitTf}, so this overrides the current UI timeframe.\n`
-          : `No explicit timeframe was found in the user's question, so use the current UI timeframe.\n`) +
+        `Timeframe: ${tf} (use ONLY this timeframe's series stats below; do NOT talk about 24h unless Timeframe is 1D/24H).\n` +
         `Coins: ${syms.join(", ")}\n` +
-        (statsText ? `Series stats (${tf}):\n${statsText}\n` : "") +
-        (insightText ? `\nMulti-timeframe insight context (use this for AI Insight / trend-structure comparison):\n${insightText}\n` : "");
+        (statsText ? `Series stats (${tf}):\n${statsText}\n` : "");
 
       const questionText =
-        isFollowUpAsk && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;
+        aiFollowUp && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;
 
       const body = {
         kind: aiKind,
@@ -6236,14 +6176,12 @@ async function runAi() {
         profile: aiProfile,
         question: questionText,
         timeframe: tf,
-        selected_timeframe: uiTf,
-        explicit_question_timeframe: explicitTf || null,
         index_mode: !!indexMode,
-        history: isFollowUpAsk ? trimmedHist : [],
+        history: aiFollowUp ? trimmedHist : [],
         series_stats: seriesStats,
-        insight_windows: insightWindows,
       };
 
+      // AI endpoint requires BACKEND token (issued by /api/auth/verify).
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
       const r = await api("/api/ai/run", { method: "POST", token, body });
 
@@ -6255,21 +6193,17 @@ async function runAi() {
         (typeof r === "string" ? r : "");
 
       if (!text) text = "No AI response.";
-      text = String(text).replace(/\n/g, "\n");
-      text = normalizeAiOutput(text, tf, qFinal, seriesStats);
+      text = String(text).replace(/\\n/g, "\n");
+      text = normalizeAiOutput(text, tf, q, seriesStats);
       setAiOutput(text);
 
-      if (isFollowUpAsk) {
+      // Update history (only when follow-up enabled)
+      if (aiFollowUp) {
         setAiHistory((prev) => {
           const next = [...(prev || []), { role: "user", content: qFinal }, { role: "assistant", content: text }];
           return next.slice(-10);
         });
-      }
-      if (isFollowUpAsk) {
-        setAiQuestion("");
-      } else if (!aiFollowUp) {
-        setAiHistory([]);
-      }
+  }
     } catch (e) {
       setErrorMsg("");
     } finally {
@@ -6410,8 +6344,6 @@ const manualRiskState = useMemo(() => {
 }, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
 
 const [activePanel, setActivePanel] = useState(null);
-const isWatchSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "watchlist";
-const isGridSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "vault";
 const handlePanelActivate = useCallback((name) => (e) => {
   if (typeof window !== "undefined" && window.innerWidth <= 980) return;
   const el = e?.target;
@@ -6715,40 +6647,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
 
           /* re-enable Compare internal scrolls after the global desktop override */
-          .section-compare .compareGrid{
-            display: grid !important;
-            grid-template-columns: minmax(220px, 240px) minmax(0, 1fr) !important;
-            align-items: start !important;
-            min-height: 0 !important;
-            gap: 16px !important;
-          }
-          .section-compare .compareChart{
-            display: flex !important;
-            flex-direction: column !important;
-            min-height: 0 !important;
-          }
-          .section-compare .pairsBox{
-            display: flex !important;
-            flex-direction: column !important;
-            min-height: 0 !important;
-            flex: 1 1 auto !important;
-          }
           .section-compare .liveListBox{
-            max-height: clamp(260px, 34vh, 420px) !important;
+            max-height: 320px !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
           }
           .section-compare .pairsScroll{
-            flex: 1 1 auto !important;
-            min-height: 0 !important;
-            max-height: none !important;
+            max-height: 388px !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 8px !important;
-            padding-bottom: 24px !important;
+            padding-bottom: 28px !important;
             margin-top: 6px !important;
             margin-bottom: 10px !important;
-            scroll-padding-bottom: 24px !important;
+            scroll-padding-bottom: 28px !important;
             overscroll-behavior: contain !important;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
           }
@@ -6778,146 +6690,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             margin-top: -18px;
             background: linear-gradient(180deg, rgba(6,24,22,0), rgba(6,24,22,.95));
             pointer-events: none;
-          }
-
-          /* focused desktop: give Compare more usable pair-list height */
-          .dashboardGrid.hasFocus.focus-compare .section-compare .pairsScroll{
-            min-height: 0 !important;
-            max-height: clamp(260px, 34vh, 520px) !important;
-            padding-bottom: 64px !important;
-            scroll-padding-bottom: 64px !important;
-          }
-
-          .dashboardGrid.hasFocus.focus-compare .section-compare .pairsBox{
-            flex: 1 1 auto !important;
-          }
-
-                    /* focused desktop: compact sidebar panels */
-          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .cardHead,
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .cardHead,
-          .dashboardGrid.hasFocus .section-ai:not(.panelActive) .cardHead{
-            flex-wrap: wrap !important;
-            align-items: flex-start !important;
-            gap: 10px !important;
-          }
-          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .cardActions,
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .cardActions,
-          .dashboardGrid.hasFocus .section-ai:not(.panelActive) .cardActions{
-            display: flex !important;
-            flex-wrap: wrap !important;
-            justify-content: flex-start !important;
-            gap: 8px !important;
-            max-width: 100% !important;
-            overflow: hidden !important;
-          }
-
-          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridLayout{
-            grid-template-columns: 1fr !important;
-            gap: 10px !important;
-          }
-          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridRight{
-            position: static !important;
-            width: 100% !important;
-            justify-self: stretch !important;
-          }
-          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .ordersHead{
-            gap: 8px !important;
-          }
-          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .ordersList{
-            max-height: 220px !important;
-          }
-          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridControls .hint,
-          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridControls .muted,
-          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridControls .tiny{
-            font-size: 11px !important;
-            line-height: 1.3 !important;
-          }
-
-          .watchCompact{
-            display: grid;
-            gap: 10px;
-          }
-          .watchCompactCard{
-            display: grid;
-            grid-template-columns: auto 1fr auto;
-            gap: 10px;
-            align-items: center;
-            padding: 10px 12px;
-            border: 1px solid rgba(255,255,255,.06);
-            border-radius: 14px;
-            background: rgba(255,255,255,.03);
-          }
-          .watchCompactMain{
-            min-width: 0;
-            display: grid;
-            gap: 4px;
-          }
-          .watchCompactTop{
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            min-width: 0;
-          }
-          .watchCompactMeta{
-            display: grid;
-            gap: 2px;
-            min-width: 0;
-          }
-          .watchCompactPrice{
-            text-align: right;
-            display: grid;
-            gap: 2px;
-            justify-items: end;
-            min-width: 0;
-          }
-          .watchCompactStats{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
-            min-width: 0;
-          }
-          .watchCompactStats .muted{
-            white-space: nowrap;
-          }
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchTable{
-            display: block !important;
-          }
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchHead{
-            display: none !important;
-          }
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchScroll{
-            display: grid !important;
-            gap: 10px !important;
-            overflow-y: auto !important;
-            max-height: clamp(180px, 26vh, 320px) !important;
-            padding-right: 6px !important;
-          }
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow{
-            display: grid !important;
-            grid-template-columns: auto 1fr auto !important;
-            gap: 10px !important;
-            align-items: center !important;
-            padding: 10px 12px !important;
-            border: 1px solid rgba(255,255,255,.06) !important;
-            border-radius: 14px !important;
-            background: rgba(255,255,255,.03) !important;
-          }
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow > :nth-child(4),
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow > :nth-child(5),
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow > :nth-child(6){
-            display: none !important;
-          }
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchCoin{
-            min-width: 0 !important;
-          }
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchCoin > div:last-child{
-            min-width: 0 !important;
-          }
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchSym{
-            white-space: nowrap !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
           }
         }
 
@@ -8192,7 +7964,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Was ist das?</b> Vergleich von bis zu 10 Coins aus der Watchlist-Compare-Auswahl.</p>
                       <p><b>Index 100</b> normalisiert alle Coins (Start=100) — besser bei vielen Coins.</p>
                       <p><b>Overlay</b>: alle Coins im selben Chart. <b>Grid</b>: jeder Coin als Mini-Chart (besser bei 10 Coins).</p>
-                          <p><b>Legende</b>: Farbe → Coin. Klick = Highlight (ein Coin isolieren).</p>
+                          <p><b>Legende</b>: Farbe → Coin. Klick = Auswahl. <b>ALL</b> zeigt wieder alle Coins.</p>
                     </>
                   }
                   en={
@@ -8200,7 +7972,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>What is this?</b> Compare up to 10 coins selected via Watchlist → Compare.</p>
                       <p><b>Index 100</b> normalizes all coins (start=100) — best for many lines.</p>
                       <p><b>Overlay</b>: all coins in one chart. <b>Grid</b>: one mini-chart per coin (best for 10 coins).</p>
-                          <p><b>Legend</b>: color → coin. Click to highlight one coin.</p>
+                          <p><b>Legend</b>: color → coin. Click to select coins. <b>ALL</b> shows all coins again.</p>
                     </>
                   }
                 />
@@ -8244,9 +8016,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               {viewMode === "overlay" ? (
               <>
-                <SvgChart chart={chartRaw} height={320} highlightSym={highlightSym} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                <SvgChart chart={chartRaw} height={320} selectedSyms={selectedCompareSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                 <div style={{ marginTop: 10 }}>
-                  <Legend symbols={compareSymbols} highlightSym={highlightSym} setHighlightSym={setHighlightSym} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                  <Legend symbols={compareSymbols} selectedSyms={selectedCompareSyms} setSelectedSyms={setSelectedCompareSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                 </div>
               </>
             ) : (
@@ -8260,8 +8032,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       chart={chartRaw}
                       indexMode={indexMode}
                       timeframe={timeframe}
-                      active={highlightSym === sym}
-                      onClick={() => setHighlightSym((v) => (v === sym ? null : sym))}
+                      active={selectedCompareSyms.length === 0 || selectedCompareSyms.includes(sym)}
+                      onClick={() => setSelectedCompareSyms((prev) => {
+                        const arr = Array.isArray(prev) ? prev.map((s) => String(s || "").toUpperCase()) : [];
+                        const next = new Set(arr);
+                        if (next.has(sym)) next.delete(sym);
+                        else next.add(sym);
+                        return Array.from(next);
+                      })}
                       colorForSym={colorForSym}
                       lineClassForSym={lineClassForSym}
                     />
@@ -8518,35 +8296,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
 
-                      <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>AI Conclusion</div>
-                        <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.4 }}>
-                          {aiExplainData.verdictText || "No clear AI conclusion available yet."}
-                        </div>
-                        <div className="muted tiny" style={{ lineHeight: 1.5 }}>
-                          {aiExplainData.winner && aiExplainData.loser
-                            ? `Current bias: rotate away from ${aiExplainData.winner} toward ${aiExplainData.loser}, but only if the setup matches your risk tolerance.`
-                            : "This conclusion should be treated as a directional hint, not an automatic trade command."}
-                        </div>
-                      </div>
-
-                      {(aiExplainData.trendStructure || aiExplainData.momentumShift || aiExplainData.insightSummary) ? (
-                        <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                          <div className="label" style={{ marginBottom: 0 }}>Multi-timeframe AI Insight</div>
-                          {aiExplainData.trendStructure ? (
-                            <div><span className="muted tiny">Trend Structure</span><div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.trendStructure}</div></div>
-                          ) : null}
-                          {aiExplainData.momentumShift ? (
-                            <div><span className="muted tiny">Momentum Shift</span><div style={{ marginTop: 4 }}>{aiExplainData.momentumShift}</div></div>
-                          ) : null}
-                          {aiExplainData.insightSummary ? (
-                            <div><span className="muted tiny">Insight Summary</span><div style={{ marginTop: 4 }}>{aiExplainData.insightSummary}</div></div>
-                          ) : null}
-                        </div>
-                      ) : null}
-
                       <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Suggested Action</div>
+                        <div className="label" style={{ marginBottom: 0 }}>What to do now</div>
 
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -8566,27 +8317,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             ))}
                         </div>
 
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
-                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                            <div className="muted tiny">Suggested Grid</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridRange || aiExplainData.range || "—"}</div>
-                          </div>
-                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                            <div className="muted tiny">Mode</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridMode || aiExplainData.mode || "—"}</div>
-                          </div>
-                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                            <div className="muted tiny">Time horizon</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>
-                              {String(aiExplainData.setup || "").includes("MEAN")
-                                ? "Short to medium term"
-                                : String(aiExplainData.setup || "").includes("TREND")
-                                  ? "Short-term tactical"
-                                  : "Wait / monitor"}
-                            </div>
-                          </div>
-                        </div>
-
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <>
                             <div className="tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -8600,51 +8330,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         ) : null}
                       </div>
 
-                      <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div className="muted tiny">Suggested Grid</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.range}</div>
+                        </div>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div className="muted tiny">Mode</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.mode}</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: "grid", gap: 6 }}>
                         <div className="label" style={{ marginBottom: 0 }}>Why this setup</div>
                         <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
-                          {(Array.isArray(aiExplainData.why) ? aiExplainData.why : Array.isArray(aiExplainData.bullets) ? aiExplainData.bullets : []).map((line, idx) => (
+                          {(Array.isArray(aiExplainData.bullets) ? aiExplainData.bullets : []).map((line, idx) => (
                             <div key={idx}>• {line}</div>
                           ))}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Invalidation</div>
-                        <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
-                          {(() => {
-                            const lines = [];
-                            if (aiExplainData.winner && aiExplainData.loser) {
-                              lines.push(`If ${aiExplainData.winner} keeps outperforming while ${aiExplainData.loser} stays weak, the catch-up idea weakens.`);
-                            }
-                            if (String(aiExplainData.gridMode || aiExplainData.mode || "").toLowerCase() === "wait") {
-                              lines.push("If spread and correlation do not improve, there is still no valid entry.");
-                            } else {
-                              lines.push("If the spread widens sharply without any stabilization, reduce trust in mean reversion.");
-                            }
-                            lines.push("If short-term structure deteriorates further across 7D and 30D, the setup should be reassessed.");
-                            return lines.map((line, idx) => <div key={idx}>• {line}</div>);
-                          })()}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Best for</div>
-                        <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
-                          {(() => {
-                            const lines = [];
-                            const riskTxt = String(aiExplainData.risk || "").toLowerCase();
-                            if (riskTxt.includes("high")) lines.push("Best suited for active users who can handle medium to high risk.");
-                            else if (riskTxt.includes("medium")) lines.push("Best suited for users comfortable with moderate tactical positioning.");
-                            else lines.push("Best suited for cautious users who prefer patience over aggressive entries.");
-                            if (String(aiExplainData.gridMode || aiExplainData.mode || "").toLowerCase() === "wait") {
-                              lines.push("Less suitable for users who want an immediate trade right now.");
-                            } else {
-                              lines.push("Better for users who understand pair rotation and short-term reversion setups.");
-                            }
-                            lines.push("Not ideal as a blind long-term allocation decision without rechecking the structure.");
-                            return lines.map((line, idx) => <div key={idx}>• {line}</div>);
-                          })()}
                         </div>
                       </div>
                     </div>
@@ -9293,79 +8995,42 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
 
           <div className="panelScroll"><div className="watchTable">
-            {!isWatchSidebarCompact ? (
-              <>
-                <div className="watchHead watchStickyHead">
-                  <div>Compare</div>
-                  <div>Coin</div>
-                  <div className="right">Price</div>
-                  <div className="right">24h</div>
-                  <div className="right">Vol</div>
-                  <div className="right">Source</div>
-                  <div className="right"> </div>
-                </div>
+            <div className="watchHead watchStickyHead">
+              <div>Compare</div>
+              <div>Coin</div>
+              <div className="right">Price</div>
+              <div className="right">24h</div>
+              <div className="right">Vol</div>
+              <div className="right">Source</div>
+              <div className="right"> </div>
+            </div>
 
-                <div className="watchScroll">
-                  {watchRows.map((r, idx) => {
-                    const sym = String(r.symbol || "").toUpperCase();
-                    const checked = compareSymbols.includes(sym);
-                    return (
-                      <div key={`${sym}-${idx}`} className="watchRow">
-                        <div>
-                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 10} />
-                        </div>
-                        <div className="watchCoin">
-                          <div className="coinLogo small">{sym.slice(0, 1)}</div>
-                          <div>
-                            <div className="watchSym">{sym}</div>
-                            <div className="muted tiny">{r.mode === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
-                          </div>
-                        </div>
-                        <div className="right mono">{fmtUsd(r.price)}</div>
-                        <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
-                        <div className="right mono">{fmtUsd(r.volume24h)}</div>
-                        <div className="right muted">{r.source || "—"}</div>
-                        <div className="right"><button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
-                      </div>
-                    );
-                  })}
-                  {!watchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
-                </div>
-              </>
-            ) : (
-              <div className="watchCompact">
-                {watchRows.map((r, idx) => {
-                  const sym = String(r.symbol || "").toUpperCase();
-                  const checked = compareSymbols.includes(sym);
-                  const mm = (r.mode || "market");
-                  return (
-                    <div key={`${sym}-${idx}`} className="watchCompactCard">
+            <div className="watchScroll">
+              {watchRows.map((r, idx) => {
+                const sym = String(r.symbol || "").toUpperCase();
+                const checked = compareSymbols.includes(sym);
+                return (
+                  <div key={`${sym}-${idx}`} className="watchRow">
+                    <div>
+                      <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 10} />
+                    </div>
+                    <div className="watchCoin">
+                      <div className="coinLogo small">{sym.slice(0, 1)}</div>
                       <div>
-                        <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 10} />
-                      </div>
-                      <div className="watchCompactMain">
-                        <div className="watchCompactTop">
-                          <div className="coinLogo small">{sym.slice(0, 1)}</div>
-                          <div className="watchCompactMeta">
-                            <div className="watchSym">{sym}</div>
-                            <div className="muted tiny">{mm === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
-                          </div>
-                        </div>
-                        <div className="watchCompactStats">
-                          <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
-                          <span className="muted tiny">{r.source || "—"}</span>
-                        </div>
-                      </div>
-                      <div className="watchCompactPrice">
-                        <div className="mono" style={{ fontWeight: 900 }}>{fmtUsd(r.price)}</div>
-                        <button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : ""), contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button>
+                        <div className="watchSym">{sym}</div>
+                        <div className="muted tiny">{r.mode === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
                       </div>
                     </div>
-                  );
-                })}
-                {!watchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
-              </div>
-            )}
+                    <div className="right mono">{fmtUsd(r.price)}</div>
+                    <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
+                    <div className="right mono">{fmtUsd(r.volume24h)}</div>
+                    <div className="right muted">{r.source || "—"}</div>
+                    <div className="right"><button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
+                  </div>
+                );
+              })}
+              {!watchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
+            </div>
           </div>
 
           <div className="muted tiny">Compare selection is the single source of truth (max 10).</div>
@@ -9420,18 +9085,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <option value="volatility">Volatility</option>
                 </select>
               </div>
-<div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+<div className="formRow">
+                <label>Question (optional)</label>
+                <input value={aiQuestion} onChange={(e) => setAiQuestion(e.target.value)} placeholder="Ask the analyst..." />
+              </div>
+
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <label className="muted" style={{ display: "inline-flex", gap: 8, alignItems: "center", userSelect: "none" }}>
-                  <input
-                    type="checkbox"
-                    checked={aiFollowUp}
-                    onChange={(e) => {
-                      const on = !!e.target.checked;
-                      setAiFollowUp(on);
-                      setAiQuestion("");
-                      if (!on) setAiHistory([]);
-                    }}
-                  />
+                  <input type="checkbox" checked={aiFollowUp} onChange={(e) => setAiFollowUp(e.target.checked)} />
                   Follow-up
                 </label>
                 <button
@@ -9462,31 +9123,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="aiOut">
               <div className="label">Output</div>
               <div className="aiPanel">{aiOutput ? <div className="aiText" style={{ whiteSpace: "pre-wrap" }}>{aiOutput}</div> : <div className="muted">No output yet.</div>}</div>
-
-              {aiFollowUp ? (
-                <div style={{ marginTop: 12 }}>
-                  <div className="label" style={{ marginBottom: 6 }}>Ask about this analysis</div>
-                  <div className="formRow" style={{ marginBottom: 8 }}>
-                    <input
-                      value={aiQuestion}
-                      onChange={(e) => setAiQuestion(e.target.value)}
-                      placeholder={aiOutput ? "Ask something about this analysis..." : "Run the analysis first, then ask a follow-up..."}
-                      disabled={!aiOutput || aiLoading}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && aiQuestion.trim() && aiOutput && !aiLoading) {
-                          e.preventDefault();
-                          runAi();
-                        }
-                      }}
-                    />
-                  </div>
-                  {aiQuestion.trim() ? (
-                    <button className="btn" onClick={runAi} disabled={!aiOutput || aiLoading}>
-                      {aiLoading ? "Asking…" : "Ask"}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
           </div></div>
         </section>
@@ -9647,18 +9283,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
       <style>{`
         @media (min-width: 981px){
           .section-compare .liveListBox{
-            max-height: clamp(260px, 34vh, 420px) !important;
+            max-height: 320px !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
           }
           .section-compare .pairsScroll{
-            min-height: 0 !important;
-            max-height: clamp(220px, 28vh, 420px) !important;
+            max-height: 420px !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 6px;
-            padding-bottom: 56px !important;
-            scroll-padding-bottom: 56px !important;
           }
           .section-compare .liveListBox::-webkit-scrollbar,
           .section-compare .pairsScroll::-webkit-scrollbar{

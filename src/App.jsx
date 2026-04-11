@@ -1368,23 +1368,45 @@ const tMin = x[0];
   );
 }
 
-function Legend({ symbols, highlightSym, setHighlightSym, colorForSym, lineClassForSym }) {
+function Legend({ symbols, visibleSymbols, setVisibleSymbols, colorForSym, lineClassForSym }) {
+  const visibleSet = useMemo(() => new Set((visibleSymbols || []).map((s) => String(s || "").toUpperCase())), [visibleSymbols]);
+
+  const toggleVisible = (sym) => {
+    const S = String(sym || "").toUpperCase();
+    setVisibleSymbols((prev) => {
+      const prevArr = Array.isArray(prev) ? prev.map((s) => String(s || "").toUpperCase()) : [];
+      const has = prevArr.includes(S);
+      if (has) return prevArr.filter((x) => x !== S);
+      const nextSet = new Set(prevArr);
+      nextSet.add(S);
+      return (symbols || []).filter((x) => nextSet.has(String(x || "").toUpperCase()));
+    });
+  };
+
+  const showAll = () => setVisibleSymbols((symbols || []).map((s) => String(s || "").toUpperCase()));
+
   return (
     <div className="chartLegend">
       {symbols.map((sym, idx) => {
-        const active = !highlightSym || highlightSym === sym;
+        const active = visibleSet.has(String(sym || "").toUpperCase());
         return (
           <button
             key={sym}
             className={`legendItem ${active ? "active" : ""}`}
-            onClick={() => setHighlightSym((v) => (v === sym ? null : sym))}
-            title="Click to highlight"
+            onClick={() => toggleVisible(sym)}
+            title={active ? "Click to hide" : "Click to show"}
+            type="button"
           >
-            <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]) }} />
-            <span className="legendSym">{sym}</span>
+            <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]), opacity: active ? 1 : 0.35 }} />
+            <span className="legendSym" style={{ opacity: active ? 1 : 0.5 }}>{sym}</span>
           </button>
         );
       })}
+      {symbols.length > 0 ? (
+        <button className="legendItem active" onClick={showAll} title="Show all coins" type="button">
+          <span className="legendSym">Alle anzeigen</span>
+        </button>
+      ) : null}
       {symbols.length === 0 ? <span className="muted">No coins selected.</span> : null}
     </div>
   );
@@ -3773,12 +3795,42 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [highlightSym, setHighlightSym] = useState(null);
+  const [visibleCompareSymbols, setVisibleCompareSymbols] = useState(compareSymbols);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
 
+  useEffect(() => {
+    setVisibleCompareSymbols((prev) => {
+      const prevArr = Array.isArray(prev) ? prev.map((s) => String(s || "").toUpperCase()) : [];
+      const prevSet = new Set(prevArr);
+      const next = [];
+      for (const sym of compareSymbols || []) {
+        const S = String(sym || "").toUpperCase();
+        if (prevSet.has(S) || !prevArr.length) next.push(S);
+      }
+      if (!next.length && (compareSymbols || []).length) return compareSymbols.map((s) => String(s || "").toUpperCase());
+      return next;
+    });
+  }, [compareSymbols.join("|")]);
+
+  useEffect(() => {
+    if (highlightSym && !visibleCompareSymbols.includes(highlightSym)) {
+      setHighlightSym(null);
+    }
+  }, [highlightSym, visibleCompareSymbols]);
+
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
+  const visibleCompareSeriesView = useMemo(() => {
+    const allowed = new Set((visibleCompareSymbols || []).map((s) => String(s || "").toUpperCase()));
+    const next = {};
+    for (const sym of compareSymbols || []) {
+      const S = String(sym || "").toUpperCase();
+      if (allowed.has(S) && compareSeriesView?.[S]) next[S] = compareSeriesView[S];
+    }
+    return next;
+  }, [compareSeriesView, visibleCompareSymbols, compareSymbols]);
 
   // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/2Y)
-  const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
+  const chartRaw = useMemo(() => buildUnifiedChart(visibleCompareSeriesView), [visibleCompareSeriesView]);
   const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
     const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000), [compareSeries]);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsAll.slice(0, 10) : bestPairsAll), [showTop10Pairs, bestPairsAll]);
@@ -8239,14 +8291,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="compareChart">
               <div className="chartHeader">
                 <div className="label">Diagramm (auto scale)</div>
-                <div className="muted tiny">{compareLoading ? "Loading…" : `${compareSymbols.length} selected`}</div>
+                <div className="muted tiny">{compareLoading ? "Loading…" : `${visibleCompareSymbols.length}/${compareSymbols.length} visible`}</div>
               </div>
 
               {viewMode === "overlay" ? (
               <>
                 <SvgChart chart={chartRaw} height={320} highlightSym={highlightSym} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                 <div style={{ marginTop: 10 }}>
-                  <Legend symbols={compareSymbols} highlightSym={highlightSym} setHighlightSym={setHighlightSym} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                  <Legend symbols={compareSymbols} visibleSymbols={visibleCompareSymbols} setVisibleSymbols={setVisibleCompareSymbols} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                 </div>
               </>
             ) : (

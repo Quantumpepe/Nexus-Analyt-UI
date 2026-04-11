@@ -1132,7 +1132,7 @@ function buildMonthlyTicks(tMin, tMax) {
 // ------------------------
 // SVG chart with y-scale + x labels
 // ------------------------
-function SvgChart({ chart, height = 320, highlightSym, onHoverSym, indexMode, timeframe, colorForSym, lineClassForSym }) {
+function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, indexMode, timeframe, colorForSym, lineClassForSym }) {
   const { x, lines, order } = chart || { x: [], lines: {}, order: [] };
   const syms = order?.length ? order : Object.keys(lines || {});
 
@@ -1272,9 +1272,10 @@ const tMin = x[0];
           if (!d) return null;
 
           // IMPORTANT: only dim when user CLICK-highlighted; hover must not change visibility
-          const isHi = !highlightSym || highlightSym === sym;
-          const opacity = highlightSym ? (isHi ? 0.95 : 0.18) : 0.90;
-          const strokeWidth = highlightSym ? (isHi ? 3.2 : 2.2) : 3.0;
+          const hasHighlights = Array.isArray(highlightedSyms) && highlightedSyms.length > 0;
+          const isHi = !hasHighlights || highlightedSyms.includes(sym);
+          const opacity = hasHighlights ? (isHi ? 0.95 : 0.18) : 0.90;
+          const strokeWidth = hasHighlights ? (isHi ? 3.2 : 2.2) : 3.0;
 
           return (
             <path
@@ -1342,7 +1343,7 @@ const tMin = x[0];
                 justifyContent: "space-between",
                 gap: 12,
                 fontWeight: 800,
-                opacity: highlightSym && highlightSym !== sym ? 0.55 : 1,
+                opacity: highlightedSyms.length > 0 && !highlightedSyms.includes(sym) ? 0.55 : 1,
               }}
             >
               <span>{sym}</span>
@@ -1368,33 +1369,32 @@ const tMin = x[0];
   );
 }
 
-function Legend({ symbols, visibleSymbols, setVisibleSymbols, colorForSym, lineClassForSym }) {
-  const visibleSet = useMemo(() => new Set((visibleSymbols || []).map((s) => String(s || "").toUpperCase())), [visibleSymbols]);
+function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym, lineClassForSym }) {
+  const highlightedSet = useMemo(() => new Set((highlightedSyms || []).map((s) => String(s || "").toUpperCase())), [highlightedSyms]);
 
-  const toggleVisible = (sym) => {
+  const toggleHighlight = (sym) => {
     const S = String(sym || "").toUpperCase();
-    setVisibleSymbols((prev) => {
+    setHighlightedSyms((prev) => {
       const prevArr = Array.isArray(prev) ? prev.map((s) => String(s || "").toUpperCase()) : [];
-      const has = prevArr.includes(S);
-      if (has) return prevArr.filter((x) => x !== S);
-      const nextSet = new Set(prevArr);
-      nextSet.add(S);
-      return (symbols || []).filter((x) => nextSet.has(String(x || "").toUpperCase()));
+      return prevArr.includes(S)
+        ? prevArr.filter((x) => x !== S)
+        : [...prevArr, S];
     });
   };
 
-  const showAll = () => setVisibleSymbols((symbols || []).map((s) => String(s || "").toUpperCase()));
+  const showAll = () => setHighlightedSyms([]);
 
   return (
     <div className="chartLegend">
       {symbols.map((sym, idx) => {
-        const active = visibleSet.has(String(sym || "").toUpperCase());
+        const hasHighlights = highlightedSet.size > 0;
+        const active = !hasHighlights || highlightedSet.has(String(sym || "").toUpperCase());
         return (
           <button
             key={sym}
             className={`legendItem ${active ? "active" : ""}`}
-            onClick={() => toggleVisible(sym)}
-            title={active ? "Click to hide" : "Click to show"}
+            onClick={() => toggleHighlight(sym)}
+            title={active ? "Click to fade this coin" : "Click to highlight this coin"}
             type="button"
           >
             <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]), opacity: active ? 1 : 0.35 }} />
@@ -1404,7 +1404,7 @@ function Legend({ symbols, visibleSymbols, setVisibleSymbols, colorForSym, lineC
       })}
       {symbols.length > 0 ? (
         <button className="legendItem active" onClick={showAll} title="Show all coins" type="button">
-          <span className="legendSym">Alle anzeigen</span>
+          <span className="legendSym">all Coin</span>
         </button>
       ) : null}
       {symbols.length === 0 ? <span className="muted">No coins selected.</span> : null}
@@ -3794,43 +3794,22 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
-  const [highlightSym, setHighlightSym] = useState(null);
-  const [visibleCompareSymbols, setVisibleCompareSymbols] = useState(compareSymbols);
+  const [highlightedSyms, setHighlightedSyms] = useState([]);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
 
   useEffect(() => {
-    setVisibleCompareSymbols((prev) => {
-      const prevArr = Array.isArray(prev) ? prev.map((s) => String(s || "").toUpperCase()) : [];
-      const prevSet = new Set(prevArr);
-      const next = [];
-      for (const sym of compareSymbols || []) {
-        const S = String(sym || "").toUpperCase();
-        if (prevSet.has(S) || !prevArr.length) next.push(S);
-      }
-      if (!next.length && (compareSymbols || []).length) return compareSymbols.map((s) => String(s || "").toUpperCase());
-      return next;
+    setHighlightedSyms((prev) => {
+      const allowed = new Set((compareSymbols || []).map((s) => String(s || "").toUpperCase()));
+      return (Array.isArray(prev) ? prev : [])
+        .map((s) => String(s || "").toUpperCase())
+        .filter((s) => allowed.has(s));
     });
   }, [compareSymbols.join("|")]);
 
-  useEffect(() => {
-    if (highlightSym && !visibleCompareSymbols.includes(highlightSym)) {
-      setHighlightSym(null);
-    }
-  }, [highlightSym, visibleCompareSymbols]);
-
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
-  const visibleCompareSeriesView = useMemo(() => {
-    const allowed = new Set((visibleCompareSymbols || []).map((s) => String(s || "").toUpperCase()));
-    const next = {};
-    for (const sym of compareSymbols || []) {
-      const S = String(sym || "").toUpperCase();
-      if (allowed.has(S) && compareSeriesView?.[S]) next[S] = compareSeriesView[S];
-    }
-    return next;
-  }, [compareSeriesView, visibleCompareSymbols, compareSymbols]);
 
   // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/2Y)
-  const chartRaw = useMemo(() => buildUnifiedChart(visibleCompareSeriesView), [visibleCompareSeriesView]);
+  const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
   const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
     const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000), [compareSeries]);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsAll.slice(0, 10) : bestPairsAll), [showTop10Pairs, bestPairsAll]);
@@ -8291,14 +8270,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="compareChart">
               <div className="chartHeader">
                 <div className="label">Diagramm (auto scale)</div>
-                <div className="muted tiny">{compareLoading ? "Loading…" : `${visibleCompareSymbols.length}/${compareSymbols.length} visible`}</div>
+                <div className="muted tiny">{compareLoading ? "Loading…" : `${highlightedSyms.length || compareSymbols.length}/${compareSymbols.length} active`}</div>
               </div>
 
               {viewMode === "overlay" ? (
               <>
-                <SvgChart chart={chartRaw} height={320} highlightSym={highlightSym} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                <SvgChart chart={chartRaw} height={320} highlightedSyms={highlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                 <div style={{ marginTop: 10 }}>
-                  <Legend symbols={compareSymbols} visibleSymbols={visibleCompareSymbols} setVisibleSymbols={setVisibleCompareSymbols} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                  <Legend symbols={compareSymbols} highlightedSyms={highlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                 </div>
               </>
             ) : (
@@ -8312,8 +8291,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       chart={chartRaw}
                       indexMode={indexMode}
                       timeframe={timeframe}
-                      active={highlightSym === sym}
-                      onClick={() => setHighlightSym((v) => (v === sym ? null : sym))}
+                      active={highlightedSyms.length === 0 || highlightedSyms.includes(sym)}
+                      onClick={() => setHighlightedSyms((prev) => {
+                        const prevArr = Array.isArray(prev) ? prev.map((s) => String(s || "").toUpperCase()) : [];
+                        return prevArr.includes(sym)
+                          ? prevArr.filter((x) => x !== sym)
+                          : [...prevArr, sym];
+                      })}
                       colorForSym={colorForSym}
                       lineClassForSym={lineClassForSym}
                     />

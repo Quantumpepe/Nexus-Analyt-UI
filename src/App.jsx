@@ -9507,7 +9507,7 @@ function optimisticRemoveWatch(symbol) {
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ symbol })
   }).catch(() => {});
-.miniStat{
+  .miniStat{
             border:1px solid rgba(255,255,255,.07);
             border-radius:14px;
             padding:12px 14px;

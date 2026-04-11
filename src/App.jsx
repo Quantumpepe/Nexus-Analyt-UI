@@ -8456,7 +8456,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           <div className="cardHead">
             <div className="cardTitle">Grid Trader</div>
             <div className="cardActions" style={{ alignItems: "center" }}>
-              <span className="pill silver">Tick: {gridMeta.tick ?? "—"}</span>
+             
               <span className="pill silver">Price: {shownGridPrice ? fmtUsd(shownGridPrice) : "—"}</span>
               <InfoButton title="Grid Trader – Info">
                 <Help showClose dismissable

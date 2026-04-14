@@ -1662,111 +1662,15 @@ function classifyExecutionRisk({ liquidityKey, riskText, corr, spread }) {
   return { key: "low", label: "Low" };
 }
 
-function aiToneStyle(tone = "neutral") {
-  const t = String(tone || "neutral").toLowerCase();
-  if (["good", "deep", "low", "safe", "ready", "green"].includes(t)) {
-    return {
-      border: "1px solid rgba(57,217,138,0.30)",
-      background: "rgba(57,217,138,0.10)",
-      color: "#9cf0c0",
-      dot: "#39d98a",
-    };
-  }
-  if (["cautious", "medium", "medium_high", "watch", "orange", "strong", "neutral"].includes(t)) {
-    return {
-      border: "1px solid rgba(245,166,35,0.30)",
-      background: "rgba(245,166,35,0.10)",
-      color: "#ffd38a",
-      dot: "#f5a623",
-    };
-  }
-  if (["bad", "high", "risky", "thin", "overbought", "extreme_overbought", "deep_oversold", "oversold", "red"].includes(t)) {
-    return {
-      border: "1px solid rgba(255,92,92,0.30)",
-      background: "rgba(255,92,92,0.10)",
-      color: "#ffb0b0",
-      dot: "#ff5c5c",
-    };
-  }
+function aiMiniCardStyle() {
   return {
     border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.03)",
-    color: "rgba(232,242,240,0.92)",
-    dot: "rgba(232,242,240,0.75)",
-  };
-}
-
-function aiMiniCardStyle(tone = "neutral") {
-  const s = aiToneStyle(tone);
-  return {
-    border: s.border,
     borderRadius: 12,
     padding: "10px 12px",
-    background: s.background,
-    boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)",
+    background: "rgba(255,255,255,0.03)"
   };
 }
 
-function aiValueStyle(tone = "neutral") {
-  return { fontWeight: 900, marginTop: 4, color: aiToneStyle(tone).color };
-}
-
-function rsiToneKey(stateKey) {
-  const k = String(stateKey || "unknown").toLowerCase();
-  if (["neutral"].includes(k)) return "good";
-  if (["weak", "strong", "oversold", "overbought"].includes(k)) return "medium";
-  if (["deep_oversold", "extreme_overbought"].includes(k)) return "high";
-  return "neutral";
-}
-
-function PairSpreadSpark({ seriesMap, a, b, height = 76 }) {
-  const pa = Array.isArray(seriesMap?.[a]) ? seriesMap[a] : [];
-  const pb = Array.isArray(seriesMap?.[b]) ? seriesMap[b] : [];
-  const n = Math.min(pa.length, pb.length);
-  if (!a || !b || n < 3) return null;
-
-  const vals = [];
-  for (let i = Math.max(0, n - 28); i < n; i++) {
-    const av = Number(pa[i]?.v ?? pa[i]?.[1]);
-    const bv = Number(pb[i]?.v ?? pb[i]?.[1]);
-    if (!Number.isFinite(av) || !Number.isFinite(bv) || av === 0 || bv === 0) continue;
-    vals.push(((av / pa[Math.max(0, n - 28)]?.v || av) - (bv / pb[Math.max(0, n - 28)]?.v || bv)) * 100);
-  }
-  if (vals.length < 3) return null;
-
-  let min = Math.min(...vals);
-  let max = Math.max(...vals);
-  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
-    min = -1;
-    max = 1;
-  }
-  const w = 320;
-  const h = height;
-  const pad = 6;
-  const sx = (i) => pad + (i * (w - pad * 2)) / Math.max(1, vals.length - 1);
-  const sy = (v) => pad + (1 - ((v - min) / (max - min))) * (h - pad * 2);
-  let d = "";
-  vals.forEach((v, i) => {
-    const X = sx(i), Y = sy(v);
-    d += d ? ` L ${X} ${Y}` : `M ${X} ${Y}`;
-  });
-  const last = Number(vals[vals.length - 1] || 0);
-  const tone = Math.abs(last) >= 4 ? "high" : Math.abs(last) >= 2 ? "medium" : "good";
-  const zeroY = sy(0);
-  return (
-    <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.02)", display: "grid", gap: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <div className="muted tiny">Pair spread mini chart</div>
-        <div className="tiny" style={{ color: aiToneStyle(tone).color, fontWeight: 800 }}>{_fmtPctLocal(last)}</div>
-      </div>
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: "100%", height }}>
-        <line x1={0} x2={w} y1={zeroY} y2={zeroY} stroke="rgba(255,255,255,0.10)" strokeDasharray="4 4" />
-        <path d={d} fill="none" stroke={aiToneStyle(tone).dot} strokeWidth="3" strokeLinecap="round" />
-      </svg>
-      <div className="muted tiny">Shows recent relative spread between <b>{a}</b> and <b>{b}</b>. Bigger spread = stronger mean-reversion edge, but also higher timing risk.</div>
-    </div>
-  );
-}
 
 function computeBestPairs(chart, limit = 30) {
   const lines = chart?.lines || {};
@@ -3761,16 +3665,13 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
       const winnerSeries = winner ? (pairExplainSeries?.[winner] || []) : [];
       const loserSeries = loser ? (pairExplainSeries?.[loser] || []) : [];
-      const aSeries = pairExplainSeries?.[a] || [];
-      const bSeries = pairExplainSeries?.[b] || [];
-      const fallbackSeries = aSeries || [];
-      const winnerRsiValue = calculateRsiFromSeries((winnerSeries && winnerSeries.length) ? winnerSeries : fallbackSeries, 14);
-      const loserRsiValue = calculateRsiFromSeries((loserSeries && loserSeries.length) ? loserSeries : ((bSeries && bSeries.length) ? bSeries : fallbackSeries), 14);
-      const winnerRsiInfo = classifyRsiState(winnerRsiValue);
-      const loserRsiInfo = classifyRsiState(loserRsiValue);
+      const fallbackSeries = pairExplainSeries?.[a] || [];
       const rsiTargetSym = loser || winner || a;
-      const rsiValue = Number.isFinite(Number(loserRsiValue)) ? loserRsiValue : winnerRsiValue;
-      const rsiInfo = Number.isFinite(Number(loserRsiValue)) ? loserRsiInfo : winnerRsiInfo;
+      const rsiValue = calculateRsiFromSeries(
+        (loserSeries && loserSeries.length) ? loserSeries : ((winnerSeries && winnerSeries.length) ? winnerSeries : fallbackSeries),
+        14
+      );
+      const rsiInfo = classifyRsiState(rsiValue);
 
       const volCandidates = [Number(winnerRow?.volume24h), Number(loserRow?.volume24h)].filter((v) => Number.isFinite(v) && v > 0);
       const referenceVolume24h = volCandidates.length ? Math.min(...volCandidates) : null;
@@ -3967,14 +3868,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         rsiValue,
         rsiLabel: rsiInfo?.label || "n/a",
         rsiTargetSym,
-        winnerRsiValue,
-        winnerRsiLabel: winnerRsiInfo?.label || "n/a",
-        winnerRsiState: winnerRsiInfo?.key || "unknown",
-        loserRsiValue,
-        loserRsiLabel: loserRsiInfo?.label || "n/a",
-        loserRsiState: loserRsiInfo?.key || "unknown",
         liquidityLabel: liquidityInfo?.label || "Watchlist pending",
-        liquidityKey: liquidityInfo?.key || "unknown",
         liquidityShortLabel: liquidityInfo?.shortLabel || "Pending",
         liquidityVolume24h: referenceVolume24h,
         gridFit: gridFitInfo?.label || "Mixed",
@@ -8776,51 +8670,39 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   {aiExplainData ? (
                     <div style={{ display: "grid", gap: 10 }}>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-                        <div style={aiMiniCardStyle(String(aiExplainData.setup || "").includes("MEAN") ? "good" : String(aiExplainData.setup || "").includes("WAIT") ? "medium" : String(aiExplainData.setup || "").includes("AVOID") ? "high" : "neutral")}>
+                        <div style={aiMiniCardStyle()}>
                           <div className="muted tiny">AI Verdict</div>
-                          <div style={aiValueStyle(String(aiExplainData.setup || "").includes("MEAN") ? "good" : String(aiExplainData.setup || "").includes("WAIT") ? "medium" : String(aiExplainData.setup || "").includes("AVOID") ? "high" : "neutral")}>{aiExplainData.setup}</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.setup}</div>
                         </div>
-                        <div style={aiMiniCardStyle(aiExplainData.confidence >= 8 ? "good" : aiExplainData.confidence >= 6 ? "medium" : "high")}>
+                        <div style={aiMiniCardStyle()}>
                           <div className="muted tiny">Confidence</div>
-                          <div style={aiValueStyle(aiExplainData.confidence >= 8 ? "good" : aiExplainData.confidence >= 6 ? "medium" : "high")}>{aiExplainData.confidenceLabel} ({aiExplainData.confidence}/10)</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.confidenceLabel} ({aiExplainData.confidence}/10)</div>
                         </div>
-                        <div style={aiMiniCardStyle(String(aiExplainData.risk || "").toLowerCase().includes("high") ? "high" : String(aiExplainData.risk || "").toLowerCase().includes("medium") ? "medium" : "good")}>
+                        <div style={aiMiniCardStyle()}>
                           <div className="muted tiny">Risk</div>
-                          <div style={aiValueStyle(String(aiExplainData.risk || "").toLowerCase().includes("high") ? "high" : String(aiExplainData.risk || "").toLowerCase().includes("medium") ? "medium" : "good")}>{aiExplainData.risk}</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.risk}</div>
                         </div>
-                        <div style={aiMiniCardStyle(rsiToneKey(aiExplainData.winnerRsiState))}>
-                          <div className="muted tiny">RSI {aiExplainData.winner || "A"}</div>
-                          <div style={aiValueStyle(rsiToneKey(aiExplainData.winnerRsiState))}>
-                            {Number.isFinite(Number(aiExplainData.winnerRsiValue))
-                              ? `${Number(aiExplainData.winnerRsiValue).toFixed(1)} · ${aiExplainData.winnerRsiLabel || "n/a"}`
+                        <div style={aiMiniCardStyle()}>
+                          <div className="muted tiny">RSI {aiExplainData.rsiTargetSym ? `(${aiExplainData.rsiTargetSym})` : ""}</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>
+                            {Number.isFinite(Number(aiExplainData.rsiValue))
+                              ? `${Number(aiExplainData.rsiValue).toFixed(1)} · ${aiExplainData.rsiLabel || "n/a"}`
                               : "n/a"}
                           </div>
                         </div>
-                        <div style={aiMiniCardStyle(rsiToneKey(aiExplainData.loserRsiState))}>
-                          <div className="muted tiny">RSI {aiExplainData.loser || "B"}</div>
-                          <div style={aiValueStyle(rsiToneKey(aiExplainData.loserRsiState))}>
-                            {Number.isFinite(Number(aiExplainData.loserRsiValue))
-                              ? `${Number(aiExplainData.loserRsiValue).toFixed(1)} · ${aiExplainData.loserRsiLabel || "n/a"}`
-                              : "n/a"}
-                          </div>
-                        </div>
-                        <div style={aiMiniCardStyle(String(aiExplainData.gridFit || "").toLowerCase().includes("good") || String(aiExplainData.gridFit || "").toLowerCase().includes("usable") ? "good" : String(aiExplainData.gridFit || "").toLowerCase().includes("wait") || String(aiExplainData.gridFit || "").toLowerCase().includes("bad") ? "high" : "medium")}>
+                        <div style={aiMiniCardStyle()}>
                           <div className="muted tiny">Grid Fit</div>
-                          <div style={aiValueStyle(String(aiExplainData.gridFit || "").toLowerCase().includes("good") || String(aiExplainData.gridFit || "").toLowerCase().includes("usable") ? "good" : String(aiExplainData.gridFit || "").toLowerCase().includes("wait") || String(aiExplainData.gridFit || "").toLowerCase().includes("bad") ? "high" : "medium")}>{aiExplainData.gridFit || "Mixed"}</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridFit || "Mixed"}</div>
                         </div>
-                        <div style={aiMiniCardStyle(String(aiExplainData.liquidityKey || "unknown") === "deep" || String(aiExplainData.liquidityKey || "unknown") === "good" ? "good" : String(aiExplainData.liquidityKey || "unknown") === "thin" ? "medium" : String(aiExplainData.liquidityKey || "unknown") === "risky" ? "high" : "neutral")}>
+                        <div style={aiMiniCardStyle()}>
                           <div className="muted tiny">Liquidity</div>
-                          <div style={aiValueStyle(String(aiExplainData.liquidityKey || "unknown") === "deep" || String(aiExplainData.liquidityKey || "unknown") === "good" ? "good" : String(aiExplainData.liquidityKey || "unknown") === "thin" ? "medium" : String(aiExplainData.liquidityKey || "unknown") === "risky" ? "high" : "neutral")}>{aiExplainData.liquidityShortLabel || aiExplainData.liquidityLabel || "Pending"}</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.liquidityShortLabel || aiExplainData.liquidityLabel || "Pending"}</div>
                         </div>
-                        <div style={aiMiniCardStyle(String(aiExplainData.executionRisk || "").toLowerCase().includes("high") ? "high" : String(aiExplainData.executionRisk || "").toLowerCase().includes("medium") ? "medium" : "good")}>
+                        <div style={aiMiniCardStyle()}>
                           <div className="muted tiny">Execution Risk</div>
-                          <div style={aiValueStyle(String(aiExplainData.executionRisk || "").toLowerCase().includes("high") ? "high" : String(aiExplainData.executionRisk || "").toLowerCase().includes("medium") ? "medium" : "good")}>{aiExplainData.executionRisk || "Medium"}</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.executionRisk || "Medium"}</div>
                         </div>
                       </div>
-
-                      {aiExplainData.winner && aiExplainData.loser ? (
-                        <PairSpreadSpark seriesMap={pairExplainSeries} a={aiExplainData.winner} b={aiExplainData.loser} />
-                      ) : null}
 
                       <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                         <div className="label" style={{ marginBottom: 0 }}>AI Conclusion</div>
@@ -8907,21 +8789,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                         <div className="label" style={{ marginBottom: 0 }}>Ready for Grid Trader</div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
-                          <div style={aiMiniCardStyle(String(aiExplainData.readyForGrid || "").toLowerCase().includes("ready") ? "good" : String(aiExplainData.readyForGrid || "").toLowerCase().includes("not") ? "high" : "medium")}>
+                          <div style={aiMiniCardStyle()}>
                             <div className="muted tiny">Status</div>
-                            <div style={aiValueStyle(String(aiExplainData.readyForGrid || "").toLowerCase().includes("ready") ? "good" : String(aiExplainData.readyForGrid || "").toLowerCase().includes("not") ? "high" : "medium")}>{aiExplainData.readyForGrid || "Review first"}</div>
+                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.readyForGrid || "Review first"}</div>
                           </div>
-                          <div style={aiMiniCardStyle(String(aiExplainData.liquidityKey || "unknown") === "deep" || String(aiExplainData.liquidityKey || "unknown") === "good" ? "good" : String(aiExplainData.liquidityKey || "unknown") === "thin" ? "medium" : String(aiExplainData.liquidityKey || "unknown") === "risky" ? "high" : "neutral")}>
+                          <div style={aiMiniCardStyle()}>
                             <div className="muted tiny">Liquidity check</div>
-                            <div style={aiValueStyle(String(aiExplainData.liquidityKey || "unknown") === "deep" || String(aiExplainData.liquidityKey || "unknown") === "good" ? "good" : String(aiExplainData.liquidityKey || "unknown") === "thin" ? "medium" : String(aiExplainData.liquidityKey || "unknown") === "risky" ? "high" : "neutral")}>{aiExplainData.liquidityLabel || "Watchlist pending"}</div>
+                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.liquidityLabel || "Watchlist pending"}</div>
                           </div>
-                          <div style={aiMiniCardStyle(String(aiExplainData.executionRisk || "").toLowerCase().includes("high") ? "high" : String(aiExplainData.executionRisk || "").toLowerCase().includes("medium") ? "medium" : "good")}>
+                          <div style={aiMiniCardStyle()}>
                             <div className="muted tiny">Execution risk</div>
-                            <div style={aiValueStyle(String(aiExplainData.executionRisk || "").toLowerCase().includes("high") ? "high" : String(aiExplainData.executionRisk || "").toLowerCase().includes("medium") ? "medium" : "good")}>{aiExplainData.executionRisk || "Medium"}</div>
+                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.executionRisk || "Medium"}</div>
                           </div>
-                          <div style={aiMiniCardStyle("neutral")}>
+                          <div style={aiMiniCardStyle()}>
                             <div className="muted tiny">Budget note</div>
-                            <div style={aiValueStyle("neutral")}>{aiExplainData.budgetNote || "Review Grid Trader preview first."}</div>
+                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.budgetNote || "Review Grid Trader preview first."}</div>
                           </div>
                         </div>
                         {Number.isFinite(Number(aiExplainData.liquidityVolume24h)) ? (

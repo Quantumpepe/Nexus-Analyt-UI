@@ -3340,6 +3340,62 @@ function _fmtPctLocal(x) {
     return kept;
   }
 
+  function _calcSimpleRsi(arr, period = 14) {
+    const pts = Array.isArray(arr) ? arr : [];
+    if (pts.length < period + 1) return null;
+    let gain = 0;
+    let loss = 0;
+    for (let i = pts.length - period; i < pts.length; i++) {
+      const prev = pts[i - 1];
+      const curr = pts[i];
+      const v0 = (prev && typeof prev === "object") ? Number(prev.v) : Number(prev);
+      const v1 = (curr && typeof curr === "object") ? Number(curr.v) : Number(curr);
+      if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
+      const diff = v1 - v0;
+      if (diff > 0) gain += diff;
+      else loss += Math.abs(diff);
+    }
+    const avgGain = gain / period;
+    const avgLoss = loss / period;
+    if (!Number.isFinite(avgGain) || !Number.isFinite(avgLoss)) return null;
+    if (avgLoss === 0) return 100;
+    const rs = avgGain / avgLoss;
+    return 100 - (100 / (1 + rs));
+  }
+
+  function _rsiBadgeState(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return { label: "n/a", tone: "rgba(255,255,255,0.08)", border: "rgba(255,255,255,0.10)", color: "rgba(232,242,240,0.92)" };
+    if (n > 70) return { label: "overbought", tone: "rgba(255,92,92,0.16)", border: "rgba(255,92,92,0.32)", color: "#ff8d8d" };
+    if (n < 30) return { label: "oversold", tone: "rgba(57,217,138,0.16)", border: "rgba(57,217,138,0.32)", color: "#58e7a0" };
+    return { label: "neutral", tone: "rgba(255,184,0,0.14)", border: "rgba(255,184,0,0.28)", color: "#ffd36a" };
+  }
+
+  function _seriesStatsFallback(arr) {
+    const pts = Array.isArray(arr) ? arr : [];
+    const vals = pts
+      .map((p) => (p && typeof p === "object") ? Number(p.v) : Number(p))
+      .filter((v) => Number.isFinite(v));
+    if (vals.length < 2) return { volPct: null, maxDDPct: null };
+    const rets = [];
+    for (let i = 1; i < vals.length; i++) {
+      const a = vals[i - 1];
+      const b = vals[i];
+      if (Number.isFinite(a) && Number.isFinite(b) && a !== 0) rets.push((b / a) - 1);
+    }
+    const mean = rets.length ? rets.reduce((s, x) => s + x, 0) / rets.length : 0;
+    const variance = rets.length ? rets.reduce((s, x) => s + ((x - mean) ** 2), 0) / rets.length : 0;
+    const volPct = rets.length ? Math.sqrt(variance) * 100 : null;
+    let peak = vals[0];
+    let maxDD = 0;
+    for (const v of vals) {
+      if (v > peak) peak = v;
+      const dd = peak ? ((v / peak) - 1) * 100 : 0;
+      if (dd < maxDD) maxDD = dd;
+    }
+    return { volPct, maxDDPct: maxDD };
+  }
+
   function openPairExplain(p) {
     setSelectedPair(p);
     setAiExplainText("");
@@ -8354,139 +8410,146 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       ) : null}
 
                       {(() => {
-                        const [a, b] = _pairSyms(selectedPair?.pair || "");
-                        const rows = _buildDailyRows(pairExplainSeries, a, b, 30).filter((r) => Number.isFinite(r?.d));
-                        if (!rows.length || !a || !b) return null;
-
-                        const values = rows.map((r) => Number(r.d)).filter((v) => Number.isFinite(v));
-                        if (!values.length) return null;
-
-                        const latest = values[values.length - 1];
-                        const prev = values.length > 1 ? values[values.length - 2] : latest;
-                        const direction =
-                          latest > prev + 0.05 ? "Rising" :
-                          latest < prev - 0.05 ? "Falling" :
-                          "Flat";
-
-                        const maxAbs = Math.max(1, ...values.map((v) => Math.abs(v)));
-                        const bound = Math.ceil(maxAbs * 1.15);
-                        const ticks = [bound, bound / 2, 0, -bound / 2, -bound];
-                        const w = 900;
-                        const h = 260;
-                        const padL = 56;
-                        const padR = 18;
-                        const padT = 18;
-                        const padB = 34;
-                        const innerW = w - padL - padR;
-                        const innerH = h - padT - padB;
-                        const sx = (i) => padL + ((innerW * i) / Math.max(1, rows.length - 1));
+                        const pairLabel = String(selectedPair?.pair || "");
+                        const [a, b] = _pairSyms(pairLabel);
+                        const rows = _buildDailyRows(pairExplainSeries || {}, a, b, 30);
+                        const latestSpread = rows.length ? Number(rows[rows.length - 1]?.d) : null;
+                        const prevSpread = rows.length > 1 ? Number(rows[rows.length - 2]?.d) : null;
+                        const spreadDirection = Number.isFinite(latestSpread) && Number.isFinite(prevSpread)
+                          ? (latestSpread < prevSpread ? "Falling" : latestSpread > prevSpread ? "Rising" : "Flat")
+                          : "n/a";
+                        const reading = Number.isFinite(latestSpread)
+                          ? (latestSpread > 0 ? `${a} stronger` : latestSpread < 0 ? `${b} stronger` : "Balanced pair")
+                          : "n/a";
+                        const corrVal = Number(aiExplainData?.corr ?? selectedPair?.corr);
+                        const corrText = Number.isFinite(corrVal) ? `${corrVal >= 0 ? "+" : ""}${corrVal.toFixed(2)}` : "—";
+                        const windows = aiExplainData?.windows || {};
+                        const st30A = windows?.["30D"]?.[a] || _seriesStatsFallback((pairExplainSeries || {})[a]);
+                        const st30B = windows?.["30D"]?.[b] || _seriesStatsFallback((pairExplainSeries || {})[b]);
+                        const rsiA = _calcSimpleRsi((pairExplainSeries || {})[a], 14);
+                        const rsiB = _calcSimpleRsi((pairExplainSeries || {})[b], 14);
+                        const rsiAState = _rsiBadgeState(rsiA);
+                        const rsiBState = _rsiBadgeState(rsiB);
+                        const healthScore = Math.max(0, Math.min(100,
+                          Math.round((Number.isFinite(corrVal) ? Math.abs(corrVal) * 55 : 25) + (Number.isFinite(latestSpread) ? Math.min(30, Math.abs(latestSpread) * 3) : 0) + (String(aiExplainData?.setup || "").includes("MEAN") ? 15 : String(aiExplainData?.setup || "").includes("TREND") ? 8 : 0))
+                        ));
+                        const gridFit = String(aiExplainData?.gridMode || "").toLowerCase() === "wait"
+                          ? "Weak"
+                          : healthScore >= 75 ? "Strong" : healthScore >= 55 ? "Moderate" : "Weak";
+                        const svgW = 760;
+                        const svgH = 180;
+                        const padL = 46;
+                        const padR = 8;
+                        const padT = 10;
+                        const padB = 24;
+                        const innerW = svgW - padL - padR;
+                        const innerH = svgH - padT - padB;
+                        const dVals = rows.map((r) => Number(r?.d)).filter((v) => Number.isFinite(v));
+                        const maxAbs = dVals.length ? Math.max(6, ...dVals.map((v) => Math.abs(v))) : 6;
+                        const yMax = Math.ceil(maxAbs / 3) * 3;
+                        const yMin = -yMax;
+                        const sx = (i) => padL + ((i * innerW) / Math.max(1, rows.length - 1));
                         const sy = (v) => {
-                          const t = (v + bound) / (2 * bound);
+                          const t = (Number(v) - yMin) / Math.max(1e-9, (yMax - yMin));
                           return padT + (1 - t) * innerH;
                         };
-
-                        const path = rows
-                          .map((r, i) => `${i === 0 ? "M" : "L"} ${sx(i)} ${sy(Number(r.d))}`)
-                          .join(" ");
-
-                        const latestX = sx(rows.length - 1);
-                        const latestY = sy(latest);
+                        let pathD = "";
+                        rows.forEach((r, i) => {
+                          const v = Number(r?.d);
+                          if (!Number.isFinite(v)) return;
+                          const X = sx(i);
+                          const Y = sy(v);
+                          pathD += pathD ? ` L ${X} ${Y}` : `M ${X} ${Y}`;
+                        });
                         const zeroY = sy(0);
-                        const midIdx = Math.floor((rows.length - 1) / 2);
-
-                        const interp =
-                          direction === "Falling"
-                            ? `Spread is falling — mean reversion is becoming more likely. Positive values mean ${a} was stronger; negative values mean ${b} was stronger.`
-                            : direction === "Rising"
-                              ? `Spread is rising — the trend gap is widening. Positive values mean ${a} is extending its lead over ${b}.`
-                              : `Spread is stable — neither trend expansion nor clear reversion is dominant right now.`;
-
+                        const latestX = rows.length ? sx(rows.length - 1) : padL;
+                        const latestY = Number.isFinite(latestSpread) ? sy(latestSpread) : zeroY;
                         return (
-                          <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
-                              <div>
-                                <div className="label" style={{ marginBottom: 0 }}>Spread Analysis</div>
-                                <div className="muted tiny" style={{ marginTop: 4 }}>
-                                  30D Relative Spread ({a} vs {b}) · Positive = {a} stronger · Negative = {b} stronger
+                          <>
+                            <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                              <div className="label" style={{ marginBottom: 0 }}>RSI / Pair State</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: rsiAState.tone }}>
+                                  <div className="muted tiny">{a} RSI</div>
+                                  <div style={{ fontWeight: 900, marginTop: 4 }}>{Number.isFinite(rsiA) ? rsiA.toFixed(1) : "—"}</div>
+                                  <div className="pill" style={{ marginTop: 8, width: "fit-content", background: rsiAState.tone, borderColor: rsiAState.border, color: rsiAState.color }}>{rsiAState.label}</div>
+                                </div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: rsiBState.tone }}>
+                                  <div className="muted tiny">{b} RSI</div>
+                                  <div style={{ fontWeight: 900, marginTop: 4 }}>{Number.isFinite(rsiB) ? rsiB.toFixed(1) : "—"}</div>
+                                  <div className="pill" style={{ marginTop: 8, width: "fit-content", background: rsiBState.tone, borderColor: rsiBState.border, color: rsiBState.color }}>{rsiBState.label}</div>
+                                </div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                                  <div className="muted tiny">Correlation</div>
+                                  <div style={{ fontWeight: 900, marginTop: 4 }}>{corrText}</div>
+                                  <div className="muted tiny" style={{ marginTop: 8 }}>{Number.isFinite(corrVal) ? (Math.abs(corrVal) >= 0.8 ? "High pair linkage" : Math.abs(corrVal) >= 0.6 ? "Moderate linkage" : "Low linkage") : "Pair linkage unclear"}</div>
+                                </div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                                  <div className="muted tiny">30D Spread</div>
+                                  <div style={{ fontWeight: 900, marginTop: 4 }}>{_fmtPctLocal(latestSpread)}</div>
+                                  <div className="muted tiny" style={{ marginTop: 8 }}>{reading}</div>
                                 </div>
                               </div>
-                              <div className="pill silver">Latest: {_fmtPctLocal(latest)}</div>
+                              <div className="muted tiny" style={{ lineHeight: 1.45 }}>RSI helps identify overbought vs oversold conditions. Correlation + spread show whether the pair is more suitable for trend continuation or mean reversion.</div>
                             </div>
 
-                            <div style={{ width: "100%", overflowX: "auto" }}>
-                              <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: "100%", height: 220, display: "block" }}>
-                                {ticks.map((tick, idx) => (
-                                  <g key={idx}>
-                                    <line
-                                      x1={padL}
-                                      y1={sy(tick)}
-                                      x2={w - padR}
-                                      y2={sy(tick)}
-                                      stroke={Math.abs(tick) < 0.001 ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.10)"}
-                                      strokeDasharray={Math.abs(tick) < 0.001 ? "6 4" : "4 6"}
-                                    />
-                                    <text x={8} y={sy(tick) + 4} fill="rgba(232,242,240,0.78)" fontSize="12">
-                                      {_fmtPctLocal(tick)}
-                                    </text>
-                                  </g>
-                                ))}
-
-                                <line x1={padL} y1={padT} x2={padL} y2={h - padB} stroke="rgba(255,255,255,0.18)" />
-                                <line x1={padL} y1={h - padB} x2={w - padR} y2={h - padB} stroke="rgba(255,255,255,0.18)" />
-
-                                <path
-                                  d={path}
-                                  fill="none"
-                                  stroke="#39d98a"
-                                  strokeWidth="4"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                />
-
-                                <circle cx={latestX} cy={latestY} r="5" fill="#39d98a" />
-                                <text
-                                  x={Math.max(padL + 8, Math.min(w - padR - 72, latestX - 24))}
-                                  y={Math.max(padT + 16, latestY - 12)}
-                                  fill="#39d98a"
-                                  fontSize="12"
-                                  fontWeight="700"
-                                >
-                                  {_fmtPctLocal(latest)}
-                                </text>
-
-                                <text x={padL} y={h - 10} fill="rgba(232,242,240,0.78)" fontSize="12">Start</text>
-                                <text x={sx(midIdx)} y={h - 10} textAnchor="middle" fill="rgba(232,242,240,0.78)" fontSize="12">
-                                  {_fmtDay(rows[midIdx]?.t) || "Mid"}
-                                </text>
-                                <text x={w - padR} y={h - 10} textAnchor="end" fill="rgba(232,242,240,0.78)" fontSize="12">Now</text>
-
-                                <text x={w - padR} y={zeroY - 8} textAnchor="end" fill="rgba(232,242,240,0.6)" fontSize="11">
-                                  Mean reversion line (0%)
-                                </text>
-                              </svg>
+                            <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                              <div className="label" style={{ marginBottom: 0 }}>Risk / Grid Fit</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Health Score</div><div style={{ fontWeight: 900, marginTop: 4 }}>{healthScore}/100</div></div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Grid Fit</div><div style={{ fontWeight: 900, marginTop: 4 }}>{gridFit}</div></div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">{a} Vol / DD</div><div style={{ fontWeight: 900, marginTop: 4 }}>{_fmtPctLocal(st30A?.volPct)} / {_fmtPctLocal(st30A?.maxDDPct)}</div></div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">{b} Vol / DD</div><div style={{ fontWeight: 900, marginTop: 4 }}>{_fmtPctLocal(st30B?.volPct)} / {_fmtPctLocal(st30B?.maxDDPct)}</div></div>
+                              </div>
+                              <div className="muted tiny" style={{ lineHeight: 1.45 }}>Volatility and drawdown are used here as the current local risk view. Liquidity is not wired into this panel yet, so this block stays focused on the metrics already available in App.jsx.</div>
                             </div>
 
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
-                              <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                                <div className="muted tiny">Direction</div>
-                                <div style={{ fontWeight: 900, marginTop: 4 }}>{direction}</div>
-                              </div>
-                              <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                                <div className="muted tiny">Zero line</div>
-                                <div style={{ fontWeight: 900, marginTop: 4 }}>0% = balanced pair</div>
-                              </div>
-                              <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                                <div className="muted tiny">Reading</div>
-                                <div style={{ fontWeight: 900, marginTop: 4 }}>
-                                  {latest >= 0 ? `${a} stronger` : `${b} stronger`}
+                            <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                <div>
+                                  <div className="label" style={{ marginBottom: 0 }}>Spread Analysis</div>
+                                  <div className="muted tiny" style={{ marginTop: 2 }}>30D Relative Spread ({a} vs {b}) · Positive = {a} stronger · Negative = {b} stronger</div>
                                 </div>
+                                <span className="pill silver">Latest: {_fmtPctLocal(latestSpread)}</span>
+                              </div>
+                              {rows.length ? (
+                                <svg viewBox={`0 0 ${svgW} ${svgH}`} preserveAspectRatio="none" style={{ width: "100%", height: 190, display: "block" }}>
+                                  {[yMin, yMin / 2, 0, yMax / 2, yMax].map((tick, idx) => (
+                                    <g key={idx}>
+                                      <line x1={padL} x2={svgW - padR} y1={sy(tick)} y2={sy(tick)} stroke={tick === 0 ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.08)"} strokeDasharray={tick === 0 ? "4 4" : "3 5"} />
+                                      <text x={6} y={sy(tick) + 4} fill="rgba(232,242,240,0.72)" fontSize="11">{_fmtPctLocal(tick)}</text>
+                                    </g>
+                                  ))}
+                                  <line x1={padL} x2={svgW - padR} y1={svgH - padB} y2={svgH - padB} stroke="rgba(255,255,255,0.12)" />
+                                  <path d={pathD} fill="none" stroke="#35e0a1" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+                                  {Number.isFinite(latestSpread) ? (
+                                    <>
+                                      <circle cx={latestX} cy={latestY} r="4.5" fill="#35e0a1" />
+                                      <text x={Math.max(padL + 8, latestX - 64)} y={Math.max(18, latestY - 10)} fill="#35e0a1" fontSize="12" fontWeight="700">{_fmtPctLocal(latestSpread)}</text>
+                                    </>
+                                  ) : null}
+                                  <text x={padL} y={svgH - 6} fill="rgba(232,242,240,0.72)" fontSize="11">Start</text>
+                                  <text x={padL + (innerW / 2)} y={svgH - 6} textAnchor="middle" fill="rgba(232,242,240,0.72)" fontSize="11">Mid</text>
+                                  <text x={svgW - padR} y={svgH - 6} textAnchor="end" fill="rgba(232,242,240,0.72)" fontSize="11">Now</text>
+                                  <text x={svgW - padR} y={Math.max(14, zeroY - 6)} textAnchor="end" fill="rgba(232,242,240,0.58)" fontSize="10">Mean reversion line (0%)</text>
+                                </svg>
+                              ) : (
+                                <div className="muted tiny">No spread series available yet.</div>
+                              )}
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Direction</div><div style={{ fontWeight: 900, marginTop: 4 }}>{spreadDirection}</div></div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Zero line</div><div style={{ fontWeight: 900, marginTop: 4 }}>0% = balanced pair</div></div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Reading</div><div style={{ fontWeight: 900, marginTop: 4 }}>{reading}</div></div>
+                              </div>
+                              <div className="muted tiny" style={{ lineHeight: 1.45 }}>
+                                {spreadDirection === "Falling"
+                                  ? `Spread is falling — mean reversion is becoming more likely. Positive values mean ${a} was stronger; negative values mean ${b} was stronger.`
+                                  : spreadDirection === "Rising"
+                                    ? `Spread is rising — trend continuation is still active. Positive values mean ${a} is extending; negative values mean ${b} is extending.`
+                                    : `Spread is flat — the pair is currently moving without a clear widening or compression signal.`}
                               </div>
                             </div>
-
-                            <div className="muted tiny" style={{ lineHeight: 1.5 }}>
-                              {interp}
-                            </div>
-                          </div>
+                          </>
                         );
                       })()}
 

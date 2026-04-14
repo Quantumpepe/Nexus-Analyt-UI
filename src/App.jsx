@@ -119,7 +119,6 @@ if (typeof window !== "undefined") {
   window.Buffer = window.Buffer || Buffer;
 }
 
-
 function loadSetLS(key) {
   try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); }
   catch { return new Set(); }
@@ -127,7 +126,6 @@ function loadSetLS(key) {
 function saveSetLS(key, setVal) {
   localStorage.setItem(key, JSON.stringify(Array.from(setVal)));
 }
-
 
 function tB(de, en) {
   // simple bilingual label: shows DE + EN (user requested both)
@@ -178,7 +176,6 @@ function _clearTombstone(key) {
     _saveTombstones(ts);
   }
 }
-
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
@@ -242,7 +239,6 @@ const TOKEN_WHITELIST = {
     { symbol: "USDT", address: "0x55d398326f99059fF775485246999027B3197955", decimals: 18 },
   ],
 };
-
 
 // ------------------------
 // Alchemy (wallet balances)
@@ -444,8 +440,6 @@ const fmtQty = (n, maxDp = 6) => {
   return stripTrailingZeros(n.toFixed(dp));
 };
 
-
-
 // ------------------------
 // CoinGecko price helpers (Wallet total value)
 // ------------------------
@@ -494,7 +488,6 @@ async function cgFetchJson(url, { ttlMs = 120_000 } = {}) {
   __cgCache.set(url, { ts: now, data });
   return data;
 }
-
 
 async function fetchNativeUsdPrices(chains = []) {
   // IMPORTANT: Do NOT call CoinGecko directly from the browser (CORS + 429).
@@ -720,7 +713,6 @@ async function apiSearchCoins(query, { signal } = {}) {
   throw lastErr || new Error("Search failed");
 }
 
-
 // ---- Payments (ERC20 transfer) helpers (no external deps) ----
 function _hexPad64(hexNo0x) {
   const h = (hexNo0x || "").replace(/^0x/i, "").toLowerCase();
@@ -902,7 +894,6 @@ function mergeCompareBatches(batches) {
   return merged;
 }
 
-
 // Normalize backend series to UI format: {SYM: [{t, v}, ...]}
 function normalizeBackendSeries(seriesLike) {
   const out = {};
@@ -928,7 +919,6 @@ function normalizeBackendSeries(seriesLike) {
   }
   return out;
 }
-
 
 function _tfDays(tf) {
   const k = String(tf || "").toUpperCase();
@@ -1037,8 +1027,6 @@ function _buildInsightWindows(compareSeries, syms) {
   return out;
 }
 
-
-
 function buildUnifiedChart(seriesBySym) {
   const syms = Object.keys(seriesBySym || {});
   if (!syms.length) return { x: [], lines: {}, order: [] };
@@ -1128,11 +1116,10 @@ function buildMonthlyTicks(tMin, tMax) {
   return out.length ? out : [tMin, tMax];
 }
 
-
 // ------------------------
 // SVG chart with y-scale + x labels
 // ------------------------
-function SvgChart({ chart, height = 320, highlightSym, onHoverSym, indexMode, timeframe, colorForSym, lineClassForSym }) {
+function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, indexMode, timeframe, colorForSym, lineClassForSym }) {
   const { x, lines, order } = chart || { x: [], lines: {}, order: [] };
   const syms = order?.length ? order : Object.keys(lines || {});
 
@@ -1272,9 +1259,10 @@ const tMin = x[0];
           if (!d) return null;
 
           // IMPORTANT: only dim when user CLICK-highlighted; hover must not change visibility
-          const isHi = !highlightSym || highlightSym === sym;
-          const opacity = highlightSym ? (isHi ? 0.95 : 0.18) : 0.90;
-          const strokeWidth = highlightSym ? (isHi ? 3.2 : 2.2) : 3.0;
+          const hasHighlights = Array.isArray(highlightedSyms) && highlightedSyms.length > 0;
+          const isHi = !hasHighlights || highlightedSyms.includes(sym);
+          const opacity = hasHighlights ? (isHi ? 0.95 : 0.18) : 0.90;
+          const strokeWidth = hasHighlights ? (isHi ? 3.2 : 2.2) : 3.0;
 
           return (
             <path
@@ -1342,7 +1330,7 @@ const tMin = x[0];
                 justifyContent: "space-between",
                 gap: 12,
                 fontWeight: 800,
-                opacity: highlightSym && highlightSym !== sym ? 0.55 : 1,
+                opacity: highlightedSyms.length > 0 && !highlightedSyms.includes(sym) ? 0.55 : 1,
               }}
             >
               <span>{sym}</span>
@@ -1368,23 +1356,44 @@ const tMin = x[0];
   );
 }
 
-function Legend({ symbols, highlightSym, setHighlightSym, colorForSym, lineClassForSym }) {
+function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym, lineClassForSym }) {
+  const highlightedSet = useMemo(() => new Set((highlightedSyms || []).map((s) => String(s || "").toUpperCase())), [highlightedSyms]);
+
+  const toggleHighlight = (sym) => {
+    const S = String(sym || "").toUpperCase();
+    setHighlightedSyms((prev) => {
+      const prevArr = Array.isArray(prev) ? prev.map((s) => String(s || "").toUpperCase()) : [];
+      return prevArr.includes(S)
+        ? prevArr.filter((x) => x !== S)
+        : [...prevArr, S];
+    });
+  };
+
+  const showAll = () => setHighlightedSyms([]);
+
   return (
     <div className="chartLegend">
       {symbols.map((sym, idx) => {
-        const active = !highlightSym || highlightSym === sym;
+        const hasHighlights = highlightedSet.size > 0;
+        const active = !hasHighlights || highlightedSet.has(String(sym || "").toUpperCase());
         return (
           <button
             key={sym}
             className={`legendItem ${active ? "active" : ""}`}
-            onClick={() => setHighlightSym((v) => (v === sym ? null : sym))}
-            title="Click to highlight"
+            onClick={() => toggleHighlight(sym)}
+            title={active ? "Click to fade this coin" : "Click to highlight this coin"}
+            type="button"
           >
-            <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]) }} />
-            <span className="legendSym">{sym}</span>
+            <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]), opacity: active ? 1 : 0.35 }} />
+            <span className="legendSym" style={{ opacity: active ? 1 : 0.5 }}>{sym}</span>
           </button>
         );
       })}
+      {symbols.length > 0 ? (
+        <button className="legendItem active" onClick={showAll} title="Show all coins" type="button">
+          <span className="legendSym">all Coin</span>
+        </button>
+      ) : null}
       {symbols.length === 0 ? <span className="muted">No coins selected.</span> : null}
     </div>
   );
@@ -1464,7 +1473,7 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
       type="button"
-      title="Click to highlight in overlay"
+      title="Click to open chart"
     >
       <div className="sparkTop">
         <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]) }} />
@@ -1478,7 +1487,6 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
     </button>
   );
 }
-
 
 // ------------------------
 // Best pairs
@@ -1582,96 +1590,6 @@ function pearson(a, b) {
   return num / den;
 }
 
-function calculateRsiFromSeries(points, period = 14) {
-  const vals = (Array.isArray(points) ? points : [])
-    .map((p) => {
-      if (p && typeof p === "object") return Number(p?.v);
-      return Number(p);
-    })
-    .filter((v) => Number.isFinite(v));
-
-  if (vals.length < period + 1) return null;
-
-  let gains = 0;
-  let losses = 0;
-  for (let i = 1; i <= period; i++) {
-    const diff = vals[i] - vals[i - 1];
-    if (diff >= 0) gains += diff;
-    else losses += Math.abs(diff);
-  }
-
-  let avgGain = gains / period;
-  let avgLoss = losses / period;
-
-  for (let i = period + 1; i < vals.length; i++) {
-    const diff = vals[i] - vals[i - 1];
-    const gain = diff > 0 ? diff : 0;
-    const loss = diff < 0 ? Math.abs(diff) : 0;
-    avgGain = ((avgGain * (period - 1)) + gain) / period;
-    avgLoss = ((avgLoss * (period - 1)) + loss) / period;
-  }
-
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
-}
-
-function classifyRsiState(rsi) {
-  const v = Number(rsi);
-  if (!Number.isFinite(v)) return { key: "unknown", label: "n/a" };
-  if (v < 25) return { key: "deep_oversold", label: "Deep oversold" };
-  if (v < 35) return { key: "oversold", label: "Oversold" };
-  if (v < 45) return { key: "weak", label: "Weak" };
-  if (v <= 55) return { key: "neutral", label: "Neutral" };
-  if (v <= 70) return { key: "strong", label: "Strong" };
-  if (v <= 80) return { key: "overbought", label: "Overbought" };
-  return { key: "extreme_overbought", label: "Extreme overbought" };
-}
-
-function classifyLiquidityFromVolume24h(volume24h) {
-  const v = Number(volume24h);
-  if (!Number.isFinite(v) || v <= 0) {
-    return { key: "unknown", label: "Watchlist pending", shortLabel: "Pending" };
-  }
-  if (v >= 100_000_000) return { key: "deep", label: "Deep liquidity", shortLabel: "Deep" };
-  if (v >= 10_000_000) return { key: "good", label: "Good liquidity", shortLabel: "Good" };
-  if (v >= 1_000_000) return { key: "thin", label: "Thin liquidity", shortLabel: "Thin" };
-  return { key: "risky", label: "Risky liquidity", shortLabel: "Risky" };
-}
-
-function classifyGridFitFromSetup(setup, corr, spread) {
-  const s = String(setup || "").toUpperCase();
-  if (s.includes("MEAN")) return { key: "good", label: "Good" };
-  if (s.includes("TREND")) return { key: "cautious", label: "Cautious" };
-  if (s.includes("WAIT")) return { key: "bad", label: "Wait" };
-  if (s.includes("AVOID")) return { key: "bad", label: "Bad" };
-  if (Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(spread) && Math.abs(spread) >= 1) {
-    return { key: "good", label: "Usable" };
-  }
-  return { key: "cautious", label: "Mixed" };
-}
-
-function classifyExecutionRisk({ liquidityKey, riskText, corr, spread }) {
-  const riskLow = String(riskText || "").toLowerCase();
-  if (liquidityKey === "risky") return { key: "high", label: "High" };
-  if (liquidityKey === "thin") return { key: "medium_high", label: "Medium-High" };
-  if (riskLow.includes("high")) return { key: "medium_high", label: "Medium-High" };
-  if (Number.isFinite(corr) && corr < 0.55) return { key: "medium_high", label: "Medium-High" };
-  if (Number.isFinite(spread) && Math.abs(spread) >= 6) return { key: "medium_high", label: "Medium-High" };
-  if (riskLow.includes("medium")) return { key: "medium", label: "Medium" };
-  return { key: "low", label: "Low" };
-}
-
-function aiMiniCardStyle() {
-  return {
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 12,
-    padding: "10px 12px",
-    background: "rgba(255,255,255,0.03)"
-  };
-}
-
-
 function computeBestPairs(chart, limit = 30) {
   const lines = chart?.lines || {};
   const syms = Object.keys(lines);
@@ -1724,7 +1642,6 @@ useEffect(() => {
   }
 }, []);
 
-
   
   const [watchErr, setWatchErr] = useState("");
 const [errorMsg, setErrorMsg] = useState("");
@@ -1745,7 +1662,6 @@ const [errorMsg, setErrorMsg] = useState("");
     justifyContent: "center",
   };
 
-
   // Privy (Auth + embedded wallet). IMPORTANT: We do NOT trigger MetaMask here.
   // External wallets must be optional and only enabled explicitly elsewhere.
   const { ready, authenticated, login, logout, getAccessToken } = usePrivy();
@@ -1755,8 +1671,6 @@ const [errorMsg, setErrorMsg] = useState("");
   const _loginInFlight = useRef(false);
 
   // Prevent order flicker when backend GET lags behind POST/DB writes
-  const lastGridActionRef = useRef({ type: null, ts: 0 });
-  const lastNonEmptyOrdersRef = useRef({ ts: 0, count: 0 });
 
   const _loginRetryUsed = useRef(false);
   const _backendAuthInFlight = useRef(false);
@@ -1952,7 +1866,6 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const _hexToBool = (hex) => {
     try { return BigInt(hex || "0x0") !== 0n; } catch { return false; }
   };
-
 
   const _isAddr = (a) => /^0x[a-fA-F0-9]{40}$/.test(String(a || "").trim());
 
@@ -2328,7 +2241,6 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     }
   };
 
-
   const endVaultCycle = async () => {
     try {
       setTxMsg("");
@@ -2368,8 +2280,6 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     }
   };
 
-
-
   // Alchemy balances (native per chain, optionally tokens later)
   const [balLoading, setBalLoading] = useState(false);
   const [balError, setBalError] = useState("");
@@ -2377,7 +2287,6 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [showAllWalletChains, setShowAllWalletChains] = useState(() => {
     try { return localStorage.getItem("nexus_wallet_bal_all") !== "0"; } catch (_) { return true; }
   });
-
 
   
 
@@ -2407,7 +2316,6 @@ useEffect(() => {
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
   const [walletUsdLoading, setWalletUsdLoading] = useState(false);
-
 
   // ------------------------
   // Wallet tokens (User-added, unlimited, persisted)
@@ -2457,7 +2365,6 @@ useEffect(() => {
     POL: "https://api-polygon-tokens.polygon.technology/tokenlists/popular.tokenlist.json",
     BNB: "https://tokens.pancakeswap.finance/pancakeswap-extended.json",
   };
-
 
   const loadTokenList = async (chain) => {
     const c = String(chain || "").toUpperCase();
@@ -2756,7 +2663,6 @@ if (allSpecs.length) {
   }
 }
 
-
 return [c, { native, stables, custom }];
           } catch (e) {
             return [c, { native: "—", error: String(e?.message || e || "error") }];
@@ -2868,7 +2774,6 @@ const byChain = {};
     }
   };
 
-
   // Auto-refresh balances when the token list changes (add/remove),
   // so the user doesn't need to click Refresh manually.
   const walletTokensSig = useMemo(() => JSON.stringify(walletTokensByChain), [walletTokensByChain]);
@@ -2885,7 +2790,6 @@ const byChain = {};
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet, walletTokensSig]);
-
 
   // Auto-load balances when the wallet panel is opened.
   // Auto-load balances once after wallet connect (so Grid coin list is populated without opening the wallet panel).
@@ -2904,7 +2808,6 @@ const byChain = {};
     refreshBalances();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [balActiveChain]);
-
 
   // Auto-load balances when the wallet panel is opened.
   useEffect(() => {
@@ -3112,7 +3015,6 @@ const byChain = {};
   const colorForSym = (sym) => PALETTE10[ensureColorSlot(sym) % PALETTE10.length];
   const lineClassForSym = (sym) => `line${(ensureColorSlot(sym) % PALETTE10.length) + 1}`;
 
-
   // compare/chart
   const [timeframe, setTimeframe] = useLocalStorageState("nexus_timeframe", "90D");
   const compareFetchRange = useMemo(() => _compareFetchRange(timeframe), [timeframe]);
@@ -3200,7 +3102,6 @@ const byChain = {};
     return false;
   }, [isPro]);
 
-
   const redeemNow = useCallback(async () => {
     const code = (redeemCode || "").trim();
     if (!code) {
@@ -3234,7 +3135,6 @@ const byChain = {};
   const redeemAccess = redeemNow;
 
   // NFTs disabled in Phase 1 (UI + backend)
-
 
   const subscribePay = useCallback(async () => {
     if (!wallet) {
@@ -3366,7 +3266,6 @@ function _fmtPctLocal(x) {
     return sign + n.toFixed(2) + "%";
   }
 
-
   function _toMs(ts) {
     // accept seconds or ms
     const n = Number(ts);
@@ -3452,7 +3351,6 @@ function _fmtPctLocal(x) {
     if (cached) setPairExplainSeries(cached);
   }
 
-
   const inflightPairExplain = useRef(false);
   const pairExplainMemCache = useRef({}); // key -> { day: 'YYYY-MM-DD', series: {...} }
 
@@ -3534,7 +3432,6 @@ function _writePairExplainCache(pairStr, tf, series) {
     } catch {}
   }
 
-
   async function ensurePairExplainSeries(pairStr) {
     if (!pairStr) return;
     const [a, b] = _pairSyms(pairStr);
@@ -3609,7 +3506,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       const first = Array.isArray(firstPt) ? Number(firstPt?.[1]) : ((firstPt && typeof firstPt === "object") ? Number(firstPt.v) : Number(firstPt));
       const last  = Array.isArray(lastPt)  ? Number(lastPt?.[1])  : ((lastPt && typeof lastPt === "object") ? Number(lastPt.v) : Number(lastPt));
 
-
       if (!Number.isFinite(first) || !Number.isFinite(last) || !first) return null;
       return ((last - first) / first) * 100.0;
     } catch {
@@ -3658,24 +3554,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
       const winner = Number.isFinite(ra) && Number.isFinite(rb) ? (ra >= rb ? a : b) : null;
       const loser = Number.isFinite(ra) && Number.isFinite(rb) ? (ra >= rb ? b : a) : null;
-
-      const liveBySym = new Map((liveList || []).map((it) => [String(it?.sym || "").toUpperCase(), it?.row || null]));
-      const winnerRow = winner ? liveBySym.get(winner) || null : null;
-      const loserRow = loser ? liveBySym.get(loser) || null : null;
-
-      const winnerSeries = winner ? (pairExplainSeries?.[winner] || []) : [];
-      const loserSeries = loser ? (pairExplainSeries?.[loser] || []) : [];
-      const fallbackSeries = pairExplainSeries?.[a] || [];
-      const rsiTargetSym = loser || winner || a;
-      const rsiValue = calculateRsiFromSeries(
-        (loserSeries && loserSeries.length) ? loserSeries : ((winnerSeries && winnerSeries.length) ? winnerSeries : fallbackSeries),
-        14
-      );
-      const rsiInfo = classifyRsiState(rsiValue);
-
-      const volCandidates = [Number(winnerRow?.volume24h), Number(loserRow?.volume24h)].filter((v) => Number.isFinite(v) && v > 0);
-      const referenceVolume24h = volCandidates.length ? Math.min(...volCandidates) : null;
-      const liquidityInfo = classifyLiquidityFromVolume24h(referenceVolume24h);
 
       const classify = (v) => {
         if (!Number.isFinite(v)) return "n/a";
@@ -3786,53 +3664,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       if (confidence >= 8) confidenceLabel = "HIGH";
       else if (confidence <= 4.9) confidenceLabel = "LOW";
 
-      const gridFitInfo = classifyGridFitFromSetup(setup, corr, spread);
-      const executionRiskInfo = classifyExecutionRisk({
-        liquidityKey: liquidityInfo?.key,
-        riskText: risk,
-        corr,
-        spread,
-      });
-
-      const budgetNote =
-        executionRiskInfo?.key === "high" || liquidityInfo?.key === "risky"
-          ? "Small size only until liquidity improves."
-          : executionRiskInfo?.key === "medium_high" || liquidityInfo?.key === "thin"
-            ? "Use reduced budget and wider spacing."
-            : "Normal size is possible, but still confirm slippage in Grid Trader.";
-
-      const readyForGrid =
-        String(gridFitInfo?.key) === "good" && !String(executionRiskInfo?.key).includes("high")
-          ? "Ready after risk preview"
-          : String(gridFitInfo?.key) === "cautious"
-            ? "Only cautious setup"
-            : "Not ready yet";
-
-      if (Number.isFinite(rsiValue)) {
-        if (rsiInfo?.key === "oversold" || rsiInfo?.key === "deep_oversold") {
-          why.push(`RSI 14 for ${rsiTargetSym} is ${rsiValue.toFixed(1)} (${rsiInfo.label}), which supports a pullback / catch-up reading.`);
-        } else if (rsiInfo?.key === "overbought" || rsiInfo?.key === "extreme_overbought") {
-          why.push(`RSI 14 for ${rsiTargetSym} is ${rsiValue.toFixed(1)} (${rsiInfo.label}), so the move already looks stretched.`);
-        } else {
-          why.push(`RSI 14 for ${rsiTargetSym} is ${rsiValue.toFixed(1)} (${rsiInfo.label}), so momentum is not at an extreme yet.`);
-        }
-      }
-      if (liquidityInfo?.key === "deep" || liquidityInfo?.key === "good") {
-        why.push(`Watchlist liquidity check looks usable (${liquidityInfo.label.toLowerCase()}).`);
-      } else if (liquidityInfo?.key === "thin" || liquidityInfo?.key === "risky") {
-        why.push(`Execution can be harder here because the watchlist liquidity looks ${liquidityInfo.label.toLowerCase()}.`);
-      }
-
-      const noTradeIf = [];
-      if (Number.isFinite(rsiValue) && rsiValue < 20) noTradeIf.push(`${rsiTargetSym} remains in deep oversold stress without stabilization.`);
-      if (String(liquidityInfo?.key) === "risky") noTradeIf.push("Liquidity stays too weak for a clean entry and exit.");
-      if (Number.isFinite(corr) && corr < 0.55) noTradeIf.push("Correlation weakens further and the pair stops moving together.");
-      if (Number.isFinite(spread) && Math.abs(spread) < 0.75) noTradeIf.push("The spread compresses further and the edge disappears.");
-      if (!noTradeIf.length) {
-        noTradeIf.push("The spread widens sharply without any stabilization.");
-        noTradeIf.push("Short-term structure deteriorates further across 7D and 30D.");
-      }
-
       const insightSummary =
         longBias === "bullish" && shortBias === "bearish"
           ? "Short-term pressure is visible, but the broader structure still looks stronger."
@@ -3865,17 +3696,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         momentumShift,
         insightSummary,
         windows: pairWindows,
-        rsiValue,
-        rsiLabel: rsiInfo?.label || "n/a",
-        rsiTargetSym,
-        liquidityLabel: liquidityInfo?.label || "Watchlist pending",
-        liquidityShortLabel: liquidityInfo?.shortLabel || "Pending",
-        liquidityVolume24h: referenceVolume24h,
-        gridFit: gridFitInfo?.label || "Mixed",
-        executionRisk: executionRiskInfo?.label || "Medium",
-        budgetNote,
-        readyForGrid,
-        noTradeIf,
       });
     } catch (e) {
       setAiExplainText("");
@@ -3938,14 +3758,39 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
-  const [highlightSym, setHighlightSym] = useState(null);
+  const [highlightedSyms, setHighlightedSyms] = useState([]);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
+  const [gridModalSym, setGridModalSym] = useState(null);
+
+  useEffect(() => {
+    setHighlightedSyms((prev) => {
+      const allowed = new Set((compareSymbols || []).map((s) => String(s || "").toUpperCase()));
+      return (Array.isArray(prev) ? prev : [])
+        .map((s) => String(s || "").toUpperCase())
+        .filter((s) => allowed.has(s));
+    });
+  }, [compareSymbols.join("|")]);
+
+  useEffect(() => {
+    const sym = String(gridModalSym || "").toUpperCase().trim();
+    if (!sym) return;
+    if (!(compareSymbols || []).includes(sym)) setGridModalSym(null);
+  }, [gridModalSym, compareSymbols.join("|")]);
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
 
   // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/2Y)
   const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
   const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
+  const gridModalChart = useMemo(() => {
+    const sym = String(gridModalSym || "").toUpperCase().trim();
+    if (!sym) return { x: [], lines: {}, order: [] };
+    return buildUnifiedChart({ [sym]: compareSeriesView?.[sym] || [] });
+  }, [gridModalSym, compareSeriesView]);
+  const gridModalRow = useMemo(() => {
+    const sym = String(gridModalSym || "").toUpperCase().trim();
+    return sym ? (watchRows || []).find((r) => String(r?.symbol || "").toUpperCase() === sym) || null : null;
+  }, [gridModalSym, watchRows]);
     const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000), [compareSeries]);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsAll.slice(0, 10) : bestPairsAll), [showTop10Pairs, bestPairsAll]);
 
@@ -3985,8 +3830,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     const t2 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 1200);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [wallet, gridItem]);
-
-
 
 const [gridNativeUsd, setGridNativeUsd] = useState({});
 
@@ -4078,7 +3921,6 @@ useEffect(() => {
     try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${chain}`, sym); } catch (_) {}
   }, [gridUiHydrated, balActiveChain, gridItem]);
 
-
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
 
   // const uiChainKey defined above (useMemo) 
@@ -4122,48 +3964,6 @@ useEffect(() => {
     },
     [idOf]
   );
-  // Persist grid orders (localStorage + in-memory cache)
-const gridOrdersCacheRef = useRef({});
-
-const gridOrdersStorageKey = useCallback(
-  (itemId) => `na:gridOrders:${walletAddress || "anon"}:${itemId || "none"}`,
-  [walletAddress]
-);
-
-const loadPersistedGridOrders = useCallback((itemId) => {
-  if (!itemId) return [];
-  try {
-    const raw = localStorage.getItem(gridOrdersStorageKey(itemId));
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}, [gridOrdersStorageKey]);
-
-const savePersistedGridOrders = useCallback((itemId, ordersArr) => {
-  if (!itemId || !Array.isArray(ordersArr)) return;
-  try {
-    localStorage.setItem(gridOrdersStorageKey(itemId), JSON.stringify(ordersArr));
-  } catch {}
-}, [gridOrdersStorageKey]);
-
-const rememberGridOrders = useCallback((itemId, ordersArr) => {
-  if (!itemId) return;
-  if (!Array.isArray(ordersArr)) return;
-
-  const prev = gridOrdersCacheRef.current[itemId];
-  const now = Date.now();
-
-  gridOrdersCacheRef.current[itemId] = {
-    ts: now,
-    orders: ordersArr,
-    lastNonEmptyOrders: (ordersArr.length ? ordersArr : (prev?.lastNonEmptyOrders || [])),
-    lastNonEmptyTs: (ordersArr.length ? now : (prev?.lastNonEmptyTs || 0)),
-  };
-
-  savePersistedGridOrders(itemId, ordersArr);
-}, [savePersistedGridOrders]);
 
   const [manualSide, setManualSide] = useState("BUY");
   const [manualPrice, setManualPrice] = useState("");
@@ -4835,29 +4635,6 @@ const [aiLoading, setAiLoading] = useState(false);
 
   // grid
   
-  // Persist locally hidden/cancelled orders so the UI doesn't "resurrect" them after refresh
-  const hiddenOrdersKey = useMemo(
-    () => `na:hiddenGridOrders:${walletAddress || "anon"}:${gridItemId || "none"}`,
-    [walletAddress, gridItemId]
-  );
-  const loadHiddenOrderIds = () => {
-    try {
-      const raw = localStorage.getItem(hiddenOrdersKey);
-      const arr = raw ? JSON.parse(raw) : [];
-      return new Set((Array.isArray(arr) ? arr : []).map((x) => String(x)));
-    } catch {
-      return new Set();
-    }
-  };
-  const rememberHiddenOrderId = (id) => {
-    try {
-      const s = loadHiddenOrderIds();
-      s.add(String(id));
-      localStorage.setItem(hiddenOrdersKey, JSON.stringify(Array.from(s)));
-    } catch {}
-  };
-
-
 // Hydrate grid chain/item from backend once per wallet.
 // Backend is the source of truth across devices, so do not trust local defaults on refresh.
 useEffect(() => {
@@ -4934,11 +4711,7 @@ useEffect(() => {
       const initOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(initOrdersRaw)) {
         const initOrders = normalizeGridOrders(initOrdersRaw);
-        rememberGridOrders(srvItemId || gridItemId, initOrders);
         setGridOrders(initOrders);
-        if (initOrders.length > 0) {
-          lastNonEmptyOrdersRef.current = { ts: Date.now(), count: initOrders.length };
-        }
       }
 
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
@@ -4997,34 +4770,11 @@ const applyGridMetaResponse = useCallback((r, fallbackItemId = gridItemId) => {
   });
 }, [gridItemId, mergeGridMetaStable]);
 
-
-const mergeGridOrders = useCallback((baseArr, incomingArr) => {
-  const base = Array.isArray(baseArr) ? baseArr : [];
-  const incoming = Array.isArray(incomingArr) ? incomingArr : [];
-  return normalizeGridOrders([...incoming, ...base]);
-}, [normalizeGridOrders]);
-
 useEffect(() => {
   if (!gridItemId) return;
-
-  const cached = gridOrdersCacheRef.current[gridItemId]?.orders;
-  if (Array.isArray(cached) && cached.length) {
-    setGridOrders(cached);
-    return;
-  }
-
-  const persisted = loadPersistedGridOrders(gridItemId);
-  if (persisted.length) {
-    rememberGridOrders(gridItemId, persisted);
-    setGridOrders(persisted);
-    return;
-  }
-
   setGridOrders([]);
   setGridVaultStats({ vault: 0, reserved: 0, free: 0 });
-}, [gridItemId, loadPersistedGridOrders, rememberGridOrders]);
-
-
+}, [gridItemId]);
 
 const fetchGridOrders = useCallback(async () => {
   // Only fetch when wallet + backend grid context are ready.
@@ -5061,60 +4811,7 @@ const fetchGridOrders = useCallback(async () => {
     if (!Array.isArray(nextOrdersRaw)) return;
 
     const nextOrders = normalizeGridOrders(nextOrdersRaw);
-
-    // If server says empty right after an Add, don't wipe UI (backend may be eventually consistent).
-    const now = Date.now();
-    const last = lastGridActionRef.current || { type: null, ts: 0 };
-    const recentAdd = last.type === "add" && now - (last.ts || 0) < 5000;
-
-    if (nextOrders.length === 0 && recentAdd && gridOrders.length > 0) {
-  return;
-}
-
-    const recentDelete = last.type === "delete" && now - (last.ts || 0) < 2 * 60 * 1000;
-    if (nextOrders.length === 0 && recentDelete) {
-      try {
-        rememberGridOrders(gridItemId, []);
-        gridOrdersCacheRef.current[gridItemId] = {
-          ...(gridOrdersCacheRef.current[gridItemId] || {}),
-          ts: Date.now(),
-          orders: [],
-          lastNonEmptyOrders: [],
-          lastNonEmptyTs: 0,
-        };
-        lastNonEmptyOrdersRef.current = { ts: 0, count: 0 };
-      } catch (_) {}
-      setGridOrders([]);
-      applyGridMetaResponse(r, gridItemId);
-      return;
-    }
-
-// 🔥 WICHTIG: Fallback wenn Backend leer liefert
-if (nextOrders.length === 0) {
-  const cached = gridOrdersCacheRef.current[gridItemId];
-  const lastNonEmpty = cached?.lastNonEmptyOrders || [];
-  const lastNonEmptyTs = cached?.lastNonEmptyTs || 0;
-
-  const stillFresh =
-    lastNonEmpty.length > 0 &&
-    (Date.now() - lastNonEmptyTs) < 2 * 60 * 1000;
-
-  if (stillFresh) {
-    setGridOrders(lastNonEmpty);
-    return;
-  }
-
-  const persisted = loadPersistedGridOrders(gridItemId);
-  if (persisted.length > 0) {
-    rememberGridOrders(gridItemId, persisted);
-    setGridOrders(persisted);
-    return;
-  }
-}
-
-// 🔥 WICHTIG: Orders speichern + setzen
-rememberGridOrders(gridItemId, nextOrders);
-setGridOrders(nextOrders);
+    setGridOrders(nextOrders);
 
 	try {
       const sym = String(gridItem || "").toUpperCase().trim();
@@ -5122,10 +4819,6 @@ setGridOrders(nextOrders);
         setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
       }
     } catch (_) {}
-
-    if (nextOrders.length > 0) {
-      lastNonEmptyOrdersRef.current = { ts: now, count: nextOrders.length };
-    }
 
     applyGridMetaResponse(r, gridItemId);
   } catch (e) {
@@ -5160,7 +4853,6 @@ useInterval(
     gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN")
 );
 
-
 // Execute polling: this is the real trigger that makes BUY/SELL fire.
 useInterval(
   async () => {
@@ -5173,7 +4865,6 @@ useInterval(
       const execOrdersRaw = getGridOrdersFromResponse(r);
       if (Array.isArray(execOrdersRaw)) {
         const execOrders = normalizeGridOrders(execOrdersRaw);
-        rememberGridOrders(gridItemId, execOrders);
         setGridOrders(execOrders);
       }
 
@@ -5198,7 +4889,6 @@ useInterval(
     !gridBusy.deleteOrderId &&
     gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN")
 );
-
 
   async function gridStart() {
     console.log("[GRID] Start clicked");
@@ -5289,9 +4979,6 @@ setGridBusy((s) => ({ ...s, start: true }));
       setGridBusy((s) => ({ ...s, start: false }));
     }
   }
-
-
-
 
 async function setGridExecute(itemIdArg = "") {
   const itemId = String(
@@ -5419,22 +5106,13 @@ body.qty = qty;
 	      }
 	      if (lastErr) throw lastErr;
       
-      // Mark recent add so a transient empty poll right after add can't wipe the UI.
-      lastGridActionRef.current = { type: "add", ts: Date.now() };
-
       applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
       const addOrdersRaw = getGridOrdersFromResponse(r);
-      const addSingleOrder = getGridSingleOrderFromResponse(r);
       if (Array.isArray(addOrdersRaw)) {
         const addOrders = normalizeGridOrders(addOrdersRaw);
         setGridOrders(addOrders);
-      } else if (addSingleOrder) {
-        setGridOrders((prev) => {
-          const merged = mergeGridOrders(prev, [addSingleOrder]);
-          return merged;
-        });
       }
       // Always reload from backend so the server can commit the order and the UI stays live.
       kickGridRefresh();
@@ -5450,7 +5128,6 @@ body.qty = qty;
     setErrorMsg("");
     if (!token) return setErrorMsg("");
     if (!gridItem) return;
-
 
     const _oid = String(orderId);
     if (gridBusy.stopOrderId === _oid) return;
@@ -5473,43 +5150,28 @@ body.qty = qty;
       { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
     ];
 
-    // Optimistic UI: mark CANCELLED locally, but keep in list until backend confirms
-    setGridBusy((s) => ({ ...s, stopOrderId: null }));
-
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
-
     let lastErr = null;
     for (const a of attempts) {
       try {
         const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-        {
-          const _arrRaw = r?.orders || r?.data?.orders;
-          const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
-          if (_arr.length) {
-            setGridOrders((prev) => {
-              const merged = mergeGridOrders(_arr, prev || []);
-              return merged.map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o));
-            });
-          } else {
-            setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
-          }
+        const stopOrdersRaw = getGridOrdersFromResponse(r);
+        if (Array.isArray(stopOrdersRaw)) {
+          const stopOrders = normalizeGridOrders(stopOrdersRaw);
+          setGridOrders(stopOrders);
         }
         setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-        // Do not mark as "add" here; stopping an order must not trigger the recent-add guard.
-applyGridMetaResponse(r, gridItemId);
+        applyGridMetaResponse(r, gridItemId);
         fetchGridOrders();
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;
       } catch (e) {
         lastErr = e;
         const msg = String(e?.message || "");
-        // If 404/ not found -> try next endpoint (older/newer backend)
         if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) throw e;
       }
     }
 
-    // If all failed, revert optimistic status
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o)));
+    setGridBusy((s) => ({ ...s, stopOrderId: null }));
     setErrorMsg(`Stop order: ${lastErr?.message || "failed"}`);
   }
   async function resumeGridOrder(orderId) {
@@ -5536,19 +5198,14 @@ applyGridMetaResponse(r, gridItemId);
       { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
     ];
 
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o)));
-
     let lastErr = null;
     for (const a of attempts) {
       try {
         const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-        const _arrRaw = r?.orders || r?.data?.orders;
-        const _arr = normalizeGridOrders(Array.isArray(_arrRaw) ? _arrRaw : []);
-        if (_arr.length) {
-          setGridOrders((prev) => {
-            const merged = mergeGridOrders(_arr, prev || []);
-            return merged.map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "OPEN" } : o));
-          });
+        const resumeOrdersRaw = getGridOrdersFromResponse(r);
+        if (Array.isArray(resumeOrdersRaw)) {
+          const resumeOrders = normalizeGridOrders(resumeOrdersRaw);
+          setGridOrders(resumeOrders);
         }
         setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         applyGridMetaResponse(r, gridItemId);
@@ -5563,7 +5220,6 @@ applyGridMetaResponse(r, gridItemId);
     }
 
     setGridBusy((s) => ({ ...s, stopOrderId: null }));
-    setGridOrders((prev) => (prev || []).map((o) => (String(idOf(o)) === String(orderId) ? { ...o, status: "PAUSED" } : o)));
     setErrorMsg(`Resume order: ${lastErr?.message || "failed"}`);
   }
 
@@ -5593,30 +5249,9 @@ applyGridMetaResponse(r, gridItemId);
       { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
     ];
 
-    // Optimistic UI: hide immediately
-    const prevOrders = gridOrders;
-    const nextOrdersOptimistic = (gridOrders || []).filter((o) => String(idOf(o)) !== String(orderId));
-    lastGridActionRef.current = { type: "delete", ts: Date.now() };
-    setGridOrders(nextOrdersOptimistic);
-    try {
-      rememberGridOrders(gridItemId, nextOrdersOptimistic);
-      gridOrdersCacheRef.current[gridItemId] = {
-        ...(gridOrdersCacheRef.current[gridItemId] || {}),
-        ts: Date.now(),
-        orders: nextOrdersOptimistic,
-        lastNonEmptyOrders: nextOrdersOptimistic,
-        lastNonEmptyTs: nextOrdersOptimistic.length ? Date.now() : 0,
-      };
-      lastNonEmptyOrdersRef.current = {
-        ts: nextOrdersOptimistic.length ? Date.now() : 0,
-        count: nextOrdersOptimistic.length,
-      };
-    } catch {}
-
     let lastErr = null;
     for (const a of attempts) {
       try {
-        // api() may not allow DELETE bodies on some fetch impls; fall back to raw fetch if needed
         if (a.method === "DELETE") {
           const res = await fetch(`${API_BASE}${a.url}`, {
             method: "DELETE",
@@ -5635,22 +5270,6 @@ applyGridMetaResponse(r, gridItemId);
           if (Array.isArray(delOrdersRaw)) {
             const delOrders = normalizeGridOrders(delOrdersRaw);
             setGridOrders(delOrders);
-            try {
-              rememberGridOrders(gridItemId, delOrders);
-              gridOrdersCacheRef.current[gridItemId] = {
-                ...(gridOrdersCacheRef.current[gridItemId] || {}),
-                ts: Date.now(),
-                orders: delOrders,
-                lastNonEmptyOrders: delOrders,
-                lastNonEmptyTs: delOrders.length ? Date.now() : 0,
-              };
-              lastNonEmptyOrdersRef.current = {
-                ts: delOrders.length ? Date.now() : 0,
-                count: delOrders.length,
-              };
-            } catch {}
-          } else {
-            try { rememberGridOrders(gridItemId, nextOrdersOptimistic); } catch {}
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           applyGridMetaResponse(r, gridItemId);
@@ -5663,23 +5282,6 @@ applyGridMetaResponse(r, gridItemId);
           if (Array.isArray(respOrdersRaw)) {
             const respOrders = normalizeGridOrders(respOrdersRaw);
             setGridOrders(respOrders);
-            try {
-              rememberGridOrders(gridItemId, respOrders);
-              gridOrdersCacheRef.current[gridItemId] = {
-                ...(gridOrdersCacheRef.current[gridItemId] || {}),
-                ts: Date.now(),
-                orders: respOrders,
-                lastNonEmptyOrders: respOrders,
-                lastNonEmptyTs: respOrders.length ? Date.now() : 0,
-              };
-              lastNonEmptyOrdersRef.current = {
-                ts: respOrders.length ? Date.now() : 0,
-                count: respOrders.length,
-              };
-            } catch {}
-          } else {
-            safeSetGridOrdersFromResponse(r, setGridOrders);
-            try { rememberGridOrders(gridItemId, nextOrdersOptimistic); } catch {}
           }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           applyGridMetaResponse(r, gridItemId);
@@ -5690,7 +5292,6 @@ applyGridMetaResponse(r, gridItemId);
       } catch (e) {
         lastErr = e;
         const msg = String(e?.message || "");
-        // Method not allowed / 404 -> try next
         if (
           msg.includes("405") ||
           msg.toLowerCase().includes("method not allowed") ||
@@ -5699,29 +5300,11 @@ applyGridMetaResponse(r, gridItemId);
         ) {
           continue;
         }
-        // Server error 500 might be transient; try next alias once
         continue;
       }
     }
 
     setGridBusy((s) => ({ ...s, deleteOrderId: null }));
-
-    // Revert if all failed
-    setGridOrders(prevOrders);
-    try {
-      rememberGridOrders(gridItemId, prevOrders || []);
-      gridOrdersCacheRef.current[gridItemId] = {
-        ...(gridOrdersCacheRef.current[gridItemId] || {}),
-        ts: Date.now(),
-        orders: prevOrders || [],
-        lastNonEmptyOrders: (prevOrders || []).length ? (prevOrders || []) : [],
-        lastNonEmptyTs: (prevOrders || []).length ? Date.now() : 0,
-      };
-      lastNonEmptyOrdersRef.current = {
-        ts: (prevOrders || []).length ? Date.now() : 0,
-        count: (prevOrders || []).length,
-      };
-    } catch {}
     setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
 useInterval(fetchGridOrders, 15000, isGridReady);
@@ -5898,7 +5481,6 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     return Number.isFinite(px) && px > 0 ? px : null;
   }, [walletPx, activeGridChainSymbol]);
 
-
   // watchlist actions
   function toggleCompare(sym) {
     const S = String(sym || "").toUpperCase();
@@ -5925,7 +5507,6 @@ const [addSearchErr, setAddSearchErr] = useState("");
 const addSearchAbortRef = useRef(null);
 
 // Search is triggered only when user presses Search (or Enter).
-
 
 // DEX tab inputs
 const [addChain, setAddChain] = useState("polygon");
@@ -6020,7 +5601,6 @@ const runMarketSearch = async (opts = {}) => {
     setAddSearching(false);
   }
 };
-
 
 const addMarketCoin = async (coin) => {
   const sym = String(coin?.symbol || "").trim().toUpperCase();
@@ -6130,7 +5710,6 @@ const addMarketCoin = async (coin) => {
   setAddSearchErr("");
 };
 
-
 const addDexToken = async () => {
   const contract = String(addContract || "").trim();
   const chain = String(addChain || "pol").trim();
@@ -6191,7 +5770,6 @@ const addDexToken = async () => {
   setAddContract("");
 };
 
-
   function removeWatchItemByKey({ symbol, mode = "market", tokenAddress = "", contract = "" }) {
   const sym = String(symbol || "").toUpperCase();
   const m = String(mode || "market").toLowerCase();
@@ -6209,7 +5787,6 @@ const removedKey = removedItem
   ? _watchKeyFromItem(removedItem)
   : (m === "dex" ? `dex|${addr}` : `market|${sym}|`);
 _setTombstone(removedKey);
-
 
   // Build next "items" array (the true source of truth we send to backend)
   const nextItems = (watchItems || []).filter((x) => {
@@ -6248,7 +5825,6 @@ _setTombstone(removedKey);
     lastGoodCompareRef.current = {};
     try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify({})); } catch {}
   }
-
 
   // Persist: ask backend to recompute snapshot for the new items list
   // (This makes sure the item doesn't come back on next poll.)
@@ -6452,7 +6028,6 @@ async function runAi() {
     }
     return compareSymbols.map((sym) => ({ sym, row: bySym.get(sym) || null }));
   }, [watchRows, compareSymbols]);
-
 
 // --- Grid Vault usage (vault-contract only) ---
 // IMPORTANT:
@@ -6677,7 +6252,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .cardActions .chip { white-space: nowrap; }
         }
 
-
         /* --- Grid layout: left controls, right orders --- */
         .gridLayout{
           display: grid;
@@ -6698,7 +6272,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
         .gridLeft .gridControls > *{ width: 100%; }
         .gridLeft .formRow{ width: 100%; display: flex; flex-direction: column; align-items: flex-start; }
-
 
         /* --- Force manual/grid inputs to align left (no centering) --- */
         .gridLeft .formRow select,
@@ -6911,10 +6484,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 8px !important;
-            padding-bottom: 24px !important;
+            padding-bottom: 48px !important;
             margin-top: 6px !important;
-            margin-bottom: 10px !important;
-            scroll-padding-bottom: 24px !important;
+            margin-bottom: 24px !important;
+            scroll-padding-bottom: 48px !important;
             overscroll-behavior: contain !important;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
           }
@@ -7175,7 +6748,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
               >
                 Redeem Code
               </button>
-
 
               <button
                 className="btnGhost"
@@ -7692,7 +7264,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
 
             </div>
-
 
                     {/* Withdraw & Send modal */}
           {withdrawSendOpen && (
@@ -8292,8 +7863,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
         </div>
       
 
-
-
 </header>
 
       <main className="main mobileStack">
@@ -8374,7 +7943,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="panelScroll"><div className="compareGrid">
+          <div
+            className="panelScroll"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0
+            }}
+          >
+			<div className="compareGrid">
             {/* Live list */}
             <div className="compareLive">
               <div className="label">Live Prices (USD)</div>
@@ -8405,14 +7982,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="compareChart">
               <div className="chartHeader">
                 <div className="label">Diagramm (auto scale)</div>
-                <div className="muted tiny">{compareLoading ? "Loading…" : `${compareSymbols.length} selected`}</div>
+                <div className="muted tiny">{compareLoading ? "Loading…" : `${highlightedSyms.length || compareSymbols.length}/${compareSymbols.length} active`}</div>
               </div>
 
               {viewMode === "overlay" ? (
               <>
-                <SvgChart chart={chartRaw} height={320} highlightSym={highlightSym} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                <SvgChart chart={chartRaw} height={360} highlightedSyms={highlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                 <div style={{ marginTop: 10 }}>
-                  <Legend symbols={compareSymbols} highlightSym={highlightSym} setHighlightSym={setHighlightSym} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                  <Legend symbols={compareSymbols} highlightedSyms={highlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                 </div>
               </>
             ) : (
@@ -8426,8 +8003,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       chart={chartRaw}
                       indexMode={indexMode}
                       timeframe={timeframe}
-                      active={highlightSym === sym}
-                      onClick={() => setHighlightSym((v) => (v === sym ? null : sym))}
+                      active={highlightedSyms.length === 0 || highlightedSyms.includes(sym)}
+                      onClick={() => setGridModalSym(sym)}
                       colorForSym={colorForSym}
                       lineClassForSym={lineClassForSym}
                     />
@@ -8439,7 +8016,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
             )}
 
-                            <div className="pairsBox">
+                            <div
+                              className="pairsBox"
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                minHeight: 0
+                              }}
+                            >
                 <div className="pairsHead">
                   <div className="label">Best pairs (data fit)</div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -8506,9 +8090,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     border: "1px solid rgba(255,255,255,.06)",
                     borderRadius: 14,
                     background: "rgba(255,255,255,.02)",
-                    padding: "8px 8px 26px 8px",
+                    padding: "8px",
                     boxSizing: "border-box",
                     marginTop: 6,
+
+                    maxHeight: 320,
+                    overflowY: "auto",
                   }}
                 >
                   {bestPairsToShow.length ? (
@@ -8538,6 +8125,61 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div></div>
         </section>
 
+        {/* Grid chart modal */}
+        {gridModalSym && (
+          <div
+            className="modalBackdrop"
+            onClick={() => setGridModalSym(null)}
+            style={{ zIndex: 10010, padding: 16 }}
+          >
+            <div
+              className="card"
+              style={{
+                width: "min(1100px, 96vw)",
+                maxHeight: "88vh",
+                overflow: "auto",
+                cursor: "default",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="cardHead" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                <div>
+                  <div className="cardTitle">{gridModalSym} chart</div>
+                  <div className="muted tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+                    <span>{timeframe}</span>
+                    <span>{indexMode ? "Index 100" : "Price (USD)"}</span>
+                    {gridModalRow ? <span>{fmtUsd(Number(gridModalRow?.price))}</span> : null}
+                    {gridModalRow?.change24h != null ? (
+                      <span style={{ color: Number(gridModalRow?.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>
+                        {fmtPct(Number(gridModalRow?.change24h))}
+                      </span>
+                    ) : null}
+                    <span>Hover for date + value</span>
+                  </div>
+                </div>
+                <button className="btnGhost" onClick={() => setGridModalSym(null)} type="button">
+                  Close
+                </button>
+              </div>
+
+              <div className="cardBody" style={{ display: "grid", gap: 12 }}>
+                <SvgChart
+                  chart={gridModalChart}
+                  height={440}
+                  highlightedSyms={[]}
+                  onHoverSym={() => {}}
+                  indexMode={indexMode}
+                  timeframe={timeframe}
+                  colorForSym={colorForSym}
+                  lineClassForSym={lineClassForSym}
+                />
+                <div className="muted tiny">
+                  Tip: Move the mouse over the chart to see the exact date and value.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Pair explain modal */}
         {selectedPair && (
@@ -8670,37 +8312,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   {aiExplainData ? (
                     <div style={{ display: "grid", gap: 10 }}>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-                        <div style={aiMiniCardStyle()}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
                           <div className="muted tiny">AI Verdict</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.setup}</div>
                         </div>
-                        <div style={aiMiniCardStyle()}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
                           <div className="muted tiny">Confidence</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.confidenceLabel} ({aiExplainData.confidence}/10)</div>
                         </div>
-                        <div style={aiMiniCardStyle()}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
                           <div className="muted tiny">Risk</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.risk}</div>
-                        </div>
-                        <div style={aiMiniCardStyle()}>
-                          <div className="muted tiny">RSI {aiExplainData.rsiTargetSym ? `(${aiExplainData.rsiTargetSym})` : ""}</div>
-                          <div style={{ fontWeight: 900, marginTop: 4 }}>
-                            {Number.isFinite(Number(aiExplainData.rsiValue))
-                              ? `${Number(aiExplainData.rsiValue).toFixed(1)} · ${aiExplainData.rsiLabel || "n/a"}`
-                              : "n/a"}
-                          </div>
-                        </div>
-                        <div style={aiMiniCardStyle()}>
-                          <div className="muted tiny">Grid Fit</div>
-                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridFit || "Mixed"}</div>
-                        </div>
-                        <div style={aiMiniCardStyle()}>
-                          <div className="muted tiny">Liquidity</div>
-                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.liquidityShortLabel || aiExplainData.liquidityLabel || "Pending"}</div>
-                        </div>
-                        <div style={aiMiniCardStyle()}>
-                          <div className="muted tiny">Execution Risk</div>
-                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.executionRisk || "Medium"}</div>
                         </div>
                       </div>
 
@@ -8786,33 +8408,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         ) : null}
                       </div>
 
-                      <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Ready for Grid Trader</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
-                          <div style={aiMiniCardStyle()}>
-                            <div className="muted tiny">Status</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.readyForGrid || "Review first"}</div>
-                          </div>
-                          <div style={aiMiniCardStyle()}>
-                            <div className="muted tiny">Liquidity check</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.liquidityLabel || "Watchlist pending"}</div>
-                          </div>
-                          <div style={aiMiniCardStyle()}>
-                            <div className="muted tiny">Execution risk</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.executionRisk || "Medium"}</div>
-                          </div>
-                          <div style={aiMiniCardStyle()}>
-                            <div className="muted tiny">Budget note</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.budgetNote || "Review Grid Trader preview first."}</div>
-                          </div>
-                        </div>
-                        {Number.isFinite(Number(aiExplainData.liquidityVolume24h)) ? (
-                          <div className="muted tiny">Reference 24h watchlist volume: <b>{fmtUsd(Number(aiExplainData.liquidityVolume24h))}</b></div>
-                        ) : (
-                          <div className="muted tiny">Liquidity card uses the live watchlist snapshot. If the coin is not in the watchlist yet, the check stays pending.</div>
-                        )}
-                      </div>
-
                       <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                         <div className="label" style={{ marginBottom: 0 }}>Why this setup</div>
                         <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
@@ -8827,9 +8422,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
                           {(() => {
                             const lines = [];
-                            if (Array.isArray(aiExplainData.noTradeIf) && aiExplainData.noTradeIf.length) {
-                              lines.push(...aiExplainData.noTradeIf);
-                            }
                             if (aiExplainData.winner && aiExplainData.loser) {
                               lines.push(`If ${aiExplainData.winner} keeps outperforming while ${aiExplainData.loser} stays weak, the catch-up idea weakens.`);
                             }
@@ -8839,7 +8431,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               lines.push("If the spread widens sharply without any stabilization, reduce trust in mean reversion.");
                             }
                             lines.push("If short-term structure deteriorates further across 7D and 30D, the setup should be reassessed.");
-                            return lines.filter(Boolean).map((line, idx) => <div key={idx}>• {line}</div>);
+                            return lines.map((line, idx) => <div key={idx}>• {line}</div>);
                           })()}
                         </div>
                       </div>
@@ -8877,15 +8469,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
         )}
 
-
-
-
         {/* Grid */}
         <section className={`card section-grid dashboardPanel ${activePanel === "vault" ? "panelActive" : ""}`} onClick={handlePanelActivate("vault")}>
           <div className="cardHead">
             <div className="cardTitle">Grid Trader</div>
             <div className="cardActions" style={{ alignItems: "center" }}>
-              <span className="pill silver">Tick: {gridMeta.tick ?? "—"}</span>
+             
               <span className="pill silver">Price: {shownGridPrice ? fmtUsd(shownGridPrice) : "—"}</span>
               <InfoButton title="Grid Trader – Info">
                 <Help showClose dismissable
@@ -8944,7 +8533,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
   {" · "}
   {tB("Settled:")} <b>{manualVaultSettledQty.toFixed(6)}</b> {String(manualPayoutAsset || "USDC").toUpperCase()}
 </div>{isEthChain ? (
-
 
               <div className="formRow" style={{ marginTop: 6 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -9713,9 +9301,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
       {/* Add modal */}
 
-
       {/* Wallet panel is rendered in the header (top-right dropdown). */}
-
 
             {addOpen && (
   <div className="modalBackdrop" onClick={resetAddModal}>

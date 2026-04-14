@@ -1611,141 +1611,6 @@ function computeBestPairs(chart, limit = 30) {
   return res.slice(0, limit);
 }
 
-function _seriesPointsToValues(arr) {
-  return (Array.isArray(arr) ? arr : [])
-    .map((p) => (Array.isArray(p) ? Number(p?.[1]) : ((p && typeof p === "object") ? Number(p?.v) : Number(p))))
-    .filter((v) => Number.isFinite(v) && v > 0);
-}
-
-function _calcRsiFromSeries(arr, period = 14) {
-  const vals = _seriesPointsToValues(arr);
-  if (vals.length < period + 1) return null;
-  let gains = 0;
-  let losses = 0;
-  for (let i = vals.length - period; i < vals.length; i++) {
-    const prev = vals[i - 1];
-    const curr = vals[i];
-    if (!Number.isFinite(prev) || !Number.isFinite(curr)) continue;
-    const diff = curr - prev;
-    if (diff >= 0) gains += diff;
-    else losses += Math.abs(diff);
-  }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  if (!Number.isFinite(avgGain) || !Number.isFinite(avgLoss)) return null;
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  const rsi = 100 - (100 / (1 + rs));
-  return Number.isFinite(rsi) ? Math.max(0, Math.min(100, rsi)) : null;
-}
-
-function _rsiLabel(rsi) {
-  if (!Number.isFinite(Number(rsi))) return "n/a";
-  const x = Number(rsi);
-  if (x > 70) return "overbought";
-  if (x < 30) return "oversold";
-  return "neutral";
-}
-
-function _rsiStyle(rsi) {
-  const x = Number(rsi);
-  if (!Number.isFinite(x)) return { color: "rgba(232,242,240,.9)", borderColor: "rgba(255,255,255,0.12)", background: "rgba(255,255,255,0.03)" };
-  if (x > 70) return { color: "#ff8a8a", borderColor: "rgba(255,92,92,0.32)", background: "rgba(255,92,92,0.12)" };
-  if (x < 30) return { color: "#7dffb1", borderColor: "rgba(57,217,138,0.34)", background: "rgba(57,217,138,0.12)" };
-  return { color: "#ffd280", borderColor: "rgba(255,184,77,0.30)", background: "rgba(255,184,77,0.12)" };
-}
-
-function _computeSpreadSeries(seriesMap, a, b) {
-  const aPts = Array.isArray(seriesMap?.[a]) ? seriesMap[a] : [];
-  const bPts = Array.isArray(seriesMap?.[b]) ? seriesMap[b] : [];
-  if (!aPts.length || !bPts.length) return [];
-
-  const toDailyMap = (pts) => {
-    const m = new Map();
-    for (const p of pts) {
-      const t = Array.isArray(p) ? Number(p?.[0]) : Number(p?.t ?? 0);
-      const v = Array.isArray(p) ? Number(p?.[1]) : Number(p?.v ?? NaN);
-      if (!Number.isFinite(t) || !Number.isFinite(v) || v <= 0) continue;
-      const d = new Date(t);
-      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-      m.set(key, { t, v });
-    }
-    return m;
-  };
-
-  const am = toDailyMap(aPts);
-  const bm = toDailyMap(bPts);
-  const common = Array.from(am.keys()).filter((k) => bm.has(k)).sort();
-  if (common.length < 2) return [];
-
-  const firstA = am.get(common[0])?.v;
-  const firstB = bm.get(common[0])?.v;
-  if (!Number.isFinite(firstA) || !Number.isFinite(firstB) || firstA <= 0 || firstB <= 0) return [];
-
-  return common.map((k) => {
-    const av = am.get(k)?.v;
-    const bv = bm.get(k)?.v;
-    const at = am.get(k)?.t;
-    const bt = bm.get(k)?.t;
-    const idxA = (av / firstA) * 100;
-    const idxB = (bv / firstB) * 100;
-    return { t: Math.max(at || 0, bt || 0), d: idxA - idxB, a: idxA, b: idxB };
-  }).filter((x) => Number.isFinite(x?.t) && Number.isFinite(x?.d));
-}
-
-function _miniSpreadDirection(spreadSeries) {
-  const arr = Array.isArray(spreadSeries) ? spreadSeries : [];
-  if (arr.length < 2) return "flat";
-  const first = Number(arr[0]?.d);
-  const last = Number(arr[arr.length - 1]?.d);
-  if (!Number.isFinite(first) || !Number.isFinite(last)) return "flat";
-  const delta = last - first;
-  if (delta > 1) return "rising";
-  if (delta < -1) return "falling";
-  return "flat";
-}
-
-function MiniSpreadChart({ rows = [], height = 96 }) {
-  const data = Array.isArray(rows) ? rows.filter((r) => Number.isFinite(Number(r?.d))) : [];
-  if (!data.length) {
-    return <div className="muted tiny">No spread data yet.</div>;
-  }
-  const w = 460;
-  const h = height;
-  const padX = 6;
-  const padY = 8;
-  let min = Infinity;
-  let max = -Infinity;
-  for (const r of data) {
-    const v = Number(r.d);
-    min = Math.min(min, v);
-    max = Math.max(max, v);
-  }
-  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
-    min -= 1;
-    max += 1;
-  }
-  const zeroWithin = min <= 0 && max >= 0;
-  const sx = (i) => padX + (i * (w - padX * 2)) / Math.max(1, data.length - 1);
-  const sy = (v) => padY + (1 - ((v - min) / (max - min))) * (h - padY * 2);
-  let d = "";
-  for (let i = 0; i < data.length; i++) {
-    const X = sx(i);
-    const Y = sy(Number(data[i].d));
-    d += d ? ` L ${X} ${Y}` : `M ${X} ${Y}`;
-  }
-  const y0 = zeroWithin ? sy(0) : null;
-  const last = data[data.length - 1];
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: "100%", height }}>
-      {y0 != null ? <line x1={padX} x2={w - padX} y1={y0} y2={y0} stroke="rgba(255,255,255,0.14)" strokeDasharray="4 4" /> : null}
-      <path d={d} fill="none" stroke="rgba(57,217,138,0.95)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={sx(data.length - 1)} cy={sy(Number(last?.d || 0))} r="4" fill="rgba(57,217,138,1)" />
-    </svg>
-  );
-}
-
-
 // ------------------------
 // App (inner)
 // ------------------------
@@ -3799,44 +3664,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       if (confidence >= 8) confidenceLabel = "HIGH";
       else if (confidence <= 4.9) confidenceLabel = "LOW";
 
-      const rsiA = _calcRsiFromSeries(pairExplainSeries?.[a] || []);
-      const rsiB = _calcRsiFromSeries(pairExplainSeries?.[b] || []);
-      const spreadSeries = _computeSpreadSeries(pairExplainSeries || {}, a, b);
-      const spreadDirection = _miniSpreadDirection(spreadSeries);
-      const latestSpread = spreadSeries.length ? Number(spreadSeries[spreadSeries.length - 1]?.d) : spread;
-      const stats30A = pairWindows?.["30D"]?.[a] || {};
-      const stats30B = pairWindows?.["30D"]?.[b] || {};
-      const volA = Number.isFinite(Number(stats30A?.volPct)) ? Number(stats30A.volPct) : null;
-      const volB = Number.isFinite(Number(stats30B?.volPct)) ? Number(stats30B.volPct) : null;
-      const ddA = Number.isFinite(Number(stats30A?.maxDDPct)) ? Number(stats30A.maxDDPct) : null;
-      const ddB = Number.isFinite(Number(stats30B?.maxDDPct)) ? Number(stats30B.maxDDPct) : null;
-      const avgVol = [volA, volB].filter((v) => Number.isFinite(v));
-      const avgDrawdown = [ddA, ddB].filter((v) => Number.isFinite(v)).map((v) => Math.abs(v));
-      const meanVol = avgVol.length ? (avgVol.reduce((s, v) => s + v, 0) / avgVol.length) : null;
-      const meanDrawdown = avgDrawdown.length ? (avgDrawdown.reduce((s, v) => s + v, 0) / avgDrawdown.length) : null;
-      let gridFit = "Moderate";
-      if (Number.isFinite(corr) && corr >= 0.85 && Number.isFinite(spread) && Math.abs(spread) >= 2) gridFit = "Strong";
-      else if (Number.isFinite(corr) && corr < 0.55) gridFit = "Weak";
-      else if (Number.isFinite(spread) && Math.abs(spread) < 0.75) gridFit = "Early / wait";
-
-      let healthScore = 52;
-      if (Number.isFinite(corr)) healthScore += Math.max(-18, Math.min(22, (corr - 0.5) * 40));
-      if (Number.isFinite(spread)) healthScore += Math.max(-8, Math.min(16, Math.abs(spread) * 2.5));
-      if (Number.isFinite(meanVol)) healthScore += Math.max(-10, Math.min(8, 10 - (meanVol * 2)));
-      if (Number.isFinite(meanDrawdown)) healthScore += Math.max(-12, Math.min(8, 8 - meanDrawdown));
-      if (Number.isFinite(rsiA) && Number.isFinite(rsiB)) {
-        const extremeCount = [rsiA, rsiB].filter((x) => x > 70 || x < 30).length;
-        healthScore += extremeCount === 1 ? 5 : extremeCount === 2 ? -2 : 2;
-      }
-      healthScore = Math.max(0, Math.min(100, Math.round(healthScore)));
-
-      const spreadInterpretation =
-        spreadDirection === "rising"
-          ? "Spread is rising — trend leadership is expanding."
-          : spreadDirection === "falling"
-            ? "Spread is falling — mean reversion is already starting."
-            : "Spread is flat — leadership is stable for now.";
-
       const insightSummary =
         longBias === "bullish" && shortBias === "bearish"
           ? "Short-term pressure is visible, but the broader structure still looks stronger."
@@ -3868,26 +3695,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         trendStructure,
         momentumShift,
         insightSummary,
-        correlation: Number.isFinite(corr) ? corr : null,
-        spread: Number.isFinite(spread) ? spread : null,
-        latestSpread: Number.isFinite(latestSpread) ? latestSpread : null,
-        spreadDirection,
-        spreadInterpretation,
-        spreadSeries,
-        rsi: {
-          [a]: Number.isFinite(rsiA) ? rsiA : null,
-          [b]: Number.isFinite(rsiB) ? rsiB : null,
-        },
-        gridFit,
-        healthScore,
-        vol30d: {
-          [a]: volA,
-          [b]: volB,
-        },
-        drawdown30d: {
-          [a]: ddA,
-          [b]: ddB,
-        },
         windows: pairWindows,
       });
     } catch (e) {
@@ -8546,107 +8353,142 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       ) : null}
 
-                      {(aiExplainData.correlation != null || aiExplainData.spread != null || aiExplainData.rsi) ? (
-                        <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                          <div className="label" style={{ marginBottom: 0 }}>Market State / RSI</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-                            {aiExplainData.winner ? (() => {
-                              const rsiValue = aiExplainData?.rsi?.[aiExplainData.winner];
-                              const style = _rsiStyle(rsiValue);
-                              return (
-                                <div style={{ border: `1px solid ${style.borderColor}`, borderRadius: 12, padding: "10px 12px", background: style.background }}>
-                                  <div className="muted tiny">{aiExplainData.winner} RSI</div>
-                                  <div style={{ fontWeight: 900, marginTop: 4, color: style.color }}>
-                                    {Number.isFinite(rsiValue) ? `${rsiValue.toFixed(1)} · ${_rsiLabel(rsiValue)}` : "—"}
-                                  </div>
-                                </div>
-                              );
-                            })() : null}
-                            {aiExplainData.loser ? (() => {
-                              const rsiValue = aiExplainData?.rsi?.[aiExplainData.loser];
-                              const style = _rsiStyle(rsiValue);
-                              return (
-                                <div style={{ border: `1px solid ${style.borderColor}`, borderRadius: 12, padding: "10px 12px", background: style.background }}>
-                                  <div className="muted tiny">{aiExplainData.loser} RSI</div>
-                                  <div style={{ fontWeight: 900, marginTop: 4, color: style.color }}>
-                                    {Number.isFinite(rsiValue) ? `${rsiValue.toFixed(1)} · ${_rsiLabel(rsiValue)}` : "—"}
-                                  </div>
-                                </div>
-                              );
-                            })() : null}
-                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                              <div className="muted tiny">Correlation</div>
-                              <div style={{ fontWeight: 900, marginTop: 4 }}>
-                                {Number.isFinite(aiExplainData.correlation) ? `${aiExplainData.correlation >= 0 ? "+" : ""}${aiExplainData.correlation.toFixed(2)}` : "—"}
-                              </div>
-                            </div>
-                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                              <div className="muted tiny">30D Spread</div>
-                              <div style={{ fontWeight: 900, marginTop: 4 }}>
-                                {Number.isFinite(aiExplainData.spread) ? _fmtPctLocal(aiExplainData.spread) : "—"}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="muted tiny" style={{ lineHeight: 1.5 }}>
-                            RSI helps identify overbought vs oversold conditions. Correlation + spread show whether the pair is more suitable for trend continuation or mean reversion.
-                          </div>
-                        </div>
-                      ) : null}
+                      {(() => {
+                        const [a, b] = _pairSyms(selectedPair?.pair || "");
+                        const rows = _buildDailyRows(pairExplainSeries, a, b, 30).filter((r) => Number.isFinite(r?.d));
+                        if (!rows.length || !a || !b) return null;
 
-                      {(aiExplainData.healthScore != null || aiExplainData.gridFit || aiExplainData.vol30d || aiExplainData.drawdown30d) ? (
-                        <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                          <div className="label" style={{ marginBottom: 0 }}>Risk / Grid Fit</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                              <div className="muted tiny">Health Score</div>
-                              <div style={{ fontWeight: 900, marginTop: 4 }}>{Number.isFinite(aiExplainData.healthScore) ? `${aiExplainData.healthScore}/100` : "—"}</div>
-                            </div>
-                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                              <div className="muted tiny">Grid Fit</div>
-                              <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridFit || "—"}</div>
-                            </div>
-                            {aiExplainData.winner ? (
-                              <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                                <div className="muted tiny">{aiExplainData.winner} Vol / DD</div>
-                                <div style={{ fontWeight: 900, marginTop: 4 }}>
-                                  {Number.isFinite(aiExplainData?.vol30d?.[aiExplainData.winner]) ? `${aiExplainData.vol30d[aiExplainData.winner].toFixed(2)}%` : "—"} / {Number.isFinite(aiExplainData?.drawdown30d?.[aiExplainData.winner]) ? _fmtPctLocal(aiExplainData.drawdown30d[aiExplainData.winner]) : "—"}
-                                </div>
-                              </div>
-                            ) : null}
-                            {aiExplainData.loser ? (
-                              <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                                <div className="muted tiny">{aiExplainData.loser} Vol / DD</div>
-                                <div style={{ fontWeight: 900, marginTop: 4 }}>
-                                  {Number.isFinite(aiExplainData?.vol30d?.[aiExplainData.loser]) ? `${aiExplainData.vol30d[aiExplainData.loser].toFixed(2)}%` : "—"} / {Number.isFinite(aiExplainData?.drawdown30d?.[aiExplainData.loser]) ? _fmtPctLocal(aiExplainData.drawdown30d[aiExplainData.loser]) : "—"}
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                          <div className="muted tiny" style={{ lineHeight: 1.5 }}>
-                            Volatility and drawdown are used here as the current local risk view. Liquidity is not wired into this panel yet, so this block stays focused on the metrics already available in App.jsx.
-                          </div>
-                        </div>
-                      ) : null}
+                        const values = rows.map((r) => Number(r.d)).filter((v) => Number.isFinite(v));
+                        if (!values.length) return null;
 
-                      {Array.isArray(aiExplainData.spreadSeries) && aiExplainData.spreadSeries.length ? (
-                        <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                          <div className="label" style={{ marginBottom: 0 }}>Spread Analysis</div>
-                          <MiniSpreadChart rows={aiExplainData.spreadSeries} height={96} />
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                              <div className="muted tiny">Latest Spread</div>
-                              <div style={{ fontWeight: 900, marginTop: 4 }}>{Number.isFinite(aiExplainData.latestSpread) ? _fmtPctLocal(aiExplainData.latestSpread) : "—"}</div>
+                        const latest = values[values.length - 1];
+                        const prev = values.length > 1 ? values[values.length - 2] : latest;
+                        const direction =
+                          latest > prev + 0.05 ? "Rising" :
+                          latest < prev - 0.05 ? "Falling" :
+                          "Flat";
+
+                        const maxAbs = Math.max(1, ...values.map((v) => Math.abs(v)));
+                        const bound = Math.ceil(maxAbs * 1.15);
+                        const ticks = [bound, bound / 2, 0, -bound / 2, -bound];
+                        const w = 900;
+                        const h = 260;
+                        const padL = 56;
+                        const padR = 18;
+                        const padT = 18;
+                        const padB = 34;
+                        const innerW = w - padL - padR;
+                        const innerH = h - padT - padB;
+                        const sx = (i) => padL + ((innerW * i) / Math.max(1, rows.length - 1));
+                        const sy = (v) => {
+                          const t = (v + bound) / (2 * bound);
+                          return padT + (1 - t) * innerH;
+                        };
+
+                        const path = rows
+                          .map((r, i) => `${i === 0 ? "M" : "L"} ${sx(i)} ${sy(Number(r.d))}`)
+                          .join(" ");
+
+                        const latestX = sx(rows.length - 1);
+                        const latestY = sy(latest);
+                        const zeroY = sy(0);
+                        const midIdx = Math.floor((rows.length - 1) / 2);
+
+                        const interp =
+                          direction === "Falling"
+                            ? `Spread is falling — mean reversion is becoming more likely. Positive values mean ${a} was stronger; negative values mean ${b} was stronger.`
+                            : direction === "Rising"
+                              ? `Spread is rising — the trend gap is widening. Positive values mean ${a} is extending its lead over ${b}.`
+                              : `Spread is stable — neither trend expansion nor clear reversion is dominant right now.`;
+
+                        return (
+                          <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                              <div>
+                                <div className="label" style={{ marginBottom: 0 }}>Spread Analysis</div>
+                                <div className="muted tiny" style={{ marginTop: 4 }}>
+                                  30D Relative Spread ({a} vs {b}) · Positive = {a} stronger · Negative = {b} stronger
+                                </div>
+                              </div>
+                              <div className="pill silver">Latest: {_fmtPctLocal(latest)}</div>
                             </div>
-                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                              <div className="muted tiny">Direction</div>
-                              <div style={{ fontWeight: 900, marginTop: 4, textTransform: "capitalize" }}>{aiExplainData.spreadDirection || "—"}</div>
+
+                            <div style={{ width: "100%", overflowX: "auto" }}>
+                              <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: "100%", height: 220, display: "block" }}>
+                                {ticks.map((tick, idx) => (
+                                  <g key={idx}>
+                                    <line
+                                      x1={padL}
+                                      y1={sy(tick)}
+                                      x2={w - padR}
+                                      y2={sy(tick)}
+                                      stroke={Math.abs(tick) < 0.001 ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.10)"}
+                                      strokeDasharray={Math.abs(tick) < 0.001 ? "6 4" : "4 6"}
+                                    />
+                                    <text x={8} y={sy(tick) + 4} fill="rgba(232,242,240,0.78)" fontSize="12">
+                                      {_fmtPctLocal(tick)}
+                                    </text>
+                                  </g>
+                                ))}
+
+                                <line x1={padL} y1={padT} x2={padL} y2={h - padB} stroke="rgba(255,255,255,0.18)" />
+                                <line x1={padL} y1={h - padB} x2={w - padR} y2={h - padB} stroke="rgba(255,255,255,0.18)" />
+
+                                <path
+                                  d={path}
+                                  fill="none"
+                                  stroke="#39d98a"
+                                  strokeWidth="4"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+
+                                <circle cx={latestX} cy={latestY} r="5" fill="#39d98a" />
+                                <text
+                                  x={Math.max(padL + 8, Math.min(w - padR - 72, latestX - 24))}
+                                  y={Math.max(padT + 16, latestY - 12)}
+                                  fill="#39d98a"
+                                  fontSize="12"
+                                  fontWeight="700"
+                                >
+                                  {_fmtPctLocal(latest)}
+                                </text>
+
+                                <text x={padL} y={h - 10} fill="rgba(232,242,240,0.78)" fontSize="12">Start</text>
+                                <text x={sx(midIdx)} y={h - 10} textAnchor="middle" fill="rgba(232,242,240,0.78)" fontSize="12">
+                                  {_fmtDay(rows[midIdx]?.t) || "Mid"}
+                                </text>
+                                <text x={w - padR} y={h - 10} textAnchor="end" fill="rgba(232,242,240,0.78)" fontSize="12">Now</text>
+
+                                <text x={w - padR} y={zeroY - 8} textAnchor="end" fill="rgba(232,242,240,0.6)" fontSize="11">
+                                  Mean reversion line (0%)
+                                </text>
+                              </svg>
+                            </div>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
+                              <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                                <div className="muted tiny">Direction</div>
+                                <div style={{ fontWeight: 900, marginTop: 4 }}>{direction}</div>
+                              </div>
+                              <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                                <div className="muted tiny">Zero line</div>
+                                <div style={{ fontWeight: 900, marginTop: 4 }}>0% = balanced pair</div>
+                              </div>
+                              <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                                <div className="muted tiny">Reading</div>
+                                <div style={{ fontWeight: 900, marginTop: 4 }}>
+                                  {latest >= 0 ? `${a} stronger` : `${b} stronger`}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="muted tiny" style={{ lineHeight: 1.5 }}>
+                              {interp}
                             </div>
                           </div>
-                          <div className="muted tiny" style={{ lineHeight: 1.5 }}>
-                            {aiExplainData.spreadInterpretation || "Spread rising can support trend continuation, while a falling spread often means reversion is already underway."}
-                          </div>
-                        </div>
-                      ) : null}
+                        );
+                      })()}
 
                       <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                         <div className="label" style={{ marginBottom: 0 }}>Suggested Action</div>

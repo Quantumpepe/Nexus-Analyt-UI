@@ -184,9 +184,9 @@ import { Alchemy, Network, Utils } from "alchemy-sdk";
 
 import "./App.css";
 
-// Chart palette (10 colors). Kept inline (no external dep) to avoid runtime ReferenceError.
+// Chart palette (20 colors). Kept inline (no external dep) to avoid runtime ReferenceError.
 // Used for consistent compare/index chart series coloring.
-const PALETTE10 = [
+const PALETTE20 = [
   "#22c55e", // green
   "#60a5fa", // blue
   "#f59e0b", // amber
@@ -197,6 +197,16 @@ const PALETTE10 = [
   "#38bdf8", // sky
   "#eab308", // yellow
   "#c084fc", // purple
+  "#14b8a6", // teal
+  "#f97316", // orange
+  "#818cf8", // indigo
+  "#06b6d4", // cyan
+  "#84cc16", // lime
+  "#ef4444", // red
+  "#10b981", // green-alt
+  "#3b82f6", // blue-alt
+  "#d946ef", // fuchsia
+  "#facc15", // gold
 ];
 
 // Local cache (stale-while-revalidate) so live refresh/cold-start won't blank the UI
@@ -1269,7 +1279,7 @@ const tMin = x[0];
               key={sym}
               d={d}
               className={`chartLine ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`}
-              style={{ opacity, strokeWidth, stroke: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]) }}
+              style={{ opacity, strokeWidth, stroke: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]) }}
               onMouseEnter={() => onHoverSym?.(sym)}
               onMouseLeave={() => onHoverSym?.(null)}
             />
@@ -1384,7 +1394,7 @@ function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym
             title={active ? "Click to fade this coin" : "Click to highlight this coin"}
             type="button"
           >
-            <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]), opacity: active ? 1 : 0.35 }} />
+            <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]), opacity: active ? 1 : 0.35 }} />
             <span className="legendSym" style={{ opacity: active ? 1 : 0.5 }}>{sym}</span>
           </button>
         );
@@ -1406,7 +1416,7 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
     return (
       <button className={`sparkTile ${active ? "active" : ""}`} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} onClick={onClick} type="button">
         <div className="sparkTop">
-          <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]) }} />
+          <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]) }} />
           <span className="sparkSym">{sym}</span>
           <span className="muted tiny">—</span>
         </div>
@@ -1476,12 +1486,12 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
       title="Click to open chart"
     >
       <div className="sparkTop">
-        <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]) }} />
+        <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]) }} />
         <span className="sparkSym">{sym}</span>
         <span className="sparkVal mono">{hovered && deltaPct != null ? fmtPct(deltaPct) : lastTxt}</span>
       </div>
       <svg className="sparkSvg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-        <path d={d} className={`chartLine ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ opacity: 0.95, strokeWidth: 2.8, stroke: (colorForSym ? colorForSym(sym) : PALETTE10[idx % 10]) }} />
+        <path d={d} className={`chartLine ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ opacity: 0.95, strokeWidth: 2.8, stroke: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]) }} />
       </svg>
       <div className="sparkFoot muted tiny">{indexMode ? "Index 100" : "Price"} · 30D</div>
     </button>
@@ -2977,7 +2987,7 @@ const byChain = {};
   // -------- Fixed color slots (10), stable per coin --------
   // Rule: coin keeps its color while selected; when removed, its slot becomes free for the next new coin.
   const colorSlotsRef = useRef(new Map()); // sym -> slot index (0..9)
-  const freeSlotsRef = useRef(new Set(PALETTE10.map((_, i) => i)));
+  const freeSlotsRef = useRef(new Set(PALETTE20.map((_, i) => i)));
 
   const ensureColorSlot = (sym) => {
     const S = String(sym || "").toUpperCase();
@@ -2986,7 +2996,7 @@ const byChain = {};
     if (m.has(S)) return m.get(S);
     const free = freeSlotsRef.current;
     const next = free.values().next().value;
-    const idx = next !== undefined ? next : (m.size % PALETTE10.length);
+    const idx = next !== undefined ? next : (m.size % PALETTE20.length);
     free.delete(idx);
     m.set(S, idx);
     return idx;
@@ -3012,8 +3022,8 @@ const byChain = {};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compareSymbols.join("|")]);
 
-  const colorForSym = (sym) => PALETTE10[ensureColorSlot(sym) % PALETTE10.length];
-  const lineClassForSym = (sym) => `line${(ensureColorSlot(sym) % PALETTE10.length) + 1}`;
+  const colorForSym = (sym) => PALETTE20[ensureColorSlot(sym) % PALETTE20.length];
+  const lineClassForSym = (sym) => `line${(ensureColorSlot(sym) % PALETTE20.length) + 1}`;
 
   // compare/chart
   const [timeframe, setTimeframe] = useLocalStorageState("nexus_timeframe", "90D");
@@ -5545,7 +5555,7 @@ useInterval(fetchGridOrders, 15000, isGridReady);
       const arr = Array.isArray(prev) ? prev.slice() : [];
       const has = arr.includes(S);
       if (has) return arr.filter((x) => x !== S);
-      if (arr.length >= 10) return arr;
+      if (arr.length >= 20) return arr;
       arr.push(S);
       return arr;
     });
@@ -7926,7 +7936,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         {/* Compare */}
         <section className={`card section-compare dashboardPanel ${activePanel === "compare" ? "panelActive" : ""}`} onClick={handlePanelActivate("compare")}>
           <div className="cardHead">
-            <div className="cardTitle">Compare (max 10)</div>
+            <div className="cardTitle">Compare (max 20)</div>
             <div className="cardActions">
               {TIMEFRAMES.map((tf) => {
                 const k = String(tf.key || "").toUpperCase();
@@ -7980,17 +7990,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <Help showClose dismissable
                   de={
                     <>
-                      <p><b>Was ist das?</b> Vergleich von bis zu 10 Coins aus der Watchlist-Compare-Auswahl.</p>
+                      <p><b>Was ist das?</b> Vergleich von bis zu 20 Coins aus der Watchlist-Compare-Auswahl.</p>
                       <p><b>Index 100</b> normalisiert alle Coins (Start=100) — besser bei vielen Coins.</p>
-                      <p><b>Overlay</b>: alle Coins im selben Chart. <b>Grid</b>: jeder Coin als Mini-Chart (besser bei 10 Coins).</p>
+                      <p><b>Overlay</b>: alle Coins im selben Chart. <b>Grid</b>: jeder Coin als Mini-Chart (besser bei bis zu 20 Coins).</p>
                           <p><b>Legende</b>: Farbe → Coin. Klick = Highlight (ein Coin isolieren).</p>
                     </>
                   }
                   en={
                     <>
-                      <p><b>What is this?</b> Compare up to 10 coins selected via Watchlist → Compare.</p>
+                      <p><b>What is this?</b> Compare up to 20 coins selected via Watchlist → Compare.</p>
                       <p><b>Index 100</b> normalizes all coins (start=100) — best for many lines.</p>
-                      <p><b>Overlay</b>: all coins in one chart. <b>Grid</b>: one mini-chart per coin (best for 10 coins).</p>
+                      <p><b>Overlay</b>: all coins in one chart. <b>Grid</b>: one mini-chart per coin (best for up to 20 coins).</p>
                           <p><b>Legend</b>: color → coin. Click to highlight one coin.</p>
                     </>
                   }
@@ -8011,7 +8021,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             {/* Live list */}
             <div className="compareLive">
               <div className="label">Live Prices (USD)</div>
-              <div className="muted tiny">All compare coins (max 10)</div>
+              <div className="muted tiny">All compare coins (max 20)</div>
 
               <div className="liveListBox">
                 {liveList.map(({ sym, row }) => (
@@ -9289,8 +9299,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <button className="btnGhost" onClick={() => fetchWatchSnapshot(null, { force: true, user: true })}>Refresh</button>
               <InfoButton title="Watchlist">
                 <Help showClose dismissable
-                  de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 10).</p><p><b>Token</b> braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen eines neuen Coins/Tokens einmal drücken, damit Preis/Volumen nachgeladen werden.</p></>}
-                  en={<><p><b>Compare</b> checkbox controls the compare set (max 10).</p><p><b>Token</b> requires a contract address.</p><p><b>Refresh</b>: After adding a new coin/token, press once so price/volume can be fetched.</p></>}
+                  de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Token</b> braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen eines neuen Coins/Tokens einmal drücken, damit Preis/Volumen nachgeladen werden.</p></>}
+                  en={<><p><b>Compare</b> checkbox controls the compare set (max 20).</p><p><b>Token</b> requires a contract address.</p><p><b>Refresh</b>: After adding a new coin/token, press once so price/volume can be fetched.</p></>}
                 />
               </InfoButton>
             </div>
@@ -9316,7 +9326,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     return (
                       <div key={`${sym}-${idx}`} className="watchRow">
                         <div>
-                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 10} />
+                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} />
                         </div>
                         <div className="watchCoin">
                           <div className="coinLogo small">{sym.slice(0, 1)}</div>
@@ -9345,7 +9355,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   return (
                     <div key={`${sym}-${idx}`} className="watchCompactCard">
                       <div>
-                        <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 10} />
+                        <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} />
                       </div>
                       <div className="watchCompactMain">
                         <div className="watchCompactTop">
@@ -9372,7 +9382,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             )}
           </div>
 
-          <div className="muted tiny">Compare selection is the single source of truth (max 10).</div>
+          <div className="muted tiny">Compare selection is the single source of truth (max 20).</div>
         </div></section>
 
         {/* AI */}

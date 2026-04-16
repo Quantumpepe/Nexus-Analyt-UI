@@ -2981,7 +2981,7 @@ const byChain = {};
       const sym = String(s || "").toUpperCase().trim();
       if (sym && !uniq.includes(sym)) uniq.push(sym);
     }
-    return uniq.slice(0, 10);
+    return uniq.slice(0, 20);
   }, [compareSet]);
 
   // -------- Fixed color slots (10), stable per coin --------
@@ -4119,7 +4119,7 @@ useEffect(() => {
     try {
       const r = await api(`/api/app-state?wallet=${encodeURIComponent(wallet)}`, { method: "GET", token, wallet });
       const state = r?.state || {};
-      const serverCompare = Array.isArray(state?.compare) ? state.compare.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 10) : [];
+      const serverCompare = Array.isArray(state?.compare) ? state.compare.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
       const serverTf = String(state?.timeframe || "90D").toUpperCase();
       const serverIndex = state?.indexMode == null ? true : !!state.indexMode;
       const serverAi = Array.isArray(state?.aiSelected) ? state.aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
@@ -4582,7 +4582,7 @@ const [aiLoading, setAiLoading] = useState(false);
 
     setCompareLoading(true);
     try {
-      const syms = compareSymbols.slice(0, 10).join(",");
+      const syms = compareSymbols.slice(0, 20).join(",");
       const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(fetchRange)}`;
       const r = await fetch(url, { method: "GET", credentials: "include", headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal: ac.signal });
 

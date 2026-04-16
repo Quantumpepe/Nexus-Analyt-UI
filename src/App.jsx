@@ -8269,9 +8269,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <span>Hover for date + value</span>
                   </div>
                 </div>
-                <button className="btnGhost" onClick={() => setGridModalSym(null)} type="button">
-                  Close
-                </button>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <button
+                    className={`chip ${indexMode ? "active" : ""}`}
+                    onClick={() => setIndexMode((v) => !v)}
+                    type="button"
+                    title="Toggle Price / Index(100)"
+                  >
+                    {indexMode ? "Index 100" : "Price"}
+                  </button>
+                  <button className="btnGhost" onClick={() => setGridModalSym(null)} type="button">
+                    Close
+                  </button>
+                </div>
               </div>
 
               <div className="cardBody" style={{ display: "grid", gap: 12 }}>

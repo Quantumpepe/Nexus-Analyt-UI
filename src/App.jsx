@@ -4136,7 +4136,14 @@ useEffect(() => {
         });
         setAppStateSyncedWallet(wallet);
       } else {
-        setCompareSet(serverCompare);
+        // Keep the larger/local compare selection so an older server state (e.g. 10 coins)
+        // does not kick out newly selected coins after hydration.
+        const localCompare = Array.isArray(compareSet)
+          ? compareSet.map((x) => String(x || "").toUpperCase()).filter(Boolean)
+          : [];
+        const mergedCompare = Array.from(new Set([...localCompare, ...serverCompare])).slice(0, 20);
+
+        setCompareSet(mergedCompare);
         setTimeframe(serverTf || "90D");
         setIndexMode(!!serverIndex);
         setAiSelected(serverAi);

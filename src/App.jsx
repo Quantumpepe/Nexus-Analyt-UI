@@ -8018,17 +8018,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   de={
                     <>
                       <p><b>Was ist das?</b> Vergleich von bis zu 20 Coins aus der Watchlist-Compare-Auswahl.</p>
-                      <p><b>Index 100</b> normalisiert alle Coins (Start=100) — besser bei vielen Coins.</p>
-                      <p><b>Overlay</b>: alle Coins im selben Chart. <b>Grid</b>: jeder Coin als Mini-Chart (besser bei bis zu 20 Coins).</p>
-                          <p><b>Legende</b>: Farbe → Coin. Klick = Highlight (ein Coin isolieren).</p>
+                      <p><b>Price</b> zeigt die echten Preiswerte. <b>Index 100</b> normalisiert alle Coins auf denselben Startwert 100 und ist besser, wenn viele Coins gleichzeitig verglichen werden.</p>
+                      <p><b>Overlay</b> zeigt alle gewählten Coins in einem gemeinsamen Chart. <b>Grid</b> zeigt pro Coin eine kleine Kachel.</p>
+                      <p><b>First 10 / Next 10 / All</b> steuert, ob du die ersten 10, die zweiten 10 oder alle Compare-Coins sehen willst.</p>
+                      <p><b>Grid-Detail</b>: Klick auf eine Kachel öffnet den großen Chart. Dort kannst du direkt zwischen <b>Price</b> und <b>Index 100</b> umschalten.</p>
+                      <p><b>Legende</b>: Farbe → Coin. Klick auf einen Eintrag hebt einen Coin hervor.</p>
                     </>
                   }
                   en={
                     <>
                       <p><b>What is this?</b> Compare up to 20 coins selected via Watchlist → Compare.</p>
-                      <p><b>Index 100</b> normalizes all coins (start=100) — best for many lines.</p>
-                      <p><b>Overlay</b>: all coins in one chart. <b>Grid</b>: one mini-chart per coin (best for up to 20 coins).</p>
-                          <p><b>Legend</b>: color → coin. Click to highlight one coin.</p>
+                      <p><b>Price</b> shows real price values. <b>Index 100</b> normalizes all coins to the same starting value of 100 and is better when many coins are compared at once.</p>
+                      <p><b>Overlay</b> shows all selected coins in one shared chart. <b>Grid</b> shows one small tile per coin.</p>
+                      <p><b>First 10 / Next 10 / All</b> lets you switch between the first 10, the next 10, or all compare coins.</p>
+                      <p><b>Grid detail</b>: click a tile to open the large chart. There you can switch directly between <b>Price</b> and <b>Index 100</b>.</p>
+                      <p><b>Legend</b>: color → coin. Click a legend item to highlight one coin.</p>
                     </>
                   }
                 />
@@ -8144,44 +8148,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <Help showClose dismissable
                         de={
                             <>
-                              <p>
-                                Diese Liste zeigt Krypto-Paare mit ähnlichem oder unterschiedlichem
-                                Verlauf im gewählten Zeitraum (Letzte 30 Tage).
-                             </p>
-                             <ul>
-                               <li><b>Hoher Score</b> → sehr ähnlich (Pairs-Trading / Hedge)</li>
-                               <li><b>Niedriger Score</b> → wenig ähnlich (Diversifikation)</li>
-                            </ul>
-                            <p>
-                             👉 <b>Klicke auf ein Pair</b>, um Details zu sehen:
-                             Performance, tägliche Moves, Spread und Erklärung.
-                           </p>
-                           <p>
-                             Nutze diese Infos, um stärkere vs. schwächere Assets zu erkennen –
-                             hilfreich für Grid-, Rebalance- oder Mean-Reversion-Ideen.
-                           </p>
-                         </>
+                              <p>Diese Liste zeigt Coin-Paare mit ähnlichem oder unterschiedlichem Verlauf auf Basis der aktuell berechneten Pair-Daten.</p>
+                              <ul>
+                                <li><b>Hoher Score</b> → sehr ähnliche Bewegung</li>
+                                <li><b>Niedriger Score</b> → eher unabhängige Bewegung</li>
+                              </ul>
+                              <p><b>Klick auf ein Pair</b>, um Details wie Performance, tägliche Moves, Spread und Erklärung zu öffnen.</p>
+                              <p>Das hilft dir, starke vs. schwache Kombinationen für Hedge-, Rebalance- oder Diversifikations-Ideen schneller zu erkennen.</p>
+                            </>
                         }
 
                         en={
                             <>
-                              <p>
-                                This list shows crypto pairs with similar or different price behavior
-                                in the selected period (last 30 days).
-                             </p>
-                             <ul>
-                               <li><b>High score</b> → very similar (pairs trading / hedge)</li>
-                               <li><b>Low score</b> → less similar (diversification)</li>
-                            </ul>
-                            <p>
-                             👉 <b>Click on a pair</b> to see detailed insights:
-                             performance, daily moves, spread and explanation.
-                           </p>
-                           <p>
-                             Use this information to identify stronger vs. weaker assets –
-                             useful for grid, rebalance or mean-reversion strategies.
-                           </p>
-                         </>
+                              <p>This list shows coin pairs with similar or different behavior based on the currently calculated pair data.</p>
+                              <ul>
+                                <li><b>High score</b> → very similar movement</li>
+                                <li><b>Low score</b> → more independent movement</li>
+                              </ul>
+                              <p><b>Click a pair</b> to open details such as performance, daily moves, spread, and explanation.</p>
+                              <p>This helps you spot stronger vs. weaker combinations faster for hedge, rebalance, or diversification ideas.</p>
+                            </>
                         }
 
                       />
@@ -8754,24 +8740,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <Help showClose dismissable
                   de={
                     <>
-                      <p><b>Grid Trader</b> platziert mehrere BUY- und SELL-Orders für den gewählten Coin.</p>
-                      <p>Du definierst ein <b>maximales Budget in der nativen Chain-Währung (POL/BNB/ETH)</b>. Dieses Budget ist ein <b>globales Limit</b> für den gesamten Grid und liegt im <b>Vault</b>.</p>
-                      <p>Das Budget gilt <b>nicht pro Order</b>, sondern für alle Orders zusammen.</p>
-                      <p><b>BUY</b>-Orders kaufen Tokens, <b>SELL</b>-Orders verkaufen bereits gekaufte Tokens.</p>
-                      <p><b>Orders werden nur nach deinen Eingaben ausgeführt.</b> Es gibt keine automatische Strategie-Logik durch SAFE / AGGRESSIVE.</p>
-                      <p><b>Manuelle Orders</b> sind einzelne Orders und nicht Teil der Grid-Strategie.</p>
-                      <p>BUY kann per <b>USD</b> oder per <b>Token-Menge</b> erfolgen.</p>
+                      <p><b>Grid Trader</b> verwaltet mehrere BUY- und SELL-Orders für den gewählten Coin.</p>
+                      <p>Du definierst ein <b>maximales Budget in der ausgewählten Payout-/Chain-Währung</b> (z. B. POL / BNB / ETH). Dieses Budget ist ein <b>globales Limit</b> für den gesamten Grid.</p>
+                      <p>Das Budget gilt <b>nicht pro Order</b>, sondern für alle Grid-Orders zusammen.</p>
+                      <p><b>BUY</b>-Orders kaufen Token, <b>SELL</b>-Orders verkaufen bereits vorhandene Token.</p>
+                      <p><b>SAFE / AGGRESSIVE</b> setzt nur deine Eingabewerte bzw. Presets. Es gibt keine vollautomatische Strategie-Ausführung nur durch den Modus.</p>
+                      <p><b>Manual Orders</b> sind einzelne Orders und nicht Teil des eigentlichen Grid-Blocks.</p>
+                      <p>BUY kann je nach Eingabe per <b>USD</b> oder per <b>Token-Menge</b> definiert werden.</p>
                     </>
                   }
                   en={
                     <>
-                      <p><b>Grid Trader</b> places multiple BUY and SELL orders for the selected coin.</p>
-                      <p>You define a <b>maximum USD budget (USDC / USDT)</b>. This budget is a <b>global limit</b> for the entire grid.</p>
-                      <p>The budget is <b>not per order</b>, but shared across all orders.</p>
-                      <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell already acquired tokens.</p>
-                      <p><b>Orders are executed only from your inputs.</b> There is no automatic SAFE / AGGRESSIVE strategy logic.</p>
-                      <p><b>Manual orders</b> are single orders and not part of the grid strategy.</p>
-                      <p>BUY orders can be placed by <b>USD</b> or by <b>token quantity</b>.</p>
+                      <p><b>Grid Trader</b> manages multiple BUY and SELL orders for the selected coin.</p>
+                      <p>You define a <b>maximum budget in the selected payout/chain asset</b> (for example POL / BNB / ETH). This budget is a <b>global limit</b> for the full grid.</p>
+                      <p>The budget is <b>not per order</b>; it is shared across all grid orders.</p>
+                      <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell tokens you already hold.</p>
+                      <p><b>SAFE / AGGRESSIVE</b> only changes your input preset values. It does not run a fully automatic strategy by itself.</p>
+                      <p><b>Manual orders</b> are single orders and are not part of the main grid block.</p>
+                      <p>BUY can be defined either by <b>USD</b> or by <b>token quantity</b>, depending on your input mode.</p>
                     </>
                   }
                 />
@@ -8871,20 +8857,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <Help showClose dismissable
                     de={
                       <>
+                        <p><b>Side</b> bestimmt, ob du eine BUY- oder SELL-Order anlegst.</p>
                         <p><b>Price</b> ist dein Limit-Preis.</p>
                         <p><b>Price preset</b> wählt die Prozent-Gruppe: Fast, Standard, Wide oder Very Wide.</p>
                         <p><b>Quick price</b> übernimmt auf Basis des aktuellen Marktpreises direkt den gewünschten Prozent-Abstand in das Price-Feld.</p>
-                        <p><b>Add Order</b> erstellt die Order erst nach deiner Bestätigung.</p>
-                        <p><b>Qty</b> ist optional.</p>
+                        <p><b>Payout asset</b> legt fest, in welcher Chain-/Payout-Währung die Order geführt wird.</p>
+                        <p><b>Qty</b> ist optional. <b>Add Order</b> erstellt die Order erst nach deiner Bestätigung.</p>
                       </>
                     }
                     en={
                       <>
+                        <p><b>Side</b> defines whether you create a BUY or SELL order.</p>
                         <p><b>Price</b> is your limit price.</p>
                         <p><b>Price preset</b> chooses the percentage group: Fast, Standard, Wide or Very Wide.</p>
                         <p><b>Quick price</b> fills the Price field from the current market price using the selected percentage distance.</p>
-                        <p><b>Add Order</b> creates the order only after your confirmation.</p>
-                        <p><b>Qty</b> is optional.</p>
+                        <p><b>Payout asset</b> defines which chain/payout asset the order uses.</p>
+                        <p><b>Qty</b> is optional. <b>Add Order</b> creates the order only after your confirmation.</p>
                       </>
                     }
                   />
@@ -9363,8 +9351,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <button className="btnGhost" onClick={() => fetchWatchSnapshot(null, { force: true, user: true })}>Refresh</button>
               <InfoButton title="Watchlist">
                 <Help showClose dismissable
-                  de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Token</b> braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen eines neuen Coins/Tokens einmal drücken, damit Preis/Volumen nachgeladen werden.</p></>}
-                  en={<><p><b>Compare</b> checkbox controls the compare set (max 20).</p><p><b>Token</b> requires a contract address.</p><p><b>Refresh</b>: After adding a new coin/token, press once so price/volume can be fetched.</p></>}
+                  de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen oder Ändern eines Coins/Tokens einmal drücken, damit Preis, 24h und Volumen nachgeladen werden.</p></>}
+                  en={<><p><b>Compare</b> checkbox controls the compare set (max 20).</p><p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p><p><b>Refresh</b>: After adding or changing a coin/token, press once so price, 24h, and volume can be fetched.</p></>}
                 />
               </InfoButton>
             </div>
@@ -9457,8 +9445,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <span className="pill silver">{aiSelected.length}/6 selected</span>
               <InfoButton title="AI Analyst">
                 <Help showClose dismissable
-                  de={<><p>Maximal <b>6 Coins</b> pro Analyse.</p><p>Coins kommen aus der Compare-Auswahl.</p></>}
-                  en={<><p>Maximum <b>6 coins</b> per analysis.</p><p>Coins are taken from the Compare selection.</p></>}
+                  de={<><p>Maximal <b>6 Coins</b> pro Analyse. Die Coins kommen aus deiner Compare-Auswahl.</p><p><b>Kind</b> bestimmt den Analyse-Typ: Analysis, Risk oder Explain.</p><p><b>Profile</b> steuert den Stil der Antwort, z. B. konservativ, ausgewogen oder volatilitätsfokussiert.</p><p><b>Follow-up</b> hält den Kontext für Rückfragen im selben AI-Dialog.</p></>}
+                  en={<><p>Maximum <b>6 coins</b> per analysis. Coins are taken from your compare selection.</p><p><b>Kind</b> sets the analysis type: Analysis, Risk, or Explain.</p><p><b>Profile</b> controls the answer style, for example conservative, balanced, or volatility-focused.</p><p><b>Follow-up</b> keeps context for follow-up questions inside the same AI dialog.</p></>}
                 />
               </InfoButton>
             </div>
@@ -9592,7 +9580,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <b>Namen/Rank</b> auswählen.
                   </p>
                   <p>
-                    <b>Market (CEX)</b> nutzt CoinGecko-IDs (zuverlässig). <b>DEX (Contract)</b> fügt einen Contract hinzu.
+                    <b>Market (CEX)</b> nutzt CoinGecko-IDs und ist für normale Markt-Coins gedacht. <b>DEX (Contract)</b> fügt stattdessen einen Token per Contract-Adresse hinzu.
+                  </p>
+                  <p>
+                    Wähle immer den exakten Eintrag, damit Preise, Updates und Watchlist-Daten korrekt bleiben.
                   </p>
                 </>
               }
@@ -9603,7 +9594,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <b>name/rank</b>.
                   </p>
                   <p>
-                    <b>Market (CEX)</b> uses CoinGecko IDs (reliable). <b>DEX (Contract)</b> adds a contract address.
+                    <b>Market (CEX)</b> uses CoinGecko IDs and is meant for normal market coins. <b>DEX (Contract)</b> instead adds a token by contract address.
+                  </p>
+                  <p>
+                    Always choose the exact entry so prices, updates, and watchlist data stay correct.
                   </p>
                 </>
               }

@@ -8271,12 +8271,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                   <button
-                    className={`chip ${indexMode ? "active" : ""}`}
-                    onClick={() => setIndexMode((v) => !v)}
+                    className={`chip ${!indexMode ? "active" : ""}`}
+                    onClick={() => setIndexMode(false)}
                     type="button"
-                    title="Toggle Price / Index(100)"
+                    title="Show real price chart"
                   >
-                    {indexMode ? "Index 100" : "Price"}
+                    Price
+                  </button>
+                  <button
+                    className={`chip ${indexMode ? "active" : ""}`}
+                    onClick={() => setIndexMode(true)}
+                    type="button"
+                    title="Show Index 100 chart"
+                  >
+                    Index 100
                   </button>
                   <button className="btnGhost" onClick={() => setGridModalSym(null)} type="button">
                     Close

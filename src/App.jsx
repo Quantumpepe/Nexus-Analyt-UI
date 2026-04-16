@@ -3824,6 +3824,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
+  const [comparePage, setComparePage] = useState("first10"); // first10 | next10 | all
   const [highlightedSyms, setHighlightedSyms] = useState([]);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
   const [gridModalSym, setGridModalSym] = useState(null);
@@ -3845,8 +3846,27 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
 
+  const visibleCompareSymbols = useMemo(() => {
+    if (comparePage === "first10") return compareSymbols.slice(0, 10);
+    if (comparePage === "next10") return compareSymbols.slice(10, 20);
+    return compareSymbols;
+  }, [compareSymbols, comparePage]);
+
+  const visibleHighlightedSyms = useMemo(() => {
+    const visibleSet = new Set((visibleCompareSymbols || []).map((s) => String(s || "").toUpperCase()));
+    return (highlightedSyms || []).filter((s) => visibleSet.has(String(s || "").toUpperCase()));
+  }, [highlightedSyms, visibleCompareSymbols]);
+
+  const visibleCompareSeriesView = useMemo(() => {
+    const out = {};
+    for (const sym of visibleCompareSymbols || []) {
+      out[sym] = compareSeriesView?.[sym] || [];
+    }
+    return out;
+  }, [visibleCompareSymbols, compareSeriesView]);
+
   // Chart uses the *view* timeframe (default 90D), but analytics like "best pairs" still use full data (1Y/2Y)
-  const chartRaw = useMemo(() => buildUnifiedChart(compareSeriesView), [compareSeriesView]);
+  const chartRaw = useMemo(() => buildUnifiedChart(visibleCompareSeriesView), [visibleCompareSeriesView]);
   const chartRawFull = useMemo(() => buildUnifiedChart(compareSeries), [compareSeries]);
   const gridModalChart = useMemo(() => {
     const sym = String(gridModalSym || "").toUpperCase().trim();
@@ -6092,8 +6112,8 @@ async function runAi() {
       const sym = String(r.symbol || "").toUpperCase();
       if (sym) bySym.set(sym, r);
     }
-    return compareSymbols.map((sym) => ({ sym, row: bySym.get(sym) || null }));
-  }, [watchRows, compareSymbols]);
+    return visibleCompareSymbols.map((sym) => ({ sym, row: bySym.get(sym) || null }));
+  }, [watchRows, visibleCompareSymbols]);
 
 // --- Grid Vault usage (vault-contract only) ---
 // IMPORTANT:
@@ -8021,7 +8041,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             {/* Live list */}
             <div className="compareLive">
               <div className="label">Live Prices (USD)</div>
-              <div className="muted tiny">All compare coins (max 20)</div>
+              <div className="muted tiny">{comparePage === "first10" ? "Showing compare coins 1–10" : comparePage === "next10" ? "Showing compare coins 11–20" : "Showing all compare coins (max 20)"}</div>
 
               <div className="liveListBox">
                 {liveList.map(({ sym, row }) => (
@@ -8048,20 +8068,38 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="compareChart">
               <div className="chartHeader">
                 <div className="label">Diagramm (auto scale)</div>
-                <div className="muted tiny">{compareLoading ? "Loading…" : `${highlightedSyms.length || compareSymbols.length}/${compareSymbols.length} active`}</div>
+                <div className="rowBtn">
+                  <button className={`chip ${comparePage === "first10" ? "active" : ""}`} onClick={() => setComparePage("first10")} disabled={compareSymbols.length === 0}>First 10</button>
+                  <button className={`chip ${comparePage === "next10" ? "active" : ""}`} onClick={() => setComparePage("next10")} disabled={compareSymbols.length <= 10}>Next 10</button>
+                  <button className={`chip ${comparePage === "all" ? "active" : ""}`} onClick={() => setComparePage("all")} disabled={compareSymbols.length === 0}>All</button>
+                </div>
+                <div className="muted tiny">{compareLoading ? "Loading…" : `${visibleHighlightedSyms.length || visibleCompareSymbols.length}/${visibleCompareSymbols.length} active`}</div>
               </div>
 
               {viewMode === "overlay" ? (
               <>
-                <SvgChart chart={chartRaw} height={360} highlightedSyms={highlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
-                <div style={{ marginTop: 10 }}>
-                  <Legend symbols={compareSymbols} highlightedSyms={highlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
-                </div>
+                {visibleCompareSymbols.length === 0 ? (
+                  <div className="chartEmpty" style={{ minHeight: 360 }}>
+                    <div className="muted">No coins in this compare range.</div>
+                  </div>
+                ) : (
+                  <>
+                    <SvgChart chart={chartRaw} height={360} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <div style={{ marginTop: 10 }}>
+                      <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    </div>
+                  </>
+                )}
               </>
             ) : (
               <div className="sparkGridWrap">
+                {visibleCompareSymbols.length === 0 ? (
+                  <div className="chartEmpty" style={{ minHeight: 220 }}>
+                    <div className="muted">No coins in this compare range.</div>
+                  </div>
+                ) : (
                 <div className="sparkGrid">
-                  {compareSymbols.map((sym, idx) => (
+                  {visibleCompareSymbols.map((sym, idx) => (
                     <SmallSpark
                       key={sym}
                       sym={sym}
@@ -8069,13 +8107,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       chart={chartRaw}
                       indexMode={indexMode}
                       timeframe={timeframe}
-                      active={highlightedSyms.length === 0 || highlightedSyms.includes(sym)}
+                      active={visibleHighlightedSyms.length === 0 || visibleHighlightedSyms.includes(sym)}
                       onClick={() => setGridModalSym(sym)}
                       colorForSym={colorForSym}
                       lineClassForSym={lineClassForSym}
                     />
                   ))}
                 </div>
+                )}
                 <div className="muted tiny" style={{ marginTop: 8 }}>
                   Tip: Use <b>Overlay</b> for correlation. Use <b>Grid</b> for 10 coins (clear view).
                 </div>

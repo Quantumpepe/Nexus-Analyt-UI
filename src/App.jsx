@@ -3763,6 +3763,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
       try {
         const r = await api("/api/ai/insight", { method: "POST", token, body: payload });
+		console.log("AI RESPONSE:", r);  
         backendText =
           r?.answer ??
           r?.output ??

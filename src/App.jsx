@@ -3653,11 +3653,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       let confidence = 5.4;
       let confidenceLabel = "MEDIUM";
       let risk = "Medium";
-      let action = "Watch this pair and wait for a cleaner setup.";
       let gridMode = "Standard";
       let gridRange = "2–4%";
       let why = [];
-      let verdictText = "This pair is interesting, but the signal is not strong enough for a clear grid bias yet.";
+      let verdictText = "This pair is interesting, but the signal is not strong enough for a clear structure yet.";
 
       if (Number.isFinite(corr)) {
         if (corr >= 0.9) confidence += 1.8;
@@ -3676,11 +3675,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
       if (Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(spread) && Math.abs(spread) >= 0.75 && winner && loser) {
         setup = "MEAN REVERSION";
-        action = `1. SELL ${winner}\n2. BUY ${loser}\n3. Start Grid: Mode ${gridMode}, Range ${gridRange}\n4. Expectation: mean reversion (${winner} cools off, ${loser} catches up).`;
-        verdictText = `${winner} outperformed ${loser} over 30D. With a relatively high correlation, this looks like a mean-reversion/grid candidate.`;
+        verdictText = `${winner} outperformed ${loser} over 30D. With relatively high correlation, the pair shows a mean-reversion style structure.`;
         why.push(`High correlation (${corr >= 0 ? "+" : ""}${corr.toFixed(2)}) means both coins often move together.`);
-        why.push(`The performance spread of ${_fmtPctLocal(spread)} creates a usable imbalance for a reversion idea.`);
-        why.push(`${winner} is currently the stronger side, ${loser} the weaker side.`);
+        why.push(`The performance spread of ${_fmtPctLocal(spread)} creates a visible imbalance between both sides.`);
+        why.push(`${winner} is currently the stronger side, while ${loser} is the weaker side in this window.`);
         if (Math.abs(spread) >= 4) {
           gridMode = "Wide";
           gridRange = "4–6%";
@@ -3695,11 +3693,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         confidence -= 1.2;
         confidenceLabel = "LOW";
         risk = "High";
-        action = "1. DO NOT START GRID\n2. Wait for stronger correlation\n3. Recheck later with a clearer pair setup.";
-        verdictText = "This pair is not moving together reliably enough for a clean grid/rebalance setup.";
-        why.push(`Low correlation (${Number.isFinite(corr) ? ((corr >= 0 ? "+" : "") + corr.toFixed(2)) : "—"}) weakens the grid logic.`);
+        verdictText = "This pair is not moving together reliably enough for a clean paired structure.";
+        why.push(`Low correlation (${Number.isFinite(corr) ? ((corr >= 0 ? "+" : "") + corr.toFixed(2)) : "—"}) weakens the paired logic.`);
         why.push("Pairs with weak correlation can drift apart instead of reverting.");
-        why.push("This increases the chance of holding the wrong side while trend continues.");
+        why.push("This increases the chance of persistent divergence.");
         gridMode = "Wait";
         gridRange = "No setup";
       } else if (Number.isFinite(spread) && Math.abs(spread) < 0.75) {
@@ -3707,11 +3704,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         confidence -= 0.6;
         confidenceLabel = "LOW-MED";
         risk = "Low-Medium";
-        action = "1. WAIT\n2. Do not open the grid yet\n3. Recheck when spread is larger than the current level.";
-        verdictText = "The pair is correlated enough, but the spread is still too small to create a strong reversion edge.";
+        verdictText = "The pair is correlated enough, but the spread is still small and the structure remains less expressive.";
         why.push("The current performance gap is still narrow.");
-        why.push("Without enough spread, grid entries can feel random and weak.");
-        why.push("A clearer imbalance usually gives the better setup.");
+        why.push("Without enough spread, the relative structure can feel random and weak.");
+        why.push("A clearer imbalance usually creates a stronger read.");
         gridMode = "Wait";
         gridRange = "Below 2%";
       } else if (winner && loser) {
@@ -3719,11 +3715,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         confidence += 0.2;
         confidenceLabel = "MEDIUM";
         risk = "Medium-High";
-        action = `1. Small position only\n2. If you trade, SELL ${winner} / BUY ${loser}\n3. Use Wide mode and reduced budget because the setup is mixed.`;
-        verdictText = `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence grid setup.`;
-        why.push("There is a leader and a laggard, but the data is not perfectly aligned for a strong reversion setup.");
-        why.push("Mixed conditions increase the chance of trend continuation.");
-        why.push("If you trade it, reduce size and widen spacing.");
+        verdictText = `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence paired structure.`;
+        why.push("There is a leader and a laggard, but the data is not perfectly aligned for a strong reversion structure.");
+        why.push("Mixed conditions increase the chance of continuation instead of catch-up.");
+        why.push("The current profile looks more mixed than clean.");
       }
 
       confidence = Math.max(1, Math.min(10, Math.round(confidence * 10) / 10));
@@ -3737,27 +3732,63 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
             ? "There is a rebound attempt, but the broader structure remains weaker."
             : "The pair structure is currently mixed and should be monitored across multiple windows.";
 
-      const textOut = [
+      const localFallbackText = [
         `Trend Structure: ${trendStructure}`,
         `Momentum Shift: ${momentumShift}`,
         `Risk View: ${risk}`,
         `Interpretation: ${verdictText}`,
         `Insight Summary: ${insightSummary}`,
-      ].join("\n");
+      ].join("
+");
 
-      setAiExplainText(textOut);
+      const pairStats = pairWindows?.["30D"] || {};
+      const payload = {
+        kind: "explain",
+        symbols: [a, b].filter(Boolean),
+        profile: "balanced",
+        timeframe: String(timeframe || "90D").toUpperCase(),
+        index_mode: !!indexMode,
+        series_stats: pairStats,
+        insight_windows: pairWindows,
+        question:
+          `Analyze the current pair structure for ${a} vs ${b}. ` +
+          `Use the pair statistics, multi-timeframe context, and the wallet-bound order memory only to describe structure, behavior, and risk posture. ` +
+          `Do not tell the user what to do. ` +
+          `Current pair correlation: ${Number.isFinite(corr) ? corr.toFixed(2) : "n/a"}. ` +
+          `30D spread: ${Number.isFinite(spread) ? spread.toFixed(2) + "%" : "n/a"}. ` +
+          `Short bias: ${shortBias}. Long bias: ${longBias}.`,
+      };
+
+      let backendText = "";
+      if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
+      try {
+        const r = await api("/api/ai/insight", { method: "POST", token, body: payload });
+        backendText =
+          r?.answer ??
+          r?.output ??
+          r?.text ??
+          r?.message ??
+          (typeof r === "string" ? r : "");
+      } catch {
+        backendText = "";
+      }
+
+      const finalText = String(backendText || localFallbackText || "").replace(/
+/g, "
+").trim() || "No AI insight available.";
+      setAiExplainText(finalText);
       setAiExplainData({
         setup,
         confidence,
         confidenceLabel,
         risk,
-        action,
         gridMode,
         gridRange,
         why,
-        verdictText,
+        verdictText: finalText,
         winner,
         loser,
+        corr,
         trendStructure,
         momentumShift,
         insightSummary,
@@ -3770,6 +3801,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       setAiExplainLoading(false);
     }
   }
+
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareSeries, setCompareSeries] = useState(() => {
     // Prefer per-(timeframe+symbols) cache so reloads feel instant
@@ -8449,8 +8481,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                         <div className="muted tiny" style={{ lineHeight: 1.5 }}>
                           {aiExplainData.winner && aiExplainData.loser
-                            ? `Current bias: rotate away from ${aiExplainData.winner} toward ${aiExplainData.loser}, but only if the setup matches your risk tolerance.`
-                            : "This conclusion should be treated as a directional hint, not an automatic trade command."}
+                            ? `Observed relative bias: ${aiExplainData.winner} is currently stronger than ${aiExplainData.loser} in this read.`
+                            : "This conclusion is descriptive only and should not be read as an automatic trade command."}
                         </div>
                       </div>
 

@@ -3739,7 +3739,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         `Interpretation: ${verdictText}`,
         `Insight Summary: ${insightSummary}`,
       ].join("\n")
-");
+ ");
 
       const pairStats = pairWindows?.["30D"] || {};
       const payload = {

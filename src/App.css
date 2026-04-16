@@ -212,6 +212,28 @@ body::before {
 .line8{ stroke:#e67e22; }
 .line9{ stroke:#00bcd4; }
 .line10{ stroke:#ff6bcb; }
+.line11{ stroke:#00ff88; }
+.line12{ stroke:#ffcc00; }
+.line13{ stroke:#ff4444; }
+.line14{ stroke:#00ccff; }
+.line15{ stroke:#aa66ff; }
+.line16{ stroke:#ff8800; }
+.line17{ stroke:#33cc99; }
+.line18{ stroke:#ff66cc; }
+.line19{ stroke:#66ff33; }
+.line20{ stroke:#cccccc; }
+
+.legendDot.line11{ background:#00ff88; }
+.legendDot.line12{ background:#ffcc00; }
+.legendDot.line13{ background:#ff4444; }
+.legendDot.line14{ background:#00ccff; }
+.legendDot.line15{ background:#aa66ff; }
+.legendDot.line16{ background:#ff8800; }
+.legendDot.line17{ background:#33cc99; }
+.legendDot.line18{ background:#ff66cc; }
+.legendDot.line19{ background:#66ff33; }
+.legendDot.line20{ background:#cccccc; }
+
 
 .chartLegend{
   display:flex;gap:8px;flex-wrap:wrap;

@@ -3773,9 +3773,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         backendText = "";
       }
 
-      const finalText = String(backendText || localFallbackText || "").replace(/
-/g, "
-").trim() || "No AI insight available.";
+      const finalText = String(backendText || localFallbackText || "").trim() || "No AI insight available.";
       setAiExplainText(finalText);
       setAiExplainData({
         setup,

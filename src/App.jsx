@@ -8372,7 +8372,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <span className="pill">{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                       </div>
                     )}))
-                  ) : (
+                  )  
                     <div className="muted">Not enough chart data yet.</div>
                   )}
                 </div>

@@ -8619,28 +8619,61 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
 
-                      
                       <div style={{ display: "grid", gap: 8 }}>
                         <div className="label">Pair Summary</div>
                         {winner ? (() => {
-                          const qualityColor = (corr >= 0.9 && Math.abs(spread) >= 1) ? "#00ff88"
-                            : (corr >= 0.75 ? "#ffaa00" : "#ff4d4f");
+                          const qualityColor = (selectedPair.corr >= 0.9 && Math.abs(spread) >= 1)
+                            ? "#00ff88"
+                            : (selectedPair.corr >= 0.75 ? "#ffaa00" : "#ff4d4f");
+                          const qualityLabel = (selectedPair.corr >= 0.9 && Math.abs(spread) >= 1)
+                            ? "Strong Pair"
+                            : (selectedPair.corr >= 0.75 ? "Medium Pair" : "Weak Pair");
+
                           return (
                             <div style={{
-                              padding: "10px",
-                              borderRadius: "10px",
-                              background: "rgba(0,0,0,0.25)",
-                              border: `1px solid ${qualityColor}`,
-                              color: qualityColor
+                              display: "grid",
+                              gap: 6,
+                              padding: "12px",
+                              borderRadius: "12px",
+                              background: "rgba(0,0,0,0.22)",
+                              border: `1px solid ${qualityColor}`
                             }}>
-                              <b>{winner}</b> stronger than <b>{loser}</b> (30D) • Corr {corr >= 0 ? "+" : ""}{corr.toFixed(2)} • Spread {_fmtPctLocal(spread)}
+                              <div style={{ color: qualityColor, fontWeight: 900 }}>{qualityLabel}</div>
+                              <div className="muted">
+                                <b>{winner}</b> is currently stronger than <b>{loser}</b> over 30D.
+                              </div>
+                              <div className="tiny" style={{ color: qualityColor }}>
+                                Corr {(selectedPair.corr >= 0 ? "+" : "") + selectedPair.corr.toFixed(2)} • Spread {_fmtPctLocal(spread)}
+                              </div>
                             </div>
                           );
                         })() : (
-                          <div className="muted">Not enough data</div>
+                          <div className="muted">Not enough data for a reliable pair summary yet.</div>
                         )}
                       </div>
+                    </>
+                  );
+                })()}
 
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                    <div className="label">AI commentary (optional)</div>
+                    <button
+                      className="btnGhost"
+                      onClick={runAiExplain}
+                      disabled={aiExplainLoading}
+                      title={!isPro ? "Subscribe to Nexus Pro to use AI" : ""}
+                    >
+                      {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight" : "Pro required")}
+                    </button>
+                  </div>
+                  {aiExplainData ? (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div className="muted tiny">AI Verdict</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.setup}</div>
+                        </div>
                         <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
                           <div className="muted tiny">Confidence</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.confidenceLabel} ({aiExplainData.confidence}/10)</div>

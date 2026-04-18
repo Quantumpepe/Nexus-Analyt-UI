@@ -1770,6 +1770,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const isDesktopWide = typeof window !== "undefined" ? window.innerWidth >= 981 : true;
 
   const isCompactMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+  const isPhone = typeof window !== "undefined" && window.innerWidth <= 820;
   const compactGridChipStyle = {
     minHeight: isCompactMobile ? "28px" : "34px",
     height: isCompactMobile ? "28px" : "34px",
@@ -6610,6 +6611,42 @@ const handlePanelActivate = useCallback((name) => (e) => {
             overflow-x: hidden;
           }
           .cardActions .chip { white-space: nowrap; }
+
+          .section-compare .compareGrid {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 12px !important;
+          }
+          .section-compare .compareLive,
+          .section-compare .compareChart,
+          .section-compare .pairsBox,
+          .section-watch .watchTable,
+          .section-watch .watchScroll {
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+          }
+          .section-compare .chartHeader,
+          .section-compare .pairsHead,
+          .section-watch .cardHead {
+            flex-wrap: wrap !important;
+            gap: 8px !important;
+            align-items: flex-start !important;
+          }
+          .section-compare .rowBtn {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 6px !important;
+          }
+          .section-compare .pairsScroll {
+            overflow-x: hidden !important;
+            max-width: 100% !important;
+            padding: 6px !important;
+          }
+          .section-watch .watchScroll {
+            display: grid !important;
+            gap: 8px !important;
+          }
         }
 
         /* --- Grid layout: left controls, right orders --- */
@@ -8315,7 +8352,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               minHeight: 0
             }}
           >
-			<div className="compareGrid">
+			<div className="compareGrid" style={isPhone ? { display: "flex", flexDirection: "column", gap: 12, minWidth: 0 } : undefined}>
             {/* Live list */}
             <div className="compareLive">
               <div className="label">Live Prices (USD)</div>
@@ -8343,7 +8380,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
 
             {/* Chart */}
-            <div className="compareChart">
+            <div className="compareChart" style={isPhone ? { minWidth: 0, width: "100%" } : undefined}>
               <div className="chartHeader">
                 <div className="label">Diagramm (auto scale)</div>
                 <div className="rowBtn">
@@ -8362,7 +8399,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={chartRaw} height={360} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <SvgChart chart={chartRaw} height={isPhone ? 260 : 360} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     <div style={{ marginTop: 10 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>
@@ -8483,30 +8520,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             gap: 10,
                             cursor: "pointer",
                             marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
-                            alignItems: "center",
+                            alignItems: isPhone ? "stretch" : "center",
+                            display: isPhone ? "block" : undefined,
+                            padding: isPhone ? "10px" : undefined,
                           }}
                           onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
                         >
-                          <span className="muted" style={{ width: 34, textAlign: "right", flex: "0 0 34px" }}>#{i + 1}</span>
+                          <span className="muted" style={{ width: isPhone ? "auto" : 34, textAlign: isPhone ? "left" : "right", flex: isPhone ? undefined : "0 0 34px", display: isPhone ? "block" : undefined, marginBottom: isPhone ? 6 : 0 }}>#{i + 1}</span>
 
                           <div
                             style={{
                               flex: 1,
                               minWidth: 0,
                               display: "grid",
-                              gridTemplateColumns: "minmax(88px, 1.2fr) 120px 120px 56px auto auto",
+                              gridTemplateColumns: isPhone ? "1fr" : "minmax(88px, 1.2fr) 120px 120px 56px auto auto",
                               gap: 8,
                               alignItems: "center",
                             }}
                           >
-                            <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap" }}>{p.pair}</span>
+                            <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap", marginBottom: isPhone ? 2 : 0 }}>{p.pair}</span>
 
                             <span
                               className="pill"
                               style={{
-                                width: 120,
+                                width: isPhone ? "fit-content" : 120,
                                 justifyContent: "center",
-                                padding: "4px 8px",
+                                padding: isPhone ? "4px 10px" : "4px 8px",
                                 fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiAState.tone,
@@ -8521,9 +8560,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill"
                               style={{
-                                width: 120,
+                                width: isPhone ? "fit-content" : 120,
                                 justifyContent: "center",
-                                padding: "4px 8px",
+                                padding: isPhone ? "4px 10px" : "4px 8px",
                                 fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiBState.tone,
@@ -8538,9 +8577,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill"
                               style={{
-                                width: 56,
+                                width: isPhone ? "fit-content" : 56,
                                 justifyContent: "center",
-                                padding: "4px 8px",
+                                padding: isPhone ? "4px 10px" : "4px 8px",
                                 fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiGapTone,
@@ -8550,8 +8589,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               Δ {Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"}
                             </span>
 
-                            <span className="pill silver" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>Score {p.score}</span>
-                            <span className="pill" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
+                            <span className="pill silver" style={{ justifySelf: isPhone ? "start" : "end", width: isPhone ? "fit-content" : undefined, whiteSpace: "nowrap" }}>Score {p.score}</span>
+                            <span className="pill" style={{ justifySelf: isPhone ? "start" : "end", width: isPhone ? "fit-content" : undefined, whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                           </div>
                         </div>
                       );
@@ -9724,7 +9763,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
 
           <div className="panelScroll"><div className="watchTable">
-            {isDesktopWide && !isWatchSidebarCompact ? (
+            {(!isWatchSidebarCompact && !isPhone) ? (
               <>
                 <div className="watchHead watchStickyHead">
                   <div>Move</div>
@@ -9797,28 +9836,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         cursor: "grab",
                         border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                         background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
+                        gridTemplateColumns: isPhone ? "16px 28px minmax(0,1fr)" : undefined,
+                        padding: isPhone ? "8px 10px" : undefined,
                       }}
                     >
                       <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900, alignSelf: "center", fontSize: 11, lineHeight: 1, display: "flex", alignItems: "center" }}>⋮⋮</div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
                       </div>
-                      <div className="watchCompactMain">
-                        <div className="watchCompactTop" style={{ gap: 6 }}>
-                          <div className="coinLogo small" style={{ width: 20, height: 20, fontSize: 10, flex: "0 0 auto" }}>{sym.slice(0, 1)}</div>
-                          <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1 }}>{sym}</div>
-                            <div className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>{mm === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
+                      <div className="watchCompactMain" style={{ minWidth: 0 }}>
+                        <div className="watchCompactTop" style={{ gap: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                            <div className="coinLogo small" style={{ width: 20, height: 20, fontSize: 10, flex: "0 0 auto" }}>{sym.slice(0, 1)}</div>
+                            <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flexWrap: "wrap" }}>
+                              <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1 }}>{sym}</div>
+                              <div className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>{mm === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
+                            </div>
+                          </div>
+                          <button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1, flex: "0 0 auto" }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : ""), contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button>
+                        </div>
+                        <div className="watchCompactStats" style={{ gap: 6, marginTop: 6, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+                          <div className="mono" style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
+                            <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>{r.source || "—"}</span>
                           </div>
                         </div>
-                        <div className="watchCompactStats" style={{ gap: 6 }}>
-                          <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>{r.source || "—"}</span>
-                        </div>
-                      </div>
-                      <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center" }}>
-                        <div className="mono" style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
-                        <button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1, justifySelf: "end" }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : ""), contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button>
                       </div>
                     </div>
                   );

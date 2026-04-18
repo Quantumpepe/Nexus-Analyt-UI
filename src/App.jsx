@@ -1770,7 +1770,6 @@ const [errorMsg, setErrorMsg] = useState("");
   const isDesktopWide = typeof window !== "undefined" ? window.innerWidth >= 981 : true;
 
   const isCompactMobile = typeof window !== "undefined" && window.innerWidth <= 768;
-  const isPhone = typeof window !== "undefined" && window.innerWidth <= 820;
   const compactGridChipStyle = {
     minHeight: isCompactMobile ? "28px" : "34px",
     height: isCompactMobile ? "28px" : "34px",
@@ -6611,42 +6610,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             overflow-x: hidden;
           }
           .cardActions .chip { white-space: nowrap; }
-
-          .section-compare .compareGrid {
-            display: flex !important;
-            flex-direction: column !important;
-            gap: 12px !important;
-          }
-          .section-compare .compareLive,
-          .section-compare .compareChart,
-          .section-compare .pairsBox,
-          .section-watch .watchTable,
-          .section-watch .watchScroll {
-            width: 100% !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-          }
-          .section-compare .chartHeader,
-          .section-compare .pairsHead,
-          .section-watch .cardHead {
-            flex-wrap: wrap !important;
-            gap: 8px !important;
-            align-items: flex-start !important;
-          }
-          .section-compare .rowBtn {
-            display: flex !important;
-            flex-wrap: wrap !important;
-            gap: 6px !important;
-          }
-          .section-compare .pairsScroll {
-            overflow-x: hidden !important;
-            max-width: 100% !important;
-            padding: 6px !important;
-          }
-          .section-watch .watchScroll {
-            display: grid !important;
-            gap: 8px !important;
-          }
         }
 
         /* --- Grid layout: left controls, right orders --- */
@@ -7054,6 +7017,120 @@ const handlePanelActivate = useCallback((name) => (e) => {
             white-space: nowrap !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
+          }
+        }
+
+        @media (max-width: 820px) {
+          /* Mobile: keep desktop-style Compare + Watchlist, but smaller and horizontally scrollable inside the panel */
+          .section-compare .panelScroll,
+          .section-watch .panelScroll{
+            overflow-x: hidden !important;
+          }
+
+          .section-compare .compareGrid{
+            display: block !important;
+            min-width: 0 !important;
+          }
+          .section-compare .compareLive{
+            margin-bottom: 12px !important;
+          }
+          .section-compare .chartHeader{
+            flex-wrap: wrap !important;
+            gap: 8px !important;
+          }
+          .section-compare .rowBtn{
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 6px !important;
+          }
+          .section-compare svg,
+          .section-compare .svgChart,
+          .section-compare .chartSvg{
+            max-width: 100% !important;
+          }
+          .section-compare .pairsBox{
+            min-width: 0 !important;
+          }
+          .section-compare .pairsBox > div[style*="justify-content: space-between"]{
+            flex-wrap: wrap !important;
+            align-items: flex-start !important;
+          }
+          .section-compare .pairsScroll{
+            overflow-x: auto !important;
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch;
+            padding: 8px !important;
+          }
+          .section-compare .pairRow{
+            display: flex !important;
+            align-items: center !important;
+            min-width: 620px !important;
+            padding: 10px 8px !important;
+            gap: 8px !important;
+          }
+          .section-compare .pairRow > span:first-child{
+            flex: 0 0 28px !important;
+            width: 28px !important;
+            font-size: 12px !important;
+          }
+          .section-compare .pairRow > div{
+            display: grid !important;
+            grid-template-columns: minmax(82px, 1.2fr) 104px 104px 52px auto auto !important;
+            gap: 6px !important;
+            align-items: center !important;
+            min-width: 0 !important;
+            flex: 1 0 auto !important;
+          }
+          .section-compare .pairName{
+            white-space: nowrap !important;
+            font-size: 12px !important;
+          }
+          .section-compare .pairRow .pill{
+            font-size: 11px !important;
+            padding: 4px 8px !important;
+            line-height: 1.05 !important;
+          }
+
+          .section-watch .watchTable,
+          .section-watch .watchScroll{
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+          }
+          .section-watch .watchHead,
+          .section-watch .watchRow{
+            min-width: 620px !important;
+            grid-template-columns: 16px 28px minmax(100px,1fr) 96px 68px 92px 64px 34px !important;
+            gap: 8px !important;
+            align-items: center !important;
+          }
+          .section-watch .watchHead{
+            font-size: 11px !important;
+          }
+          .section-watch .watchRow{
+            padding: 8px 6px !important;
+          }
+          .section-watch .watchCoin{
+            min-width: 0 !important;
+            white-space: nowrap !important;
+          }
+          .section-watch .watchSym{
+            font-size: 12px !important;
+          }
+          .section-watch .watchRow .coinLogo.small{
+            width: 18px !important;
+            height: 18px !important;
+            font-size: 10px !important;
+          }
+          .section-watch .watchRow .mono,
+          .section-watch .watchRow .muted,
+          .section-watch .watchRow button,
+          .section-watch .watchRow input{
+            font-size: 12px !important;
+          }
+          .section-watch .watchRow .iconBtn{
+            width: 28px !important;
+            height: 28px !important;
+            min-width: 28px !important;
           }
         }
 
@@ -8352,7 +8429,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               minHeight: 0
             }}
           >
-			<div className="compareGrid" style={isPhone ? { display: "flex", flexDirection: "column", gap: 12, minWidth: 0 } : undefined}>
+			<div className="compareGrid">
             {/* Live list */}
             <div className="compareLive">
               <div className="label">Live Prices (USD)</div>
@@ -8380,7 +8457,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
 
             {/* Chart */}
-            <div className="compareChart" style={isPhone ? { minWidth: 0, width: "100%" } : undefined}>
+            <div className="compareChart">
               <div className="chartHeader">
                 <div className="label">Diagramm (auto scale)</div>
                 <div className="rowBtn">
@@ -8399,7 +8476,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={chartRaw} height={isPhone ? 260 : 360} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <SvgChart chart={chartRaw} height={360} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     <div style={{ marginTop: 10 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>
@@ -8520,32 +8597,30 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             gap: 10,
                             cursor: "pointer",
                             marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
-                            alignItems: isPhone ? "stretch" : "center",
-                            display: isPhone ? "block" : undefined,
-                            padding: isPhone ? "10px" : undefined,
+                            alignItems: "center",
                           }}
                           onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
                         >
-                          <span className="muted" style={{ width: isPhone ? "auto" : 34, textAlign: isPhone ? "left" : "right", flex: isPhone ? undefined : "0 0 34px", display: isPhone ? "block" : undefined, marginBottom: isPhone ? 6 : 0 }}>#{i + 1}</span>
+                          <span className="muted" style={{ width: 34, textAlign: "right", flex: "0 0 34px" }}>#{i + 1}</span>
 
                           <div
                             style={{
                               flex: 1,
                               minWidth: 0,
                               display: "grid",
-                              gridTemplateColumns: isPhone ? "1fr" : "minmax(88px, 1.2fr) 120px 120px 56px auto auto",
+                              gridTemplateColumns: "minmax(88px, 1.2fr) 120px 120px 56px auto auto",
                               gap: 8,
                               alignItems: "center",
                             }}
                           >
-                            <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap", marginBottom: isPhone ? 2 : 0 }}>{p.pair}</span>
+                            <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap" }}>{p.pair}</span>
 
                             <span
                               className="pill"
                               style={{
-                                width: isPhone ? "fit-content" : 120,
+                                width: 120,
                                 justifyContent: "center",
-                                padding: isPhone ? "4px 10px" : "4px 8px",
+                                padding: "4px 8px",
                                 fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiAState.tone,
@@ -8560,9 +8635,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill"
                               style={{
-                                width: isPhone ? "fit-content" : 120,
+                                width: 120,
                                 justifyContent: "center",
-                                padding: isPhone ? "4px 10px" : "4px 8px",
+                                padding: "4px 8px",
                                 fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiBState.tone,
@@ -8577,9 +8652,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill"
                               style={{
-                                width: isPhone ? "fit-content" : 56,
+                                width: 56,
                                 justifyContent: "center",
-                                padding: isPhone ? "4px 10px" : "4px 8px",
+                                padding: "4px 8px",
                                 fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiGapTone,
@@ -8589,8 +8664,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               Δ {Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"}
                             </span>
 
-                            <span className="pill silver" style={{ justifySelf: isPhone ? "start" : "end", width: isPhone ? "fit-content" : undefined, whiteSpace: "nowrap" }}>Score {p.score}</span>
-                            <span className="pill" style={{ justifySelf: isPhone ? "start" : "end", width: isPhone ? "fit-content" : undefined, whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
+                            <span className="pill silver" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>Score {p.score}</span>
+                            <span className="pill" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                           </div>
                         </div>
                       );
@@ -9763,7 +9838,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
 
           <div className="panelScroll"><div className="watchTable">
-            {(!isWatchSidebarCompact && !isPhone) ? (
+            {!isWatchSidebarCompact ? (
               <>
                 <div className="watchHead watchStickyHead">
                   <div>Move</div>
@@ -9836,32 +9911,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         cursor: "grab",
                         border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                         background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                        gridTemplateColumns: isPhone ? "16px 28px minmax(0,1fr)" : undefined,
-                        padding: isPhone ? "8px 10px" : undefined,
                       }}
                     >
                       <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900, alignSelf: "center", fontSize: 11, lineHeight: 1, display: "flex", alignItems: "center" }}>⋮⋮</div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
                       </div>
-                      <div className="watchCompactMain" style={{ minWidth: 0 }}>
-                        <div className="watchCompactTop" style={{ gap: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                            <div className="coinLogo small" style={{ width: 20, height: 20, fontSize: 10, flex: "0 0 auto" }}>{sym.slice(0, 1)}</div>
-                            <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flexWrap: "wrap" }}>
-                              <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1 }}>{sym}</div>
-                              <div className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>{mm === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
-                            </div>
-                          </div>
-                          <button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1, flex: "0 0 auto" }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : ""), contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button>
-                        </div>
-                        <div className="watchCompactStats" style={{ gap: 6, marginTop: 6, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-                          <div className="mono" style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                            <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
-                            <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>{r.source || "—"}</span>
+                      <div className="watchCompactMain">
+                        <div className="watchCompactTop" style={{ gap: 6 }}>
+                          <div className="coinLogo small" style={{ width: 20, height: 20, fontSize: 10, flex: "0 0 auto" }}>{sym.slice(0, 1)}</div>
+                          <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1 }}>{sym}</div>
+                            <div className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>{mm === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
                           </div>
                         </div>
+                        <div className="watchCompactStats" style={{ gap: 6 }}>
+                          <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>{r.source || "—"}</span>
+                        </div>
+                      </div>
+                      <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center" }}>
+                        <div className="mono" style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
+                        <button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1, justifySelf: "end" }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : ""), contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button>
                       </div>
                     </div>
                   );

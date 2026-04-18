@@ -1638,35 +1638,34 @@ function buildAlignedDailyLines(seriesBySym, opts = {}) {
   return { dates, lines };
 }
 
-
-function calcSimpleRsiSeries(arr, period = 14) {
-  const pts = Array.isArray(arr) ? arr : [];
-  if (pts.length < period + 1) return null;
-  let gain = 0;
-  let loss = 0;
-  for (let i = pts.length - period; i < pts.length; i++) {
-    const prev = pts[i - 1];
-    const curr = pts[i];
-    const v0 = (prev && typeof prev === "object") ? Number(prev.v) : Number(prev);
-    const v1 = (curr && typeof curr === "object") ? Number(curr.v) : Number(curr);
-    if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
-    const diff = v1 - v0;
-    if (diff > 0) gain += diff;
-    else loss += Math.abs(diff);
-  }
-  const avgGain = gain / period;
-  const avgLoss = loss / period;
-  if (!Number.isFinite(avgGain) || !Number.isFinite(avgLoss)) return null;
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
-}
-
 function computeBestPairsFromSeries(seriesBySym, limit = 30) {
   const { lines } = buildAlignedDailyLines(seriesBySym, { minDays: 20 });
   const syms = Object.keys(lines || {});
   if (syms.length < 2) return [];
   const normLines = normalizeToIndex(lines);
+
+  const calcSimpleRsiLocal = (arr, period = 14) => {
+    const pts = Array.isArray(arr) ? arr : [];
+    if (pts.length < period + 1) return null;
+    let gain = 0;
+    let loss = 0;
+    for (let i = pts.length - period; i < pts.length; i++) {
+      const prev = pts[i - 1];
+      const curr = pts[i];
+      const v0 = prev && typeof prev === "object" ? Number(prev.v) : Number(prev);
+      const v1 = curr && typeof curr === "object" ? Number(curr.v) : Number(curr);
+      if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
+      const diff = v1 - v0;
+      if (diff > 0) gain += diff;
+      else loss += Math.abs(diff);
+    }
+    const avgGain = gain / period;
+    const avgLoss = loss / period;
+    if (!Number.isFinite(avgGain) || !Number.isFinite(avgLoss)) return null;
+    if (avgLoss === 0) return 100;
+    const rs = avgGain / avgLoss;
+    return 100 - (100 / (1 + rs));
+  };
 
   const res = [];
   for (let i = 0; i < syms.length; i++) {
@@ -1675,10 +1674,10 @@ function computeBestPairsFromSeries(seriesBySym, limit = 30) {
       const r = pearson(normLines[a] || [], normLines[b] || []);
       if (r === null) continue;
       const score = Math.round(Math.abs(r) * 100);
-      const rsiA = calcSimpleRsiSeries(lines[a], 14);
-      const rsiB = calcSimpleRsiSeries(lines[b], 14);
-      const rsiGap = (Number.isFinite(rsiA) && Number.isFinite(rsiB)) ? Math.abs(rsiA - rsiB) : null;
-      res.push({ pair: `${a}/${b}`, corr: r, score, rsiA, rsiB, rsiGap });
+      const rsiA = calcSimpleRsiLocal((seriesBySym && seriesBySym[a]) || [], 14);
+      const rsiB = calcSimpleRsiLocal((seriesBySym && seriesBySym[b]) || [], 14);
+      const rsiGap = Number.isFinite(rsiA) && Number.isFinite(rsiB) ? Math.abs(rsiA - rsiB) : null;
+      res.push({ pair: `${a}/${b}`, a, b, corr: r, score, rsiA, rsiB, rsiGap });
     }
   }
   res.sort((x, y) => y.score - x.score);
@@ -8346,33 +8345,51 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 >
                   {bestPairsToShow.length ? (
                     bestPairsToShow.map((p, i) => {
-                      const [a, b] = String(p?.pair || "").split("/");
-                      const rsiTextA = Number.isFinite(p?.rsiA) ? p.rsiA.toFixed(0) : "—";
-                      const rsiTextB = Number.isFinite(p?.rsiB) ? p.rsiB.toFixed(0) : "—";
-                      const rsiGapText = Number.isFinite(p?.rsiGap) ? p.rsiGap.toFixed(1) : "—";
+                      const rsiAState = _rsiBadgeState(p.rsiA);
+                      const rsiBState = _rsiBadgeState(p.rsiB);
+                      const rsiGapTone = Number.isFinite(p.rsiGap)
+                        ? p.rsiGap >= 15
+                          ? "rgba(57,217,138,0.14)"
+                          : p.rsiGap >= 8
+                            ? "rgba(255,184,0,0.14)"
+                            : "rgba(255,255,255,0.06)"
+                        : "rgba(255,255,255,0.06)";
+
                       return (
-                      <div
-                        key={p.pair}
-                        className="pairRow"
-                        style={{
-                          gap: 12,
-                          cursor: "pointer",
-                          marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
-                          alignItems: "center",
-                        }}
-                        onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
-                      >
-                        <span className="muted" style={{ width: 30, textAlign: "right" }}>#{i + 1}</span>
-                        <span className="pairName" style={{ flex: 1 }}>{p.pair}</span>
-                        <span className="muted tiny" style={{ minWidth: 120, textAlign: "right", whiteSpace: "nowrap" }}>
-                          RSI {a}: {rsiTextA} · {b}: {rsiTextB}
-                        </span>
-                        <span className="pill" title="RSI gap">{`Δ ${rsiGapText}`}</span>
-                        <span className="pill silver">Score {p.score}</span>
-                        <span className="pill">{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
-                      </div>
-                    )}))
-                  ) 
+                        <div
+                          key={p.pair}
+                          className="pairRow"
+                          style={{
+                            gap: 12,
+                            cursor: "pointer",
+                            marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
+                            alignItems: "stretch",
+                          }}
+                          onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
+                        >
+                          <span className="muted" style={{ width: 30, textAlign: "right", alignSelf: "center" }}>#{i + 1}</span>
+                          <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 6 }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <span className="pairName">{p.pair}</span>
+                              <span className="pill silver">Score {p.score}</span>
+                              <span className="pill">{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <span className="pill" style={{ background: rsiAState.tone, borderColor: rsiAState.border, color: rsiAState.color }}>
+                                {p.a || p.pair.split("/")[0]} RSI {Number.isFinite(p.rsiA) ? p.rsiA.toFixed(0) : "—"}
+                              </span>
+                              <span className="pill" style={{ background: rsiBState.tone, borderColor: rsiBState.border, color: rsiBState.color }}>
+                                {p.b || p.pair.split("/")[1]} RSI {Number.isFinite(p.rsiB) ? p.rsiB.toFixed(0) : "—"}
+                              </span>
+                              <span className="pill" style={{ background: rsiGapTone }}>
+                                Δ {Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
                     <div className="muted">Not enough chart data yet.</div>
                   )}
                 </div>

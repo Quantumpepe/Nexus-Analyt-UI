@@ -9828,7 +9828,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             )}
           </div>
 
-          <div className="muted tiny">Compare selection is the single source of truth (max 20).</div>
+          <div className="muted tiny"></div>
         </div></section>
 
         {/* AI */}

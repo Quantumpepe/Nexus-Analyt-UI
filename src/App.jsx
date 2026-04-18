@@ -1145,7 +1145,7 @@ function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, index
 
   // Hover: show crosshair + tooltip for ALL series (like finanzen.net)
   const [hoverIdx, setHoverIdx] = useState(null);
-  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 }); // position in actual CSS pixels inside the chart overlay
   const [tooltipSize, setTooltipSize] = useState({ w: 220, h: 0 });
   const tooltipRef = useRef(null);
 
@@ -1250,32 +1250,27 @@ const tMin = x[0];
     };
 
     const yFmt = (tv) => (indexMode ? fmtDeltaPct(tv) : fmtUsd(invTVal(tv)));
+    // Tooltip positioning must use real CSS pixels, not the SVG viewBox units.
+    // Otherwise it will disappear on narrower rendered charts when moving right.
     const tooltipGap = 16;
-    const tooltipPad = 12;
+    const chartPad = 12;
+    const chartCssW = hoverPos.chartW || w;
+    const chartCssH = hoverPos.chartH || h;
 
-    // Decide the side BEFORE clamping so the tooltip can flip left/up when
-    // the cursor gets close to the right or bottom edge.
-    const preferredLeft = hoverPos.x + tooltipGap;
-    const preferredTop = hoverPos.y + tooltipGap;
+    const placeRight = hoverPos.x + tooltipGap;
+    const placeLeft = hoverPos.x - tooltipSize.w - tooltipGap;
+    const placeBelow = hoverPos.y + tooltipGap;
+    const placeAbove = hoverPos.y - tooltipSize.h - tooltipGap;
 
-    const placeLeft = preferredLeft + tooltipSize.w > w - tooltipPad;
-    const placeAbove = preferredTop + tooltipSize.h > h - tooltipPad;
+    const tooltipLeftSafe =
+      placeRight + tooltipSize.w <= chartCssW - chartPad
+        ? placeRight
+        : Math.max(chartPad, Math.min(placeLeft, chartCssW - tooltipSize.w - chartPad));
 
-    const tooltipLeftSafe = Math.min(
-      Math.max(
-        tooltipPad,
-        placeLeft ? hoverPos.x - tooltipSize.w - tooltipGap : preferredLeft
-      ),
-      Math.max(tooltipPad, w - tooltipSize.w - tooltipPad)
-    );
-
-    const tooltipTopSafe = Math.min(
-      Math.max(
-        tooltipPad,
-        placeAbove ? hoverPos.y - tooltipSize.h - tooltipGap : preferredTop
-      ),
-      Math.max(tooltipPad, h - tooltipSize.h - tooltipPad)
-    );
+    const tooltipTopSafe =
+      placeBelow + tooltipSize.h <= chartCssH - chartPad
+        ? placeBelow
+        : Math.max(chartPad, Math.min(placeAbove, chartCssH - tooltipSize.h - chartPad));
 
   return (
     <div className="chartWrap" style={{ width: "100%", position: "relative" }}>
@@ -1344,14 +1339,18 @@ const tMin = x[0];
           const px = e.clientX - rect.left;
           const py = e.clientY - rect.top;
           const svgX = (px / rect.width) * w;
-          const svgY = (py / rect.height) * h;
 
           // Map mouse X onto plot area (between padL and w-padR)
-          const clamped = Math.max(padL, Math.min(svgX, w - padR));
-          const frac = (clamped - padL) / (w - padL - padR);
+          const clampedSvgX = Math.max(padL, Math.min(svgX, w - padR));
+          const frac = (clampedSvgX - padL) / (w - padL - padR);
           const i = clampIdx(Math.round(frac * (n - 1)));
           setHoverIdx(i);
-          setHoverPos({ x: clamped, y: Math.max(padT, Math.min(svgY, h - padB)) });
+          setHoverPos({
+            x: px,
+            y: Math.max(12, Math.min(py, rect.height - 12)),
+            chartW: rect.width,
+            chartH: rect.height,
+          });
         }}
         onMouseLeave={() => {
           setHoverIdx(null);

@@ -8360,45 +8360,78 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           key={p.pair}
                           className="pairRow"
                           style={{
-                            gap: 12,
+                            gap: 10,
                             cursor: "pointer",
                             marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
-                            alignItems: "stretch",
+                            alignItems: "center",
                           }}
                           onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
                         >
-                          <span className="muted" style={{ width: 30, textAlign: "right", alignSelf: "center" }}>#{i + 1}</span>
-                          <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                            <span className="pairName">{p.pair}</span>
-                            <span className="pill"
+                          <span className="muted" style={{ width: 34, textAlign: "right", flex: "0 0 34px" }}>#{i + 1}</span>
+
+                          <div
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              display: "grid",
+                              gridTemplateColumns: "minmax(88px, 1.2fr) 96px 96px 56px auto auto",
+                              gap: 8,
+                              alignItems: "center",
+                            }}
+                          >
+                            <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap" }}>{p.pair}</span>
+
+                            <span
+                              className="pill"
                               style={{
+                                width: 96,
+                                justifyContent: "center",
                                 padding: "4px 8px",
                                 fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiAState.tone,
                                 borderColor: rsiAState.border,
                                 color: rsiAState.color,
+                                whiteSpace: "nowrap",
                               }}
                             >
                               {p.a || p.pair.split("/")[0]} {Number.isFinite(p.rsiA) ? p.rsiA.toFixed(0) : "—"}
                             </span>
-                            <span className="pill"
+
+                            <span
+                              className="pill"
                               style={{
+                                width: 96,
+                                justifyContent: "center",
                                 padding: "4px 8px",
                                 fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiBState.tone,
                                 borderColor: rsiBState.border,
                                 color: rsiBState.color,
+                                whiteSpace: "nowrap",
                               }}
                             >
                               {p.b || p.pair.split("/")[1]} {Number.isFinite(p.rsiB) ? p.rsiB.toFixed(0) : "—"}
                             </span>
-                            <span className="pill" style={{ padding: "4px 8px", fontSize: 12, lineHeight: 1, background: rsiGapTone }}>
+
+                            <span
+                              className="pill"
+                              style={{
+                                width: 56,
+                                justifyContent: "center",
+                                padding: "4px 8px",
+                                fontSize: 12,
+                                lineHeight: 1,
+                                background: rsiGapTone,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
                               Δ {Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"}
                             </span>
-                            <span className="pill silver">Score {p.score}</span>
-                            <span className="pill">{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
+
+                            <span className="pill silver" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>Score {p.score}</span>
+                            <span className="pill" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                           </div>
                         </div>
                       );

@@ -3566,13 +3566,8 @@ function _fmtPctLocal(x) {
     setAiExplainData(null);
     setAiExplainLoading(false);
 
-    const [a, b] = _pairSyms(p?.pair);
-    const focusSyms = [a, b].filter(Boolean);
-    if (focusSyms.length) {
-      setHighlightedSyms(focusSyms);
-      setComparePage("all");
-      setViewMode("overlay");
-    }
+    // No automatic chart sync here:
+    // clicking a pair should only open the pair modal.
 
     // preload cached series for this pair + timeframe (refreshes automatically on new UTC day)
     const cached = _readPairExplainCache(p?.pair, PAIR_EXPLAIN_TF);

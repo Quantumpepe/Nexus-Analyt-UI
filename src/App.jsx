@@ -1251,22 +1251,31 @@ const tMin = x[0];
 
     const yFmt = (tv) => (indexMode ? fmtDeltaPct(tv) : fmtUsd(invTVal(tv)));
     const tooltipGap = 16;
-    const tooltipLeft = Math.min(
-      Math.max(12, hoverPos.x + tooltipGap),
-      Math.max(12, w - tooltipSize.w - 12)
+    const tooltipPad = 12;
+
+    // Decide the side BEFORE clamping so the tooltip can flip left/up when
+    // the cursor gets close to the right or bottom edge.
+    const preferredLeft = hoverPos.x + tooltipGap;
+    const preferredTop = hoverPos.y + tooltipGap;
+
+    const placeLeft = preferredLeft + tooltipSize.w > w - tooltipPad;
+    const placeAbove = preferredTop + tooltipSize.h > h - tooltipPad;
+
+    const tooltipLeftSafe = Math.min(
+      Math.max(
+        tooltipPad,
+        placeLeft ? hoverPos.x - tooltipSize.w - tooltipGap : preferredLeft
+      ),
+      Math.max(tooltipPad, w - tooltipSize.w - tooltipPad)
     );
-    const tooltipTop = Math.min(
-      Math.max(12, hoverPos.y + tooltipGap),
-      Math.max(12, h - tooltipSize.h - 12)
+
+    const tooltipTopSafe = Math.min(
+      Math.max(
+        tooltipPad,
+        placeAbove ? hoverPos.y - tooltipSize.h - tooltipGap : preferredTop
+      ),
+      Math.max(tooltipPad, h - tooltipSize.h - tooltipPad)
     );
-    const tooltipWouldOverflowRight = tooltipLeft + tooltipSize.w > w - 12;
-    const tooltipWouldOverflowBottom = tooltipTop + tooltipSize.h > h - 12;
-    const tooltipLeftSafe = tooltipWouldOverflowRight
-      ? Math.max(12, hoverPos.x - tooltipSize.w - tooltipGap)
-      : tooltipLeft;
-    const tooltipTopSafe = tooltipWouldOverflowBottom
-      ? Math.max(12, hoverPos.y - tooltipSize.h - tooltipGap)
-      : tooltipTop;
 
   return (
     <div className="chartWrap" style={{ width: "100%", position: "relative" }}>

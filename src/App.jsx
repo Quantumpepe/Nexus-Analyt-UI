@@ -8374,7 +8374,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               flex: 1,
                               minWidth: 0,
                               display: "grid",
-                              gridTemplateColumns: "minmax(88px, 1.2fr) 96px 96px 56px auto auto",
+                              gridTemplateColumns: "minmax(88px, 1.2fr) 120px 120px 56px auto auto",
                               gap: 8,
                               alignItems: "center",
                             }}
@@ -8384,7 +8384,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill"
                               style={{
-                                width: 96,
+                                width: 120,
                                 justifyContent: "center",
                                 padding: "4px 8px",
                                 fontSize: 12,
@@ -8395,13 +8395,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {p.a || p.pair.split("/")[0]} {Number.isFinite(p.rsiA) ? p.rsiA.toFixed(0) : "—"}
+                              {p.a || p.pair.split("/")[0]} {Number.isFinite(p.rsiA) ? p.rsiA.toFixed(0) : "—"} RSI
                             </span>
 
                             <span
                               className="pill"
                               style={{
-                                width: 96,
+                                width: 120,
                                 justifyContent: "center",
                                 padding: "4px 8px",
                                 fontSize: 12,
@@ -8412,7 +8412,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {p.b || p.pair.split("/")[1]} {Number.isFinite(p.rsiB) ? p.rsiB.toFixed(0) : "—"}
+                              {p.b || p.pair.split("/")[1]} {Number.isFinite(p.rsiB) ? p.rsiB.toFixed(0) : "—"} RSI
                             </span>
 
                             <span

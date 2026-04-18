@@ -8671,7 +8671,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
 
                       <div style={{ display: "grid", gap: 8 }}>
-                        <div className="label">Pair Summary</div>
+                        <div className="label">Short-Term Momentum</div>
                         {winner ? (() => {
                           const quality = _pairQualityMeta(selectedPair?.score);
 
@@ -8689,7 +8689,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <span className="pill silver">Score {selectedPair.score}</span>
                               </div>
                               <div className="muted">
-                                <b>{winner}</b> is currently stronger than <b>{loser}</b> over 30D.
+                                <b>Now:</b> <b>{winner}</b> &gt; <b>{loser}</b> (short-term momentum / 30D view).
                               </div>
                               <div className="tiny" style={{ display: "flex", flexWrap: "wrap", gap: 10, color: quality.color }}>
                                 <span>Corr {(selectedPair.corr >= 0 ? "+" : "") + selectedPair.corr.toFixed(2)}</span>
@@ -8906,14 +8906,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       })()}
 
                       <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Suggested Action</div>
+                        <div className="label" style={{ marginBottom: 0 }}>Longer-Term Reversion Idea</div>
 
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <span className="pill" style={{ background: "rgba(255,92,92,0.18)", borderColor: "rgba(255,92,92,0.35)" }}>SELL {aiExplainData.winner}</span>
-                            <span className="pill" style={{ background: "rgba(57,217,138,0.18)", borderColor: "rgba(57,217,138,0.35)" }}>BUY {aiExplainData.loser}</span>
+                            <span className="pill" style={{ background: "rgba(255,92,92,0.18)", borderColor: "rgba(255,92,92,0.35)" }}>SELL {aiExplainData.winner} later-view</span>
+                            <span className="pill" style={{ background: "rgba(57,217,138,0.18)", borderColor: "rgba(57,217,138,0.35)" }}>BUY {aiExplainData.loser} later-view</span>
                           </div>
                         ) : null}
+
+                        <div className="muted tiny" style={{ lineHeight: 1.45 }}>
+                          Above is the <b>longer-term</b> idea. The box at the top shows <b>current momentum</b>. Both can differ.
+                        </div>
 
                         <div style={{ display: "grid", gap: 6 }} className="muted">
                           {String(aiExplainData.action || "")

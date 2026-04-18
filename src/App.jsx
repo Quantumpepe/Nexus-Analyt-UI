@@ -3517,11 +3517,62 @@ function _fmtPctLocal(x) {
     return { volPct, maxDDPct: maxDD };
   }
 
+  function _pairQualityMeta(score) {
+    const n = Number(score);
+    if (!Number.isFinite(n)) {
+      return {
+        label: "Unclear Pair",
+        color: "rgba(255,255,255,0.72)",
+        bg: "rgba(255,255,255,0.05)",
+        border: "rgba(255,255,255,0.14)",
+      };
+    }
+    if (n >= 90) {
+      return {
+        label: "Strong Pair",
+        color: "#00ff88",
+        bg: "rgba(0,255,136,0.08)",
+        border: "rgba(0,255,136,0.55)",
+      };
+    }
+    if (n >= 75) {
+      return {
+        label: "Good Pair",
+        color: "#ffd36a",
+        bg: "rgba(255,211,106,0.08)",
+        border: "rgba(255,211,106,0.45)",
+      };
+    }
+    if (n >= 60) {
+      return {
+        label: "Neutral Pair",
+        color: "#ffaa00",
+        bg: "rgba(255,170,0,0.08)",
+        border: "rgba(255,170,0,0.42)",
+      };
+    }
+    return {
+      label: "Weak Pair",
+      color: "#ff6b6b",
+      bg: "rgba(255,107,107,0.08)",
+      border: "rgba(255,107,107,0.45)",
+    };
+  }
+
+
   function openPairExplain(p) {
     setSelectedPair(p);
     setAiExplainText("");
     setAiExplainData(null);
     setAiExplainLoading(false);
+
+    const [a, b] = _pairSyms(p?.pair);
+    const focusSyms = [a, b].filter(Boolean);
+    if (focusSyms.length) {
+      setHighlightedSyms(focusSyms);
+      setComparePage("all");
+      setViewMode("overlay");
+    }
 
     // preload cached series for this pair + timeframe (refreshes automatically on new UTC day)
     const cached = _readPairExplainCache(p?.pair, PAIR_EXPLAIN_TF);
@@ -8622,28 +8673,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div style={{ display: "grid", gap: 8 }}>
                         <div className="label">Pair Summary</div>
                         {winner ? (() => {
-                          const qualityColor = (selectedPair.corr >= 0.9 && Math.abs(spread) >= 1)
-                            ? "#00ff88"
-                            : (selectedPair.corr >= 0.75 ? "#ffaa00" : "#ff4d4f");
-                          const qualityLabel = (selectedPair.corr >= 0.9 && Math.abs(spread) >= 1)
-                            ? "Strong Pair"
-                            : (selectedPair.corr >= 0.75 ? "Medium Pair" : "Weak Pair");
+                          const quality = _pairQualityMeta(selectedPair?.score);
 
                           return (
                             <div style={{
                               display: "grid",
-                              gap: 6,
+                              gap: 8,
                               padding: "12px",
                               borderRadius: "12px",
-                              background: "rgba(0,0,0,0.22)",
-                              border: `1px solid ${qualityColor}`
+                              background: quality.bg,
+                              border: `1px solid ${quality.border}`
                             }}>
-                              <div style={{ color: qualityColor, fontWeight: 900 }}>{qualityLabel}</div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                                <span style={{ color: quality.color, fontWeight: 900 }}>{quality.label}</span>
+                                <span className="pill silver">Score {selectedPair.score}</span>
+                              </div>
                               <div className="muted">
                                 <b>{winner}</b> is currently stronger than <b>{loser}</b> over 30D.
                               </div>
-                              <div className="tiny" style={{ color: qualityColor }}>
-                                Corr {(selectedPair.corr >= 0 ? "+" : "") + selectedPair.corr.toFixed(2)} • Spread {_fmtPctLocal(spread)}
+                              <div className="tiny" style={{ display: "flex", flexWrap: "wrap", gap: 10, color: quality.color }}>
+                                <span>Corr {(selectedPair.corr >= 0 ? "+" : "") + selectedPair.corr.toFixed(2)}</span>
+                                <span>Spread {_fmtPctLocal(spread)}</span>
                               </div>
                             </div>
                           );

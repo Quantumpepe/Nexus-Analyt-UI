@@ -173,56 +173,6 @@ function buildCompactAiInsight({ backendText = "", trendStructure = "", momentum
   return unique.slice(0, 3).join(" ") || "The current structure is mixed and does not show a fully clear edge yet.";
 }
 
-function getPairSetupSummary({ a = "A", b = "B", corr = null, spread = null, rsiA = null, rsiB = null, setup = "" }) {
-  const absCorr = Number.isFinite(corr) ? Math.abs(corr) : 0;
-  const absSpread = Number.isFinite(spread) ? Math.abs(spread) : 0;
-  const rsiGap = Number.isFinite(rsiA) && Number.isFinite(rsiB) ? Math.abs(rsiA - rsiB) : 0;
-  const stronger = Number.isFinite(spread) ? (spread >= 0 ? a : b) : null;
-  const weaker = Number.isFinite(spread) ? (spread >= 0 ? b : a) : null;
-  const strongerRsi = stronger === a ? rsiA : rsiB;
-  const weakerRsi = weaker === a ? rsiA : rsiB;
-
-  let status = "Watch";
-  let color = "#ffd24a";
-  let tone = "rgba(255,210,74,0.14)";
-  let border = "rgba(255,210,74,0.28)";
-  let title = "Watch – mixed conditions";
-  let summary = "The pair structure is usable, but the edge is not fully clear yet.";
-
-  if (absCorr >= 0.85 && absSpread >= 1.5 && rsiGap >= 8) {
-    status = "Good setup";
-    color = "#39d98a";
-    tone = "rgba(57,217,138,0.14)";
-    border = "rgba(57,217,138,0.28)";
-    title = `Good mean-reversion setup – ${stronger} extended vs ${weaker}`;
-    summary = `${stronger} has moved clearly ahead while ${weaker} is lagging, and the pair still shows strong linkage. This creates a usable mean-reversion structure, but chasing the stronger leg adds risk.`;
-  } else if ((Number.isFinite(strongerRsi) && strongerRsi >= 72 && absSpread >= 1) || (String(setup || "").toUpperCase().includes("MEAN") && absCorr >= 0.75)) {
-    status = "Watch";
-    color = "#ffd24a";
-    tone = "rgba(255,210,74,0.14)";
-    border = "rgba(255,210,74,0.28)";
-    title = `Watch – ${stronger || a} is stretched`;
-    summary = `${stronger || a} is showing the stronger leg of the move, but conditions are not fully one-sided yet. The setup is worth monitoring for a cleaner reversion entry.`;
-  } else if ((Number.isFinite(rsiA) && rsiA >= 75) && (Number.isFinite(rsiB) && rsiB >= 75)) {
-    status = "High risk";
-    color = "#ff7b7b";
-    tone = "rgba(255,123,123,0.14)";
-    border = "rgba(255,123,123,0.28)";
-    title = "High risk – both legs look overheated";
-    summary = `Both assets are running hot at the same time, which reduces the clarity of the pair edge. This is less attractive for fresh entries and better treated with caution.`;
-  } else if (absCorr < 0.6 || absSpread < 0.6) {
-    status = "Weak";
-    color = "#ff7b7b";
-    tone = "rgba(255,123,123,0.14)";
-    border = "rgba(255,123,123,0.28)";
-    title = "Weak setup – limited edge";
-    summary = "The pair currently lacks either enough linkage or enough separation to stand out. It can stay on watch, but it does not look like a priority setup right now.";
-  }
-
-  return { status, color, tone, border, title, summary };
-}
-
-
 const LS_WATCH_REMOVED = "nexus_watch_removed";
 
 function _watchKeyFromItem(it) {
@@ -8410,45 +8360,78 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           key={p.pair}
                           className="pairRow"
                           style={{
-                            gap: 12,
+                            gap: 10,
                             cursor: "pointer",
                             marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
-                            alignItems: "stretch",
+                            alignItems: "center",
                           }}
                           onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
                         >
-                          <span className="muted" style={{ width: 30, textAlign: "right", alignSelf: "center" }}>#{i + 1}</span>
-                          <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                            <span className="pairName">{p.pair}</span>
-                            <span className="pill"
+                          <span className="muted" style={{ width: 34, textAlign: "right", flex: "0 0 34px" }}>#{i + 1}</span>
+
+                          <div
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              display: "grid",
+                              gridTemplateColumns: "minmax(88px, 1.2fr) 96px 96px 56px auto auto",
+                              gap: 8,
+                              alignItems: "center",
+                            }}
+                          >
+                            <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap" }}>{p.pair}</span>
+
+                            <span
+                              className="pill"
                               style={{
+                                width: 96,
+                                justifyContent: "center",
                                 padding: "4px 8px",
                                 fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiAState.tone,
                                 borderColor: rsiAState.border,
                                 color: rsiAState.color,
+                                whiteSpace: "nowrap",
                               }}
                             >
                               {p.a || p.pair.split("/")[0]} {Number.isFinite(p.rsiA) ? p.rsiA.toFixed(0) : "—"}
                             </span>
-                            <span className="pill"
+
+                            <span
+                              className="pill"
                               style={{
+                                width: 96,
+                                justifyContent: "center",
                                 padding: "4px 8px",
                                 fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiBState.tone,
                                 borderColor: rsiBState.border,
                                 color: rsiBState.color,
+                                whiteSpace: "nowrap",
                               }}
                             >
                               {p.b || p.pair.split("/")[1]} {Number.isFinite(p.rsiB) ? p.rsiB.toFixed(0) : "—"}
                             </span>
-                            <span className="pill" style={{ padding: "4px 8px", fontSize: 12, lineHeight: 1, background: rsiGapTone }}>
+
+                            <span
+                              className="pill"
+                              style={{
+                                width: 56,
+                                justifyContent: "center",
+                                padding: "4px 8px",
+                                fontSize: 12,
+                                lineHeight: 1,
+                                background: rsiGapTone,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
                               Δ {Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"}
                             </span>
-                            <span className="pill silver">Score {p.score}</span>
-                            <span className="pill">{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
+
+                            <span className="pill silver" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>Score {p.score}</span>
+                            <span className="pill" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                           </div>
                         </div>
                       );
@@ -8637,29 +8620,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
 
                       <div style={{ display: "grid", gap: 8 }}>
-                        {(() => {
-                          const rsiA = _calcSimpleRsi((pairExplainSeries || {})[a], 14);
-                          const rsiB = _calcSimpleRsi((pairExplainSeries || {})[b], 14);
-                          const setupSummary = getPairSetupSummary({
-                            a,
-                            b,
-                            corr: selectedPair?.corr,
-                            spread,
-                            rsiA,
-                            rsiB,
-                            setup: aiExplainData?.setup || ""
-                          });
-
-                          return (
-                            <div style={{ border: `1px solid ${setupSummary.border}`, borderRadius: 12, padding: "12px", background: setupSummary.tone, display: "grid", gap: 8 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                                <span className="pill" style={{ background: setupSummary.tone, borderColor: setupSummary.border, color: setupSummary.color }}>{setupSummary.status}</span>
-                                <div style={{ fontWeight: 900, fontSize: 18 }}>{setupSummary.title}</div>
-                              </div>
-                              <div className="muted" style={{ lineHeight: 1.5 }}>{setupSummary.summary}</div>
-                            </div>
-                          );
-                        })()}
                         <div className="label">What it means (grid)</div>
                         {winner ? (
                           <div className="muted">

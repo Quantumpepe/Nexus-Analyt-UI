@@ -1638,6 +1638,30 @@ function buildAlignedDailyLines(seriesBySym, opts = {}) {
   return { dates, lines };
 }
 
+
+function calcSimpleRsiSeries(arr, period = 14) {
+  const pts = Array.isArray(arr) ? arr : [];
+  if (pts.length < period + 1) return null;
+  let gain = 0;
+  let loss = 0;
+  for (let i = pts.length - period; i < pts.length; i++) {
+    const prev = pts[i - 1];
+    const curr = pts[i];
+    const v0 = (prev && typeof prev === "object") ? Number(prev.v) : Number(prev);
+    const v1 = (curr && typeof curr === "object") ? Number(curr.v) : Number(curr);
+    if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
+    const diff = v1 - v0;
+    if (diff > 0) gain += diff;
+    else loss += Math.abs(diff);
+  }
+  const avgGain = gain / period;
+  const avgLoss = loss / period;
+  if (!Number.isFinite(avgGain) || !Number.isFinite(avgLoss)) return null;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
 function computeBestPairsFromSeries(seriesBySym, limit = 30) {
   const { lines } = buildAlignedDailyLines(seriesBySym, { minDays: 20 });
   const syms = Object.keys(lines || {});
@@ -1651,7 +1675,10 @@ function computeBestPairsFromSeries(seriesBySym, limit = 30) {
       const r = pearson(normLines[a] || [], normLines[b] || []);
       if (r === null) continue;
       const score = Math.round(Math.abs(r) * 100);
-      res.push({ pair: `${a}/${b}`, corr: r, score });
+      const rsiA = calcSimpleRsiSeries(lines[a], 14);
+      const rsiB = calcSimpleRsiSeries(lines[b], 14);
+      const rsiGap = (Number.isFinite(rsiA) && Number.isFinite(rsiB)) ? Math.abs(rsiA - rsiB) : null;
+      res.push({ pair: `${a}/${b}`, corr: r, score, rsiA, rsiB, rsiGap });
     }
   }
   res.sort((x, y) => y.score - x.score);
@@ -8318,7 +8345,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   }}
                 >
                   {bestPairsToShow.length ? (
-                    bestPairsToShow.map((p, i) => (
+                    bestPairsToShow.map((p, i) => {
+                      const [a, b] = String(p?.pair || "").split("/");
+                      const rsiTextA = Number.isFinite(p?.rsiA) ? p.rsiA.toFixed(0) : "—";
+                      const rsiTextB = Number.isFinite(p?.rsiB) ? p.rsiB.toFixed(0) : "—";
+                      const rsiGapText = Number.isFinite(p?.rsiGap) ? p.rsiGap.toFixed(1) : "—";
+                      return (
                       <div
                         key={p.pair}
                         className="pairRow"
@@ -8326,15 +8358,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           gap: 12,
                           cursor: "pointer",
                           marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
+                          alignItems: "center",
                         }}
                         onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
                       >
                         <span className="muted" style={{ width: 30, textAlign: "right" }}>#{i + 1}</span>
                         <span className="pairName" style={{ flex: 1 }}>{p.pair}</span>
+                        <span className="muted tiny" style={{ minWidth: 120, textAlign: "right", whiteSpace: "nowrap" }}>
+                          RSI {a}: {rsiTextA} · {b}: {rsiTextB}
+                        </span>
+                        <span className="pill" title="RSI gap">{`Δ ${rsiGapText}`}</span>
                         <span className="pill silver">Score {p.score}</span>
                         <span className="pill">{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                       </div>
-                    ))
+                    )}))
                   ) : (
                     <div className="muted">Not enough chart data yet.</div>
                   )}

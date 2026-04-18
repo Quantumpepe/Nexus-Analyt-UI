@@ -1145,6 +1145,9 @@ function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, index
 
   // Hover: show crosshair + tooltip for ALL series (like finanzen.net)
   const [hoverIdx, setHoverIdx] = useState(null);
+  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+  const [tooltipSize, setTooltipSize] = useState({ w: 220, h: 0 });
+  const tooltipRef = useRef(null);
 
   const n = x.length;
   const clampIdx = (i) => Math.max(0, Math.min(i, n - 1));
@@ -1175,6 +1178,16 @@ function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, index
       return String(t);
     }
   };
+
+  useEffect(() => {
+    if (!tooltipRef.current) return;
+    const rect = tooltipRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    setTooltipSize((prev) => {
+      if (prev.w === rect.width && prev.h === rect.height) return prev;
+      return { w: rect.width, h: rect.height };
+    });
+  }, [hoverIdx, syms.length, indexMode, timeframe, highlightedSyms]);
 
     // Overlay + Price: use log scale so vastly different price magnitudes remain readable (BTC vs small coins).
     // Index 100 stays linear (already normalized).
@@ -1237,6 +1250,24 @@ const tMin = x[0];
     };
 
     const yFmt = (tv) => (indexMode ? fmtDeltaPct(tv) : fmtUsd(invTVal(tv)));
+    const tooltipGap = 16;
+    const tooltipLeft = Math.min(
+      Math.max(12, hoverPos.x + tooltipGap),
+      Math.max(12, w - tooltipSize.w - 12)
+    );
+    const tooltipTop = Math.min(
+      Math.max(12, hoverPos.y + tooltipGap),
+      Math.max(12, h - tooltipSize.h - 12)
+    );
+    const tooltipWouldOverflowRight = tooltipLeft + tooltipSize.w > w - 12;
+    const tooltipWouldOverflowBottom = tooltipTop + tooltipSize.h > h - 12;
+    const tooltipLeftSafe = tooltipWouldOverflowRight
+      ? Math.max(12, hoverPos.x - tooltipSize.w - tooltipGap)
+      : tooltipLeft;
+    const tooltipTopSafe = tooltipWouldOverflowBottom
+      ? Math.max(12, hoverPos.y - tooltipSize.h - tooltipGap)
+      : tooltipTop;
+
   return (
     <div className="chartWrap" style={{ width: "100%", position: "relative" }}>
       <svg className="chartSvg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
@@ -1302,25 +1333,32 @@ const tMin = x[0];
         onMouseMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
           const svgX = (px / rect.width) * w;
+          const svgY = (py / rect.height) * h;
 
           // Map mouse X onto plot area (between padL and w-padR)
           const clamped = Math.max(padL, Math.min(svgX, w - padR));
           const frac = (clamped - padL) / (w - padL - padR);
           const i = clampIdx(Math.round(frac * (n - 1)));
           setHoverIdx(i);
+          setHoverPos({ x: clamped, y: Math.max(padT, Math.min(svgY, h - padB)) });
         }}
-        onMouseLeave={() => setHoverIdx(null)}
+        onMouseLeave={() => {
+          setHoverIdx(null);
+          setHoverPos({ x: 0, y: 0 });
+        }}
       />
 
       {hoverIdx !== null && (
         <div
+          ref={tooltipRef}
           style={{
             position: "absolute",
-            left: 12,
-            top: 12,
-            background: "rgba(7,24,22,.92)",
-            border: "none",
+            left: tooltipLeftSafe,
+            top: tooltipTopSafe,
+            background: "rgba(7,24,22,0.98)",
+            border: "1px solid rgba(255,255,255,0.08)",
             borderRadius: 14,
             padding: "10px 12px",
             minWidth: 190,

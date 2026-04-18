@@ -9756,22 +9756,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
                         }}
                       >
-                        <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900 }}>⋮⋮</div>
-                        <div>
-                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} />
+                        <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900, fontSize: 11, lineHeight: 1, display: "flex", alignItems: "center" }}>⋮⋮</div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
                         </div>
-                        <div className="watchCoin">
-                          <div className="coinLogo small">{sym.slice(0, 1)}</div>
-                          <div>
-                            <div className="watchSym">{sym}</div>
-                            <div className="muted tiny">{r.mode === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
+                        <div className="watchCoin" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                          <div className="coinLogo small" style={{ width: 20, height: 20, fontSize: 10, flex: "0 0 auto" }}>{sym.slice(0, 1)}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, whiteSpace: "nowrap" }}>
+                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1 }}>{sym}</div>
+                            <div className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>{r.mode === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
                           </div>
                         </div>
-                        <div className="right mono">{fmtUsd(r.price)}</div>
-                        <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
-                        <div className="right mono">{fmtUsd(r.volume24h)}</div>
-                        <div className="right muted">{r.source || "—"}</div>
-                        <div className="right"><button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
+                        <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{fmtUsd(r.volume24h)}</div>
+                        <div className="right muted" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap" }}>{r.source || "—"}</div>
+                        <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
                       </div>
                     );
                   })}
@@ -9799,26 +9799,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
                       }}
                     >
-                      <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900, alignSelf: "center" }}>⋮⋮</div>
-                      <div>
-                        <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} />
+                      <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900, alignSelf: "center", fontSize: 11, lineHeight: 1, display: "flex", alignItems: "center" }}>⋮⋮</div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
                       </div>
                       <div className="watchCompactMain">
-                        <div className="watchCompactTop">
-                          <div className="coinLogo small">{sym.slice(0, 1)}</div>
-                          <div className="watchCompactMeta">
-                            <div className="watchSym">{sym}</div>
-                            <div className="muted tiny">{mm === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
+                        <div className="watchCompactTop" style={{ gap: 6 }}>
+                          <div className="coinLogo small" style={{ width: 20, height: 20, fontSize: 10, flex: "0 0 auto" }}>{sym.slice(0, 1)}</div>
+                          <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1 }}>{sym}</div>
+                            <div className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>{mm === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
                           </div>
                         </div>
-                        <div className="watchCompactStats">
-                          <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
-                          <span className="muted tiny">{r.source || "—"}</span>
+                        <div className="watchCompactStats" style={{ gap: 6 }}>
+                          <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>{r.source || "—"}</span>
                         </div>
                       </div>
-                      <div className="watchCompactPrice">
-                        <div className="mono" style={{ fontWeight: 900 }}>{fmtUsd(r.price)}</div>
-                        <button className="iconBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : ""), contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button>
+                      <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center" }}>
+                        <div className="mono" style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
+                        <button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1, justifySelf: "end" }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : ""), contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button>
                       </div>
                     </div>
                   );

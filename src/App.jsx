@@ -2948,6 +2948,8 @@ const byChain = {};
       return [];
     }
   });
+  const [watchDragKey, setWatchDragKey] = useState("");
+  const [watchDropKey, setWatchDropKey] = useState("");
 
   const [watchSyncedWallet, setWatchSyncedWallet] = useLocalStorageState("nexus_watch_synced_wallet", "");
   const [appStateSyncedWallet, setAppStateSyncedWallet] = useLocalStorageState("nexus_app_state_synced_wallet", "");
@@ -3059,7 +3061,7 @@ const byChain = {};
       const serverItems = normalizeWatchItems(r?.items || []);
       const localItems = normalizeWatchItems(watchItems || []);
 
-      const sig = (arr) => JSON.stringify((arr || []).map((x) => _watchKeyFromItem(x)).filter(Boolean).sort());
+      const sig = (arr) => JSON.stringify((arr || []).map((x) => _watchKeyFromItem(x)).filter(Boolean));
       const serverSig = sig(serverItems);
       const localSig = sig(localItems);
       const neverSynced = String(watchSyncedWallet || "").toLowerCase() !== String(wallet || "").toLowerCase();
@@ -4736,7 +4738,6 @@ const [aiLoading, setAiLoading] = useState(false);
       return `${mode}|${sym}|${id || addr}`;
     })
     .filter(Boolean)
-    .sort()
     .join("|");
 }, [watchItems]);
 
@@ -5766,6 +5767,79 @@ useInterval(fetchGridOrders, 15000, isGridReady);
     const px = Number(walletPx?.native?.[activeGridChainSymbol]);
     return Number.isFinite(px) && px > 0 ? px : null;
   }, [walletPx, activeGridChainSymbol]);
+
+  const persistWatchOrder = useCallback(async (nextItems) => {
+    const normalized = normalizeWatchItems(nextItems || []);
+    setWatchItems(normalized);
+    try { localStorage.setItem("nexus_watch_items", JSON.stringify(normalized)); } catch {}
+    setWatchRows((prev) => {
+      const prevMap = new Map((Array.isArray(prev) ? prev : []).map((row) => [_watchKeyFromRow(row), row]));
+      const ordered = normalized.map((it) => {
+        const key = _watchKeyFromItem(it);
+        return prevMap.get(key) || {
+          symbol: String(it?.symbol || "").toUpperCase(),
+          mode: String(it?.mode || "market"),
+          chain: it?.chain || undefined,
+          contract: it?.contract || it?.tokenAddress || undefined,
+          tokenAddress: it?.tokenAddress || it?.contract || undefined,
+          coingecko_id: String(it?.coingecko_id || it?.id || ""),
+          id: String(it?.coingecko_id || it?.id || ""),
+          name: it?.name || String(it?.symbol || "").toUpperCase(),
+          price: null,
+          chg_24h: null,
+          change24h: null,
+          vol: null,
+          volume24h: null,
+          source: "pending",
+        };
+      });
+      try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(ordered)); } catch {}
+      return ordered;
+    });
+    if (wallet) {
+      try {
+        await saveWatchlistToServer(normalized);
+        setWatchSyncedWallet(wallet || "");
+      } catch (_) {}
+    }
+    fetchWatchSnapshot(normalized, { force: true, user: false });
+  }, [normalizeWatchItems, setWatchItems, wallet, saveWatchlistToServer, setWatchSyncedWallet]);
+
+  const reorderWatchItems = useCallback(async (fromKey, toKey) => {
+    if (!fromKey || !toKey || fromKey === toKey) return;
+    const items = Array.isArray(watchItems) ? [...watchItems] : [];
+    const fromIndex = items.findIndex((it) => _watchKeyFromItem(it) === fromKey);
+    const toIndex = items.findIndex((it) => _watchKeyFromItem(it) === toKey);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return;
+    const [moved] = items.splice(fromIndex, 1);
+    items.splice(toIndex, 0, moved);
+    await persistWatchOrder(items);
+  }, [watchItems, persistWatchOrder]);
+
+  function handleWatchDragStart(item) {
+    setWatchDragKey(_watchKeyFromRow(item) || "");
+    setWatchDropKey("");
+  }
+
+  function handleWatchDragOver(e, item) {
+    e.preventDefault();
+    const key = _watchKeyFromRow(item) || "";
+    if (key && key !== watchDropKey) setWatchDropKey(key);
+  }
+
+  async function handleWatchDrop(e, item) {
+    e.preventDefault();
+    const toKey = _watchKeyFromRow(item) || "";
+    const fromKey = watchDragKey || "";
+    setWatchDropKey("");
+    setWatchDragKey("");
+    await reorderWatchItems(fromKey, toKey);
+  }
+
+  function handleWatchDragEnd() {
+    setWatchDragKey("");
+    setWatchDropKey("");
+  }
 
   // watchlist actions
   function toggleCompare(sym) {
@@ -9642,8 +9716,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <button className="btnGhost" onClick={() => fetchWatchSnapshot(null, { force: true, user: true })}>Refresh</button>
               <InfoButton title="Watchlist">
                 <Help showClose dismissable
-                  de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen oder Ändern eines Coins/Tokens einmal drücken, damit Preis, 24h und Volumen nachgeladen werden.</p></>}
-                  en={<><p><b>Compare</b> checkbox controls the compare set (max 20).</p><p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p><p><b>Refresh</b>: After adding or changing a coin/token, press once so price, 24h, and volume can be fetched.</p></>}
+                  de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Drag & Drop</b> über den Griff links ändert die Reihenfolge. Diese Reihenfolge wird mit deiner Wallet auf dem Server gespeichert.</p><p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen oder Ändern eines Coins/Tokens einmal drücken, damit Preis, 24h und Volumen nachgeladen werden.</p></>}
+                  en={<><p><b>Compare</b> checkbox controls the compare set (max 20).</p><p><b>Drag & Drop</b> using the handle on the left changes the order. This order is saved on the server for your wallet.</p><p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p><p><b>Refresh</b>: After adding or changing a coin/token, press once so price, 24h, and volume can be fetched.</p></>}
                 />
               </InfoButton>
             </div>
@@ -9653,6 +9727,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             {!isWatchSidebarCompact ? (
               <>
                 <div className="watchHead watchStickyHead">
+                  <div>Move</div>
                   <div>Compare</div>
                   <div>Coin</div>
                   <div className="right">Price</div>
@@ -9667,7 +9742,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     const sym = String(r.symbol || "").toUpperCase();
                     const checked = compareSymbols.includes(sym);
                     return (
-                      <div key={`${sym}-${idx}`} className="watchRow">
+                      <div
+                        key={`${sym}-${idx}`}
+                        className="watchRow"
+                        draggable
+                        onDragStart={() => handleWatchDragStart(r)}
+                        onDragOver={(e) => handleWatchDragOver(e, r)}
+                        onDrop={(e) => handleWatchDrop(e, r)}
+                        onDragEnd={handleWatchDragEnd}
+                        style={{
+                          cursor: "grab",
+                          border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
+                          background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
+                        }}
+                      >
+                        <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900 }}>⋮⋮</div>
                         <div>
                           <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} />
                         </div>
@@ -9696,7 +9785,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   const checked = compareSymbols.includes(sym);
                   const mm = (r.mode || "market");
                   return (
-                    <div key={`${sym}-${idx}`} className="watchCompactCard">
+                    <div
+                      key={`${sym}-${idx}`}
+                      className="watchCompactCard"
+                      draggable
+                      onDragStart={() => handleWatchDragStart(r)}
+                      onDragOver={(e) => handleWatchDragOver(e, r)}
+                      onDrop={(e) => handleWatchDrop(e, r)}
+                      onDragEnd={handleWatchDragEnd}
+                      style={{
+                        cursor: "grab",
+                        border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
+                        background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
+                      }}
+                    >
+                      <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900, alignSelf: "center" }}>⋮⋮</div>
                       <div>
                         <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} />
                       </div>

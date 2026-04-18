@@ -134,6 +134,45 @@ function tB(de, en) {
   return `${de} / ${en}`;
 }
 
+function _cleanAiInsightSentence(s) {
+  return String(s || "")
+    .replace(/\s+/g, " ")
+    .replace(/\b(?:you should|consider buying|buy now|sell now|enter now|exit now)\b/gi, "")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+}
+
+function buildCompactAiInsight({ backendText = "", trendStructure = "", momentumShift = "", insightSummary = "" }) {
+  const splitSentences = (value) =>
+    String(value || "")
+      .replace(/\n+/g, " ")
+      .split(/(?<=[.!?])\s+/)
+      .map(_cleanAiInsightSentence)
+      .filter(Boolean);
+
+  const backendSentences = splitSentences(backendText)
+    .filter((s) => s.length >= 20)
+    .slice(0, 3);
+
+  if (backendSentences.length >= 2) {
+    return backendSentences.join(" ");
+  }
+
+  const parts = [];
+  if (trendStructure) parts.push(_cleanAiInsightSentence(trendStructure));
+  if (momentumShift) parts.push(_cleanAiInsightSentence(momentumShift));
+  if (insightSummary) parts.push(_cleanAiInsightSentence(insightSummary));
+
+  const unique = [];
+  for (const part of parts) {
+    const key = part.toLowerCase();
+    if (!key || unique.some((x) => x.toLowerCase() === key)) continue;
+    unique.push(part);
+  }
+
+  return unique.slice(0, 3).join(" ") || "The current structure is mixed and does not show a fully clear edge yet.";
+}
+
 const LS_WATCH_REMOVED = "nexus_watch_removed";
 
 function _watchKeyFromItem(it) {
@@ -3820,7 +3859,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         backendText = "";
       }
 
-      const finalText = String(backendText || "").trim() || "No AI insight available.";
+      const finalText = buildCompactAiInsight({
+        backendText,
+        trendStructure,
+        momentumShift,
+        insightSummary,
+      });
       setAiExplainText(finalText);
       setAiExplainData({
         setup,

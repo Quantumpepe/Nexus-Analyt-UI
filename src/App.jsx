@@ -9724,7 +9724,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
 
           <div className="panelScroll"><div className="watchTable">
-            {!isWatchSidebarCompact ? (
+            {isDesktopWide && !isWatchSidebarCompact ? (
               <>
                 <div className="watchHead watchStickyHead">
                   <div>Move</div>

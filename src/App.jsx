@@ -1638,34 +1638,35 @@ function buildAlignedDailyLines(seriesBySym, opts = {}) {
   return { dates, lines };
 }
 
+
+function calcSimpleRsiSeries(arr, period = 14) {
+  const pts = Array.isArray(arr) ? arr : [];
+  if (pts.length < period + 1) return null;
+  let gain = 0;
+  let loss = 0;
+  for (let i = pts.length - period; i < pts.length; i++) {
+    const prev = pts[i - 1];
+    const curr = pts[i];
+    const v0 = (prev && typeof prev === "object") ? Number(prev.v) : Number(prev);
+    const v1 = (curr && typeof curr === "object") ? Number(curr.v) : Number(curr);
+    if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
+    const diff = v1 - v0;
+    if (diff > 0) gain += diff;
+    else loss += Math.abs(diff);
+  }
+  const avgGain = gain / period;
+  const avgLoss = loss / period;
+  if (!Number.isFinite(avgGain) || !Number.isFinite(avgLoss)) return null;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
 function computeBestPairsFromSeries(seriesBySym, limit = 30) {
   const { lines } = buildAlignedDailyLines(seriesBySym, { minDays: 20 });
   const syms = Object.keys(lines || {});
   if (syms.length < 2) return [];
   const normLines = normalizeToIndex(lines);
-
-  const calcSimpleRsiLocal = (pts, period = 14) => {
-    const arr = Array.isArray(pts) ? pts : [];
-    if (arr.length < period + 1) return null;
-    let gain = 0;
-    let loss = 0;
-    for (let i = arr.length - period; i < arr.length; i++) {
-      const prev = arr[i - 1];
-      const curr = arr[i];
-      const v0 = (prev && typeof prev === "object") ? Number(prev.v) : Number(prev);
-      const v1 = (curr && typeof curr === "object") ? Number(curr.v) : Number(curr);
-      if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
-      const diff = v1 - v0;
-      if (diff > 0) gain += diff;
-      else loss += Math.abs(diff);
-    }
-    const avgGain = gain / period;
-    const avgLoss = loss / period;
-    if (!Number.isFinite(avgGain) || !Number.isFinite(avgLoss)) return null;
-    if (avgLoss === 0) return 100;
-    const rs = avgGain / avgLoss;
-    return 100 - (100 / (1 + rs));
-  };
 
   const res = [];
   for (let i = 0; i < syms.length; i++) {
@@ -1674,10 +1675,10 @@ function computeBestPairsFromSeries(seriesBySym, limit = 30) {
       const r = pearson(normLines[a] || [], normLines[b] || []);
       if (r === null) continue;
       const score = Math.round(Math.abs(r) * 100);
-      const rsiA = calcSimpleRsiLocal(seriesBySym?.[a], 14);
-      const rsiB = calcSimpleRsiLocal(seriesBySym?.[b], 14);
-      const rsiGap = Number.isFinite(rsiA) && Number.isFinite(rsiB) ? (rsiA - rsiB) : null;
-      res.push({ pair: `${a}/${b}`, a, b, corr: r, score, rsiA, rsiB, rsiGap });
+      const rsiA = calcSimpleRsiSeries(lines[a], 14);
+      const rsiB = calcSimpleRsiSeries(lines[b], 14);
+      const rsiGap = (Number.isFinite(rsiA) && Number.isFinite(rsiB)) ? Math.abs(rsiA - rsiB) : null;
+      res.push({ pair: `${a}/${b}`, corr: r, score, rsiA, rsiB, rsiGap });
     }
   }
   res.sort((x, y) => y.score - x.score);
@@ -3490,14 +3491,6 @@ function _fmtPctLocal(x) {
     if (n > 70) return { label: "overbought", tone: "rgba(255,92,92,0.16)", border: "rgba(255,92,92,0.32)", color: "#ff8d8d" };
     if (n < 30) return { label: "oversold", tone: "rgba(57,217,138,0.16)", border: "rgba(57,217,138,0.32)", color: "#58e7a0" };
     return { label: "neutral", tone: "rgba(255,184,0,0.14)", border: "rgba(255,184,0,0.28)", color: "#ffd36a" };
-  }
-
-  function _rsiGapTone(v) {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return { bg: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.08)", color: "rgba(232,242,240,0.92)" };
-    if (Math.abs(n) >= 15) return { bg: "rgba(57,217,138,0.16)", border: "rgba(57,217,138,0.28)", color: "#58e7a0" };
-    if (Math.abs(n) >= 8) return { bg: "rgba(255,184,0,0.14)", border: "rgba(255,184,0,0.26)", color: "#ffd36a" };
-    return { bg: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.08)", color: "rgba(232,242,240,0.92)" };
   }
 
   function _seriesStatsFallback(arr) {
@@ -8353,9 +8346,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 >
                   {bestPairsToShow.length ? (
                     bestPairsToShow.map((p, i) => {
-                      const rsiATone = _rsiBadgeState(p.rsiA);
-                      const rsiBTone = _rsiBadgeState(p.rsiB);
-                      const gapTone = _rsiGapTone(p.rsiGap);
+                      const [a, b] = String(p?.pair || "").split("/");
+                      const rsiTextA = Number.isFinite(p?.rsiA) ? p.rsiA.toFixed(0) : "—";
+                      const rsiTextB = Number.isFinite(p?.rsiB) ? p.rsiB.toFixed(0) : "—";
+                      const rsiGapText = Number.isFinite(p?.rsiGap) ? p.rsiGap.toFixed(1) : "—";
                       return (
                       <div
                         key={p.pair}
@@ -8369,27 +8363,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
                       >
                         <span className="muted" style={{ width: 30, textAlign: "right" }}>#{i + 1}</span>
-                        <span className="pairName" style={{ flex: 1, minWidth: 120 }}>{p.pair}</span>
+                        <span className="pairName" style={{ flex: 1 }}>{p.pair}</span>
+                        <span className="muted tiny" style={{ minWidth: 120, textAlign: "right", whiteSpace: "nowrap" }}>
+                          RSI {a}: {rsiTextA} · {b}: {rsiTextB}
+                        </span>
+                        <span className="pill" title="RSI gap">{`Δ ${rsiGapText}`}</span>
                         <span className="pill silver">Score {p.score}</span>
                         <span className="pill">{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
-                        <span className="pill" style={{ background: rsiATone.tone, borderColor: rsiATone.border, color: rsiATone.color }}>
-                          {p.a || p.pair.split("/")[0]} RSI {Number.isFinite(p.rsiA) ? p.rsiA.toFixed(0) : "—"}
-                        </span>
-                        <span className="pill" style={{ background: rsiBTone.tone, borderColor: rsiBTone.border, color: rsiBTone.color }}>
-                          {p.b || p.pair.split("/")[1]} RSI {Number.isFinite(p.rsiB) ? p.rsiB.toFixed(0) : "—"}
-                        </span>
-                        <span className="pill" style={{ background: gapTone.bg, borderColor: gapTone.border, color: gapTone.color }}>
-                          Δ {Number.isFinite(p.rsiGap) ? (p.rsiGap > 0 ? "+" : "") + p.rsiGap.toFixed(1) : "—"}
-                        </span>
                       </div>
-                    )})
-                  ) : (
+                    )}))
+                  ) 
                     <div className="muted">Not enough chart data yet.</div>
                   )}
                 </div>
               </div>
             </div>
-          </div>
+          </div></div>
         </section>
 
         {/* Grid chart modal */}

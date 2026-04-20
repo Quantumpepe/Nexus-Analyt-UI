@@ -8616,8 +8616,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               flex: 1,
                               minWidth: 0,
                               display: "grid",
-                              gridTemplateColumns: "minmax(88px, 1.2fr) 120px 120px 56px auto auto",
-                              gap: 8,
+                              gridTemplateColumns: "minmax(88px, 0.8fr) 104px 104px 50px auto auto",
+                              gap: 5,
                               alignItems: "center",
                             }}
                           >

@@ -6512,18 +6512,6 @@ const manualRiskState = useMemo(() => {
 
 const [activePanel, setActivePanel] = useState(null);
 const isWatchSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "watchlist";
-const [isNarrowScreen, setIsNarrowScreen] = useState(() => {
-  if (typeof window === "undefined") return false;
-  return window.innerWidth <= 820;
-});
-useEffect(() => {
-  if (typeof window === "undefined") return undefined;
-  const onResize = () => setIsNarrowScreen(window.innerWidth <= 820);
-  onResize();
-  window.addEventListener("resize", onResize);
-  return () => window.removeEventListener("resize", onResize);
-}, []);
-const useCompactWatchlist = isWatchSidebarCompact || isNarrowScreen;
 const isGridSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "vault";
 const handlePanelActivate = useCallback((name) => (e) => {
   if (typeof window !== "undefined" && window.innerWidth <= 980) return;
@@ -7033,7 +7021,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
 
         @media (max-width: 820px) {
-          /* Mobile: let JSX switch Watchlist / Best pairs to compact cards to prevent overlapping values */
+          /* Mobile: keep desktop-style Compare + Watchlist, but smaller and horizontally scrollable inside the panel */
           .section-compare .panelScroll,
           .section-watch .panelScroll{
             overflow-x: hidden !important;
@@ -7068,38 +7056,81 @@ const handlePanelActivate = useCallback((name) => (e) => {
             align-items: flex-start !important;
           }
           .section-compare .pairsScroll{
-            overflow-x: hidden !important;
+            overflow-x: auto !important;
             overflow-y: auto !important;
             -webkit-overflow-scrolling: touch;
             padding: 8px !important;
           }
-
-          .section-watch .watchCompactCard{
-            grid-template-columns: auto 1fr auto !important;
-            align-items: start !important;
+          .section-compare .pairRow{
+            display: flex !important;
+            align-items: center !important;
+            min-width: 760px !important;
+            padding: 10px 8px !important;
+            gap: 8px !important;
           }
-          .section-watch .watchCompactMain,
-          .section-watch .watchCompactPrice,
-          .section-watch .watchCompactMeta{
-            min-width: 0 !important;
+          .section-compare .pairRow > span:first-child{
+            flex: 0 0 34px !important;
+            width: 34px !important;
+            font-size: 12px !important;
           }
-          .section-watch .watchCompactTop{
-            align-items: flex-start !important;
-          }
-          .section-watch .watchCompactMeta{
+          .section-compare .pairRow > div{
             display: grid !important;
-            gap: 2px !important;
+            grid-template-columns: minmax(120px, 1.3fr) 118px 118px 64px auto auto !important;
+            gap: 8px !important;
+            align-items: center !important;
+            min-width: 0 !important;
+            flex: 1 0 auto !important;
           }
-          .section-watch .watchCompactStats{
-            row-gap: 4px !important;
+          .section-compare .pairName{
+            white-space: nowrap !important;
+            font-size: 12px !important;
           }
-          .section-watch .watchCompactStats .muted,
-          .section-watch .watchCompactStats .mono,
-          .section-watch .watchCompactPrice .mono{
+          .section-compare .pairRow .pill{
+            font-size: 11px !important;
+            padding: 4px 8px !important;
+            line-height: 1.05 !important;
+          }
+
+          .section-watch .watchTable,
+          .section-watch .watchScroll{
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+          }
+          .section-watch .watchHead,
+          .section-watch .watchRow{
+            min-width: 760px !important;
+            grid-template-columns: 16px 36px minmax(130px,1fr) 110px 78px 126px 84px 36px !important;
+            gap: 10px !important;
+            align-items: center !important;
+          }
+          .section-watch .watchHead{
             font-size: 11px !important;
           }
+          .section-watch .watchRow{
+            padding: 8px 6px !important;
+          }
+          .section-watch .watchCoin{
+            min-width: 0 !important;
+            white-space: nowrap !important;
+          }
           .section-watch .watchSym{
-            font-size: 13px !important;
+            font-size: 12px !important;
+          }
+          .section-watch .watchRow .coinLogo.small{
+            width: 18px !important;
+            height: 18px !important;
+            font-size: 10px !important;
+          }
+          .section-watch .watchRow .mono,
+          .section-watch .watchRow .muted,
+          .section-watch .watchRow button,
+          .section-watch .watchRow input{
+            font-size: 12px !important;
+          }
+          .section-watch .watchRow .iconBtn{
+            width: 28px !important;
+            height: 28px !important;
+            min-width: 28px !important;
           }
         }
 
@@ -8558,81 +8589,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             : "rgba(255,255,255,0.06)"
                         : "rgba(255,255,255,0.06)";
 
-                      return isNarrowScreen ? (
-                        <div
-                          key={p.pair}
-                          className="pairRow"
-                          style={{
-                            cursor: "pointer",
-                            marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
-                            padding: "10px 12px",
-                            borderRadius: 14,
-                            border: "1px solid rgba(255,255,255,.06)",
-                            background: "rgba(255,255,255,.03)",
-                            display: "grid",
-                            gap: 8,
-                          }}
-                          onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                              <span className="muted tiny" style={{ flex: "0 0 auto", width: 28, textAlign: "right" }}>#{i + 1}</span>
-                              <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.pair}</span>
-                            </div>
-                            <span className="pill silver" style={{ whiteSpace: "nowrap", flex: "0 0 auto" }}>Score {p.score}</span>
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 8 }}>
-                            <span
-                              className="pill"
-                              style={{
-                                justifyContent: "center",
-                                padding: "4px 8px",
-                                fontSize: 12,
-                                lineHeight: 1,
-                                background: rsiAState.tone,
-                                borderColor: rsiAState.border,
-                                color: rsiAState.color,
-                                whiteSpace: "nowrap",
-                                minWidth: 0,
-                              }}
-                            >
-                              {p.a || p.pair.split("/")[0]} {Number.isFinite(p.rsiA) ? p.rsiA.toFixed(0) : "—"} RSI
-                            </span>
-                            <span
-                              className="pill"
-                              style={{
-                                justifyContent: "center",
-                                padding: "4px 8px",
-                                fontSize: 12,
-                                lineHeight: 1,
-                                background: rsiBState.tone,
-                                borderColor: rsiBState.border,
-                                color: rsiBState.color,
-                                whiteSpace: "nowrap",
-                                minWidth: 0,
-                              }}
-                            >
-                              {p.b || p.pair.split("/")[1]} {Number.isFinite(p.rsiB) ? p.rsiB.toFixed(0) : "—"} RSI
-                            </span>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                            <span
-                              className="pill"
-                              style={{
-                                justifyContent: "center",
-                                padding: "4px 8px",
-                                fontSize: 12,
-                                lineHeight: 1,
-                                background: rsiGapTone,
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              Δ {Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"}
-                            </span>
-                            <span className="pill" style={{ whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
-                          </div>
-                        </div>
-                      ) : (
+                      return (
                         <div
                           key={p.pair}
                           className="pairRow"
@@ -9881,7 +9838,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
 
           <div className="panelScroll"><div className="watchTable">
-            {!useCompactWatchlist ? (
+            {!isWatchSidebarCompact ? (
               <>
                 <div className="watchHead watchStickyHead">
                   <div>Move</div>
@@ -9969,11 +9926,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         </div>
                         <div className="watchCompactStats" style={{ gap: 6 }}>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>
-                            Compare {checked ? "on" : "off"}
-                          </span>
                           <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>Vol {fmtUsd(r.volume24h)}</span>
                           <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>{r.source || "—"}</span>
                         </div>
                       </div>

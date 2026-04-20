@@ -6537,39 +6537,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
         #root { max-width: 100%; overflow-x: hidden; }
 
         @media (max-width: 820px) {
-          .pairsScroll {
-            overflow-x: auto !important;
-            -webkit-overflow-scrolling: touch;
-          }
-          .pairRow {
-            min-width: 620px;
-          }
-          .pairRow .pairGrid {
-            grid-template-columns: minmax(84px, 1.1fr) 104px 104px 50px 86px 58px !important;
-            gap: 6px !important;
-          }
-          .pairRow .pairRank {
-            width: 28px !important;
-            flex: 0 0 28px !important;
-            font-size: 12px !important;
-          }
-          .pairRow .pairName {
-            font-size: 12px !important;
-          }
-          .pairRow .pairPill {
-            font-size: 11px !important;
-            padding: 4px 6px !important;
-          }
-          .pairRow .pairPillA,
-          .pairRow .pairPillB {
-            width: 104px !important;
-          }
-          .pairRow .pairPillGap {
-            width: 50px !important;
-          }
-        }
-
-        @media (max-width: 820px) {
           header.topbar {
             flex-direction: column !important;
             flex-wrap: nowrap !important;
@@ -7097,31 +7064,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-compare .pairRow{
             display: flex !important;
             align-items: center !important;
-            min-width: 620px !important;
-            padding: 10px 8px !important;
-            gap: 8px !important;
+            min-width: 540px !important;
+            padding: 8px 6px !important;
+            gap: 6px !important;
           }
           .section-compare .pairRow > span:first-child{
-            flex: 0 0 28px !important;
-            width: 28px !important;
-            font-size: 12px !important;
+            flex: 0 0 24px !important;
+            width: 24px !important;
+            font-size: 11px !important;
           }
           .section-compare .pairRow > div{
             display: grid !important;
-            grid-template-columns: minmax(82px, 1.2fr) 104px 104px 52px auto auto !important;
-            gap: 6px !important;
+            grid-template-columns: minmax(72px, 1fr) 96px 96px 46px 78px 0 !important;
+            gap: 5px !important;
             align-items: center !important;
             min-width: 0 !important;
             flex: 1 0 auto !important;
           }
           .section-compare .pairName{
             white-space: nowrap !important;
-            font-size: 12px !important;
+            font-size: 11px !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
           }
           .section-compare .pairRow .pill{
-            font-size: 11px !important;
-            padding: 4px 8px !important;
+            font-size: 10px !important;
+            padding: 4px 6px !important;
             line-height: 1.05 !important;
+            min-width: 0 !important;
+          }
+          .section-compare .pairRow .pill:last-child{
+            display: none !important;
           }
 
           .section-watch .watchTable,
@@ -8591,7 +8564,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10 }}>
                   <div className="muted tiny">Showing {bestPairsToShow.length} / {bestPairsAll.length} pairs</div>
-                  <button className="ghostBtn tiny" onClick={() => setShowTop10Pairs(v => !v)}>
+                  <button className="ghostBtn tiny" onClick={() => setShowTop10Pairs(v => !v)} style={{ padding: "6px 10px" }}>
                     {showTop10Pairs ? "Show all pairs" : "Show top 10"}
                   </button>
                 </div>
@@ -8634,10 +8607,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           }}
                           onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
                         >
-                          <span className="muted pairRank" style={{ width: 34, textAlign: "right", flex: "0 0 34px" }}>#{i + 1}</span>
+                          <span className="muted" style={{ width: 34, textAlign: "right", flex: "0 0 34px" }}>#{i + 1}</span>
 
                           <div
-                            className="pairGrid"
                             style={{
                               flex: 1,
                               minWidth: 0,
@@ -8650,7 +8622,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap" }}>{p.pair}</span>
 
                             <span
-                              className="pill pairPill pairPillA"
+                              className="pill"
                               style={{
                                 width: 120,
                                 justifyContent: "center",
@@ -8667,7 +8639,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </span>
 
                             <span
-                              className="pill pairPill pairPillB"
+                              className="pill"
                               style={{
                                 width: 120,
                                 justifyContent: "center",
@@ -8684,7 +8656,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </span>
 
                             <span
-                              className="pill pairPill pairPillGap"
+                              className="pill"
                               style={{
                                 width: 56,
                                 justifyContent: "center",
@@ -8698,8 +8670,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               Δ {Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"}
                             </span>
 
-                            <span className="pill silver pairPill pairPillScore" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>Score {p.score}</span>
-                            <span className="pill pairPill pairPillCorr" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
+                            <span className="pill silver" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>Score {p.score}</span>
+                            <span className="pill" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                           </div>
                         </div>
                       );

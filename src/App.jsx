@@ -7075,8 +7075,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .section-compare .pairRow > div{
             display: grid !important;
-            grid-template-columns: minmax(120px, 1.3fr) 118px 118px 64px auto auto !important;
-            gap: 8px !important;
+            grid-template-columns: minmax(96px, 1.0fr) 118px 118px 64px auto auto !important;
+            gap: 6px !important;
             align-items: center !important;
             min-width: 0 !important;
             flex: 1 0 auto !important;
@@ -7098,9 +7098,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .section-watch .watchHead,
           .section-watch .watchRow{
-            min-width: 760px !important;
-            grid-template-columns: 16px 36px minmax(130px,1fr) 110px 78px 126px 84px 36px !important;
-            gap: 10px !important;
+            min-width: 790px !important;
+            grid-template-columns: 16px 36px minmax(130px,1fr) 118px 92px 150px 92px 36px !important;
+            gap: 14px !important;
             align-items: center !important;
           }
           .section-watch .watchHead{
@@ -7115,6 +7115,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .section-watch .watchSym{
             font-size: 12px !important;
+          }
+          .section-watch .watchRow > :nth-child(5),
+          .section-watch .watchHead > :nth-child(5){
+            padding-right: 8px !important;
+          }
+          .section-watch .watchRow > :nth-child(6),
+          .section-watch .watchHead > :nth-child(6){
+            padding-left: 10px !important;
           }
           .section-watch .watchRow .coinLogo.small{
             width: 18px !important;

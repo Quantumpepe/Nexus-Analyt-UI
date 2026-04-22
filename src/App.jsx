@@ -9815,13 +9815,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
           <div className="panelScroll"><div className="watchTable">
             {!isWatchSidebarCompact ? (
               <>
-                <div className="watchHead watchStickyHead" style={{ gridTemplateColumns: "72px minmax(110px,1.05fr) 84px 110px 140px 140px 72px", gap: 10 }}>
+                <div
+                  className="watchHead watchStickyHead"
+                  style={{
+                    gridTemplateColumns: "54px 96px 74px 114px 146px 146px minmax(0,1fr) 44px",
+                    gap: 8,
+                  }}
+                >
                   <div style={{ textAlign: "center" }}>Compare</div>
                   <div>Coin</div>
                   <div className="right">%</div>
                   <div className="right">Price</div>
                   <div className="right">24h Vol</div>
                   <div className="right">Market Cap</div>
+                  <div />
                   <div className="right"> </div>
                 </div>
 
@@ -9843,8 +9850,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "42px minmax(150px,1.05fr) 84px 110px 140px 140px 72px",
-                          gap: 10,
+                          gridTemplateColumns: "54px 96px 74px 114px 146px 146px minmax(0,1fr) 44px",
+                          gap: 8,
                         }}
                       >
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -9859,6 +9866,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{fmtUsd(r.volume24h)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{marketCap != null ? fmtUsd(marketCap) : "—"}</div>
+                        <div />
                         <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
                       </div>
                     );

@@ -9815,7 +9815,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           <div className="panelScroll"><div className="watchTable">
             {!isWatchSidebarCompact ? (
               <>
-                <div className="watchHead watchStickyHead" style={{ gridTemplateColumns: "36px 120px 70px 110px 140px 140px 40px", gap: 10 }}>
+                <div className="watchHead watchStickyHead" style={{ gridTemplateColumns: "52px 120px 70px 110px 140px 140px 40px", gap: 10 }}>
                   <div style={{ textAlign: "center" }}>Compare</div>
                   <div>Coin</div>
                   <div className="right">%</div>
@@ -9843,7 +9843,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "36px 120px 70px 110px 140px 140px 40px",
+                          gridTemplateColumns: "36px 120px 70px 110px 140px 140px 75px",
                           gap: 10,
                         }}
                       >

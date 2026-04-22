@@ -9953,8 +9953,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "42px 92px 52px 86px 126px 126px 118px 40px",
-                    gap: 6,
+                    gridTemplateColumns: "42px minmax(90px,1fr) 72px 128px 160px 170px 96px 52px",
+                    gap: 8,
                   }}
                 >
                   <div aria-hidden="true" />
@@ -9985,8 +9985,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "42px 92px 52px 86px 126px 126px 118px 40px",
-                          gap: 6,
+                          gridTemplateColumns: "42px minmax(90px,1fr) 72px 128px 160px 170px 96px 52px",
+                          gap: 8,
                         }}
                       >
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
@@ -9997,10 +9997,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
                           </div>
                         </div>
-                        <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{fmtUsd(r.volume24h)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, paddingRight: 2 }}>{marketCap != null ? fmtUsd(marketCap) : "—"}</div>
+                        <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtPct(r.change24h)}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtUsd(r.price)}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtUsd(r.volume24h)}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, paddingRight: 2, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{marketCap != null ? fmtUsd(marketCap) : "—"}</div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <InlineWatchSpark
                             sym={sym}
@@ -10011,7 +10011,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             lineClassForSym={lineClassForSym}
                           />
                         </div>
-                        <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
+                        <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", width: "100%", paddingRight: 2 }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1, marginLeft: "auto" }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
                       </div>
                     );
                   })}

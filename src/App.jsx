@@ -9818,12 +9818,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "54px 96px 74px 114px 146px 146px minmax(0,1fr) 44px",
+                    gridTemplateColumns: "42px 110px 74px 114px 146px 146px minmax(0,1fr) 44px",
                     gap: 8,
                   }}
                 >
-                  <div style={{ textAlign: "center" }}>Compare</div>
-                  <div>Coin</div>
+                  <div aria-hidden="true" />
+                  <div style={{ paddingLeft: 2 }}>Coin</div>
                   <div className="right">%</div>
                   <div className="right">Price</div>
                   <div className="right">24h Vol</div>
@@ -9850,11 +9850,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "54px 96px 74px 114px 146px 146px minmax(0,1fr) 44px",
+                          gridTemplateColumns: "42px 110px 74px 114px 146px 146px minmax(0,1fr) 44px",
                           gap: 8,
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
                           <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.95)" }} />
                         </div>
                         <div className="watchCoin" style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
@@ -9895,7 +9895,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
                         <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
                       </div>
                       <div className="watchCompactMain">

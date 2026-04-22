@@ -1494,6 +1494,92 @@ function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym
   );
 }
 
+function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, idx = 0 }) {
+  const color = colorForSym ? colorForSym(sym) : PALETTE20[idx % 10];
+  const cls = lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`;
+  const liveSeries = Array.isArray(seriesMap?.[sym]) ? (seriesMap[sym] || []) : [];
+
+  const values = (() => {
+    const numeric = (liveSeries || [])
+      .map((pt) => {
+        if (Array.isArray(pt)) return Number(pt[1]);
+        if (pt && typeof pt === 'object') {
+          return Number(pt.price ?? pt.value ?? pt.close ?? pt.y);
+        }
+        return Number(pt);
+      })
+      .filter((v) => Number.isFinite(v) && v > 0);
+    if (numeric.length >= 8) return numeric.slice(-30);
+
+    const price = Number(row?.price);
+    const chg = Number(row?.change24h);
+    if (!Number.isFinite(price) || price <= 0) return [];
+    const start = Number.isFinite(chg) ? price / (1 + chg / 100) : price * 0.985;
+    const drift = Number.isFinite(chg) ? (price - start) / 11 : 0;
+    return Array.from({ length: 12 }, (_, i) => {
+      const wiggle = Math.sin(i * 0.85) * Math.abs(price) * 0.0035;
+      return start + drift * i + wiggle;
+    }).filter((v) => Number.isFinite(v) && v > 0);
+  })();
+
+  if (!values.length) {
+    return <div className="watchMiniSpark empty" aria-hidden="true">—</div>;
+  }
+
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of values) {
+    min = Math.min(min, v);
+    max = Math.max(max, v);
+  }
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+    min = min * 0.995;
+    max = max * 1.005;
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
+      min = 0;
+      max = 1;
+    }
+  }
+
+  const w = 96;
+  const h = 28;
+  const padX = 3;
+  const padY = 3;
+  const innerW = w - padX * 2;
+  const innerH = h - padY * 2;
+  const sx = (i) => padX + (i * innerW) / Math.max(1, values.length - 1);
+  const sy = (v) => {
+    const t = (v - min) / Math.max(1e-9, (max - min));
+    return padY + (1 - t) * innerH;
+  };
+
+  let d = '';
+  values.forEach((v, i) => {
+    const X = sx(i);
+    const Y = sy(v);
+    d += d ? ` L ${X} ${Y}` : `M ${X} ${Y}`;
+  });
+
+  const trendUp = values[values.length - 1] >= values[0];
+
+  return (
+    <div className="watchMiniSpark" title={`${sym} mini chart`}>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
+        <path
+          d={d}
+          className={`chartLine ${cls}`}
+          style={{
+            fill: 'none',
+            stroke: color,
+            strokeWidth: 2.1,
+            opacity: trendUp ? 0.98 : 0.9,
+          }}
+        />
+      </svg>
+    </div>
+  );
+}
+
 function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, colorForSym, lineClassForSym }) {
   const { x, lines } = chart || { x: [], lines: {} };
   const arr = (lines?.[sym] || []).slice();
@@ -6932,6 +7018,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
             line-height: 1.3 !important;
           }
 
+          .watchMiniSpark{
+            width: 92px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            background: rgba(255,255,255,.025);
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+            overflow: hidden;
+          }
+          .watchMiniSpark svg{
+            width: 100%;
+            height: 100%;
+            display: block;
+          }
+          .watchMiniSpark.empty{
+            font-size: 11px;
+            color: rgba(232,242,240,.45);
+          }
           .watchCompact{
             display: grid;
             gap: 10px;
@@ -9818,7 +9924,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "42px 110px 74px 114px 146px 146px minmax(0,1fr) 44px",
+                    gridTemplateColumns: "42px 96px 66px 102px 152px 152px 92px 40px",
                     gap: 8,
                   }}
                 >
@@ -9828,7 +9934,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="right">Price</div>
                   <div className="right">24h Vol</div>
                   <div className="right">Market Cap</div>
-                  <div />
+                  <div className="center">Chart</div>
                   <div className="right"> </div>
                 </div>
 
@@ -9850,7 +9956,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "42px 110px 74px 114px 146px 146px minmax(0,1fr) 44px",
+                          gridTemplateColumns: "42px 96px 66px 102px 152px 152px 92px 40px",
                           gap: 8,
                         }}
                       >
@@ -9865,8 +9971,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{fmtUsd(r.volume24h)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{marketCap != null ? fmtUsd(marketCap) : "—"}</div>
-                        <div />
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, paddingRight: 2 }}>{marketCap != null ? fmtUsd(marketCap) : "—"}</div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <InlineWatchSpark
+                            sym={sym}
+                            row={r}
+                            idx={idx}
+                            seriesMap={compareSeriesView}
+                            colorForSym={colorForSym}
+                            lineClassForSym={lineClassForSym}
+                          />
+                        </div>
                         <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
                       </div>
                     );

@@ -1494,9 +1494,7 @@ function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym
   );
 }
 
-function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, idx = 0 }) {
-  const color = colorForSym ? colorForSym(sym) : PALETTE20[idx % 10];
-  const cls = lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`;
+function InlineWatchSpark({ sym, row, seriesMap, idx = 0 }) {
   const liveSeries = Array.isArray(seriesMap?.[sym]) ? (seriesMap[sym] || []) : [];
 
   const values = (() => {
@@ -1504,13 +1502,16 @@ function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, i
       .map((pt) => {
         if (Array.isArray(pt)) return Number(pt[1]);
         if (pt && typeof pt === 'object') {
-          return Number(pt.price ?? pt.value ?? pt.close ?? pt.y);
+          return Number(pt.v ?? pt.price ?? pt.value ?? pt.close ?? pt.y);
         }
         return Number(pt);
       })
       .filter((v) => Number.isFinite(v) && v > 0);
-    if (numeric.length >= 8) return numeric.slice(-30);
 
+    // Watchlist sparkline should always reflect the latest 24h only.
+    if (numeric.length >= 2) return numeric.slice(-24);
+
+    // Safe fallback for newly added coins before full 24h series is available.
     const price = Number(row?.price);
     const chg = Number(row?.change24h);
     if (!Number.isFinite(price) || price <= 0) return [];
@@ -1561,24 +1562,25 @@ function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, i
   });
 
   const trendUp = values[values.length - 1] >= values[0];
+  const strokeColor = trendUp ? 'var(--green)' : 'var(--red)';
 
   return (
-    <div className="watchMiniSpark" title={`${sym} mini chart`}>
+    <div className="watchMiniSpark" title={`${sym} 24h mini chart`}>
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
         <path
           d={d}
-          className={`chartLine ${cls}`}
           style={{
             fill: 'none',
-            stroke: color,
+            stroke: strokeColor,
             strokeWidth: 2.1,
-            opacity: trendUp ? 0.98 : 0.9,
+            opacity: trendUp ? 0.98 : 0.92,
           }}
         />
       </svg>
     </div>
   );
 }
+
 
 function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, colorForSym, lineClassForSym }) {
   const { x, lines } = chart || { x: [], lines: {} };
@@ -4126,6 +4128,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }, [gridModalSym, compareSymbols.join("|")]);
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
+  const compareSeries1DView = useMemo(() => sliceCompareSeries(compareSeries, "1D"), [compareSeries]);
 
   const visibleCompareSymbols = useMemo(() => {
     if (comparePage === "first10") return compareSymbols.slice(0, 10);
@@ -9977,9 +9980,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             sym={sym}
                             row={r}
                             idx={idx}
-                            seriesMap={compareSeriesView}
-                            colorForSym={colorForSym}
-                            lineClassForSym={lineClassForSym}
+                            seriesMap={compareSeries1DView}
                           />
                         </div>
                         <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>

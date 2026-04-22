@@ -6816,10 +6816,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
           /* re-enable Compare internal scrolls after the global desktop override */
           .section-compare .compareGrid{
             display: grid !important;
-            grid-template-columns: minmax(220px, 240px) minmax(0, 1fr) !important;
+            grid-template-columns: minmax(0, 1fr) !important;
             align-items: start !important;
             min-height: 0 !important;
             gap: 16px !important;
+          }
+          .section-compare .compareLive{
+            display: none !important;
           }
           .section-compare .compareChart{
             display: flex !important;
@@ -6846,7 +6849,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             padding-right: 8px !important;
             padding-bottom: 48px !important;
             margin-top: 6px !important;
-            margin-bottom: 24px !important;
+            margin-bottom: 16px !important;
             scroll-padding-bottom: 48px !important;
             overscroll-behavior: contain !important;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
@@ -6882,7 +6885,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           /* focused desktop: give Compare more usable pair-list height */
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsScroll{
             min-height: 0 !important;
-            max-height: clamp(260px, 34vh, 520px) !important;
+            max-height: clamp(320px, 42vh, 620px) !important;
             padding-bottom: 64px !important;
             scroll-padding-bottom: 64px !important;
           }
@@ -7326,7 +7329,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 {accessTab === "redeem" ? (
                   <div>
                     <div className="hint">Enter your permanent code:</div>
-                    <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                    <div className="row" style={{ gap: 6, marginTop: 8 }}>
                       <input
                         className="input"
                         value={redeemCode}
@@ -7345,7 +7348,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       Subscribe for <b>Nexus Pro</b> (${SUB_PRICE_USD}/30 days). Pay with <b>ETH / BNB / POL</b> (native) or <b>USDC/USDT</b>.
                     </div>
 
-                    <div className="row" style={{ gap: 8, marginBottom: 10, alignItems: "center" }}>
+                    <div className="row" style={{ gap: 6, marginBottom: 10, alignItems: "center" }}>
                       <div className="hint" style={{ margin: 0, opacity: 0.9 }}>Network:</div>
                       <select
                         className="select"
@@ -7359,7 +7362,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </select>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                       <div style={{ flex: 1 }} />
                       <button
                         type="button"
@@ -7389,7 +7392,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       Selected: <b>Nexus Pro ${SUB_PRICE_USD}</b> · <b>{subToken}</b>
                     </div>
 
-                    <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                    <div className="row" style={{ gap: 6, marginTop: 8 }}>
                       <button className="btn" disabled={subBusy} onClick={subscribePay}>
                         {subBusy ? "..." : "Pay & Activate"}
                       </button>
@@ -7602,7 +7605,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       
                       {/* Grid budget info (per-chain, if available) */}
                       {gridBudgets?.by_chain && Object.keys(gridBudgets.by_chain).length ? (
-                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.82, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.82, display: "flex", gap: 6, flexWrap: "wrap" }}>
                           <span>In bots: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.locked_usd || 0))}</b></span>
                           <span style={{ opacity: 0.6 }}>|</span>
                           <span>Free: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.available_usd || 0))}</b></span>
@@ -8438,32 +8441,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             }}
           >
 			<div className="compareGrid">
-            {/* Live list */}
-            <div className="compareLive">
-              <div className="label">Live Prices (USD)</div>
-              <div className="muted tiny">{comparePage === "first10" ? "Showing compare coins 1–10" : comparePage === "next10" ? "Showing compare coins 11–20" : "Showing all compare coins (max 20)"}</div>
-
-              <div className="liveListBox">
-                {liveList.map(({ sym, row }) => (
-                  <div key={sym} className="liveRow">
-                    <div className="liveLeft">
-                      <div className="coinLogo small">{sym.slice(0, 1)}</div>
-                      <div className="liveMeta">
-                        <div className="liveSym">{sym}</div>
-                        <div className="muted tiny">{row?.source || "—"}</div>
-                      </div>
-                    </div>
-
-                    <div className="liveRight">
-                      <div className="mono livePx">{fmtUsd(row?.price)}</div>
-                      <div className={`mono tiny ${Number(row?.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(row?.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(row?.change24h)}</div>
-                    </div>
-                  </div>
-                ))}
-                {!liveList.length ? <div className="muted">Select coins in Watchlist (Compare checkbox).</div> : null}
-              </div>
-            </div>
-
             {/* Chart */}
             <div className="compareChart">
               <div className="chartHeader">
@@ -8479,12 +8456,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
               {viewMode === "overlay" ? (
               <>
                 {visibleCompareSymbols.length === 0 ? (
-                  <div className="chartEmpty" style={{ minHeight: 360 }}>
+                  <div className="chartEmpty" style={{ minHeight: 420 }}>
                     <div className="muted">No coins in this compare range.</div>
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={chartRaw} height={360} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <SvgChart chart={chartRaw} height={430} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     <div style={{ marginTop: 10 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>
@@ -8531,7 +8508,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                 <div className="pairsHead">
                   <div className="label">Best pairs (data fit)</div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                     <div className="muted tiny">Based on correlation (index)</div>
                     <InfoButton title="Best pairs">
                       <Help showClose dismissable
@@ -8626,7 +8603,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill"
                               style={{
-                                width: 120,
+                                width: 108,
                                 justifyContent: "center",
                                 padding: "4px 8px",
                                 fontSize: 12,
@@ -8643,7 +8620,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill"
                               style={{
-                                width: 120,
+                                width: 108,
                                 justifyContent: "center",
                                 padding: "4px 8px",
                                 fontSize: 12,
@@ -8660,7 +8637,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill"
                               style={{
-                                width: 56,
+                                width: 52,
                                 justifyContent: "center",
                                 padding: "4px 8px",
                                 fontSize: 12,
@@ -8719,7 +8696,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <span>Hover for date + value</span>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                   <button
                     className={`chip ${!indexMode ? "active" : ""}`}
                     onClick={() => setIndexMode(false)}
@@ -8820,7 +8797,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </span>
                         </div>
 
-                        <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                        <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
                           <div className="label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <span>Daily moves (last {30} days)</span>
                             <span className="muted tiny">{selectedPair.pair}</span>
@@ -8834,7 +8811,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                             return (
                               <div style={{ border: "none", borderRadius: 12, overflow: "hidden" }}>
-                                <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 1fr 1fr", gap: 8, padding: "8px 10px", background: "rgba(255,255,255,0.04)" }} className="muted tiny">
+                                <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 1fr 1fr", gap: 6, padding: "8px 10px", background: "rgba(255,255,255,0.04)" }} className="muted tiny">
                                   <div>Date</div>
                                   <div>{a}</div>
                                   <div>{b}</div>
@@ -8842,7 +8819,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 </div>
                                 <div style={{ maxHeight: 180, overflow: "auto" }}>
                                   {rows.slice().reverse().map((r, i) => (
-                                    <div key={i} style={{ display: "grid", gridTemplateColumns: "90px 1fr 1fr 1fr", gap: 8, padding: "7px 10px", borderTop: "1px solid rgba(255,255,255,0.06)" }} className="tiny">
+                                    <div key={i} style={{ display: "grid", gridTemplateColumns: "90px 1fr 1fr 1fr", gap: 6, padding: "7px 10px", borderTop: "1px solid rgba(255,255,255,0.06)" }} className="tiny">
                                       <div className="muted">{_fmtDay(r.t)}</div>
                                       <div style={_pctColorStyle(r.a)}>{_fmtPctLocal(r.a)}</div>
                                       <div style={_pctColorStyle(r.b)}>{_fmtPctLocal(r.b)}</div>
@@ -8869,13 +8846,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return (
                             <div style={{
                               display: "grid",
-                              gap: 8,
+                              gap: 6,
                               padding: "12px",
                               borderRadius: "12px",
                               background: quality.bg,
                               border: `1px solid ${quality.border}`
                             }}>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                                 <span style={{ color: quality.color, fontWeight: 900 }}>{quality.label}</span>
                                 <span className="pill silver">Score {selectedPair.score}</span>
                               </div>
@@ -8925,7 +8902,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
 
-                      <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                      <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                         <div className="label" style={{ marginBottom: 0 }}>AI Conclusion</div>
                         <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.4 }}>
                           {aiExplainData.verdictText || "No clear AI conclusion available yet."}
@@ -8938,7 +8915,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
 
                       {(aiExplainData.trendStructure || aiExplainData.momentumShift || aiExplainData.insightSummary) ? (
-                        <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                        <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                           <div className="label" style={{ marginBottom: 0 }}>Multi-timeframe AI Insight</div>
                           {aiExplainData.trendStructure ? (
                             <div><span className="muted tiny">Trend Structure</span><div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.trendStructure}</div></div>
@@ -9009,7 +8986,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const latestY = Number.isFinite(latestSpread) ? sy(latestSpread) : zeroY;
                         return (
                           <>
-                            <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                            <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                               <div className="label" style={{ marginBottom: 0 }}>RSI / Pair State</div>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
                                 <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: rsiAState.tone }}>
@@ -9036,7 +9013,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div className="muted tiny" style={{ lineHeight: 1.45 }}>RSI helps identify overbought vs oversold conditions. Correlation + spread show whether the pair is more suitable for trend continuation or mean reversion.</div>
                             </div>
 
-                            <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                            <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                               <div className="label" style={{ marginBottom: 0 }}>Risk / Grid Fit</div>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
                                 <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Health Score</div><div style={{ fontWeight: 900, marginTop: 4 }}>{healthScore}/100</div></div>
@@ -9047,7 +9024,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div className="muted tiny" style={{ lineHeight: 1.45 }}>This panel currently reflects local risk metrics based on volatility and drawdown.</div>
                             </div>
 
-                            <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                            <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                                 <div>
                                   <div className="label" style={{ marginBottom: 0 }}>Spread Analysis</div>
@@ -9100,7 +9077,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div className="label" style={{ marginBottom: 0 }}>Longer-Term Reversion Idea</div>
 
                         {aiExplainData.winner && aiExplainData.loser ? (
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                             <span className="pill" style={{ background: "rgba(255,92,92,0.18)", borderColor: "rgba(255,92,92,0.35)" }}>SELL {aiExplainData.winner} later-view</span>
                             <span className="pill" style={{ background: "rgba(57,217,138,0.18)", borderColor: "rgba(57,217,138,0.35)" }}>BUY {aiExplainData.loser} later-view</span>
                           </div>
@@ -9381,7 +9358,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="formRow">
                 <label>Payout asset</label>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   {visiblePayoutAssets.map((asset) => {
                     const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
                     return (
@@ -9549,7 +9526,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               </div>
 
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 10 }}>
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 10 }}>
                 <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Price preset:</div>
 
                 <button
@@ -9593,7 +9570,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </button>
               </div>
 
-              <div className="row" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+              <div className="row" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
                 <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Quick price:</div>
 
                 <button className="btn" type="button" onClick={setManualPriceFromMarket} disabled={!shownGridPrice} title="Set price to current market" style={compactGridChipStyle}>
@@ -9717,7 +9694,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           }}
                         >
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                               <span className="pill silver">{chainKey}</span>
                               <span className="muted tiny">{chainOrders.length} open</span>
                               <span className="muted tiny">Exposure {fmtUsd(totalExposure)}</span>
@@ -9770,7 +9747,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   className="orderRow"
                                   style={{ padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
                                 >
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, flexWrap: "wrap" }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0, flex: "1 1 460px", fontSize: 11 }}>
                                       <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`} style={{ fontSize: 10, padding: "4px 7px" }}>{o.side}</span>
                                       <span className="orderPx" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{fmtUsd(Number(o?.price || 0))}</span>
@@ -10003,7 +9980,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </select>
               </div>
 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <label className="muted" style={{ display: "inline-flex", gap: 8, alignItems: "center", userSelect: "none" }}>
+                <label className="muted" style={{ display: "inline-flex", gap: 6, alignItems: "center", userSelect: "none" }}>
                   <input
                     type="checkbox"
                     checked={aiFollowUp}
@@ -10086,7 +10063,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
     <div className="modal" onClick={(e) => e.stopPropagation()}>
       <div className="modalHead">
         <div className="cardTitle">{addTab === "dex" ? "Add token (Contract)" : "Select token (CoinGecko)"}</div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <InfoButton title="Select token (CoinGecko)">
             <Help
               de={
@@ -10192,7 +10169,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 </div>
 
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
 	                <button className="btn" onClick={() => addMarketCoin(coin)}>
                     Add
                   </button>

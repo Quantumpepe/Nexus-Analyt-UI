@@ -481,18 +481,6 @@ const fmtUsd = (n) => {
   });
 };
 
-const getWatchMarketCap = (row) => {
-  const v =
-    row?.marketCap ??
-    row?.market_cap ??
-    row?.marketcap ??
-    row?.mcap ??
-    row?.mc ??
-    null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
 const fmtQty = (n, maxDp = 6) => {
   if (n == null || !Number.isFinite(n)) return "—";
   // show more decimals for tiny values
@@ -4505,7 +4493,6 @@ const [aiLoading, setAiLoading] = useState(false);
           vs_currencies: "usd",
           include_24hr_change: "true",
           include_24hr_vol: "true",
-          include_market_cap: "true",
         }).toString();
         const cg = await api(`/api/coingecko/simple_price?${qs}`, { method: "GET", token, wallet });
         for (const [id, data] of Object.entries(cg || {})) {
@@ -4515,7 +4502,6 @@ const [aiLoading, setAiLoading] = useState(false);
             price: p,
             change24h: Number(data?.usd_24h_change),
             volume24h: Number(data?.usd_24h_vol),
-            marketCap: Number(data?.usd_market_cap),
             source: "coingecko-id",
           };
         }
@@ -4556,7 +4542,6 @@ const [aiLoading, setAiLoading] = useState(false);
               price: p,
               change24h: Number(data?.change24h ?? data?.chg_24h),
               volume24h: Number(data?.volume24h ?? data?.vol),
-              marketCap: Number(data?.marketCap ?? data?.market_cap ?? data?.mcap),
               source: "price-fallback",
             };
           }
@@ -4593,7 +4578,6 @@ const [aiLoading, setAiLoading] = useState(false);
         chg_24h: ch24,
         volume24h: v24,
         vol: v24,
-        marketCap: Number.isFinite(Number(fallback?.marketCap)) ? Number(fallback.marketCap) : getWatchMarketCap(row),
         source: row?.source === "error" || row?.source === "pending" || !row?.source ? (fallback?.source || "price-fallback") : row.source,
       };
     });
@@ -6045,7 +6029,6 @@ const addMarketCoin = async (coin) => {
           vs_currencies: "usd",
           include_24hr_change: "true",
           include_24hr_vol: "true",
-          include_market_cap: "true",
         }).toString();
         const direct = await api(`/api/coingecko/simple_price?${qs}`, { method: "GET", token, wallet });
         const d = direct?.[String(cgId || "").toLowerCase()];
@@ -6833,10 +6816,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
           /* re-enable Compare internal scrolls after the global desktop override */
           .section-compare .compareGrid{
             display: grid !important;
-            grid-template-columns: minmax(220px, 240px) minmax(0, 1fr) !important;
+            grid-template-columns: minmax(0, 1fr) !important;
             align-items: start !important;
             min-height: 0 !important;
-            gap: 16px !important;
+            gap: 12px !important;
           }
           .section-compare .compareChart{
             display: flex !important;
@@ -6856,8 +6839,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .section-compare .pairsScroll{
             flex: 1 1 auto !important;
-            min-height: 0 !important;
-            max-height: none !important;
+            min-height: 360px !important;
+            max-height: clamp(360px, 42vh, 520px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 8px !important;
@@ -6898,8 +6881,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           /* focused desktop: give Compare more usable pair-list height */
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsScroll{
-            min-height: 0 !important;
-            max-height: clamp(260px, 34vh, 520px) !important;
+            min-height: 380px !important;
+            max-height: clamp(380px, 46vh, 620px) !important;
             padding-bottom: 64px !important;
             scroll-padding-bottom: 64px !important;
           }
@@ -7115,9 +7098,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .section-watch .watchHead,
           .section-watch .watchRow{
-            min-width: 860px !important;
-            grid-template-columns: 58px 28px minmax(120px,1fr) 88px 110px 120px 140px 42px !important;
-            gap: 10px !important;
+            min-width: 620px !important;
+            grid-template-columns: 16px 28px minmax(100px,1fr) 96px 68px 92px 64px 34px !important;
+            gap: 8px !important;
             align-items: center !important;
           }
           .section-watch .watchHead{
@@ -8447,33 +8430,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
             }}
           >
 			<div className="compareGrid">
-            {/* Live list */}
-            <div className="compareLive">
-              <div className="label">Live Prices (USD)</div>
-              <div className="muted tiny">{comparePage === "first10" ? "Showing compare coins 1–10" : comparePage === "next10" ? "Showing compare coins 11–20" : "Showing all compare coins (max 20)"}</div>
-
-              <div className="liveListBox">
-                {liveList.map(({ sym, row }) => (
-                  <div key={sym} className="liveRow">
-                    <div className="liveLeft">
-                      <div className="coinLogo small">{sym.slice(0, 1)}</div>
-                      <div className="liveMeta">
-                        <div className="liveSym">{sym}</div>
-                        <div className="muted tiny">{row?.source || "—"}</div>
-                      </div>
-                    </div>
-
-                    <div className="liveRight">
-                      <div className="mono livePx">{fmtUsd(row?.price)}</div>
-                      <div className={`mono tiny ${Number(row?.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ color: Number(row?.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(row?.change24h)}</div>
-                    </div>
-                  </div>
-                ))}
-                {!liveList.length ? <div className="muted">Select coins in Watchlist (Compare checkbox).</div> : null}
-              </div>
-            </div>
-
             {/* Chart */}
+
             <div className="compareChart">
               <div className="chartHeader">
                 <div className="label">Diagramm (auto scale)</div>
@@ -8488,12 +8446,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
               {viewMode === "overlay" ? (
               <>
                 {visibleCompareSymbols.length === 0 ? (
-                  <div className="chartEmpty" style={{ minHeight: 360 }}>
+                  <div className="chartEmpty" style={{ minHeight: 300 }}>
                     <div className="muted">No coins in this compare range.</div>
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={chartRaw} height={360} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <SvgChart chart={chartRaw} height={300} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     <div style={{ marginTop: 10 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>
@@ -8590,7 +8548,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     boxSizing: "border-box",
                     marginTop: 6,
 
-                    maxHeight: 320,
+                    minHeight: 380,
+                    maxHeight: 440,
                     overflowY: "auto",
                   }}
                 >
@@ -9858,13 +9817,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
             {!isWatchSidebarCompact ? (
               <>
                 <div className="watchHead watchStickyHead">
-                  <div>Compare</div>
                   <div>Move</div>
+                  <div>Compare</div>
                   <div>Coin</div>
-                  <div className="right">%</div>
                   <div className="right">Price</div>
-                  <div className="right">24h Vol</div>
-                  <div className="right">Market Cap</div>
+                  <div className="right">24h</div>
+                  <div className="right">Vol</div>
+                  <div className="right">Source</div>
                   <div className="right"> </div>
                 </div>
 
@@ -9887,21 +9846,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
                         }}
                       >
+                        <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900, fontSize: 11, lineHeight: 1, display: "flex", alignItems: "center" }}>⋮⋮</div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.95)" }} />
+                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
                         </div>
-                        <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900, fontSize: 11, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>⋮⋮</div>
                         <div className="watchCoin" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                          <div className="coinLogo small" style={{ width: 20, height: 20, fontSize: 10, flex: "0 0 auto" }}>{sym.slice(0, 1)}</div>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, whiteSpace: "nowrap" }}>
-                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
+                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1 }}>{sym}</div>
                             <div className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>{r.mode === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
                           </div>
                         </div>
-                        <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", fontWeight: 800 }}>{fmtPct(r.change24h)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
+                        <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{fmtUsd(r.volume24h)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{fmtUsd(getWatchMarketCap(r))}</div>
-                        <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1, marginLeft: "auto" }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
+                        <div className="right muted" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap" }}>{r.source || "—"}</div>
+                        <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
                       </div>
                     );
                   })}
@@ -9935,14 +9895,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                       <div className="watchCompactMain">
                         <div className="watchCompactTop" style={{ gap: 6 }}>
+                          <div className="coinLogo small" style={{ width: 20, height: 20, fontSize: 10, flex: "0 0 auto" }}>{sym.slice(0, 1)}</div>
                           <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
+                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1 }}>{sym}</div>
                             <div className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>{mm === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
                           </div>
                         </div>
-                        <div className="watchCompactStats" style={{ gap: 8 }}>
+                        <div className="watchCompactStats" style={{ gap: 6 }}>
                           <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>MC {fmtUsd(getWatchMarketCap(r))}</span>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>{r.source || "—"}</span>
                         </div>
                       </div>
                       <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center" }}>

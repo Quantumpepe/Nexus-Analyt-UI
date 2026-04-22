@@ -6994,7 +6994,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow{
             display: grid !important;
-            grid-template-columns: auto 1fr auto !important;
+            grid-template-columns: 36px minmax(88px,1fr) 72px auto !important;
             gap: 10px !important;
             align-items: center !important;
             padding: 10px 12px !important;
@@ -7002,7 +7002,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             border-radius: 14px !important;
             background: rgba(255,255,255,.03) !important;
           }
-          .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow > :nth-child(4),
           .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow > :nth-child(5),
           .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow > :nth-child(6){
             display: none !important;
@@ -7099,7 +7098,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchHead,
           .section-watch .watchRow{
             min-width: 620px !important;
-            grid-template-columns: 16px 28px minmax(100px,1fr) 96px 68px 92px 64px 34px !important;
+            grid-template-columns: 40px minmax(100px,1fr) 76px 96px 110px 110px 34px !important;
             gap: 8px !important;
             align-items: center !important;
           }
@@ -9816,14 +9815,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
           <div className="panelScroll"><div className="watchTable">
             {!isWatchSidebarCompact ? (
               <>
-                <div className="watchHead watchStickyHead">
-                  <div>Move</div>
-                  <div>Compare</div>
+                <div className="watchHead watchStickyHead" style={{ gridTemplateColumns: "44px minmax(110px,1.05fr) 84px 110px 140px 140px 46px", gap: 10 }}>
+                  <div style={{ textAlign: "center" }}>Compare</div>
                   <div>Coin</div>
+                  <div className="right">%</div>
                   <div className="right">Price</div>
-                  <div className="right">24h</div>
-                  <div className="right">Vol</div>
-                  <div className="right">Source</div>
+                  <div className="right">24h Vol</div>
+                  <div className="right">Market Cap</div>
                   <div className="right"> </div>
                 </div>
 
@@ -9831,6 +9829,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   {watchRows.map((r, idx) => {
                     const sym = String(r.symbol || "").toUpperCase();
                     const checked = compareSymbols.includes(sym);
+                    const marketCap = r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap ?? null;
                     return (
                       <div
                         key={`${sym}-${idx}`}
@@ -9844,23 +9843,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
+                          gridTemplateColumns: "44px minmax(110px,1.05fr) 84px 110px 140px 140px 46px",
+                          gap: 10,
                         }}
                       >
-                        <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900, fontSize: 11, lineHeight: 1, display: "flex", alignItems: "center" }}>⋮⋮</div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
+                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.95)" }} />
                         </div>
-                        <div className="watchCoin" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                          <div className="coinLogo small" style={{ width: 20, height: 20, fontSize: 10, flex: "0 0 auto" }}>{sym.slice(0, 1)}</div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, whiteSpace: "nowrap" }}>
-                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1 }}>{sym}</div>
-                            <div className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>{r.mode === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
+                        <div className="watchCoin" style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", minWidth: 0, whiteSpace: "nowrap" }}>
+                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
                           </div>
                         </div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
                         <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{fmtUsd(r.volume24h)}</div>
-                        <div className="right muted" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap" }}>{r.source || "—"}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{marketCap != null ? fmtUsd(marketCap) : "—"}</div>
                         <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
                       </div>
                     );
@@ -9889,21 +9887,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
                       }}
                     >
-                      <div className="muted tiny" title="Drag to reorder" style={{ userSelect: "none", fontWeight: 900, alignSelf: "center", fontSize: 11, lineHeight: 1, display: "flex", alignItems: "center" }}>⋮⋮</div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
                       </div>
                       <div className="watchCompactMain">
                         <div className="watchCompactTop" style={{ gap: 6 }}>
-                          <div className="coinLogo small" style={{ width: 20, height: 20, fontSize: 10, flex: "0 0 auto" }}>{sym.slice(0, 1)}</div>
                           <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1 }}>{sym}</div>
-                            <div className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1, whiteSpace: "nowrap" }}>{mm === "dex" ? "Token" : "Market"}{r.chain ? ` · ${r.chain}` : ""}</div>
+                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
+                            <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
                           </div>
                         </div>
-                        <div className="watchCompactStats" style={{ gap: 6 }}>
-                          <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>{r.source || "—"}</span>
+                        <div className="watchCompactStats" style={{ gap: 10 }}>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>Vol {fmtUsd(r.volume24h)}</span>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : "—"}</span>
                         </div>
                       </div>
                       <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center" }}>

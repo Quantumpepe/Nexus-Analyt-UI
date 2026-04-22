@@ -1561,9 +1561,9 @@ function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, i
     max += pad;
   }
 
-  const w = 124;
-  const h = 30;
-  const padX = 2;
+  const w = 88;
+  const h = 28;
+  const padX = 3;
   const padY = 3;
   const innerW = w - padX * 2;
   const innerH = h - padY * 2;
@@ -7041,23 +7041,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
 
           .watchMiniSpark{
-            width: 140px !important;
-            height: 34px !important;
+            width: 88px !important;
+            height: 28px !important;
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
             overflow: hidden !important;
 
-            width: 140px;
-            height: 34px;
+            width: 92px;
+            height: 28px;
             display: flex;
             align-items: center;
             justify-content: center;
+            border-radius: 10px;
+            background: rgba(255,255,255,.025);
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
             overflow: hidden;
           }
           .watchMiniSpark svg{
-            width: 124px;
-            height: 30px;
+            width: 100%;
+            height: 100%;
             display: block;
           }
           .watchMiniSpark.empty{
@@ -7230,7 +7233,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchHead,
           .section-watch .watchRow{
             min-width: 760px !important;
-            grid-template-columns: 40px 92px 60px 92px 148px 156px 92px minmax(18px,1fr) 40px !important;
+            grid-template-columns: 40px 92px 52px 86px 126px 126px 118px 40px !important;
             gap: 6px !important;
             align-items: center !important;
           }
@@ -9950,7 +9953,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "42px 140px 80px 120px 140px 140px 140px 50px",
+                    gridTemplateColumns: "42px 92px 52px 86px 126px 126px 118px 40px",
                     gap: 6,
                   }}
                 >
@@ -9960,7 +9963,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="right">Price</div>
                   <div className="right">24h Vol</div>
                   <div className="right">Market Cap</div>
-                  <div className="center">7D Chart</div>
+                  <div className="center" style={{ textAlign: "center" }}>7D Chart</div>
                   <div className="right"> </div>
                 </div>
 
@@ -9982,7 +9985,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "42px 140px 80px 120px 140px 140px 140px 50px",
+                          gridTemplateColumns: "42px 92px 52px 86px 126px 126px 118px 40px",
                           gap: 6,
                         }}
                       >
@@ -9998,7 +10001,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1 }}>{fmtUsd(r.price)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1 }}>{fmtUsd(r.volume24h)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, paddingRight: 2 }}>{marketCap != null ? fmtUsd(marketCap) : "—"}</div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <InlineWatchSpark
                             sym={sym}
                             row={r}
@@ -10008,7 +10011,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             lineClassForSym={lineClassForSym}
                           />
                         </div>
-                        <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", width: "100%" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
+                        <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
                       </div>
                     );
                   })}

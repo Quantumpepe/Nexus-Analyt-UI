@@ -1494,36 +1494,54 @@ function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym
   );
 }
 
-function InlineWatchSpark({ sym, row, seriesMap, idx = 0 }) {
-  const liveSeries = Array.isArray(seriesMap?.[sym]) ? (seriesMap[sym] || []) : [];
+function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, idx = 0 }) {
+  const fullSeries = Array.isArray(seriesMap?.[sym]) ? (seriesMap[sym] || []) : [];
 
   const values = (() => {
-    const numeric = (liveSeries || [])
+    const normalize = (pts) => (pts || [])
       .map((pt) => {
-        if (Array.isArray(pt)) return Number(pt[1]);
-        if (pt && typeof pt === 'object') {
-          return Number(pt.v ?? pt.price ?? pt.value ?? pt.close ?? pt.y);
+        if (Array.isArray(pt)) {
+          const t = Number(pt[0]);
+          const v = Number(pt[1]);
+          return Number.isFinite(t) && Number.isFinite(v) && v > 0 ? { t, v } : null;
         }
-        return Number(pt);
+        if (pt && typeof pt === "object") {
+          const t = Number(pt.t ?? pt.time ?? pt.ts ?? pt.x ?? 0);
+          const v = Number(pt.v ?? pt.price ?? pt.value ?? pt.close ?? pt.y);
+          return Number.isFinite(t) && Number.isFinite(v) && v > 0 ? { t, v } : null;
+        }
+        return null;
       })
-      .filter((v) => Number.isFinite(v) && v > 0);
+      .filter(Boolean);
 
-    // Watchlist sparkline should always reflect the latest 24h only.
-    if (numeric.length >= 2) return numeric.slice(-24);
+    const pts = normalize(fullSeries);
+    if (pts.length) {
+      const maxT = Number(pts[pts.length - 1]?.t || 0);
+      if (maxT > 0) {
+        const oneDayMs = 24 * 60 * 60 * 1000;
+        const sevenDayMs = 7 * oneDayMs;
+        const oneDayPts = pts.filter((p) => p.t >= (maxT - oneDayMs));
+        const chosen = oneDayPts.length >= 12 ? oneDayPts : pts.filter((p) => p.t >= (maxT - sevenDayMs));
+        const sampled = (chosen.length > 36 ? chosen.filter((_, i) => i % Math.ceil(chosen.length / 36) === 0) : chosen)
+          .map((p) => p.v)
+          .filter((v) => Number.isFinite(v) && v > 0);
+        if (sampled.length >= 8) return sampled;
+      }
+    }
 
-    // Safe fallback for newly added coins before full 24h series is available.
     const price = Number(row?.price);
     const chg = Number(row?.change24h);
     if (!Number.isFinite(price) || price <= 0) return [];
     const start = Number.isFinite(chg) ? price / (1 + chg / 100) : price * 0.985;
-    const drift = Number.isFinite(chg) ? (price - start) / 11 : 0;
-    return Array.from({ length: 12 }, (_, i) => {
-      const wiggle = Math.sin(i * 0.85) * Math.abs(price) * 0.0035;
-      return start + drift * i + wiggle;
+    return Array.from({ length: 18 }, (_, i) => {
+      const drift = ((price - start) / 17) * i;
+      const waveA = Math.sin(i * 0.8) * Math.abs(price) * 0.004;
+      const waveB = Math.cos(i * 0.43) * Math.abs(price) * 0.0023;
+      return start + drift + waveA + waveB;
     }).filter((v) => Number.isFinite(v) && v > 0);
   })();
 
-  if (!values.length) {
+  if (values.length < 2) {
     return <div className="watchMiniSpark empty" aria-hidden="true">—</div>;
   }
 
@@ -1533,16 +1551,17 @@ function InlineWatchSpark({ sym, row, seriesMap, idx = 0 }) {
     min = Math.min(min, v);
     max = Math.max(max, v);
   }
-  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
-    min = min * 0.995;
-    max = max * 1.005;
-    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
-      min = 0;
-      max = 1;
-    }
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    min = 0;
+    max = 1;
+  }
+  if (min === max) {
+    const pad = Math.max(Math.abs(min) * 0.01, 1e-6);
+    min -= pad;
+    max += pad;
   }
 
-  const w = 96;
+  const w = 88;
   const h = 28;
   const padX = 3;
   const padY = 3;
@@ -1554,7 +1573,7 @@ function InlineWatchSpark({ sym, row, seriesMap, idx = 0 }) {
     return padY + (1 - t) * innerH;
   };
 
-  let d = '';
+  let d = "";
   values.forEach((v, i) => {
     const X = sx(i);
     const Y = sy(v);
@@ -1562,25 +1581,26 @@ function InlineWatchSpark({ sym, row, seriesMap, idx = 0 }) {
   });
 
   const trendUp = values[values.length - 1] >= values[0];
-  const strokeColor = trendUp ? 'var(--green)' : 'var(--red)';
+  const stroke = trendUp ? "var(--green)" : "var(--red)";
 
   return (
-    <div className="watchMiniSpark" title={`${sym} 24h mini chart`}>
+    <div className="watchMiniSpark" title={`${sym} mini chart`}>
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
         <path
           d={d}
           style={{
-            fill: 'none',
-            stroke: strokeColor,
-            strokeWidth: 2.1,
-            opacity: trendUp ? 0.98 : 0.92,
+            fill: "none",
+            stroke,
+            strokeWidth: 2.15,
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+            opacity: 0.98,
           }}
         />
       </svg>
     </div>
   );
 }
-
 
 function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, colorForSym, lineClassForSym }) {
   const { x, lines } = chart || { x: [], lines: {} };
@@ -4128,7 +4148,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }, [gridModalSym, compareSymbols.join("|")]);
 
   const compareSeriesView = useMemo(() => sliceCompareSeries(compareSeries, timeframe), [compareSeries, timeframe]);
-  const compareSeries1DView = useMemo(() => sliceCompareSeries(compareSeries, "1D"), [compareSeries]);
 
   const visibleCompareSymbols = useMemo(() => {
     if (comparePage === "first10") return compareSymbols.slice(0, 10);
@@ -7022,6 +7041,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
 
           .watchMiniSpark{
+            width: 88px !important;
+            height: 28px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            overflow: hidden !important;
+
             width: 92px;
             height: 28px;
             display: flex;
@@ -7206,9 +7232,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .section-watch .watchHead,
           .section-watch .watchRow{
-            min-width: 620px !important;
-            grid-template-columns: 40px minmax(100px,1fr) 76px 96px 110px 110px 34px !important;
-            gap: 8px !important;
+            min-width: 760px !important;
+            grid-template-columns: 40px 92px 60px 92px 148px 156px 92px minmax(18px,1fr) 40px !important;
+            gap: 6px !important;
             align-items: center !important;
           }
           .section-watch .watchHead{
@@ -9927,8 +9953,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "42px 96px 66px 102px 152px 152px 92px 40px",
-                    gap: 8,
+                    gridTemplateColumns: "42px 92px 60px 92px 148px 156px 92px minmax(18px,1fr) 40px",
+                    gap: 6,
                   }}
                 >
                   <div aria-hidden="true" />
@@ -9938,6 +9964,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="right">24h Vol</div>
                   <div className="right">Market Cap</div>
                   <div className="center">Chart</div>
+                  <div aria-hidden="true" />
                   <div className="right"> </div>
                 </div>
 
@@ -9959,8 +9986,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "42px 96px 66px 102px 152px 152px 92px 40px",
-                          gap: 8,
+                          gridTemplateColumns: "42px 92px 60px 92px 148px 156px 92px minmax(18px,1fr) 40px",
+                          gap: 6,
                         }}
                       >
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
@@ -9980,9 +10007,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             sym={sym}
                             row={r}
                             idx={idx}
-                            seriesMap={compareSeries1DView}
+                            seriesMap={compareSeries}
+                            colorForSym={colorForSym}
+                            lineClassForSym={lineClassForSym}
                           />
                         </div>
+                        <div aria-hidden="true" />
                         <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1 }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
                       </div>
                     );

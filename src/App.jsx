@@ -9843,7 +9843,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "44px minmax(110px,1.05fr) 84px 110px 140px 140px 46px",
+                          gridTemplateColumns: "36px 120px 70px 110px 140px 140px 40px",
                           gap: 10,
                         }}
                       >

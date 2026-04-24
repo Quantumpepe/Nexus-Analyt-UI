@@ -10203,7 +10203,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "42px minmax(90px,1fr) 72px 128px 160px 170px 96px 52px",
+                    gridTemplateColumns: "28px 42px minmax(90px,1fr) 72px 128px 160px 170px 96px 52px",
                     gap: 8,
                   }}
                 >
@@ -10235,10 +10235,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "42px minmax(90px,1fr) 72px 128px 160px 170px 96px 52px",
+                          gridTemplateColumns: "28px 42px minmax(90px,1fr) 72px 128px 160px 170px 96px 52px",
                           gap: 8,
                         }}
                       >
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", fontSize:11, opacity:0.6 }}>
+                          {idx + 1}
+                        </div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
                           <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.95)" }} />
                         </div>

@@ -7275,6 +7275,225 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
         }
 
+
+        /* --- MOBILE FIX PATCH: small-screen spacing without changing desktop layout --- */
+        @media (max-width: 1100px) {
+          .section-compare .panelScroll,
+          .section-watch .panelScroll {
+            overflow-x: hidden !important;
+          }
+
+          .section-compare .compareGrid {
+            display: block !important;
+            min-width: 0 !important;
+          }
+
+          .section-compare .chartWrap,
+          .section-compare svg,
+          .section-compare .svgChart,
+          .section-compare .chartSvg {
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+
+          .section-compare .pairsBox {
+            min-width: 0 !important;
+            width: 100% !important;
+          }
+
+          .section-compare .pairsScroll {
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            padding: 8px !important;
+          }
+
+          .section-compare .pairRow {
+            display: grid !important;
+            grid-template-columns: 30px minmax(0, 1fr) !important;
+            min-width: 0 !important;
+            width: 100% !important;
+            gap: 8px !important;
+            padding: 10px 8px !important;
+            align-items: start !important;
+          }
+
+          .section-compare .pairRow > span:first-child {
+            width: 30px !important;
+            flex: 0 0 30px !important;
+            font-size: 12px !important;
+            padding-top: 4px !important;
+          }
+
+          .section-compare .pairRow > div {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            gap: 6px !important;
+            min-width: 0 !important;
+            width: 100% !important;
+          }
+
+          .section-compare .pairRow > div > :nth-child(1) {
+            grid-column: 1 / -1 !important;
+            min-width: 0 !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+          }
+
+          .section-compare .pairRow > div > :nth-child(n+2) {
+            width: 100% !important;
+            max-width: 100% !important;
+            justify-self: stretch !important;
+            justify-content: center !important;
+            text-align: center !important;
+            white-space: nowrap !important;
+          }
+
+          .section-compare .pairName {
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            font-size: 12px !important;
+          }
+
+          .section-compare .pairRow .pill {
+            font-size: 11px !important;
+            padding: 5px 7px !important;
+            line-height: 1.1 !important;
+          }
+
+          .section-watch .watchTable,
+          .section-watch .watchScroll {
+            overflow-x: hidden !important;
+            max-width: 100% !important;
+          }
+
+          .section-watch .watchHead,
+          .section-watch .watchRow {
+            min-width: 0 !important;
+            width: 100% !important;
+            grid-template-columns: 38px minmax(72px, 1fr) 58px 92px 112px 124px 92px 36px !important;
+            gap: 6px !important;
+            align-items: center !important;
+          }
+
+          .section-watch .watchHead {
+            font-size: 10.5px !important;
+          }
+
+          .section-watch .watchRow {
+            padding: 8px 6px !important;
+          }
+
+          .section-watch .watchCoin,
+          .section-watch .watchCoin > div {
+            min-width: 0 !important;
+            white-space: nowrap !important;
+          }
+
+          .section-watch .watchSym {
+            font-size: 12px !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+          }
+
+          .section-watch .watchRow .mono,
+          .section-watch .watchRow .muted,
+          .section-watch .watchRow button,
+          .section-watch .watchRow input {
+            font-size: 11.5px !important;
+          }
+
+          .section-watch .watchRow .iconBtn {
+            width: 28px !important;
+            height: 28px !important;
+            min-width: 28px !important;
+          }
+        }
+
+        @media (max-width: 780px) {
+          .section-watch .watchHead {
+            display: none !important;
+          }
+
+          .section-watch .watchScroll {
+            display: grid !important;
+            gap: 10px !important;
+            overflow-x: hidden !important;
+          }
+
+          .section-watch .watchRow {
+            display: grid !important;
+            grid-template-columns: 32px minmax(0, 1fr) auto 32px !important;
+            grid-template-rows: auto auto auto auto !important;
+            min-width: 0 !important;
+            width: 100% !important;
+            gap: 8px 10px !important;
+            padding: 10px !important;
+            border-radius: 14px !important;
+            background: rgba(255,255,255,.03) !important;
+          }
+
+          .section-watch .watchRow > :nth-child(1) { grid-column: 1; grid-row: 1; }
+          .section-watch .watchRow > :nth-child(2) { grid-column: 2; grid-row: 1; min-width: 0 !important; }
+          .section-watch .watchRow > :nth-child(3) { grid-column: 3; grid-row: 1; justify-self: end; }
+          .section-watch .watchRow > :nth-child(8) { grid-column: 4; grid-row: 1; justify-self: end; }
+          .section-watch .watchRow > :nth-child(4) { grid-column: 2; grid-row: 2; justify-self: start; }
+          .section-watch .watchRow > :nth-child(5) { grid-column: 3 / span 2; grid-row: 2; justify-self: end; }
+          .section-watch .watchRow > :nth-child(6) { grid-column: 2 / span 3; grid-row: 3; justify-self: start; max-width: 100%; }
+          .section-watch .watchRow > :nth-child(7) {
+            grid-column: 2 / span 3;
+            grid-row: 4;
+            width: 100% !important;
+            min-width: 0 !important;
+            justify-self: stretch !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: stretch !important;
+          }
+
+          .section-watch .watchRow > :nth-child(7) > * {
+            width: 100% !important;
+            min-width: 0 !important;
+            flex: 1 1 auto !important;
+          }
+
+          .section-watch .watchRow .mono {
+            font-size: 11.5px !important;
+            line-height: 1.15 !important;
+            max-width: 100% !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+          }
+
+          .section-watch .watchRow .iconBtn {
+            margin-left: auto !important;
+          }
+
+          .section-compare .pairRow {
+            grid-template-columns: 26px minmax(0, 1fr) !important;
+            gap: 8px !important;
+          }
+
+          .section-compare .pairRow > span:first-child {
+            width: 26px !important;
+            flex: 0 0 26px !important;
+            font-size: 11px !important;
+          }
+
+          .section-compare .pairRow > div {
+            grid-template-columns: 1fr !important;
+          }
+
+          .section-compare .pairRow > div > * {
+            grid-column: 1 / -1 !important;
+          }
+
+          .section-compare .pairRow .pill {
+            justify-content: center !important;
+          }
+        }
+
+
 `}</style>
 <header className="topbar">
         <div className="brand">

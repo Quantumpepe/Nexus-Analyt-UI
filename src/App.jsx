@@ -5843,10 +5843,39 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     return Math.abs((nums[0] + nums[1]) / 2);
   }, []);
 
+  const openGridPanel = useCallback(() => {
+    setActivePanel("vault");
+    setSelectedPair(null);
+
+    setTimeout(() => {
+      try {
+        const el = document.querySelector(".section-grid");
+        if (el && typeof el.scrollIntoView === "function") {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      } catch (_) {}
+    }, 80);
+  }, [setActivePanel, setSelectedPair]);
+
   const applyAiSuggestionToGrid = useCallback((sym, side) => {
     const S = String(sym || "").toUpperCase().trim();
     const SIDE = String(side || "BUY").toUpperCase() === "SELL" ? "SELL" : "BUY";
     if (!S) return;
+
+    const nativeChain = ["POL", "BNB", "ETH"].includes(S) ? S : "";
+    const availableNow = (gridWalletCoins || []).map((x) => String(x || "").toUpperCase()).includes(S);
+
+    // Open the Grid even if the asset cannot be applied, so the user sees the context.
+    openGridPanel();
+
+    // Native assets require switching the Grid chain first.
+    if (nativeChain) {
+      setBalActiveChain(nativeChain);
+      setWsChainKey(nativeChain);
+    } else if (!availableNow) {
+      setErrorMsg(`${S} is not available in your Grid wallet assets on the current chain. Add the token to Wallet/Grid first, then apply again.`);
+      return;
+    }
 
     setGridItem(S);
     setManualSide(SIDE);
@@ -5858,16 +5887,25 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       const target = SIDE === "BUY" ? px * (1 - pct / 100) : px * (1 + pct / 100);
       setManualPrice(target.toFixed(12).replace(/\.?0+$/, ""));
     } else {
+      // Price may arrive after the chain/coin switch; keep empty rather than writing a fake value.
       setManualPrice("");
     }
 
-    try {
-      const el = document.querySelector(".section-grid");
-      if (el && typeof el.scrollIntoView === "function") {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    } catch (_) {}
-  }, [aiExplainData, getLivePriceForSymbol, parseSuggestedGridPct, setGridItem, setManualSide, setManualBuyMode, setManualPrice]);
+    setErrorMsg(`Applied ${SIDE} ${S} to Grid. Enter Qty and press Add Order when you are ready.`);
+  }, [
+    aiExplainData,
+    getLivePriceForSymbol,
+    parseSuggestedGridPct,
+    gridWalletCoins,
+    openGridPanel,
+    setBalActiveChain,
+    setWsChainKey,
+    setGridItem,
+    setManualSide,
+    setManualBuyMode,
+    setManualPrice,
+    setErrorMsg,
+  ]);
 
   const inferOrderChainKey = useCallback((o) => {
     const raw =
@@ -9607,9 +9645,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <button
                               className="btn"
                               type="button"
-                              onClick={() => applyAiSuggestionToGrid(aiExplainData.winner, "SELL")}
+                              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                              onTouchStart={(e) => { e.stopPropagation(); }}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); applyAiSuggestionToGrid(aiExplainData.winner, "SELL"); }}
                               title="Prefill Grid Trader with this coin, side and suggested price. No order is created."
-                              style={{ padding: "6px 10px", fontSize: 12 }}
+                              style={{ padding: "6px 10px", fontSize: 12, pointerEvents: "auto", cursor: "pointer" }}
                             >
                               Apply SELL {aiExplainData.winner}
                             </button>
@@ -9618,9 +9658,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <button
                               className="btn"
                               type="button"
-                              onClick={() => applyAiSuggestionToGrid(aiExplainData.loser, "BUY")}
+                              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                              onTouchStart={(e) => { e.stopPropagation(); }}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); applyAiSuggestionToGrid(aiExplainData.loser, "BUY"); }}
                               title="Prefill Grid Trader with this coin, side and suggested price. No order is created."
-                              style={{ padding: "6px 10px", fontSize: 12 }}
+                              style={{ padding: "6px 10px", fontSize: 12, pointerEvents: "auto", cursor: "pointer" }}
                             >
                               Apply BUY {aiExplainData.loser}
                             </button>

@@ -6649,19 +6649,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
           opacity:0.9;
         }
         .rsiOverbought{
-          background: rgba(239,68,68,0.15);
-          color:#ef4444;
-          border:1px solid rgba(239,68,68,0.3);
+          background: rgba(239,68,68,0.22);
+          color:#ff6b6b;
+          border:1px solid rgba(239,68,68,0.55);
         }
         .rsiNeutral{
-          background: rgba(255,184,0,0.15);
-          color:#ffb800;
-          border:1px solid rgba(255,184,0,0.3);
+          background: rgba(255,184,0,0.18);
+          color:#ffd34d;
+          border:1px solid rgba(255,184,0,0.55);
         }
         .rsiOversold{
-          background: rgba(57,217,138,0.15);
+          background: rgba(57,217,138,0.18);
           color:#39d98a;
-          border:1px solid rgba(57,217,138,0.3);
+          border:1px solid rgba(57,217,138,0.45);
         }
 
 .btnPill, .btnPill *, .btnGhost, .btnGhost * { 
@@ -8718,9 +8718,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="pairsHead">
                   <div className="label">Best pairs (data fit)</div>
                 <div className="rsiLegend">
-                  <span className="pill rsiOverbought">Overbought (70+)</span>
-                  <span className="pill rsiNeutral">30–70</span>
-                  <span className="pill rsiOversold">Oversold (&lt;30)</span>
+                  <span className="pill rsiOverbought">Overbought</span>
+                  <span className="pill rsiNeutral">Neutral</span>
+                  <span className="pill rsiOversold">Oversold</span>
                 </div>
 
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

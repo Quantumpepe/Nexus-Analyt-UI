@@ -7414,6 +7414,87 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
         }
 
+        /* FINAL MOBILE WATCHLIST FIX:
+           One horizontal scroll container for BOTH header and rows.
+           This keeps the header aligned and restores left/right swipe on phones. */
+        @media (max-width: 820px) {
+          .section-watch .panelScroll{
+            overflow-x: hidden !important;
+          }
+
+          .section-watch .watchTable{
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow-x: auto !important;
+            overflow-y: visible !important;
+            -webkit-overflow-scrolling: touch !important;
+            overscroll-behavior-x: contain !important;
+            touch-action: pan-x pan-y !important;
+          }
+
+          .section-watch .watchHead.watchStickyHead{
+            display: grid !important;
+            position: sticky !important;
+            top: 0 !important;
+            z-index: 10 !important;
+            background: rgba(2,18,17,.96) !important;
+            backdrop-filter: blur(8px);
+          }
+
+          .section-watch .watchScroll{
+            display: block !important;
+            width: max-content !important;
+            min-width: 720px !important;
+            max-width: none !important;
+            overflow: visible !important;
+          }
+
+          .section-watch .watchHead,
+          .section-watch .watchRow{
+            width: 720px !important;
+            min-width: 720px !important;
+            max-width: none !important;
+            grid-template-columns: 30px 62px 50px 82px 112px 118px 86px 32px !important;
+            gap: 5px !important;
+            align-items: center !important;
+            box-sizing: border-box !important;
+            touch-action: pan-x pan-y !important;
+          }
+
+          .section-watch .watchHead{
+            font-size: 9.5px !important;
+            padding-left: 4px !important;
+            padding-right: 4px !important;
+          }
+
+          .section-watch .watchRow{
+            padding: 7px 4px !important;
+            min-height: 46px !important;
+          }
+
+          .section-watch .watchRow svg,
+          .section-watch .watchRow canvas{
+            width: 86px !important;
+            max-width: 86px !important;
+          }
+
+          .section-watch .watchRow .mono,
+          .section-watch .watchRow .muted,
+          .section-watch .watchRow button,
+          .section-watch .watchRow input{
+            font-size: 9.5px !important;
+            line-height: 1.05 !important;
+          }
+
+          .section-watch .watchRow .iconBtn{
+            width: 24px !important;
+            height: 24px !important;
+            min-width: 24px !important;
+            font-size: 11px !important;
+          }
+        }
+
 `}</style>
 <header className="topbar">
         <div className="brand">

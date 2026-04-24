@@ -5815,6 +5815,8 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
   };
 
 
+  const [activePanel, setActivePanel] = useState(null);
+
   const getLivePriceForSymbol = useCallback((sym) => {
     const S = String(sym || "").toUpperCase().trim();
     if (!S) return null;
@@ -6769,7 +6771,6 @@ const manualRiskState = useMemo(() => {
   };
 }, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
 
-const [activePanel, setActivePanel] = useState(null);
 const isWatchSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "watchlist";
 const isGridSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "vault";
 const handlePanelActivate = useCallback((name) => (e) => {

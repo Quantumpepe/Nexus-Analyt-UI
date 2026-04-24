@@ -8626,15 +8626,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </>
                   }
                   en={
-                    <>
-                      <p><b>What is this?</b> Compare up to 20 coins selected via Watchlist → Compare.</p>
-                      <p><b>Price</b> shows real price values. <b>Index 100</b> normalizes all coins to the same starting value of 100 and is better when many coins are compared at once.</p>
-                      <p><b>Overlay</b> shows all selected coins in one shared chart. <b>Grid</b> shows one small tile per coin.</p>
-                      <p><b>First 10 / Next 10 / All</b> lets you switch between the first 10, the next 10, or all compare coins.</p>
-                      <p><b>Grid detail</b>: click a tile to open the large chart. There you can switch directly between <b>Price</b> and <b>Index 100</b>.</p>
-                      <p><b>Legend</b>: color → coin. Click a legend item to highlight one coin.</p>
-                    </>
-                  }
+  <>
+    <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
+    <ul>
+      <li><b>Overbought (Red)</b> → strong recent buying, may be overextended</li>
+      <li><b>Neutral (Yellow)</b> → balanced market</li>
+      <li><b>Oversold (Green)</b> → strong recent selling, possible rebound</li>
+    </ul>
+    <p className="muted tiny">
+      RSI indicates extremes, not direct buy/sell signals.
+    </p>
+  </>
+}
                 />
               </InfoButton>
             </div>
@@ -8718,9 +8721,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="pairsHead">
                   <div className="label">Best pairs (data fit)</div>
                 <div className="rsiLegend">
-                  <span className="pill rsiOverbought">Overbought</span>
-                  <span className="pill rsiNeutral">Neutral</span>
-                  <span className="pill rsiOversold">Oversold</span>
+                  <span className="pill rsiOverbought" title="RSI above 70: strong recent buying momentum, may be overextended.">Overbought</span>
+                  <span className="pill rsiNeutral" title="RSI between 30 and 70: balanced momentum, no extreme zone.">Neutral</span>
+                  <span className="pill rsiOversold" title="RSI below 30: strong recent selling momentum, possible rebound zone.">Oversold</span>
                 </div>
 
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -8836,6 +8839,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                             <span
                               className="pill"
+                              title={`${p.a || p.pair.split("/")[0]} RSI: ${Number.isFinite(p.rsiA) ? p.rsiA.toFixed(0) : "—"} · ${Number.isFinite(p.rsiA) ? (p.rsiA >= 70 ? "Overbought: strong recent buying momentum, may be overextended." : p.rsiA <= 30 ? "Oversold: strong recent selling momentum, possible rebound zone." : "Neutral: balanced momentum.") : "No RSI data available."}`}
                               style={{
                                 width: 120,
                                 justifyContent: "center",
@@ -8853,6 +8857,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                             <span
                               className="pill"
+                              title={`${p.b || p.pair.split("/")[1]} RSI: ${Number.isFinite(p.rsiB) ? p.rsiB.toFixed(0) : "—"} · ${Number.isFinite(p.rsiB) ? (p.rsiB >= 70 ? "Overbought: strong recent buying momentum, may be overextended." : p.rsiB <= 30 ? "Oversold: strong recent selling momentum, possible rebound zone." : "Neutral: balanced momentum.") : "No RSI data available."}`}
                               style={{
                                 width: 120,
                                 justifyContent: "center",
@@ -8870,6 +8875,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                             <span
                               className="pill"
+                              title={`RSI gap: ${Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"} · Difference between both pair RSI values.`}
                               style={{
                                 width: 56,
                                 justifyContent: "center",

@@ -6635,12 +6635,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
     <div className="app nexusApp">
       
       <style>{`
-        /* Mobile Watchlist: keep table header visible and aligned during scroll */
+        /* Mobile Watchlist: desktop-style table with one shared left/right scroll */
         @media (max-width: 780px) {
+          .section-watch .panelScroll{
+            overflow-x: hidden !important;
+          }
+
           .section-watch .watchTable{
+            width: 100% !important;
+            max-width: 100% !important;
             overflow-x: auto !important;
             overflow-y: visible !important;
             -webkit-overflow-scrolling: touch;
+            touch-action: pan-x pan-y;
             position: relative !important;
           }
 
@@ -6648,15 +6655,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
             display: grid !important;
             position: sticky !important;
             top: 0 !important;
-            z-index: 8 !important;
-            min-width: 760px !important;
+            z-index: 9 !important;
             background: rgba(2, 18, 17, 0.96) !important;
             backdrop-filter: blur(8px);
           }
 
           .section-watch .watchScroll{
+            overflow: visible !important;
+            max-width: none !important;
+          }
+
+          .section-watch .watchHead,
+          .section-watch .watchRow,
+          .section-watch .watchScroll{
             min-width: 760px !important;
-            overflow-x: visible !important;
           }
 
           .section-watch .watchHead,
@@ -6670,7 +6682,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchRow > *{
             min-width: 0 !important;
           }
+
+          .section-watch .watchRow{
+            padding: 8px 6px !important;
+          }
         }
+
 
         /* RSI legend */
         .rsiLegend{

@@ -6635,6 +6635,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
     <div className="app nexusApp">
       
       <style>{`
+        /* RSI legend */
+        .rsiLegend{
+          display:flex;
+          gap:8px;
+          margin:6px 0 10px 0;
+          flex-wrap:wrap;
+        }
+        .rsiLegend .pill{
+          font-size:11px;
+          padding:4px 10px;
+          border-radius:999px;
+          opacity:0.9;
+        }
+        .rsiOverbought{
+          background: rgba(239,68,68,0.15);
+          color:#ef4444;
+          border:1px solid rgba(239,68,68,0.3);
+        }
+        .rsiNeutral{
+          background: rgba(255,184,0,0.15);
+          color:#ffb800;
+          border:1px solid rgba(255,184,0,0.3);
+        }
+        .rsiOversold{
+          background: rgba(57,217,138,0.15);
+          color:#39d98a;
+          border:1px solid rgba(57,217,138,0.3);
+        }
+
 .btnPill, .btnPill *, .btnGhost, .btnGhost * { 
           color: #fff !important; 
           -webkit-text-fill-color: #fff !important;
@@ -8688,6 +8717,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                 <div className="pairsHead">
                   <div className="label">Best pairs (data fit)</div>
+                <div className="rsiLegend">
+                  <span className="pill rsiOverbought">Overbought (70+)</span>
+                  <span className="pill rsiNeutral">30–70</span>
+                  <span className="pill rsiOversold">Oversold (&lt;30)</span>
+                </div>
+
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <div className="muted tiny">Based on correlation (index)</div>
                     <InfoButton title="Best pairs">

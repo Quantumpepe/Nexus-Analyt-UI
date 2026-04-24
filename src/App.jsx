@@ -1918,6 +1918,7 @@ useEffect(() => {
 const [errorMsg, setErrorMsg] = useState("");
 
   const isDesktopWide = typeof window !== "undefined" ? window.innerWidth >= 981 : true;
+  const [activePanel, setActivePanel] = useState(null);
 
   const isCompactMobile = typeof window !== "undefined" && window.innerWidth <= 768;
   const compactGridChipStyle = {
@@ -5815,7 +5816,6 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
   };
 
 
-  const [activePanel, setActivePanel] = useState(null);
 
   const getLivePriceForSymbol = useCallback((sym) => {
     const S = String(sym || "").toUpperCase().trim();

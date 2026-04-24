@@ -5814,6 +5814,61 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setManualPrice(next.toFixed(12));
   };
 
+
+  const getLivePriceForSymbol = useCallback((sym) => {
+    const S = String(sym || "").toUpperCase().trim();
+    if (!S) return null;
+
+    const rows = Array.isArray(watchRows) ? watchRows : [];
+    const row = rows.find((x) => String(x?.symbol || "").toUpperCase().trim() === S);
+    const pxRow = Number(row?.price);
+    if (Number.isFinite(pxRow) && pxRow > 0) return pxRow;
+
+    const pxNative = Number(gridNativeUsd?.[S]);
+    if (Number.isFinite(pxNative) && pxNative > 0) return pxNative;
+
+    if (S === String(gridItem || "").toUpperCase().trim()) {
+      const pxShown = Number(shownGridPrice);
+      if (Number.isFinite(pxShown) && pxShown > 0) return pxShown;
+    }
+
+    return null;
+  }, [watchRows, gridNativeUsd, gridItem, shownGridPrice]);
+
+  const parseSuggestedGridPct = useCallback((raw) => {
+    const s = String(raw || "").replace(/–/g, "-");
+    const nums = (s.match(/-?\d+(?:\.\d+)?/g) || []).map(Number).filter(Number.isFinite);
+    if (!nums.length) return 2;
+    if (nums.length === 1) return Math.abs(nums[0]);
+    return Math.abs((nums[0] + nums[1]) / 2);
+  }, []);
+
+  const applyAiSuggestionToGrid = useCallback((sym, side) => {
+    const S = String(sym || "").toUpperCase().trim();
+    const SIDE = String(side || "BUY").toUpperCase() === "SELL" ? "SELL" : "BUY";
+    if (!S) return;
+
+    setGridItem(S);
+    setManualSide(SIDE);
+    setManualBuyMode("QTY");
+
+    const pct = parseSuggestedGridPct(aiExplainData?.gridRange || aiExplainData?.range || "2-4%");
+    const px = getLivePriceForSymbol(S);
+    if (Number.isFinite(px) && px > 0) {
+      const target = SIDE === "BUY" ? px * (1 - pct / 100) : px * (1 + pct / 100);
+      setManualPrice(target.toFixed(12).replace(/\.?0+$/, ""));
+    } else {
+      setManualPrice("");
+    }
+
+    try {
+      const el = document.querySelector(".section-grid");
+      if (el && typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    } catch (_) {}
+  }, [aiExplainData, getLivePriceForSymbol, parseSuggestedGridPct, setGridItem, setManualSide, setManualBuyMode, setManualPrice]);
+
   const inferOrderChainKey = useCallback((o) => {
     const raw =
       o?.chain ||
@@ -9547,9 +9602,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div className="label" style={{ marginBottom: 0 }}>Longer-Term Reversion Idea</div>
 
                         {aiExplainData.winner && aiExplainData.loser ? (
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                             <span className="pill" style={{ background: "rgba(255,92,92,0.18)", borderColor: "rgba(255,92,92,0.35)" }}>SELL {aiExplainData.winner} later-view</span>
+                            <button
+                              className="btn"
+                              type="button"
+                              onClick={() => applyAiSuggestionToGrid(aiExplainData.winner, "SELL")}
+                              title="Prefill Grid Trader with this coin, side and suggested price. No order is created."
+                              style={{ padding: "6px 10px", fontSize: 12 }}
+                            >
+                              Apply SELL {aiExplainData.winner}
+                            </button>
+
                             <span className="pill" style={{ background: "rgba(57,217,138,0.18)", borderColor: "rgba(57,217,138,0.35)" }}>BUY {aiExplainData.loser} later-view</span>
+                            <button
+                              className="btn"
+                              type="button"
+                              onClick={() => applyAiSuggestionToGrid(aiExplainData.loser, "BUY")}
+                              title="Prefill Grid Trader with this coin, side and suggested price. No order is created."
+                              style={{ padding: "6px 10px", fontSize: 12 }}
+                            >
+                              Apply BUY {aiExplainData.loser}
+                            </button>
                           </div>
                         ) : null}
 
@@ -9570,25 +9644,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
                           <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                            <div className="muted tiny">Suggested Grid
-<div style={{marginTop:12}}>
-  <button
-    className="btnPrimary"
-    onClick={() => applySuggestionToGrid(
-      {
-        coin: selectedPair?.split("/")?.[0] || "ETH",
-        range: "3-5%"
-      },
-      setGridItem,
-      setGridLower,
-      setGridUpper,
-      setGridLevels
-    )}
-  >
-    Apply to Grid
-  </button>
-</div>
-</div>
+                            <div className="muted tiny">Suggested Grid</div>
                             <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridRange || aiExplainData.range || "—"}</div>
                           </div>
                           <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
@@ -10758,35 +10814,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
     </div>
   );
 }
-export default 
-// 🔥 Apply Suggestion → Grid
-function applySuggestionToGrid(suggestion, setGridItem, setLower, setUpper, setLevels) {
-  if (!suggestion) return;
-
-  try {
-    const { coin, range } = suggestion;
-
-    // example: range "3-5%"
-    let lower = -3;
-    let upper = 5;
-
-    if (typeof range === "string" && range.includes("-")) {
-      const parts = range.replace("%","").split("-");
-      lower = -Math.abs(parseFloat(parts[0]) || 3);
-      upper = Math.abs(parseFloat(parts[1]) || 5);
-    }
-
-    setGridItem(coin);
-    setLower(lower);
-    setUpper(upper);
-    setLevels(6); // default safe
-
-  } catch (e) {
-    console.error("Apply suggestion error:", e);
-  }
-}
-
-function App() {
+export default function App() {
   return <AppInner />;
 }
 

@@ -1361,14 +1361,44 @@ const tMin = x[0];
         })}
         {hoverIdx !== null && (
           <line
-            x1={sx(x[hoverIdx])}
-            x2={sx(x[hoverIdx])}
+            x1={sx(hoverIdx)}
+            x2={sx(hoverIdx)}
             y1={padT}
             y2={h - padB}
             stroke="rgba(255,255,255,.25)"
             strokeDasharray="4 4"
           />
         )}
+
+        {hoverIdx !== null && syms.map((sym, idx) => {
+          const arr = plotLines?.[sym] || [];
+          const v = arr?.[hoverIdx];
+          if (v === null || v === undefined || !Number.isFinite(v)) return null;
+
+          const hasHighlights = Array.isArray(highlightedSyms) && highlightedSyms.length > 0;
+          const isHi = !hasHighlights || highlightedSyms.includes(sym);
+          if (!isHi) return null;
+
+          const c = colorForSym ? colorForSym(sym) : PALETTE20[idx % 10];
+          return (
+            <g key={`hover-dot-${sym}`} pointerEvents="none">
+              <circle
+                cx={sx(hoverIdx)}
+                cy={sy(v)}
+                r={6.4}
+                fill="rgba(7,24,22,0.92)"
+                stroke={c}
+                strokeWidth={2.6}
+              />
+              <circle
+                cx={sx(hoverIdx)}
+                cy={sy(v)}
+                r={2.6}
+                fill={c}
+              />
+            </g>
+          );
+        })}
       </svg>
 
       <div

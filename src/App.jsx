@@ -4897,6 +4897,15 @@ const [aiLoading, setAiLoading] = useState(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchlistKey]);
 
+  // Normal market/watchlist refresh:
+  // Keep this slower than Grid execution. It updates prices, 24h data and mini charts.
+  // fetchWatchSnapshot already has an in-flight guard, so it will not stack requests.
+  useInterval(
+    () => fetchWatchSnapshot(null, { force: true, user: false }),
+    6000,
+    !!wallet && Array.isArray(watchItems) && watchItems.length > 0
+  );
+
   // compare fetch (batched /api/compare)
   const inflightCompare = useRef(false);
   const fetchCompare = async (opts = {}) => {
@@ -5066,7 +5075,8 @@ const [aiLoading, setAiLoading] = useState(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compareFetchRange, compareSymbols.join("|")]);
 
-  useInterval(fetchCompare, 120000, compareSymbols.length > 0);
+  // Compare/history refresh: slower than active Grid, faster than before for fresher charts.
+  useInterval(fetchCompare, 7000, compareSymbols.length > 0);
 
   // policy (UI-only for now)
 
@@ -5276,21 +5286,34 @@ const kickGridRefresh = useCallback(() => {
   setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 1400);
 }, [fetchGridOrders]);
 
+const hasOpenGridOrders = useMemo(
+  () => (gridOrders || []).some((o) => String(o?.status || "").toUpperCase() === "OPEN"),
+  [gridOrders]
+);
+
+const gridPollingAllowed =
+  !!isGridReady &&
+  !!gridItemId &&
+  !!walletAddress &&
+  !gridBusy.start &&
+  !gridBusy.stop &&
+  !gridBusy.add &&
+  !gridBusy.stopOrderId &&
+  !gridBusy.deleteOrderId;
+
+// Grid order-state refresh:
+// - active/open orders: fast enough for trader UI
+// - no open orders: slower background refresh
 useInterval(
   () => {
     fetchGridOrders();
   },
-  10000,
-  !!isGridReady &&
-    !gridBusy.start &&
-    !gridBusy.stop &&
-    !gridBusy.add &&
-    !gridBusy.stopOrderId &&
-    !gridBusy.deleteOrderId &&
-    gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN")
+  hasOpenGridOrders ? 2500 : 6500,
+  gridPollingAllowed
 );
 
 // Execute polling: this is the real trigger that makes BUY/SELL fire.
+// It only runs while at least one order is OPEN.
 useInterval(
   async () => {
     if (!gridItemId || !walletAddress) return;
@@ -5315,16 +5338,8 @@ useInterval(
       // silent: polling should never spam the UI
     }
   },
-  3000,
-  !!isGridReady &&
-    !!gridItemId &&
-    !!walletAddress &&
-    !gridBusy.start &&
-    !gridBusy.stop &&
-    !gridBusy.add &&
-    !gridBusy.stopOrderId &&
-    !gridBusy.deleteOrderId &&
-    gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN")
+  2500,
+  gridPollingAllowed && hasOpenGridOrders
 );
 
   async function gridStart() {
@@ -5744,7 +5759,8 @@ body.qty = qty;
     setGridBusy((s) => ({ ...s, deleteOrderId: null }));
     setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
-useInterval(fetchGridOrders, 15000, isGridReady);
+// Slow fallback only when Grid is ready but no active order is running.
+useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
 
   const gridLiveFallback = useMemo(() => {
   const tgt = String(gridItem || "").toUpperCase();

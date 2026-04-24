@@ -1512,32 +1512,43 @@ function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, i
         }
         return null;
       })
-      .filter(Boolean);
+      .filter(Boolean)
+      .sort((a, b) => a.t - b.t);
 
     const pts = normalize(fullSeries);
+
     if (pts.length) {
       const maxT = Number(pts[pts.length - 1]?.t || 0);
-      if (maxT > 0) {
-        const oneDayMs = 24 * 60 * 60 * 1000;
-        const sevenDayMs = 7 * oneDayMs;
-        const oneDayPts = pts.filter((p) => p.t >= (maxT - oneDayMs));
-        const chosen = oneDayPts.length >= 12 ? oneDayPts : pts.filter((p) => p.t >= (maxT - sevenDayMs));
-        const sampled = (chosen.length > 36 ? chosen.filter((_, i) => i % Math.ceil(chosen.length / 36) === 0) : chosen)
-          .map((p) => p.v)
-          .filter((v) => Number.isFinite(v) && v > 0);
-        if (sampled.length >= 8) return sampled;
-      }
+      const sevenDayMs = 7 * 24 * 60 * 60 * 1000;
+
+      // CoinGecko-style: use the real 7D line with many points.
+      // Old version sampled down to ~36 points, which made the line look rough/simple.
+      const chosen = maxT > 0 ? pts.filter((p) => p.t >= (maxT - sevenDayMs)) : pts;
+      const src = chosen.length >= 12 ? chosen : pts;
+
+      const maxPoints = 120;
+      const step = Math.max(1, Math.ceil(src.length / maxPoints));
+      const sampled = src
+        .filter((_, i) => i % step === 0)
+        .map((p) => p.v)
+        .filter((v) => Number.isFinite(v) && v > 0);
+
+      const last = src[src.length - 1]?.v;
+      if (Number.isFinite(last) && last > 0 && sampled[sampled.length - 1] !== last) sampled.push(last);
+
+      if (sampled.length >= 8) return sampled;
     }
 
+    // Fallback only if no history is available. Keep it subtle, not zig-zaggy.
     const price = Number(row?.price);
     const chg = Number(row?.change24h);
     if (!Number.isFinite(price) || price <= 0) return [];
     const start = Number.isFinite(chg) ? price / (1 + chg / 100) : price * 0.985;
-    return Array.from({ length: 18 }, (_, i) => {
-      const drift = ((price - start) / 17) * i;
-      const waveA = Math.sin(i * 0.8) * Math.abs(price) * 0.004;
-      const waveB = Math.cos(i * 0.43) * Math.abs(price) * 0.0023;
-      return start + drift + waveA + waveB;
+    return Array.from({ length: 42 }, (_, i) => {
+      const t = i / 41;
+      const drift = start + (price - start) * t;
+      const wave = Math.sin(i * 0.55) * Math.abs(price) * 0.0018;
+      return drift + wave;
     }).filter((v) => Number.isFinite(v) && v > 0);
   })();
 
@@ -1561,9 +1572,9 @@ function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, i
     max += pad;
   }
 
-  const w = 88;
-  const h = 28;
-  const padX = 3;
+  const w = 150;
+  const h = 44;
+  const padX = 2;
   const padY = 3;
   const innerW = w - padX * 2;
   const innerH = h - padY * 2;
@@ -1577,24 +1588,25 @@ function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, i
   values.forEach((v, i) => {
     const X = sx(i);
     const Y = sy(v);
-    d += d ? ` L ${X} ${Y}` : `M ${X} ${Y}`;
+    d += d ? ` L ${X.toFixed(2)} ${Y.toFixed(2)}` : `M ${X.toFixed(2)} ${Y.toFixed(2)}`;
   });
 
   const trendUp = values[values.length - 1] >= values[0];
   const stroke = trendUp ? "var(--green)" : "var(--red)";
 
   return (
-    <div className="watchMiniSpark" title={`${sym} mini chart`}>
+    <div className="watchMiniSpark watchMiniSparkCg" title={`${sym} 7D chart`}>
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
         <path
           d={d}
           style={{
             fill: "none",
             stroke,
-            strokeWidth: 2.15,
+            strokeWidth: 2.05,
             strokeLinecap: "round",
             strokeLinejoin: "round",
             opacity: 0.98,
+            vectorEffect: "non-scaling-stroke",
           }}
         />
       </svg>
@@ -7495,6 +7507,43 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
         }
 
+        /* FINAL Watchlist sparkline precision: CoinGecko-like 7D mini charts */
+        .watchMiniSpark.watchMiniSparkCg{
+          width: 132px !important;
+          height: 38px !important;
+          background: transparent !important;
+          box-shadow: none !important;
+          border-radius: 0 !important;
+        }
+        .watchMiniSpark.watchMiniSparkCg svg{
+          width: 100% !important;
+          height: 100% !important;
+          display: block !important;
+          overflow: visible !important;
+        }
+
+        @media (max-width: 820px) {
+          .section-watch .watchHead,
+          .section-watch .watchRow{
+            width: 780px !important;
+            min-width: 780px !important;
+            grid-template-columns: 26px 30px 62px 50px 82px 112px 118px 110px 32px !important;
+          }
+          .section-watch .watchScroll{
+            min-width: 780px !important;
+            width: max-content !important;
+          }
+          .section-watch .watchRow svg,
+          .section-watch .watchRow canvas{
+            width: 110px !important;
+            max-width: 110px !important;
+          }
+          .section-watch .watchMiniSpark.watchMiniSparkCg{
+            width: 110px !important;
+            height: 34px !important;
+          }
+        }
+
 `}</style>
 <header className="topbar">
         <div className="brand">
@@ -10203,10 +10252,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "28px 42px minmax(90px,1fr) 72px 128px 160px 170px 96px 52px",
+                    gridTemplateColumns: "28px 42px minmax(90px,1fr) 72px 128px 160px 170px 132px 52px",
                     gap: 8,
                   }}
                 >
+                  <div className="center" style={{ textAlign: "center" }}>#</div>
                   <div aria-hidden="true" />
                   <div style={{ paddingLeft: 2 }}>Coin</div>
                   <div className="right">%</div>
@@ -10235,7 +10285,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: "grab",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "28px 42px minmax(90px,1fr) 72px 128px 160px 170px 96px 52px",
+                          gridTemplateColumns: "28px 42px minmax(90px,1fr) 72px 128px 160px 170px 132px 52px",
                           gap: 8,
                         }}
                       >

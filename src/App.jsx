@@ -9570,7 +9570,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
                           <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                            <div className="muted tiny">Suggested Grid</div>
+                            <div className="muted tiny">Suggested Grid
+<div style={{marginTop:12}}>
+  <button
+    className="btnPrimary"
+    onClick={() => applySuggestionToGrid(
+      {
+        coin: selectedPair?.split("/")?.[0] || "ETH",
+        range: "3-5%"
+      },
+      setGridItem,
+      setGridLower,
+      setGridUpper,
+      setGridLevels
+    )}
+  >
+    Apply to Grid
+  </button>
+</div>
+</div>
                             <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridRange || aiExplainData.range || "—"}</div>
                           </div>
                           <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
@@ -10740,7 +10758,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
     </div>
   );
 }
-export default function App() {
+export default 
+// 🔥 Apply Suggestion → Grid
+function applySuggestionToGrid(suggestion, setGridItem, setLower, setUpper, setLevels) {
+  if (!suggestion) return;
+
+  try {
+    const { coin, range } = suggestion;
+
+    // example: range "3-5%"
+    let lower = -3;
+    let upper = 5;
+
+    if (typeof range === "string" && range.includes("-")) {
+      const parts = range.replace("%","").split("-");
+      lower = -Math.abs(parseFloat(parts[0]) || 3);
+      upper = Math.abs(parseFloat(parts[1]) || 5);
+    }
+
+    setGridItem(coin);
+    setLower(lower);
+    setUpper(upper);
+    setLevels(6); // default safe
+
+  } catch (e) {
+    console.error("Apply suggestion error:", e);
+  }
+}
+
+function App() {
   return <AppInner />;
 }
 

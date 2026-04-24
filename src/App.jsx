@@ -8746,8 +8746,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <li><b>High score</b> → very similar movement</li>
                                 <li><b>Low score</b> → more independent movement</li>
                               </ul>
-                              <p><b>Click a pair</b> to open details such as performance, daily moves, spread, and explanation.</p>
-                              <p>This helps you spot stronger vs. weaker combinations faster for hedge, rebalance, or diversification ideas.</p>
+                                 <p><b>Click a pair</b> to open details such as performance, daily moves, spread, and explanation.</p>
+                                 <p>This helps you spot stronger vs. weaker combinations faster for hedge, rebalance, or diversification ideas.</p>
+							     <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
+                              <ul>
+                                 <li><b>Overbought (Red)</b> → strong recent buying, may be overextended</li>
+                                 <li><b>Neutral (Yellow)</b> → balanced market</li>
+                                 <li><b>Oversold (Green)</b> → strong recent selling, possible rebound</li>
+                             </ul>
+                             <p className="muted tiny">
+                               RSI indicates extremes, not direct buy/sell signals.
+                             </p>
                             </>
                         }
 

@@ -8736,6 +8736,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </ul>
                               <p><b>Klick auf ein Pair</b>, um Details wie Performance, tägliche Moves, Spread und Erklärung zu öffnen.</p>
                               <p>Das hilft dir, starke vs. schwache Kombinationen für Hedge-, Rebalance- oder Diversifikations-Ideen schneller zu erkennen.</p>
+							  <p><b>RSI (Relative Strength Index)</b> zeigt Momentum, nicht das tatsächliche Kaufvolumen.</p>
+                              <ul>
+                                <li><b>Überkauft (Rot)</b> → starker Kaufdruck, evtl. überdehnt</li>
+                                <li><b>Neutral (Gelb)</b> → ausgeglichener Markt</li>
+                                <li><b>Überverkauft (Grün)</b> → starker Verkaufsdruck, möglicher Rebound</li>
+                              </ul>
+                              <p className="muted tiny">
+                                RSI zeigt Extremzonen, keine direkten Kauf-/Verkaufssignale.
+                             </p>
                             </>
                         }
 

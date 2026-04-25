@@ -584,17 +584,46 @@ async function api(
   { method = "GET", token, body, signal, wallet } = {}
 ) {
   // Always send the wallet context (backend binds sessions to wallet).
+  // IMPORTANT: wallet can be either a string OR a wallet object depending on Privy timing.
+  // Also recover from grid URLs that already contain wallet/addr query params, so no
+  // /api/grid/* request can leave without X-Wallet-Address once a wallet exists.
   let wa = "";
   try {
-    wa =
-      (wallet?.address || wallet || "").toString().trim() ||
-      (localStorage.getItem("nexus_wallet") || "").trim() ||
-      (localStorage.getItem("wallet") || "").trim() ||
+    const walletCandidate =
+      (typeof wallet === "string" ? wallet : "") ||
+      wallet?.address ||
+      wallet?.walletAddress ||
+      wallet?.wallet_address ||
+      wallet?.account?.address ||
       "";
 
-    // Keep the last valid wallet available for early refresh / mobile reloads.
-    if (/^0x[a-fA-F0-9]{40}$/.test(wa)) {
-      localStorage.setItem("nexus_wallet", wa.toLowerCase());
+    let urlWallet = "";
+    try {
+      const qIndex = String(path || "").indexOf("?");
+      if (qIndex >= 0) {
+        const qs = new URLSearchParams(String(path).slice(qIndex + 1));
+        urlWallet =
+          qs.get("wallet") ||
+          qs.get("wallet_address") ||
+          qs.get("walletAddress") ||
+          qs.get("addr") ||
+          qs.get("address") ||
+          "";
+      }
+    } catch {}
+
+    wa =
+      String(walletCandidate || "").trim() ||
+      String(urlWallet || "").trim() ||
+      String(localStorage.getItem("nexus_wallet") || "").trim() ||
+      String(localStorage.getItem("wallet") || "").trim() ||
+      "";
+
+    const m = String(wa || "").match(/0x[a-fA-F0-9]{40}/);
+    wa = m ? m[0].toLowerCase() : "";
+
+    if (wa) {
+      try { localStorage.setItem("nexus_wallet", wa); } catch {}
     }
   } catch {}
 
@@ -640,10 +669,6 @@ async function api(
     return headers;
   };
 
-  if (String(path || "").startsWith("/api/grid") && !/^0x[a-fA-F0-9]{40}$/.test(wa)) {
-    return { status: "error", unauthenticated: true, error: "wallet_not_ready", orders: undefined };
-  }
-
   const doFetch = async (bearer) => {
     // Hard safety timeout so UI never gets stuck due to Render sleep/hanging connections.
     const ctrl = new AbortController();
@@ -675,6 +700,7 @@ async function api(
         signal: merged.signal,
         headers: makeHeaders(bearer),
         credentials: "include",
+        cache: "no-store",
         body: body ? JSON.stringify(body) : undefined,
       });
     } finally {
@@ -1964,26 +1990,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const [privyJwt, setPrivyJwt] = useState("");
   const [token, setToken] = useLocalStorageState("nexus_token", ""); // backend token
   const [wallet, setWallet] = useLocalStorageState("nexus_wallet", "");
-  const walletAddress = useMemo(() => {
-    try {
-      const embedded =
-        privyWallets?.find((w) =>
-          ["privy", "embedded"].includes(String(w?.walletClientType || "").toLowerCase()) ||
-          String(w?.connectorType || "").toLowerCase() === "embedded"
-        ) || privyWallets?.[0];
-
-      const v =
-        (wallet?.address || wallet || "").toString().trim() ||
-        String(embedded?.address || "").trim() ||
-        (localStorage.getItem("nexus_wallet") || "").trim();
-
-      const m = String(v || "").match(/0x[a-fA-F0-9]{40}/);
-      return m ? m[0].toLowerCase() : "";
-    } catch (_) {
-      return (wallet || "").toString().trim();
-    }
-  }, [wallet, privyWallets?.length]); // alias for older handlers / debug
-  const authToken = token || privyJwt || "";
+  const walletAddress = wallet; // alias for older handlers / debug
   // Trading policy is UI-only for now (no Vault/Allowance yet).
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
 const [walletModalOpen, setWalletModalOpen] = useState(false);
@@ -2236,7 +2243,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
         chainKey,
         symbol: nativeSymbol,
         isNative: true,
-        token: authToken,
+        token,
       });
       if (pre?.allowed === false) {
         setSecurityState("blocked");
@@ -2396,7 +2403,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       // This avoids the embedded-wallet/provider race after F5.
       try {
         const qs = new URLSearchParams({ wallet, chain: chainKey }).toString();
-        const r = await api(`/api/vault/state?${qs}`, { method: "GET", token: authToken, wallet });
+        const r = await api(`/api/vault/state?${qs}`, { method: "GET", token, wallet });
         if (r && (r.status === "ok" || r.vault_balance !== undefined)) {
           const vaultBal = Number(r?.vault_balance ?? 0) || 0;
           const vaultWei = r?.vault_balance_wei != null ? hexToBigInt(r.vault_balance_wei) : BigInt(Math.round(vaultBal * 1e18));
@@ -3213,7 +3220,7 @@ const byChain = {};
 
       await api("/api/watchlist", {
         method: "POST",
-        token: authToken,
+        token,
         wallet,
         body: { wallet, items: clean },
       });
@@ -3233,7 +3240,7 @@ const byChain = {};
     try {
       const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
         method: "GET",
-        token: authToken,
+        token,
         wallet,
       });
 
@@ -4100,7 +4107,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       let backendText = "";
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
       try {
-        const r = await api("/api/ai/insight", { method: "POST", token: authToken, body: payload });
+        const r = await api("/api/ai/insight", { method: "POST", token, body: payload });
 		console.log("AI RESPONSE:", r);  
         backendText =
           r?.answer ??
@@ -4491,7 +4498,7 @@ useEffect(() => {
     if (appStateSyncBusyRef.current) return;
     appStateSyncBusyRef.current = true;
     try {
-      const r = await api(`/api/app-state?wallet=${encodeURIComponent(wallet)}`, { method: "GET", token: authToken, wallet });
+      const r = await api(`/api/app-state?wallet=${encodeURIComponent(wallet)}`, { method: "GET", token, wallet });
       const state = r?.state || {};
       const serverCompare = Array.isArray(state?.compare) ? state.compare.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
       const serverTf = String(state?.timeframe || "90D").toUpperCase();
@@ -4504,7 +4511,7 @@ useEffect(() => {
       if (neverSynced && !hasServer && hasLocal) {
         await api("/api/app-state", {
           method: "POST",
-          token: authToken,
+          token,
           wallet,
           body: { wallet, compare: compareSet, timeframe, indexMode, aiSelected },
         });
@@ -4549,7 +4556,7 @@ useEffect(() => {
       if (appStateSyncBusyRef.current) return;
       appStateSyncBusyRef.current = true;
       try {
-        await api("/api/app-state", { method: "POST", token: authToken, wallet, body: payload });
+        await api("/api/app-state", { method: "POST", token, wallet, body: payload });
         setAppStateSyncedWallet(wallet);
       } catch (e) {
         console.warn("app-state save failed", e);
@@ -4673,7 +4680,7 @@ const [aiLoading, setAiLoading] = useState(false);
           include_24hr_change: "true",
           include_24hr_vol: "true",
         }).toString();
-        const cg = await api(`/api/coingecko/simple_price?${qs}`, { method: "GET", token: authToken, wallet });
+        const cg = await api(`/api/coingecko/simple_price?${qs}`, { method: "GET", token, wallet });
         for (const [id, data] of Object.entries(cg || {})) {
           const p = Number(data?.usd);
           if (!Number.isFinite(p) || p <= 0) continue;
@@ -4712,7 +4719,7 @@ const [aiLoading, setAiLoading] = useState(false);
     const otherMap = {};
     if (otherSyms.length) {
       try {
-        const priceResp = await api(`/api/prices?symbols=${encodeURIComponent(otherSyms.join(","))}`, { method: "GET", token: authToken, wallet });
+        const priceResp = await api(`/api/prices?symbols=${encodeURIComponent(otherSyms.join(","))}`, { method: "GET", token, wallet });
         const priceMap = priceResp?.prices || {};
         for (const [sym, data] of Object.entries(priceMap || {})) {
           const p = Number(data?.price);
@@ -4779,7 +4786,7 @@ const [aiLoading, setAiLoading] = useState(false);
     }
     inflightWatch.current = true;
     try {
-      const r = await api("/api/watchlist/snapshot", { method: "POST", token: authToken, wallet, body: { wallet, items: (itemsOverride ?? watchItems) } });
+      const r = await api("/api/watchlist/snapshot", { method: "POST", token, wallet, body: { wallet, items: (itemsOverride ?? watchItems) } });
       const nextRowsRaw = (r?.results || r?.rows || []);
       // Merge-only rule: watchItems is the source of truth. Never resurrect removed items.
       const allowedKeys = new Set(((itemsOverride ?? watchItems) || []).map(_watchKeyFromItem));
@@ -5124,7 +5131,7 @@ useEffect(() => {
     try {
       const r = await api("/api/grid/ui/state", {
         method: "GET",
-        token: authToken,
+        token,
         wallet: walletAddress,
       });
       if (cancelled) return;
@@ -5148,7 +5155,7 @@ useEffect(() => {
   })();
 
   return () => { cancelled = true; };
-}, [walletAddress, authToken]);
+}, [walletAddress, token]);
 
 // After hydration and on every chain/item switch, ask backend for the authoritative grid context.
 // This fixes the stale-chain issue where the UI only became correct after toggling BNB -> POL manually.
@@ -5166,7 +5173,7 @@ useEffect(() => {
       });
       const r = await api(`/api/grid/init?${params.toString()}`, {
         method: "GET",
-        token: authToken,
+        token,
         wallet: walletAddress,
       });
       if (cancelled) return;
@@ -5199,7 +5206,7 @@ useEffect(() => {
   })();
 
   return () => { cancelled = true; };
-}, [gridUiHydrated, walletAddress, authToken, activeGridChainKey, gridItemId]);
+}, [gridUiHydrated, walletAddress, token, activeGridChainKey, gridItemId]);
 
 const [gridBusy, setGridBusy] = useState({
   start: false,
@@ -5262,16 +5269,19 @@ const fetchGridOrders = useCallback(async () => {
     // Be permissive with query param naming across backend revisions.
     // Some deployments use `addr`, others `wallet`.
     const params = new URLSearchParams({
+      wallet: walletAddress,
+      wallet_address: walletAddress,
+      walletAddress: walletAddress,
+      addr: walletAddress,
+      address: walletAddress,
       item: gridItemId,
       chain: activeGridChainKey,
-      addr: walletAddress,
-      wallet: walletAddress,
     });
 
     const r = await api(`/api/grid/orders?${params.toString()}`, {
       method: "GET",
-      token: authToken,
-      wallet: walletAddress,
+      token,
+    wallet: walletAddress,
     });
 
     // If auth isn't ready yet, NEVER overwrite current UI state
@@ -5301,7 +5311,7 @@ const fetchGridOrders = useCallback(async () => {
     // Keep existing orders on transient errors; just surface message
     setErrorMsg(`Grid orders: ${e.message}`);
   }
-}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, authToken, normalizeGridOrders, gridItem, refreshVaultState]);
+}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -5444,7 +5454,7 @@ setGridBusy((s) => ({ ...s, start: true }));
         chain: chainKey,
         auto_path: !!gridAutoPath,
       };
-      const r = await api("/api/grid/cycle/start", { method: "POST", token: authToken, body });
+      const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
       applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const startOrdersRaw = getGridOrdersFromResponse(r);
@@ -5484,7 +5494,7 @@ async function setGridExecute(itemIdArg = "") {
 
   return await api("/api/grid/execute", {
     method: "POST",
-    token: authToken,
+    token,
     wallet: walletAddress,
     body: {
       item: itemId,
@@ -5515,7 +5525,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         gridMeta?.itemId ||
         gridMeta?.id ||
         `${chainKey}:${String(gridItem || "").toUpperCase()}`;
-      const r = await api("/api/grid/stop", { method: "POST", token: authToken, wallet: walletAddress, body: { item: gridItemId, addr: walletAddress || undefined }, });
+      const r = await api("/api/grid/stop", { method: "POST", token, wallet: walletAddress, body: { item: gridItemId, addr: walletAddress || undefined }, });
       applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const stopOrdersRaw = getGridOrdersFromResponse(r);
@@ -5576,7 +5586,7 @@ body.qty = qty;
 	      let lastErr = null;
 	      for (const ep of endpoints) {
 	        try {
-	          r = await api(ep, { method: "POST", token: authToken, body, wallet: walletAddress });
+	          r = await api(ep, { method: "POST", token, body, wallet: walletAddress });
 	          lastErr = null;
 	          break;
 	        } catch (err) {
@@ -5634,7 +5644,7 @@ body.qty = qty;
     let lastErr = null;
     for (const a of attempts) {
       try {
-        const r = await api(a.url, { method: a.method, token: authToken, wallet: walletAddress, body: a.body });
+        const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
         const stopOrdersRaw = getGridOrdersFromResponse(r);
         if (Array.isArray(stopOrdersRaw)) {
           const stopOrders = normalizeGridOrders(stopOrdersRaw);
@@ -5682,7 +5692,7 @@ body.qty = qty;
     let lastErr = null;
     for (const a of attempts) {
       try {
-        const r = await api(a.url, { method: a.method, token: authToken, wallet: walletAddress, body: a.body });
+        const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
         const resumeOrdersRaw = getGridOrdersFromResponse(r);
         if (Array.isArray(resumeOrdersRaw)) {
           const resumeOrders = normalizeGridOrders(resumeOrdersRaw);
@@ -5758,7 +5768,7 @@ body.qty = qty;
           setGridBusy((s) => ({ ...s, deleteOrderId: null }));
           return;
         } else {
-          const r = await api(a.url, { method: a.method, token: authToken, wallet: walletAddress, body: a.body });
+          const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
           const respOrdersRaw = getGridOrdersFromResponse(r);
           if (Array.isArray(respOrdersRaw)) {
             const respOrders = normalizeGridOrders(respOrdersRaw);
@@ -6319,7 +6329,7 @@ const addMarketCoin = async (coin) => {
           include_24hr_change: "true",
           include_24hr_vol: "true",
         }).toString();
-        const direct = await api(`/api/coingecko/simple_price?${qs}`, { method: "GET", token: authToken, wallet });
+        const direct = await api(`/api/coingecko/simple_price?${qs}`, { method: "GET", token, wallet });
         const d = direct?.[String(cgId || "").toLowerCase()];
         const p = Number(d?.usd);
         if (Number.isFinite(p) && p > 0) {
@@ -6636,7 +6646,7 @@ async function runAi() {
       };
 
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
-      const r = await api("/api/ai/run", { method: "POST", token: authToken, body });
+      const r = await api("/api/ai/run", { method: "POST", token, body });
 
       let text =
         r?.answer ??

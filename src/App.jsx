@@ -7348,10 +7348,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 8px !important;
-            padding-bottom: 48px !important;
+            padding-bottom: 10px !important;
             margin-top: 6px !important;
-            margin-bottom: 24px !important;
-            scroll-padding-bottom: 48px !important;
+            margin-bottom: 0 !important;
+            scroll-padding-bottom: 10px !important;
             overscroll-behavior: contain !important;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
           }
@@ -7377,8 +7377,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
             right: 0;
             bottom: 0;
             display: block;
-            height: 18px;
-            margin-top: -18px;
+            height: 10px;
+            margin-top: -10px;
             background: linear-gradient(180deg, rgba(6,24,22,0), rgba(6,24,22,.95));
             pointer-events: none;
           }
@@ -7387,8 +7387,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsScroll{
             min-height: 0 !important;
             max-height: clamp(190px, 28vh, 330px) !important;
-            padding-bottom: 72px !important;
-            scroll-padding-bottom: 72px !important;
+            padding-bottom: 10px !important;
+            scroll-padding-bottom: 10px !important;
           }
 
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsBox{
@@ -9295,9 +9295,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     boxSizing: "border-box",
                     marginTop: 6,
 
-                    minHeight: 380,
-                    maxHeight: 440,
+                    minHeight: 0,
+                    maxHeight: "clamp(220px, 28vh, 330px)",
                     overflowY: "auto",
+                    paddingBottom: 10,
                   }}
                 >
                   {bestPairsToShow.length ? (

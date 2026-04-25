@@ -584,47 +584,13 @@ async function api(
   { method = "GET", token, body, signal, wallet } = {}
 ) {
   // Always send the wallet context (backend binds sessions to wallet).
-  // IMPORTANT: wallet can be either a string OR a wallet object depending on Privy timing.
-  // Also recover from grid URLs that already contain wallet/addr query params, so no
-  // /api/grid/* request can leave without X-Wallet-Address once a wallet exists.
   let wa = "";
   try {
-    const walletCandidate =
-      (typeof wallet === "string" ? wallet : "") ||
-      wallet?.address ||
-      wallet?.walletAddress ||
-      wallet?.wallet_address ||
-      wallet?.account?.address ||
-      "";
-
-    let urlWallet = "";
-    try {
-      const qIndex = String(path || "").indexOf("?");
-      if (qIndex >= 0) {
-        const qs = new URLSearchParams(String(path).slice(qIndex + 1));
-        urlWallet =
-          qs.get("wallet") ||
-          qs.get("wallet_address") ||
-          qs.get("walletAddress") ||
-          qs.get("addr") ||
-          qs.get("address") ||
-          "";
-      }
-    } catch {}
-
     wa =
-      String(walletCandidate || "").trim() ||
-      String(urlWallet || "").trim() ||
-      String(localStorage.getItem("nexus_wallet") || "").trim() ||
-      String(localStorage.getItem("wallet") || "").trim() ||
+      (wallet || "").trim() ||
+      (localStorage.getItem("nexus_wallet") || "").trim() ||
+      (localStorage.getItem("wallet") || "").trim() ||
       "";
-
-    const m = String(wa || "").match(/0x[a-fA-F0-9]{40}/);
-    wa = m ? m[0].toLowerCase() : "";
-
-    if (wa) {
-      try { localStorage.setItem("nexus_wallet", wa); } catch {}
-    }
   } catch {}
 
   // Auth strategy:
@@ -700,7 +666,6 @@ async function api(
         signal: merged.signal,
         headers: makeHeaders(bearer),
         credentials: "include",
-        cache: "no-store",
         body: body ? JSON.stringify(body) : undefined,
       });
     } finally {
@@ -5269,13 +5234,10 @@ const fetchGridOrders = useCallback(async () => {
     // Be permissive with query param naming across backend revisions.
     // Some deployments use `addr`, others `wallet`.
     const params = new URLSearchParams({
-      wallet: walletAddress,
-      wallet_address: walletAddress,
-      walletAddress: walletAddress,
-      addr: walletAddress,
-      address: walletAddress,
       item: gridItemId,
       chain: activeGridChainKey,
+      addr: walletAddress,
+      wallet: walletAddress,
     });
 
     const r = await api(`/api/grid/orders?${params.toString()}`, {

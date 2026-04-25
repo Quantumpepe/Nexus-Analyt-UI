@@ -6820,13 +6820,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchHead,
           .section-watch .watchRow,
           .section-watch .watchScroll{
-            min-width: 760px !important;
+            /* 9 columns must match the JSX row exactly.
+               A wider shared table fixes cramped mobile numbers and keeps the remove X at the far right. */
+            min-width: 900px !important;
           }
 
           .section-watch .watchHead,
           .section-watch .watchRow{
-            grid-template-columns: 40px 92px 58px 104px 142px 150px 118px 42px !important;
-            gap: 6px !important;
+            grid-template-columns: 30px 36px minmax(76px, 1fr) 76px 120px 148px 172px 190px 52px !important;
+            gap: 8px !important;
             align-items: center !important;
           }
 

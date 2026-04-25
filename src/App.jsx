@@ -4328,6 +4328,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [comparePage, setComparePage] = useState("first10"); // first10 | next10 | all
   const [highlightedSyms, setHighlightedSyms] = useState([]);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
+  const [bestPairsSortMode, setBestPairsSortMode] = useLocalStorageState("nexus_best_pairs_sort_mode", "score"); // score | spread
   const [gridModalSym, setGridModalSym] = useState(null);
 
   useEffect(() => {
@@ -4379,7 +4380,21 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     return sym ? (watchRows || []).find((r) => String(r?.symbol || "").toUpperCase() === sym) || null : null;
   }, [gridModalSym, watchRows]);
     const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000), [compareSeries]);
-  const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsAll.slice(0, 10) : bestPairsAll), [showTop10Pairs, bestPairsAll]);
+  const bestPairsSorted = useMemo(() => {
+    const rows = Array.isArray(bestPairsAll) ? [...bestPairsAll] : [];
+    if (String(bestPairsSortMode || "score") !== "spread") return rows;
+
+    return rows.sort((a, b) => {
+      const av = Number.isFinite(Number(a?.spreadPct)) ? Number(a.spreadPct) : -Infinity;
+      const bv = Number.isFinite(Number(b?.spreadPct)) ? Number(b.spreadPct) : -Infinity;
+      if (bv !== av) return bv - av;
+      return (Number(b?.score || 0) - Number(a?.score || 0));
+    });
+  }, [bestPairsAll, bestPairsSortMode]);
+  const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsSorted.slice(0, 10) : bestPairsSorted), [showTop10Pairs, bestPairsSorted]);
+  const toggleBestPairsSort = useCallback((mode) => {
+    setBestPairsSortMode((prev) => (String(prev || "score") === mode ? "score" : mode));
+  }, [setBestPairsSortMode]);
 
   // grid (manual)
   // Grid UI works with symbols; backend grid endpoints are keyed by item_id.
@@ -9308,11 +9323,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
                   <div className="muted tiny">Showing {bestPairsToShow.length} / {bestPairsAll.length} pairs</div>
-                  <button className="ghostBtn tiny" onClick={() => setShowTop10Pairs(v => !v)}>
-                    {showTop10Pairs ? "Show all pairs" : "Show top 10"}
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      className={String(bestPairsSortMode || "score") === "spread" ? "btn tiny" : "ghostBtn tiny"}
+                      title="Sort by largest 30D spread first. Click again to return to score ranking."
+                      onClick={() => toggleBestPairsSort("spread")}
+                    >
+                      Spread
+                    </button>
+                    <button className="ghostBtn tiny" onClick={() => setShowTop10Pairs(v => !v)}>
+                      {showTop10Pairs ? "Show all pairs" : "Show top 10"}
+                    </button>
+                  </div>
                 </div>
 
                 <div
@@ -9363,7 +9387,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               flex: 1,
                               minWidth: 0,
                               display: "grid",
-                              gridTemplateColumns: "minmax(88px, 1.2fr) 120px 120px 56px auto auto",
+                              gridTemplateColumns: "minmax(88px, 1.2fr) 120px 120px 56px 72px auto auto",
                               gap: 8,
                               alignItems: "center",
                             }}
@@ -9420,6 +9444,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               }}
                             >
                               Δ {Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"}
+                            </span>
+
+                            <span
+                              className="pill"
+                              title={`30D spread: ${Number.isFinite(p.spreadPct) ? p.spreadPct.toFixed(2) + "%" : "—"} · Larger values rank higher when Spread sorting is active.`}
+                              style={{
+                                width: 72,
+                                justifyContent: "center",
+                                padding: "4px 8px",
+                                fontSize: 12,
+                                lineHeight: 1,
+                                background: String(bestPairsSortMode || "score") === "spread" ? "rgba(57,217,138,0.14)" : "rgba(255,255,255,0.06)",
+                                borderColor: String(bestPairsSortMode || "score") === "spread" ? "rgba(57,217,138,0.28)" : "rgba(255,255,255,0.10)",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              S {Number.isFinite(p.spreadPct) ? p.spreadPct.toFixed(1) + "%" : "—"}
                             </span>
 
                             <span

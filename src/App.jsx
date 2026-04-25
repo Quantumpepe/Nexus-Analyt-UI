@@ -3202,6 +3202,7 @@ const byChain = {};
   });
   const [watchDragKey, setWatchDragKey] = useState("");
   const [watchDropKey, setWatchDropKey] = useState("");
+  const [watchSortMode, setWatchSortMode] = useLocalStorageState("nexus_watch_sort_mode", "manual"); // manual | winner | loser
 
   const [watchSyncedWallet, setWatchSyncedWallet] = useLocalStorageState("nexus_watch_synced_wallet", "");
   const [appStateSyncedWallet, setAppStateSyncedWallet] = useLocalStorageState("nexus_app_state_synced_wallet", "");
@@ -3362,6 +3363,35 @@ const byChain = {};
     }, 450);
     return () => clearTimeout(t);
   }, [wallet, watchItemsPersistKey, saveWatchlistToServer, normalizeWatchItems, setWatchSyncedWallet]);
+
+  const watchSortValue = useCallback((row) => {
+    const raw = row?.change24h ?? row?.chg_24h ?? row?.usd_24h_change ?? row?.change_24h;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }, []);
+
+  const sortedWatchRows = useMemo(() => {
+    const rows = Array.isArray(watchRows) ? [...watchRows] : [];
+    const mode = String(watchSortMode || "manual").toLowerCase();
+    if (mode !== "winner" && mode !== "loser") return rows;
+
+    return rows
+      .map((row, originalIndex) => ({ row, originalIndex, value: watchSortValue(row) }))
+      .sort((a, b) => {
+        const av = a.value;
+        const bv = b.value;
+        if (av == null && bv == null) return a.originalIndex - b.originalIndex;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        if (mode === "winner") return (bv - av) || (a.originalIndex - b.originalIndex);
+        return (av - bv) || (a.originalIndex - b.originalIndex);
+      })
+      .map((x) => x.row);
+  }, [watchRows, watchSortMode, watchSortValue]);
+
+  const toggleWatchSort = useCallback((mode) => {
+    setWatchSortMode((prev) => (String(prev || "manual") === mode ? "manual" : mode));
+  }, [setWatchSortMode]);
 
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
@@ -10586,6 +10616,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="cardActions" style={{ alignItems: "center" }}>
               <button className="btn" onClick={() => setAddOpen(true)}>+ Add</button>
               <button className="btnGhost" onClick={() => fetchWatchSnapshot(null, { force: true, user: true })}>Refresh</button>
+              <button
+                type="button"
+                className={String(watchSortMode || "manual") === "winner" ? "btn" : "btnGhost"}
+                onClick={() => toggleWatchSort("winner")}
+                title="Sort watchlist by strongest 24h gain. Click again to return to manual order."
+              >
+                Winner
+              </button>
+              <button
+                type="button"
+                className={String(watchSortMode || "manual") === "loser" ? "btn" : "btnGhost"}
+                onClick={() => toggleWatchSort("loser")}
+                title="Sort watchlist by strongest 24h loss. Click again to return to manual order."
+              >
+                Loser
+              </button>
               <InfoButton title="Watchlist">
                 <Help showClose dismissable
                   de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Drag & Drop</b> über den Griff links ändert die Reihenfolge. Diese Reihenfolge wird mit deiner Wallet auf dem Server gespeichert.</p><p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen oder Ändern eines Coins/Tokens einmal drücken, damit Preis, 24h und Volumen nachgeladen werden.</p></>}
@@ -10617,7 +10663,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
 
                 <div className="watchScroll">
-                  {watchRows.map((r, idx) => {
+                  {sortedWatchRows.map((r, idx) => {
                     const sym = String(r.symbol || "").toUpperCase();
                     const checked = compareSymbols.includes(sym);
                     const marketCap = r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap ?? null;
@@ -10625,13 +10671,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div
                         key={`${sym}-${idx}`}
                         className="watchRow"
-                        draggable
-                        onDragStart={() => handleWatchDragStart(r)}
-                        onDragOver={(e) => handleWatchDragOver(e, r)}
-                        onDrop={(e) => handleWatchDrop(e, r)}
+                        draggable={String(watchSortMode || "manual") === "manual"}
+                        onDragStart={() => { if (String(watchSortMode || "manual") === "manual") handleWatchDragStart(r); }}
+                        onDragOver={(e) => { if (String(watchSortMode || "manual") === "manual") handleWatchDragOver(e, r); }}
+                        onDrop={(e) => { if (String(watchSortMode || "manual") === "manual") handleWatchDrop(e, r); }}
                         onDragEnd={handleWatchDragEnd}
                         style={{
-                          cursor: "grab",
+                          cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
                           gridTemplateColumns: "28px 42px minmax(90px,1fr) 72px 128px 160px 170px 132px 52px",
@@ -10667,12 +10713,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     );
                   })}
-                  {!watchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
+                  {!sortedWatchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
                 </div>
               </>
             ) : (
               <div className="watchCompact">
-                {watchRows.map((r, idx) => {
+                {sortedWatchRows.map((r, idx) => {
                   const sym = String(r.symbol || "").toUpperCase();
                   const checked = compareSymbols.includes(sym);
                   const mm = (r.mode || "market");
@@ -10680,13 +10726,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div
                       key={`${sym}-${idx}`}
                       className="watchCompactCard"
-                      draggable
-                      onDragStart={() => handleWatchDragStart(r)}
-                      onDragOver={(e) => handleWatchDragOver(e, r)}
-                      onDrop={(e) => handleWatchDrop(e, r)}
+                      draggable={String(watchSortMode || "manual") === "manual"}
+                      onDragStart={() => { if (String(watchSortMode || "manual") === "manual") handleWatchDragStart(r); }}
+                      onDragOver={(e) => { if (String(watchSortMode || "manual") === "manual") handleWatchDragOver(e, r); }}
+                      onDrop={(e) => { if (String(watchSortMode || "manual") === "manual") handleWatchDrop(e, r); }}
                       onDragEnd={handleWatchDragEnd}
                       style={{
-                        cursor: "grab",
+                        cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                         border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                         background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
                       }}
@@ -10713,7 +10759,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                   );
                 })}
-                {!watchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
+                {!sortedWatchRows.length ? <div className="muted" style={{ padding: 10 }}>No watchlist data yet.</div> : null}
               </div>
             )}
           </div>

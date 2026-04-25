@@ -7686,6 +7686,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
         }
 
+
+        /* FINAL MOBILE WATCHLIST FIX - must stay after the older watchlist mobile rules. */
+        @media (max-width: 780px) {
+          .section-watch .panelScroll{ overflow-x: hidden !important; }
+          .section-watch .watchTable{ width: 100% !important; max-width: 100% !important; overflow-x: auto !important; overflow-y: visible !important; -webkit-overflow-scrolling: touch !important; touch-action: pan-x pan-y !important; }
+          .section-watch .watchScroll{ overflow: visible !important; max-width: none !important; width: max-content !important; }
+          .section-watch .watchHead,
+          .section-watch .watchRow{ display: grid !important; grid-template-columns: 30px 38px 82px 76px 122px 154px 180px 210px 56px !important; gap: 10px !important; min-width: 958px !important; align-items: center !important; }
+          .section-watch .watchHead.watchStickyHead{ position: sticky !important; top: 0 !important; z-index: 9 !important; background: rgba(2, 18, 17, 0.96) !important; backdrop-filter: blur(8px) !important; }
+          .section-watch .watchHead{ padding-left: 8px !important; padding-right: 8px !important; font-size: 10px !important; }
+          .section-watch .watchRow{ padding: 8px !important; min-height: 54px !important; }
+          .section-watch .watchRow > *, .section-watch .watchHead > *{ min-width: 0 !important; }
+          .section-watch .watchCoin, .section-watch .watchSym{ min-width: 0 !important; white-space: nowrap !important; }
+          .section-watch .watchRow .mono{ font-size: 11px !important; line-height: 1.05 !important; white-space: nowrap !important; font-variant-numeric: tabular-nums !important; }
+          .section-watch .watchRow .iconBtn{ margin-left: auto !important; justify-self: end !important; flex: 0 0 auto !important; }
+        }
 `}</style>
 <header className="topbar">
         <div className="brand">

@@ -935,6 +935,43 @@ function bandFromSnapshot(row) {
   return "mid";
 }
 
+function watchSystemScore(row) {
+  const ch = Number(row?.change24h ?? row?.chg_24h ?? row?.usd_24h_change ?? row?.change_24h);
+  const vol = Number(row?.volume24h ?? row?.total_volume ?? row?.volume_24h);
+  const mcap = Number(row?.marketCap ?? row?.market_cap ?? row?.mcap ?? row?.marketcap);
+  let score = 55;
+  if (Number.isFinite(ch)) {
+    if (ch >= 10) score += 24;
+    else if (ch >= 5) score += 18;
+    else if (ch >= 2) score += 10;
+    else if (ch >= 0) score += 4;
+    else if (ch <= -10) score -= 24;
+    else if (ch <= -5) score -= 16;
+    else if (ch <= -2) score -= 8;
+    else score -= 3;
+  }
+  if (Number.isFinite(vol) && vol > 0) {
+    const v = Math.log10(Math.max(1, vol));
+    score += Math.max(0, Math.min(14, (v - 5) * 3));
+  }
+  if (Number.isFinite(mcap) && mcap > 0) {
+    const m = Math.log10(Math.max(1, mcap));
+    score += Math.max(0, Math.min(10, (m - 7) * 2));
+  }
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function watchSystemRating(row) {
+  const s = watchSystemScore(row);
+  if (s >= 92) return "AAA";
+  if (s >= 82) return "AA";
+  if (s >= 72) return "A";
+  if (s >= 60) return "B";
+  if (s >= 48) return "C";
+  return "RISK";
+}
+
+
 // ------------------------
 // Timeframes UI
 // ------------------------
@@ -3203,6 +3240,10 @@ const byChain = {};
   const [watchDragKey, setWatchDragKey] = useState("");
   const [watchDropKey, setWatchDropKey] = useState("");
   const [watchSortMode, setWatchSortMode] = useLocalStorageState("nexus_watch_sort_mode", "manual"); // manual | winner | loser
+  const [ratingModal, setRatingModal] = useState({ open: false, row: null, symbol: "", systemRating: "", systemScore: 0 });
+  const [ratingStatus, setRatingStatus] = useState(null);
+  const [ratingBusy, setRatingBusy] = useState(false);
+  const [ratingErr, setRatingErr] = useState("");
 
   const [watchSyncedWallet, setWatchSyncedWallet] = useLocalStorageState("nexus_watch_synced_wallet", "");
   const [appStateSyncedWallet, setAppStateSyncedWallet] = useLocalStorageState("nexus_app_state_synced_wallet", "");
@@ -3392,6 +3433,70 @@ const byChain = {};
   const toggleWatchSort = useCallback((mode) => {
     setWatchSortMode((prev) => (String(prev || "manual") === mode ? "manual" : mode));
   }, [setWatchSortMode]);
+
+  const openRatingModal = useCallback(async (row) => {
+    const sym = String(row?.symbol || "").toUpperCase();
+    if (!sym) return;
+    const sysRating = watchSystemRating(row);
+    const sysScore = watchSystemScore(row);
+    setRatingModal({ open: true, row, symbol: sym, systemRating: sysRating, systemScore: sysScore });
+    setRatingStatus(null);
+    setRatingErr("");
+    const wa = resolveWalletAddress(wallet);
+    if (!wa) {
+      setRatingErr("Connect wallet first.");
+      return;
+    }
+    try {
+      const r = await api(`/api/ratings/coin?symbol=${encodeURIComponent(sym)}&wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, {
+        method: "GET",
+        token,
+        wallet: wa,
+      });
+      setRatingStatus(r || null);
+    } catch (e) {
+      setRatingErr(e?.message || "Rating status failed");
+    }
+  }, [wallet, token]);
+
+  const closeRatingModal = useCallback(() => {
+    setRatingModal({ open: false, row: null, symbol: "", systemRating: "", systemScore: 0 });
+    setRatingStatus(null);
+    setRatingErr("");
+    setRatingBusy(false);
+  }, []);
+
+  const submitUserRating = useCallback(async (rating) => {
+    const sym = String(ratingModal?.symbol || "").toUpperCase();
+    const wa = resolveWalletAddress(wallet);
+    if (!sym || !wa) return;
+    setRatingBusy(true);
+    setRatingErr("");
+    try {
+      const r = await api(`/api/ratings/vote?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, {
+        method: "POST",
+        token,
+        wallet: wa,
+        body: { wallet: wa, wallet_address: wa, symbol: sym, rating },
+      });
+      setRatingStatus((prev) => ({ ...(prev || {}), ...(r || {}), can_vote: false, already_voted_today: true, user_rating_today: rating, last_user_rating: rating }));
+    } catch (e) {
+      const msg = e?.data?.error || e?.message || "Rating failed";
+      setRatingErr(msg === "already rated today" ? "You already rated this coin today." : msg);
+      if (e?.data?.user_rating_today) {
+        setRatingStatus((prev) => ({ ...(prev || {}), ...(e.data || {}), can_vote: false, already_voted_today: true }));
+      }
+    } finally {
+      setRatingBusy(false);
+    }
+  }, [ratingModal, wallet, token]);
+
+  const openRatingLink = useCallback(() => {
+    const link = String(ratingStatus?.link || "").trim();
+    if (!link) return;
+    try { window.open(link, "_blank", "noopener,noreferrer"); } catch {}
+  }, [ratingStatus]);
+
 
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
@@ -10688,11 +10793,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "28px 42px minmax(90px,1fr) 72px 128px 160px 170px 132px 52px",
+                    gridTemplateColumns: "82px 42px minmax(90px,1fr) 72px 128px 160px 170px 132px 52px",
                     gap: 8,
                   }}
                 >
-                  <div className="center" style={{ textAlign: "center" }}>#</div>
+                  <div className="center" style={{ textAlign: "center" }}># / Rating</div>
                   <div aria-hidden="true" />
                   <div style={{ paddingLeft: 2 }}>Coin</div>
                   <div className="right">%</div>
@@ -10708,6 +10813,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     const sym = String(r.symbol || "").toUpperCase();
                     const checked = compareSymbols.includes(sym);
                     const marketCap = r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap ?? null;
+                    const sysRating = watchSystemRating(r);
                     return (
                       <div
                         key={`${sym}-${idx}`}
@@ -10721,12 +10827,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "28px 42px minmax(90px,1fr) 72px 128px 160px 170px 132px 52px",
+                          gridTemplateColumns: "82px 42px minmax(90px,1fr) 72px 128px 160px 170px 132px 52px",
                           gap: 8,
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", fontSize:11, opacity:0.6 }}>
-                          {idx + 1}
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", gap: 5, fontSize: 11 }}>
+                          <span style={{ opacity: 0.62 }}>{idx + 1}</span>
+                          <button
+                            type="button"
+                            className="pill silver"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
+                            title={`System Rating ${sysRating} · click to rate ${sym}`}
+                            style={{ padding: "2px 6px", fontSize: 10, lineHeight: 1.1, cursor: "pointer" }}
+                          >
+                            {sysRating}
+                          </button>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
                           <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.95)" }} />
@@ -10763,6 +10878,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   const sym = String(r.symbol || "").toUpperCase();
                   const checked = compareSymbols.includes(sym);
                   const mm = (r.mode || "market");
+                  const sysRating = watchSystemRating(r);
                   return (
                     <div
                       key={`${sym}-${idx}`}
@@ -10785,6 +10901,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div className="watchCompactTop" style={{ gap: 6 }}>
                           <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                             <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
+                            <button
+                              type="button"
+                              className="pill silver"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
+                              title={`System Rating ${sysRating} · click to rate ${sym}`}
+                              style={{ padding: "2px 6px", fontSize: 10, lineHeight: 1.1, cursor: "pointer" }}
+                            >
+                              {sysRating}
+                            </button>
                             <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
                           </div>
                         </div>
@@ -10807,6 +10932,75 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           <div className="muted tiny"></div>
         </div></section>
+
+
+        {ratingModal.open && (
+          <div className="modalBackdrop" onClick={closeRatingModal}>
+            <div
+              className="modal"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxWidth: 440,
+                width: "calc(100vw - 28px)",
+                background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+              }}
+            >
+              <div className="modalHead">
+                <div>
+                  <div className="cardTitle">Coin Rating · {ratingModal.symbol}</div>
+                  <div className="muted tiny">System Rating: <b>{ratingModal.systemRating}</b> · Score {ratingModal.systemScore}</div>
+                </div>
+                <button className="iconBtn" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); closeRatingModal(); }}>×</button>
+              </div>
+
+              <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+                <div className="softBox" style={{ padding: 12 }}>
+                  <div className="muted tiny" style={{ marginBottom: 8 }}>Your rating</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {["AAA", "AA", "A", "B", "C", "RISK"].map((rt) => {
+                      const chosen = String(ratingStatus?.user_rating_today || ratingStatus?.last_user_rating || "").toUpperCase() === rt;
+                      const disabled = ratingBusy || ratingStatus?.can_vote === false;
+                      return (
+                        <button
+                          key={rt}
+                          type="button"
+                          className={chosen ? "btn" : "btnGhost"}
+                          disabled={disabled}
+                          onClick={() => submitUserRating(rt)}
+                          title={ratingStatus?.can_vote === false ? "Only one rating per coin per day" : `Rate ${ratingModal.symbol} as ${rt}`}
+                        >
+                          {rt}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="muted tiny" style={{ marginTop: 8 }}>
+                    {ratingStatus?.already_voted_today
+                      ? `Already rated today: ${ratingStatus?.user_rating_today || ratingStatus?.last_user_rating || "—"}`
+                      : "You can rate this coin once per day."}
+                  </div>
+                </div>
+
+                {ratingErr && <div style={{ color: "#ffb3b3", fontSize: 12 }}>{ratingErr}</div>}
+
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <div className="muted tiny">
+                    Community votes: {ratingStatus?.summary?.count ?? 0}
+                  </div>
+                  <button
+                    type="button"
+                    className={ratingStatus?.link_enabled ? "btn" : "btnGhost"}
+                    disabled={!ratingStatus?.link_enabled}
+                    onClick={openRatingLink}
+                    title={ratingStatus?.link_enabled ? "Open owner-provided coin page" : "No owner link is stored for this coin yet"}
+                  >
+                    Coin Info
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* AI */}
         <section className={`card section-ai dashboardPanel ${activePanel === "ai" ? "panelActive" : ""}`} onClick={handlePanelActivate("ai")}>

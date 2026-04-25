@@ -7343,8 +7343,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .section-compare .pairsScroll{
             flex: 1 1 auto !important;
-            min-height: 360px !important;
-            max-height: clamp(360px, 42vh, 520px) !important;
+            min-height: 0 !important;
+            max-height: clamp(180px, 26vh, 300px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 8px !important;
@@ -7385,10 +7385,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           /* focused desktop: give Compare more usable pair-list height */
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsScroll{
-            min-height: 380px !important;
-            max-height: clamp(380px, 46vh, 620px) !important;
-            padding-bottom: 64px !important;
-            scroll-padding-bottom: 64px !important;
+            min-height: 0 !important;
+            max-height: clamp(190px, 28vh, 330px) !important;
+            padding-bottom: 72px !important;
+            scroll-padding-bottom: 72px !important;
           }
 
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsBox{
@@ -11006,7 +11006,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .section-compare .pairsScroll{
             min-height: 0 !important;
-            max-height: clamp(220px, 28vh, 420px) !important;
+            max-height: clamp(180px, 25vh, 300px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 6px;

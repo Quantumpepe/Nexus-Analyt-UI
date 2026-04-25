@@ -579,19 +579,40 @@ const fmtPct = (n) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function resolveWalletAddress(walletLike = "") {
+  try {
+    const candidates = [
+      walletLike?.address,
+      walletLike?.wallet?.address,
+      walletLike?.ethereum?.address,
+      walletLike,
+      localStorage.getItem("nexus_wallet"),
+      localStorage.getItem("wallet"),
+    ];
+    for (const c of candidates) {
+      const raw = String(c || "").trim();
+      const m = raw.match(/0x[a-fA-F0-9]{40}/);
+      if (m) return m[0].toLowerCase();
+    }
+  } catch {}
+  return "";
+}
+
+function withWalletQuery(path, walletLike = "") {
+  const wa = resolveWalletAddress(walletLike);
+  if (!wa || !String(path || "").startsWith("/api/")) return path;
+  const url = String(path || "");
+  if (/[?&](wallet|wallet_address|addr|address)=/i.test(url)) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`;
+}
+
 async function api(
   path,
   { method = "GET", token, body, signal, wallet } = {}
 ) {
   // Always send the wallet context (backend binds sessions to wallet).
-  let wa = "";
-  try {
-    wa =
-      (wallet || "").trim() ||
-      (localStorage.getItem("nexus_wallet") || "").trim() ||
-      (localStorage.getItem("wallet") || "").trim() ||
-      "";
-  } catch {}
+  const wa = resolveWalletAddress(wallet);
 
   // Auth strategy:
   // - Prefer the user/session token (JWT / itsdangerous) when available.
@@ -661,7 +682,8 @@ async function api(
     } catch {}
 
     try {
-      return await fetch(`${API_BASE}${path}`, {
+      const requestPath = withWalletQuery(path, wa);
+      return await fetch(`${API_BASE}${requestPath}`, {
         method,
         signal: merged.signal,
         headers: makeHeaders(bearer),
@@ -3154,7 +3176,8 @@ const byChain = {};
   }, []);
 
   const saveWatchlistToServer = useCallback(async (itemsArg) => {
-    if (!wallet) return;
+    const wa = resolveWalletAddress(wallet);
+    if (!wa) return;
     try {
       const normalized = normalizeWatchItems(itemsArg);
 
@@ -3183,11 +3206,11 @@ const byChain = {};
         };
       });
 
-      await api("/api/watchlist", {
+      await api(`/api/watchlist?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, {
         method: "POST",
         token,
-        wallet,
-        body: { wallet, items: clean },
+        wallet: wa,
+        body: { wallet: wa, wallet_address: wa, items: clean },
       });
     } catch (e) {
       console.warn("watchlist save failed", e);
@@ -3195,7 +3218,8 @@ const byChain = {};
   }, [wallet, token, normalizeWatchItems]);
 
   const syncWatchlistFromServer = useCallback(async () => {
-    if (!wallet) {
+    const wa = resolveWalletAddress(wallet);
+    if (!wa) {
       setWatchRows([]);
       return;
     }
@@ -3203,10 +3227,10 @@ const byChain = {};
     watchSyncBusyRef.current = true;
 
     try {
-      const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wallet)}`, {
+      const r = await api(`/api/watchlist?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, {
         method: "GET",
         token,
-        wallet,
+        wallet: wa,
       });
 
       const serverItems = normalizeWatchItems(r?.items || []);
@@ -3215,11 +3239,11 @@ const byChain = {};
       const sig = (arr) => JSON.stringify((arr || []).map((x) => _watchKeyFromItem(x)).filter(Boolean));
       const serverSig = sig(serverItems);
       const localSig = sig(localItems);
-      const neverSynced = String(watchSyncedWallet || "").toLowerCase() !== String(wallet || "").toLowerCase();
+      const neverSynced = String(watchSyncedWallet || "").toLowerCase() !== String(wa || "").toLowerCase();
 
       if (neverSynced && !serverItems.length && localItems.length) {
         await saveWatchlistToServer(localItems);
-        setWatchSyncedWallet(wallet);
+        setWatchSyncedWallet(wa);
         fetchWatchSnapshot(localItems, { force: true, user: false });
         return;
       }
@@ -3229,7 +3253,7 @@ const byChain = {};
         setWatchItems(serverItems);
         try { localStorage.setItem("nexus_watch_items", JSON.stringify(serverItems)); } catch {}
       }
-      setWatchSyncedWallet(wallet);
+      setWatchSyncedWallet(wa);
       fetchWatchSnapshot(serverItems, { force: true, user: false });
     } catch (e) {
       console.warn("watchlist sync failed", e);
@@ -3238,6 +3262,28 @@ const byChain = {};
       watchSyncBusyRef.current = false;
     }
   }, [wallet, token, watchItems, normalizeWatchItems, setWatchItems, watchSyncedWallet, setWatchSyncedWallet, saveWatchlistToServer]);
+
+  // Persist local watchlist edits to the backend so desktop/mobile stay in sync.
+  const watchItemsPersistKey = useMemo(() => {
+    try {
+      return JSON.stringify(normalizeWatchItems(watchItems || []).map(_watchKeyFromItem).filter(Boolean));
+    } catch {
+      return "[]";
+    }
+  }, [watchItems, normalizeWatchItems]);
+
+  useEffect(() => {
+    const wa = resolveWalletAddress(wallet);
+    if (!wa) return;
+    const items = normalizeWatchItems(watchItems || []);
+    const t = setTimeout(() => {
+      saveWatchlistToServer(items)
+        .then(() => setWatchSyncedWallet(wa))
+        .catch((e) => console.warn("watchlist autosave failed", e));
+    }, 450);
+    return () => clearTimeout(t);
+  }, [wallet, watchItemsPersistKey, saveWatchlistToServer, normalizeWatchItems, setWatchSyncedWallet]);
+
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
     const uniq = [];
@@ -4611,10 +4657,14 @@ const [aiLoading, setAiLoading] = useState(false);
   const fillMissingWatchMarketData = useCallback(async (rowsArg, itemsArg) => {
     const rows = Array.isArray(rowsArg) ? rowsArg : [];
     const items = Array.isArray(itemsArg) ? itemsArg : [];
+    // Mobile can have price/volume cached while Market Cap is still missing.
+    // So we hydrate rows when either price OR Market Cap is incomplete.
     const marketMissing = rows.filter((r) => {
       const mode = String(r?.mode || "market").toLowerCase();
       const p = Number(r?.price);
-      return mode === "market" && (!Number.isFinite(p) || p <= 0);
+      const mcRaw = r?.marketCap ?? r?.market_cap ?? r?.mcap ?? r?.marketcap;
+      const mc = Number(mcRaw);
+      return mode === "market" && ((!Number.isFinite(p) || p <= 0) || !Number.isFinite(mc) || mc <= 0);
     });
     if (!marketMissing.length) return rows;
 
@@ -4644,6 +4694,7 @@ const [aiLoading, setAiLoading] = useState(false);
           vs_currencies: "usd",
           include_24hr_change: "true",
           include_24hr_vol: "true",
+          include_market_cap: "true",
         }).toString();
         const cg = await api(`/api/coingecko/simple_price?${qs}`, { method: "GET", token, wallet });
         for (const [id, data] of Object.entries(cg || {})) {
@@ -4653,6 +4704,8 @@ const [aiLoading, setAiLoading] = useState(false);
             price: p,
             change24h: Number(data?.usd_24h_change),
             volume24h: Number(data?.usd_24h_vol),
+            marketCap: Number(data?.usd_market_cap),
+            market_cap: Number(data?.usd_market_cap),
             source: "coingecko-id",
           };
         }
@@ -4706,7 +4759,10 @@ const [aiLoading, setAiLoading] = useState(false);
     const next = rows.map((row) => {
       const sym = String(row?.symbol || "").toUpperCase();
       const cur = Number(row?.price);
-      if (Number.isFinite(cur) && cur > 0) return row;
+      const curMc = Number(row?.marketCap ?? row?.market_cap ?? row?.mcap ?? row?.marketcap);
+      const needsPrice = !Number.isFinite(cur) || cur <= 0;
+      const needsMcap = !Number.isFinite(curMc) || curMc <= 0;
+      if (!needsPrice && !needsMcap) return row;
 
       const item = itemBySym.get(sym);
       const cgId = String(row?.coingecko_id || row?.id || item?.coingecko_id || item?.id || "").trim().toLowerCase();
@@ -4714,7 +4770,10 @@ const [aiLoading, setAiLoading] = useState(false);
       const fallback = exact || (nativeMap[sym] ? { price: nativeMap[sym], source: "native-fallback" } : null) || otherMap[sym];
 
       const p = Number(fallback?.price);
-      if (!Number.isFinite(p) || p <= 0) return row;
+      const nextPrice = Number.isFinite(p) && p > 0 ? p : cur;
+      const fbMc = Number(fallback?.marketCap ?? fallback?.market_cap ?? fallback?.usd_market_cap);
+      const nextMcap = Number.isFinite(fbMc) && fbMc > 0 ? fbMc : (Number.isFinite(curMc) && curMc > 0 ? curMc : null);
+      if ((!Number.isFinite(nextPrice) || nextPrice <= 0) && nextMcap == null) return row;
 
       changed = true;
       const ch24 = Number.isFinite(Number(fallback?.change24h)) ? Number(fallback.change24h) : row?.change24h ?? row?.chg_24h ?? null;
@@ -4724,11 +4783,13 @@ const [aiLoading, setAiLoading] = useState(false);
         ...row,
         coingecko_id: row?.coingecko_id || row?.id || cgId || undefined,
         id: row?.id || row?.coingecko_id || cgId || undefined,
-        price: p,
+        price: nextPrice,
         change24h: ch24,
         chg_24h: ch24,
         volume24h: v24,
         vol: v24,
+        marketCap: nextMcap,
+        market_cap: nextMcap,
         source: row?.source === "error" || row?.source === "pending" || !row?.source ? (fallback?.source || "price-fallback") : row.source,
       };
     });
@@ -4751,7 +4812,9 @@ const [aiLoading, setAiLoading] = useState(false);
     }
     inflightWatch.current = true;
     try {
-      const r = await api("/api/watchlist/snapshot", { method: "POST", token, wallet, body: { wallet, items: (itemsOverride ?? watchItems) } });
+      const wa = resolveWalletAddress(wallet);
+      const snapPath = wa ? `/api/watchlist/snapshot?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}` : "/api/watchlist/snapshot";
+      const r = await api(snapPath, { method: "POST", token, wallet: wa || wallet, body: { wallet: wa || wallet, wallet_address: wa || wallet, items: (itemsOverride ?? watchItems) } });
       const nextRowsRaw = (r?.results || r?.rows || []);
       // Merge-only rule: watchItems is the source of truth. Never resurrect removed items.
       const allowedKeys = new Set(((itemsOverride ?? watchItems) || []).map(_watchKeyFromItem));
@@ -6060,7 +6123,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     if (wallet) {
       try {
         await saveWatchlistToServer(normalized);
-        setWatchSyncedWallet(wallet || "");
+        setWatchSyncedWallet(resolveWalletAddress(wallet) || "");
       } catch (_) {}
     }
     fetchWatchSnapshot(normalized, { force: true, user: false });
@@ -6273,7 +6336,13 @@ const addMarketCoin = async (coin) => {
     ];
   });
 
-  // NOTE: Do NOT auto-add to Compare when adding to Watchlist.
+  // IMPORTANT: adding a coin to Watchlist must NOT auto-check it for Compare.
+  // If this symbol was still present in persisted/desktop compare state from an older session,
+  // remove it explicitly so the checkbox stays empty until the user ticks it manually.
+  setCompareSet((prev) => {
+    const arr = Array.isArray(prev) ? prev : [];
+    return arr.filter((x) => String(x || "").toUpperCase() !== sym);
+  });
 
   // Kick a background snapshot refresh (best-effort). Never block the click.
   // Save first, then snapshot, and also try an exact-id direct price hydration for instant UX.
@@ -6281,7 +6350,7 @@ const addMarketCoin = async (coin) => {
     setTimeout(async () => {
       try {
         await saveWatchlistToServer(nextItems || null);
-        try { setWatchSyncedWallet(wallet || ""); } catch {}
+        try { setWatchSyncedWallet(resolveWalletAddress(wallet) || ""); } catch {}
       } catch {}
 
       try {
@@ -6290,6 +6359,7 @@ const addMarketCoin = async (coin) => {
           vs_currencies: "usd",
           include_24hr_change: "true",
           include_24hr_vol: "true",
+          include_market_cap: "true",
         }).toString();
         const direct = await api(`/api/coingecko/simple_price?${qs}`, { method: "GET", token, wallet });
         const d = direct?.[String(cgId || "").toLowerCase()];
@@ -6303,6 +6373,7 @@ const addMarketCoin = async (coin) => {
               if (rs !== sym || rid !== String(cgId || "").toLowerCase()) return r;
               const ch24 = Number.isFinite(Number(d?.usd_24h_change)) ? Number(d.usd_24h_change) : (r?.change24h ?? r?.chg_24h ?? null);
               const v24 = Number.isFinite(Number(d?.usd_24h_vol)) ? Number(d.usd_24h_vol) : (r?.volume24h ?? r?.vol ?? null);
+              const mc = Number.isFinite(Number(d?.usd_market_cap)) ? Number(d.usd_market_cap) : (r?.marketCap ?? r?.market_cap ?? null);
               return {
                 ...r,
                 price: p,
@@ -6310,6 +6381,8 @@ const addMarketCoin = async (coin) => {
                 chg_24h: ch24,
                 volume24h: v24,
                 vol: v24,
+                marketCap: mc,
+                market_cap: mc,
                 source: "coingecko-id",
               };
             });
@@ -6373,6 +6446,13 @@ const addDexToken = async () => {
     ];
   });
 
+  // IMPORTANT: adding a DEX token to Watchlist must NOT auto-check it for Compare.
+  // Keep the checkbox empty until the user selects it manually.
+  setCompareSet((prev) => {
+    const arr = Array.isArray(prev) ? prev : [];
+    return arr.filter((x) => String(x || "").toUpperCase() !== String(item.symbol || "").toUpperCase());
+  });
+
   // Background snapshot refresh (best-effort)
   try {
     setTimeout(() => {
@@ -6383,7 +6463,7 @@ const addDexToken = async () => {
   try {
     setTimeout(async () => {
       await saveWatchlistToServer(nextItems || null);
-      try { setWatchSyncedWallet(wallet || ""); } catch {}
+      try { setWatchSyncedWallet(resolveWalletAddress(wallet) || ""); } catch {}
     }, 0);
   } catch {}
 
@@ -6451,7 +6531,7 @@ _setTombstone(removedKey);
   // (This makes sure the item doesn't come back on next poll.)
   (async () => {
     try {
-      try { await saveWatchlistToServer(nextItems); setWatchSyncedWallet(wallet || ""); } catch (_) {}
+      try { await saveWatchlistToServer(nextItems); setWatchSyncedWallet(resolveWalletAddress(wallet) || ""); } catch (_) {}
 
       const data = await api("/api/watchlist/snapshot", {
         method: "POST",

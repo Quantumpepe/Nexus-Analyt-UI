@@ -1816,6 +1816,8 @@ function computeBestPairsFromSeries(seriesBySym, limit = 30) {
   if (syms.length < 2) return [];
   const normLines = normalizeToIndex(lines);
 
+  const clamp = (v, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, Number(v)));
+
   const calcSimpleRsiLocal = (arr, period = 14) => {
     const pts = Array.isArray(arr) ? arr : [];
     if (pts.length < period + 1) return null;
@@ -1839,20 +1841,97 @@ function computeBestPairsFromSeries(seriesBySym, limit = 30) {
     return 100 - (100 / (1 + rs));
   };
 
+  const lastReturnPct = (arr, days = 30) => {
+    const vals = (Array.isArray(arr) ? arr : [])
+      .map((p) => (p && typeof p === "object") ? Number(p.v) : Number(p))
+      .filter((v) => Number.isFinite(v) && v > 0);
+    if (vals.length < 2) return null;
+    const start = vals[Math.max(0, vals.length - Math.max(2, days))];
+    const end = vals[vals.length - 1];
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0) return null;
+    return ((end / start) - 1) * 100;
+  };
+
+  const dailyVolPct = (arr, days = 30) => {
+    const vals = (Array.isArray(arr) ? arr : [])
+      .map((p) => (p && typeof p === "object") ? Number(p.v) : Number(p))
+      .filter((v) => Number.isFinite(v) && v > 0)
+      .slice(-Math.max(3, days));
+    if (vals.length < 4) return null;
+    const rets = [];
+    for (let k = 1; k < vals.length; k++) {
+      if (vals[k - 1] > 0) rets.push((vals[k] / vals[k - 1]) - 1);
+    }
+    if (rets.length < 3) return null;
+    const mean = rets.reduce((sum, x) => sum + x, 0) / rets.length;
+    const variance = rets.reduce((sum, x) => sum + ((x - mean) ** 2), 0) / rets.length;
+    return Math.sqrt(variance) * 100;
+  };
+
+  const rsiGapScore = (gap) => {
+    if (!Number.isFinite(gap)) return 50;
+    // Best zone for pair ideas: enough momentum difference to matter, but not so extreme that it is pure chaos.
+    if (gap <= 5) return 30 + gap * 5;          // 30..55
+    if (gap <= 15) return 55 + (gap - 5) * 4;   // 55..95
+    if (gap <= 30) return 95 - (gap - 15) * 1;  // 95..80
+    return clamp(80 - (gap - 30) * 2, 35, 80);
+  };
+
   const res = [];
   for (let i = 0; i < syms.length; i++) {
     for (let j = i + 1; j < syms.length; j++) {
       const a = syms[i], b = syms[j];
       const r = pearson(normLines[a] || [], normLines[b] || []);
       if (r === null) continue;
-      const score = Math.round(Math.abs(r) * 100);
+
       const rsiA = calcSimpleRsiLocal((seriesBySym && seriesBySym[a]) || [], 14);
       const rsiB = calcSimpleRsiLocal((seriesBySym && seriesBySym[b]) || [], 14);
       const rsiGap = Number.isFinite(rsiA) && Number.isFinite(rsiB) ? Math.abs(rsiA - rsiB) : null;
-      res.push({ pair: `${a}/${b}`, a, b, corr: r, score, rsiA, rsiB, rsiGap });
+
+      const retA = lastReturnPct((seriesBySym && seriesBySym[a]) || [], 30);
+      const retB = lastReturnPct((seriesBySym && seriesBySym[b]) || [], 30);
+      const spreadPct = Number.isFinite(retA) && Number.isFinite(retB) ? Math.abs(retA - retB) : null;
+      const volA = dailyVolPct((seriesBySym && seriesBySym[a]) || [], 30);
+      const volB = dailyVolPct((seriesBySym && seriesBySym[b]) || [], 30);
+      const volGap = Number.isFinite(volA) && Number.isFinite(volB) ? Math.abs(volA - volB) : null;
+
+      const corrScore = Math.round(clamp(Math.abs(r) * 100));
+      const momentumScore = Math.round(rsiGapScore(rsiGap));
+      const opportunityScore = Math.round(Number.isFinite(spreadPct) ? clamp(spreadPct * 3.5, 0, 100) : 50);
+      const stabilityScore = Math.round(Number.isFinite(volGap) ? clamp(100 - (volGap * 10), 25, 100) : 60);
+
+      // Composite: correlation still matters, but the score now also reflects momentum gap,
+      // real 30D opportunity spread, and whether both assets have roughly comparable volatility.
+      const score = Math.round(
+        (corrScore * 0.45) +
+        (momentumScore * 0.25) +
+        (opportunityScore * 0.20) +
+        (stabilityScore * 0.10)
+      );
+
+      res.push({
+        pair: `${a}/${b}`,
+        a,
+        b,
+        corr: r,
+        score,
+        corrScore,
+        momentumScore,
+        opportunityScore,
+        stabilityScore,
+        rsiA,
+        rsiB,
+        rsiGap,
+        retA,
+        retB,
+        spreadPct,
+        volA,
+        volB,
+        volGap,
+      });
     }
   }
-  res.sort((x, y) => y.score - x.score);
+  res.sort((x, y) => (y.score - x.score) || (y.corrScore - x.corrScore));
   return res.slice(0, limit);
 }
 
@@ -3720,38 +3799,38 @@ function _fmtPctLocal(x) {
     const n = Number(score);
     if (!Number.isFinite(n)) {
       return {
-        label: "Unclear Pair",
+        label: "Unclear",
         color: "rgba(255,255,255,0.72)",
         bg: "rgba(255,255,255,0.05)",
         border: "rgba(255,255,255,0.14)",
       };
     }
-    if (n >= 90) {
+    if (n >= 82) {
       return {
-        label: "Strong Pair",
+        label: "Strong",
         color: "#00ff88",
         bg: "rgba(0,255,136,0.08)",
         border: "rgba(0,255,136,0.55)",
       };
     }
-    if (n >= 75) {
+    if (n >= 68) {
       return {
-        label: "Good Pair",
+        label: "Good",
         color: "#ffd36a",
         bg: "rgba(255,211,106,0.08)",
         border: "rgba(255,211,106,0.45)",
       };
     }
-    if (n >= 60) {
+    if (n >= 52) {
       return {
-        label: "Neutral Pair",
+        label: "Neutral",
         color: "#ffaa00",
         bg: "rgba(255,170,0,0.08)",
         border: "rgba(255,170,0,0.42)",
       };
     }
     return {
-      label: "Weak Pair",
+      label: "Risky",
       color: "#ff6b6b",
       bg: "rgba(255,107,107,0.08)",
       border: "rgba(255,107,107,0.45)",
@@ -9232,6 +9311,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             ? "rgba(255,184,0,0.14)"
                             : "rgba(255,255,255,0.06)"
                         : "rgba(255,255,255,0.06)";
+                      const quality = _pairQualityMeta(p.score);
 
                       return (
                         <div
@@ -9311,8 +9391,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               Δ {Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"}
                             </span>
 
-                            <span className="pill silver" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>Score {p.score}</span>
-                            <span className="pill" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
+                            <span
+                              className="pill"
+                              title={`Composite score: ${p.score} · Corr ${p.corrScore ?? "—"} · Momentum ${p.momentumScore ?? "—"} · Spread ${p.opportunityScore ?? "—"} · Stability ${p.stabilityScore ?? "—"}`}
+                              style={{ justifySelf: "end", whiteSpace: "nowrap", background: quality.bg, borderColor: quality.border, color: quality.color }}
+                            >
+                              {quality.label} {p.score}
+                            </span>
+                            <span className="pill" title="Correlation of indexed price lines" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                           </div>
                         </div>
                       );
@@ -9495,8 +9581,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
 
                         <div className="muted tiny">
-                          High score here is based on correlation of the indexed series (Index 100). A big spread helps you decide which side
-                          is stronger/weaker for a grid/rebalance idea.
+                          Score now combines correlation, RSI gap, 30D spread and volatility balance. A higher score means the pair is more useful for grid/rebalance ideas, not just more correlated.
                         </div>
                       </div>
 
@@ -9524,6 +9609,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div className="tiny" style={{ display: "flex", flexWrap: "wrap", gap: 10, color: quality.color }}>
                                 <span>Corr {(selectedPair.corr >= 0 ? "+" : "") + selectedPair.corr.toFixed(2)}</span>
                                 <span>Spread {_fmtPctLocal(spread)}</span>
+                                {Number.isFinite(selectedPair?.momentumScore) && <span>Momentum {selectedPair.momentumScore}</span>}
+                                {Number.isFinite(selectedPair?.stabilityScore) && <span>Stability {selectedPair.stabilityScore}</span>}
                               </div>
                             </div>
                           );

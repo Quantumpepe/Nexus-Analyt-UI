@@ -586,11 +586,21 @@ async function api(
   // Always send the wallet context (backend binds sessions to wallet).
   let wa = "";
   try {
+    const walletCandidate =
+      typeof wallet === "string"
+        ? wallet
+        : wallet?.address || wallet?.wallet?.address || wallet?.walletAddress || wallet?.wallet_address || "";
+
     wa =
-      (wallet || "").trim() ||
+      String(walletCandidate || "").trim() ||
       (localStorage.getItem("nexus_wallet") || "").trim() ||
       (localStorage.getItem("wallet") || "").trim() ||
       "";
+
+    // Persist the resolved wallet so desktop/mobile reloads keep the same API context.
+    if (wa && /^0x[a-fA-F0-9]{40}$/.test(wa)) {
+      localStorage.setItem("nexus_wallet", wa);
+    }
   } catch {}
 
   // Auth strategy:
@@ -627,7 +637,7 @@ async function api(
       headers["x-api-key"] = API_KEY;
     }
 
-    if (wa) {
+    if (wa && /^0x[a-fA-F0-9]{40}$/.test(wa)) {
       headers["X-Wallet-Address"] = wa;
       headers["x-wallet-address"] = wa;
     }

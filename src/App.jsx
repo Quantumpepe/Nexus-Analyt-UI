@@ -7756,8 +7756,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-compare .pairRow{
             display: flex !important;
             align-items: center !important;
-            min-width: 500px !important;
-            padding: 8px 6px !important;
+            flex-wrap: nowrap !important;
+            min-width: 620px !important;
+            padding: 6px 6px !important;
             gap: 6px !important;
           }
           .section-compare .pairRow > span:first-child{
@@ -7767,10 +7768,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .section-compare .pairRow > div{
             display: grid !important;
-            grid-template-columns: minmax(70px, 1.05fr) 82px 82px 38px 58px 46px !important;
+            grid-template-columns: minmax(86px, 1fr) 86px 86px 42px 60px 76px 52px !important;
             gap: 5px !important;
             align-items: center !important;
-            min-width: 0 !important;
+            min-width: 560px !important;
             flex: 1 0 auto !important;
           }
           .section-compare .pairName{
@@ -7862,7 +7863,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         @media (max-width: 560px) {
           /* Very narrow phones: keep desktop-style rows, but allow a small horizontal swipe */
           .section-compare .pairRow{
-            min-width: 500px !important;
+            min-width: 620px !important;
           }
           .section-watch .watchHead,
           .section-watch .watchRow{

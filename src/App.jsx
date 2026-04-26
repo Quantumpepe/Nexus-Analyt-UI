@@ -10936,7 +10936,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     const sym = String(r.symbol || "").toUpperCase();
                     const checked = compareSymbols.includes(sym);
                     const marketCap = r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap ?? null;
-                    const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym]);
+                    const onchain = onchainBySymbol?.[sym];
+                    const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym], onchain);
+                    const onchainIcon = String(onchain?.icon || "");
+                    const onchainTitle = String(onchain?.summary || onchain?.label || "On-chain signal");
                     return (
                       <div
                         key={`${sym}-${idx}`}

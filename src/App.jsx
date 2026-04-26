@@ -9571,7 +9571,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill"
                               title={`Composite score: ${p.score} · Corr ${p.corrScore ?? "—"} · Momentum ${p.momentumScore ?? "—"} · Spread ${p.opportunityScore ?? "—"} · Stability ${p.stabilityScore ?? "—"}`}
-                              style={{ justifySelf: "end", whiteSpace: "nowrap", background: quality.bg, borderColor: quality.border, color: quality.color }}
+                              style={{
+                                justifySelf: "end",
+                                whiteSpace: "nowrap",
+                                fontSize: 12,
+                                padding: "4px 8px",
+                                lineHeight: 1,
+                                background: quality.bg,
+                                borderColor: quality.border,
+                                color: quality.color
+                              }}
                             >
                               {quality.label} {p.score}
                             </span>

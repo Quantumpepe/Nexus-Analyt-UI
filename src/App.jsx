@@ -11323,19 +11323,65 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 {ratingErr && <div style={{ color: "#ffb3b3", fontSize: 12 }}>{ratingErr}</div>}
 
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                  <div className="muted tiny">
-                    Community votes: {ratingStatus?.summary?.count ?? 0}
-                  </div>
-                  <button
-                    type="button"
-                    className={ratingStatus?.link_enabled ? "btn" : "btnGhost"}
-                    disabled={!ratingStatus?.link_enabled}
-                    onClick={openRatingLink}
-                    title={ratingStatus?.link_enabled ? "Open owner-provided coin page" : "No owner link is stored for this coin yet"}
+                {ratingStatus?.coin_info ? (
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 6,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      borderRadius: 12,
+                      padding: "10px 12px",
+                      background: "rgba(255,255,255,0.03)",
+                    }}
                   >
-                    Coin Info
-                  </button>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      <div>
+                        <div className="muted tiny">Coin</div>
+                        <div style={{ fontWeight: 900 }}>
+                          {ratingStatus?.coin_info?.name || ratingModal.symbol}
+                          {ratingStatus?.coin_info?.coin_id ? (
+                            <span className="muted tiny" style={{ marginLeft: 8 }}>
+                              {ratingStatus.coin_info.coin_id}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className={ratingStatus?.link_enabled ? "btn" : "btnGhost"}
+                        disabled={!ratingStatus?.link_enabled}
+                        onClick={openRatingLink}
+                        title={ratingStatus?.link_enabled ? "Open official coin page or CoinGecko fallback" : "No coin info link available yet"}
+                      >
+                        Coin Info
+                      </button>
+                    </div>
+
+                    <div className="muted tiny" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {ratingStatus?.coin_info?.homepage ? <span>Website ✓</span> : <span>Website fallback</span>}
+                      {ratingStatus?.coin_info?.explorer ? <span>Explorer ✓</span> : null}
+                      {ratingStatus?.coin_info?.source ? <span>Source: {ratingStatus.coin_info.source}</span> : null}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                    <div className="muted tiny">
+                      Community votes: {ratingStatus?.summary?.count ?? 0}
+                    </div>
+                    <button
+                      type="button"
+                      className={ratingStatus?.link_enabled ? "btn" : "btnGhost"}
+                      disabled={!ratingStatus?.link_enabled}
+                      onClick={openRatingLink}
+                      title={ratingStatus?.link_enabled ? "Open coin info page" : "No coin info link available yet"}
+                    >
+                      Coin Info
+                    </button>
+                  </div>
+                )}
+
+                <div className="muted tiny">
+                  Community votes: {ratingStatus?.summary?.count ?? 0}
                 </div>
               </div>
             </div>

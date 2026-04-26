@@ -9478,42 +9478,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           key={p.pair}
                           className="pairRow"
                           style={{
-                            display: "flex",
-                            flexDirection: "row",
-                            flexWrap: "nowrap",
-                            gap: 8,
+                            gap: 10,
                             cursor: "pointer",
                             marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
                             alignItems: "center",
-                            minHeight: 44,
-                            padding: "7px 8px",
-                            boxSizing: "border-box",
                           }}
                           onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
                         >
-                          <span className="muted" style={{ width: 30, textAlign: "right", flex: "0 0 30px", whiteSpace: "nowrap" }}>#{i + 1}</span>
+                          <span className="muted" style={{ width: 34, textAlign: "right", flex: "0 0 34px" }}>#{i + 1}</span>
 
                           <div
                             style={{
                               flex: 1,
                               minWidth: 0,
                               display: "grid",
-                              gridTemplateColumns: "minmax(78px, 1fr) 86px 86px 44px 58px 66px 54px",
-                              gap: 6,
-                              minWidth: 500,
+                              gridTemplateColumns: "minmax(88px, 1.2fr) 120px 120px 56px 72px auto auto",
+                              gap: 8,
                               alignItems: "center",
                             }}
                           >
-                            <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.pair}</span>
+                            <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap" }}>{p.pair}</span>
 
                             <span
                               className="pill"
                               title={`${p.a || p.pair.split("/")[0]} RSI: ${Number.isFinite(p.rsiA) ? p.rsiA.toFixed(0) : "—"} · ${Number.isFinite(p.rsiA) ? (p.rsiA >= 70 ? "Overbought: strong recent buying momentum, may be overextended." : p.rsiA <= 30 ? "Oversold: strong recent selling momentum, possible rebound zone." : "Neutral: balanced momentum.") : "No RSI data available."}`}
                               style={{
-                                width: 86,
+                                width: 120,
                                 justifyContent: "center",
-                                padding: "4px 6px",
-                                fontSize: 11,
+                                padding: "4px 8px",
+                                fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiAState.tone,
                                 borderColor: rsiAState.border,
@@ -9528,10 +9521,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               className="pill"
                               title={`${p.b || p.pair.split("/")[1]} RSI: ${Number.isFinite(p.rsiB) ? p.rsiB.toFixed(0) : "—"} · ${Number.isFinite(p.rsiB) ? (p.rsiB >= 70 ? "Overbought: strong recent buying momentum, may be overextended." : p.rsiB <= 30 ? "Oversold: strong recent selling momentum, possible rebound zone." : "Neutral: balanced momentum.") : "No RSI data available."}`}
                               style={{
-                                width: 86,
+                                width: 120,
                                 justifyContent: "center",
-                                padding: "4px 6px",
-                                fontSize: 11,
+                                padding: "4px 8px",
+                                fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiBState.tone,
                                 borderColor: rsiBState.border,
@@ -9546,10 +9539,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               className="pill"
                               title={`RSI gap: ${Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"} · Difference between both pair RSI values.`}
                               style={{
-                                width: 44,
+                                width: 56,
                                 justifyContent: "center",
-                                padding: "4px 6px",
-                                fontSize: 11,
+                                padding: "4px 8px",
+                                fontSize: 12,
                                 lineHeight: 1,
                                 background: rsiGapTone,
                                 whiteSpace: "nowrap",
@@ -9562,10 +9555,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               className="pill"
                               title={`30D spread: ${Number.isFinite(p.spreadPct) ? p.spreadPct.toFixed(2) + "%" : "—"} · Larger values rank higher when Spread sorting is active.`}
                               style={{
-                                width: 58,
+                                width: 72,
                                 justifyContent: "center",
-                                padding: "4px 6px",
-                                fontSize: 11,
+                                padding: "4px 8px",
+                                fontSize: 12,
                                 lineHeight: 1,
                                 background: String(bestPairsSortMode || "score") === "spread" ? "rgba(57,217,138,0.14)" : "rgba(255,255,255,0.06)",
                                 borderColor: String(bestPairsSortMode || "score") === "spread" ? "rgba(57,217,138,0.28)" : "rgba(255,255,255,0.10)",

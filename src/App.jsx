@@ -1026,6 +1026,96 @@ function watchFinalRating(row, summary, onchain) {
   return ratingFromScore(Math.max(0, Math.min(100, base + delta)));
 }
 
+function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainBySymbol, bestPairsToShow }) {
+  const selected = Array.isArray(syms) ? syms.map((s) => String(s || "").toUpperCase()).filter(Boolean) : [];
+  const rowBySym = new Map();
+  for (const r of Array.isArray(watchRows) ? watchRows : []) {
+    const sym = String(r?.symbol || "").toUpperCase();
+    if (sym) rowBySym.set(sym, r);
+  }
+
+  const coins = selected.map((sym) => {
+    const row = rowBySym.get(sym) || {};
+    const summary = ratingSummaryBySymbol?.[sym] || null;
+    const onchain = onchainBySymbol?.[sym] || null;
+    const baseScore = watchFinalScore(row, summary);
+    const onchainDelta = watchOnchainScoreDelta(onchain);
+    const finalScore = Math.max(0, Math.min(100, baseScore + onchainDelta));
+
+    return {
+      symbol: sym,
+      rating: ratingFromScore(finalScore),
+      score: finalScore,
+      base_score: baseScore,
+      onchain_delta: onchainDelta,
+      user_rating_votes: summary?.count ?? 0,
+      user_rating_avg_score: userRatingAverageScore(summary),
+      change_24h_pct: Number.isFinite(Number(row?.change24h)) ? Number(row.change24h) : null,
+      price: Number.isFinite(Number(row?.price)) ? Number(row.price) : null,
+      volume_24h: Number.isFinite(Number(row?.volume24h)) ? Number(row.volume24h) : null,
+      market_cap: Number.isFinite(Number(row?.marketCap ?? row?.market_cap)) ? Number(row?.marketCap ?? row?.market_cap) : null,
+      onchain: onchain ? {
+        icon: onchain.icon || "",
+        label: onchain.label || "",
+        score_delta: onchainDelta,
+        summary: onchain.summary || "",
+        source: onchain.source || "",
+        signals: onchain.signals || {},
+        contract: onchain.contract || null,
+      } : null,
+    };
+  });
+
+  const selectedSet = new Set(selected);
+  const pairs = (Array.isArray(bestPairsToShow) ? bestPairsToShow : [])
+    .filter((p) => {
+      const pair = String(p?.pair || "");
+      const parts = pair.split("/").map((x) => x.trim().toUpperCase());
+      return parts.length === 2 && selectedSet.has(parts[0]) && selectedSet.has(parts[1]);
+    })
+    .slice(0, 8)
+    .map((p) => ({
+      pair: p.pair,
+      score: Number.isFinite(Number(p?.score)) ? Number(p.score) : null,
+      corr: Number.isFinite(Number(p?.corr)) ? Number(p.corr) : null,
+      spread_pct: Number.isFinite(Number(p?.spreadPct)) ? Number(p.spreadPct) : null,
+      rsi_gap: Number.isFinite(Number(p?.rsiGap)) ? Number(p.rsiGap) : null,
+      rsi_a: Number.isFinite(Number(p?.rsiA)) ? Number(p.rsiA) : null,
+      rsi_b: Number.isFinite(Number(p?.rsiB)) ? Number(p.rsiB) : null,
+    }));
+
+  return {
+    version: "ai_insight_v1",
+    coins,
+    relevant_pairs: pairs,
+    notes: [
+      "Rating is one visible rating built from market/system score, user rating average, and small on-chain delta.",
+      "On-chain signals are supporting evidence only and capped to a small score impact.",
+      "Missing on-chain icon means neutral/no strong signal, not an error.",
+    ],
+  };
+}
+
+function formatAiSignalContextForPrompt(ctx) {
+  const coins = Array.isArray(ctx?.coins) ? ctx.coins : [];
+  const lines = coins.map((c) => {
+    const oc = c.onchain;
+    const ocText = oc?.summary ? `on-chain: ${oc.summary}` : "on-chain: neutral/no strong signal";
+    const voteText = Number(c.user_rating_votes || 0) > 0 ? `community votes=${c.user_rating_votes}, avg=${c.user_rating_avg_score ?? "n/a"}` : "community votes=0";
+    const ch = Number.isFinite(Number(c.change_24h_pct)) ? `${Number(c.change_24h_pct).toFixed(2)}% 24h` : "24h n/a";
+    return `${c.symbol}: rating=${c.rating}, score=${c.score}, base=${c.base_score}, onchain_delta=${c.onchain_delta}, ${ch}, ${voteText}, ${ocText}`;
+  });
+
+  const pairLines = (Array.isArray(ctx?.relevant_pairs) ? ctx.relevant_pairs : []).map((p) =>
+    `${p.pair}: score=${p.score ?? "n/a"}, corr=${p.corr ?? "n/a"}, spread=${p.spread_pct ?? "n/a"}%, rsi_gap=${p.rsi_gap ?? "n/a"}`
+  );
+
+  return [
+    lines.length ? `AI Signal Context:\n${lines.join("\n")}` : "",
+    pairLines.length ? `Relevant pair context:\n${pairLines.join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
 
 // ------------------------
 // Timeframes UI
@@ -6982,6 +7072,14 @@ async function runAi() {
       const slicedSeries = sliceCompareSeries(compareSeries || {}, tf);
       const seriesStats = _seriesStatsFromSeriesMap(slicedSeries, syms);
       const insightWindows = _buildInsightWindows(compareSeries || {}, syms);
+      const aiSignalContext = buildAiSignalContext({
+        syms,
+        watchRows,
+        ratingSummaryBySymbol,
+        onchainBySymbol,
+        bestPairsToShow,
+      });
+      const aiSignalText = formatAiSignalContextForPrompt(aiSignalContext);
 
       const statsText = Object.entries(seriesStats)
         .map(([s, stats]) => `${s}: change=${(stats.changePct ?? 0).toFixed(2)}%, vol=${(stats.volPct ?? 0).toFixed(2)}%, maxDD=${(stats.maxDDPct ?? 0).toFixed(2)}%, range=[${stats.min}, ${stats.max}], points=${stats.points}`)
@@ -7010,7 +7108,8 @@ async function runAi() {
           : `No explicit timeframe was found in the user's question, so use the current UI timeframe.\n`) +
         `Coins: ${syms.join(", ")}\n` +
         (statsText ? `Series stats (${tf}):\n${statsText}\n` : "") +
-        (insightText ? `\nMulti-timeframe insight context (use this for AI Insight / trend-structure comparison):\n${insightText}\n` : "");
+        (insightText ? `\nMulti-timeframe insight context (use this for AI Insight / trend-structure comparison):\n${insightText}\n` : "") +
+        (aiSignalText ? `\nRating, community and on-chain context (merge this into the AI Insight, do not list it mechanically):\n${aiSignalText}\n` : "");
 
       const questionText =
         isFollowUpAsk && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;
@@ -7027,6 +7126,7 @@ async function runAi() {
         history: isFollowUpAsk ? trimmedHist : [],
         series_stats: seriesStats,
         insight_windows: insightWindows,
+        ai_signal_context: aiSignalContext,
       };
 
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
@@ -11145,8 +11245,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <span className="pill silver">{aiSelected.length}/6 selected</span>
               <InfoButton title="AI Analyst">
                 <Help showClose dismissable
-                  de={<><p>Maximal <b>6 Coins</b> pro Analyse. Die Coins kommen aus deiner Compare-Auswahl.</p><p><b>Kind</b> bestimmt den Analyse-Typ: Analysis, Risk oder Explain.</p><p><b>Profile</b> steuert den Stil der Antwort, z. B. konservativ, ausgewogen oder volatilitätsfokussiert.</p><p><b>Follow-up</b> hält den Kontext für Rückfragen im selben AI-Dialog.</p></>}
-                  en={<><p>Maximum <b>6 coins</b> per analysis. Coins are taken from your compare selection.</p><p><b>Kind</b> sets the analysis type: Analysis, Risk, or Explain.</p><p><b>Profile</b> controls the answer style, for example conservative, balanced, or volatility-focused.</p><p><b>Follow-up</b> keeps context for follow-up questions inside the same AI dialog.</p></>}
+                  de={<><p>Maximal <b>6 Coins</b> pro Analyse. Die Coins kommen aus deiner Compare-Auswahl.</p><p><b>AI Insight</b> kombiniert Marktstruktur, Rating, Community-Votes und On-Chain-Signale.</p><p><b>Kind</b> bestimmt den Analyse-Typ: Analysis, Risk oder Explain.</p><p><b>Profile</b> steuert den Stil der Antwort, z. B. konservativ, ausgewogen oder volatilitätsfokussiert.</p><p><b>Follow-up</b> hält den Kontext für Rückfragen im selben AI-Dialog.</p></>}
+                  en={<><p>Maximum <b>6 coins</b> per analysis. Coins are taken from your compare selection.</p><p><b>AI Insight</b> combines market structure, rating, community votes, and on-chain signals.</p><p><b>Kind</b> sets the analysis type: Analysis, Risk, or Explain.</p><p><b>Profile</b> controls the answer style, for example conservative, balanced, or volatility-focused.</p><p><b>Follow-up</b> keeps context for follow-up questions inside the same AI dialog.</p></>}
                 />
               </InfoButton>
             </div>

@@ -5002,9 +5002,6 @@ useEffect(() => {
     []
   );
   const [manualPricePreset, setManualPricePreset] = useState("STANDARD");
-  const [aiGridAssistState, setAiGridAssistState] = useState({ active: false, preset: "", slippage: "", note: "" });
-  const [aiGridManualOverride, setAiGridManualOverride] = useState(false);
-  const aiGridAssistKeyRef = useRef("");
   const gridQuickSteps = useMemo(() => {
     const arr = GRID_PRICE_PRESETS?.[manualPricePreset] || GRID_PRICE_PRESETS?.STANDARD || [0.5, 1, 2];
     return Array.isArray(arr) ? arr : [0.5, 1, 2];
@@ -5901,35 +5898,6 @@ const hasOpenGridOrders = useMemo(
   [gridOrders]
 );
 
-// Level 4 Light:
-// While a grid/order is running, AI can softly adapt only UI parameters
-// (price preset + slippage). It never edits, creates, cancels or moves orders.
-useEffect(() => {
-  if (!hasOpenGridOrders) {
-    aiGridAssistKeyRef.current = "";
-    return;
-  }
-  if (aiGridManualOverride) return;
-  if (!aiExplainData) return;
-
-  const rec = deriveAiGridAssist(aiExplainData);
-  const key = [
-    String(aiExplainData?.pair || aiExplainData?.winner || ""),
-    String(aiExplainData?.gridRange || aiExplainData?.range || ""),
-    String(aiExplainData?.mode || ""),
-    String(aiExplainData?.risk || ""),
-    rec.preset,
-    rec.slippage,
-  ].join("|");
-
-  if (aiGridAssistKeyRef.current === key) return;
-  aiGridAssistKeyRef.current = key;
-
-  setManualPricePreset(rec.preset);
-  setManualSlippagePct(String(rec.slippage));
-  setAiGridAssistState({ active: true, preset: rec.preset, slippage: rec.slippage, note: rec.note });
-}, [hasOpenGridOrders, aiGridManualOverride, aiExplainData, deriveAiGridAssist]);
-
 const gridPollingAllowed =
   !!isGridReady &&
   !!gridItemId &&
@@ -6483,32 +6451,6 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     return Math.abs((nums[0] + nums[1]) / 2);
   }, []);
 
-  const deriveAiGridAssist = useCallback((data) => {
-    const d = data || {};
-    const modeText = String(d.mode || d.gridMode || d.grid_mode || d.setup || d.verdict || "").toUpperCase();
-    const riskText = String(d.risk || d.riskView || d.risk_view || "").toUpperCase();
-    const gridText = String(d.gridRange || d.range || d.suggestedGrid || "").toUpperCase();
-    const behaviorText = String(d.behavior || d.behaviorRead || d.strategy || d.action || "").toUpperCase();
-    const pct = parseSuggestedGridPct(gridText || "2-4%");
-
-    let preset = "STANDARD";
-    if (modeText.includes("VERY") || gridText.includes("8") || pct >= 5) {
-      preset = "VERY_WIDE";
-    } else if (modeText.includes("WIDE") || pct >= 2.5 || behaviorText.includes("VOLATILITY")) {
-      preset = "WIDE";
-    } else if (modeText.includes("FAST") || pct <= 1) {
-      preset = "FAST";
-    }
-
-    let slippage = 5;
-    if (preset === "VERY_WIDE" || riskText.includes("HIGH")) slippage = 8;
-    else if (preset === "WIDE" || riskText.includes("MEDIUM")) slippage = 6;
-    else if (preset === "FAST") slippage = 3;
-
-    const note = `AI Assist: ${preset.replace("_", " ")} / ${slippage}% slippage`;
-    return { preset, slippage, note };
-  }, [parseSuggestedGridPct]);
-
   const openGridPanel = useCallback(() => {
     setActivePanel("vault");
     setSelectedPair(null);
@@ -6547,13 +6489,6 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setManualSide(SIDE);
     setManualBuyMode("QTY");
 
-    // Level 4 Light: AI may prefill soft grid parameters, but it never creates orders.
-    const aiAssist = deriveAiGridAssist(aiExplainData);
-    setManualPricePreset(aiAssist.preset);
-    setManualSlippagePct(String(aiAssist.slippage));
-    setAiGridManualOverride(false);
-    setAiGridAssistState({ active: true, preset: aiAssist.preset, slippage: aiAssist.slippage, note: aiAssist.note });
-
     const pct = parseSuggestedGridPct(aiExplainData?.gridRange || aiExplainData?.range || "2-4%");
     const px = getLivePriceForSymbol(S);
     if (Number.isFinite(px) && px > 0) {
@@ -6577,9 +6512,6 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setManualSide,
     setManualBuyMode,
     setManualPrice,
-    setManualPricePreset,
-    setManualSlippagePct,
-    deriveAiGridAssist,
     setErrorMsg,
   ]);
 
@@ -10692,15 +10624,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     }
                   />
                 </InfoButton>
-                {aiGridManualOverride ? (
-                  <span className="pill silver" title="You changed AI-assisted settings manually. AI will not overwrite them while this override is active.">
-                    Manual override
-                  </span>
-                ) : aiGridAssistState?.active ? (
-                  <span className="pill" title="AI can softly adapt preset/slippage while a grid is running. Orders are never created automatically.">
-                    {aiGridAssistState.note || "AI Assist active"}
-                  </span>
-                ) : null}
               </div>
 
               <div className="formRow">
@@ -10863,7 +10786,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>
                 <input
                   value={manualSlippagePct}
-                  onChange={(e) => { setAiGridManualOverride(true); setManualSlippagePct(e.target.value); }}
+                  onChange={(e) => setManualSlippagePct(e.target.value)}
                   style={{ width: 90 }}
                   placeholder="5"
                 />
@@ -10892,7 +10815,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <button
                   className="btn"
                   type="button"
-                  onClick={() => { setAiGridManualOverride(true); setManualPricePreset("FAST"); }}
+                  onClick={() => setManualPricePreset("FAST")}
                   style={{ ...compactGridChipStyle, opacity: manualPricePreset === "FAST" ? 1 : 0.88 }}
                   title="Fast preset (0.25 / 0.5 / 1)"
                 >
@@ -10902,7 +10825,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <button
                   className="btn"
                   type="button"
-                  onClick={() => { setAiGridManualOverride(true); setManualPricePreset("STANDARD"); }}
+                  onClick={() => setManualPricePreset("STANDARD")}
                   style={{ ...compactGridChipStyle, opacity: manualPricePreset === "STANDARD" ? 1 : 0.88 }}
                   title="Standard preset (0.5 / 1 / 2)"
                 >
@@ -10912,7 +10835,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <button
                   className="btn"
                   type="button"
-                  onClick={() => { setAiGridManualOverride(true); setManualPricePreset("WIDE"); }}
+                  onClick={() => setManualPricePreset("WIDE")}
                   style={{ ...compactGridChipStyle, opacity: manualPricePreset === "WIDE" ? 1 : 0.88 }}
                   title="Wide preset (1 / 2 / 3)"
                 >
@@ -10922,7 +10845,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <button
                   className="btn"
                   type="button"
-                  onClick={() => { setAiGridManualOverride(true); setManualPricePreset("VERY_WIDE"); }}
+                  onClick={() => setManualPricePreset("VERY_WIDE")}
                   style={{ ...compactGridChipStyle, opacity: manualPricePreset === "VERY_WIDE" ? 1 : 0.88 }}
                   title="Very Wide preset (5 / 10 / 15)"
                 >

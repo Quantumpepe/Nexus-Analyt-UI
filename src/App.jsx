@@ -10725,30 +10725,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 Manual order
-                <InfoButton title="Manual Order">
-                  <Help showClose dismissable
-                    de={
-                      <>
-                        <p><b>Side</b> bestimmt, ob du eine BUY- oder SELL-Order anlegst.</p>
-                        <p><b>Price</b> ist dein Limit-Preis.</p>
-                        <p><b>Price preset</b> wählt die Prozent-Gruppe: Fast, Standard, Wide oder Very Wide.</p>
-                        <p><b>Quick price</b> übernimmt auf Basis des aktuellen Marktpreises direkt den gewünschten Prozent-Abstand in das Price-Feld.</p>
-                        <p><b>Payout asset</b> legt fest, in welcher Chain-/Payout-Währung die Order geführt wird.</p>
-                        <p><b>Qty</b> ist optional. <b>Add Order</b> erstellt die Order erst nach deiner Bestätigung.</p>
-                      </>
-                    }
-                    en={
-                      <>
-                        <p><b>Side</b> defines whether you create a BUY or SELL order.</p>
-                        <p><b>Price</b> is your limit price.</p>
-                        <p><b>Price preset</b> chooses the percentage group: Fast, Standard, Wide or Very Wide.</p>
-                        <p><b>Quick price</b> fills the Price field from the current market price using the selected percentage distance.</p>
-                        <p><b>Payout asset</b> defines which chain/payout asset the order uses.</p>
-                        <p><b>Qty</b> is optional. <b>Add Order</b> creates the order only after your confirmation.</p>
-                      </>
-                    }
-                  />
-                </InfoButton>
+
                 {aiGridManualOverride ? (
                   <span className="pill silver" title="You changed AI-assisted settings manually. AI will not overwrite them while this override is active.">
                     Manual override
@@ -11042,7 +11019,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {!shownGridPrice ? <span className="muted tiny">No live price yet.</span> : null}
               </div>
               {manualSide === "BUY" ? (
-                <>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                    gap: isCompactMobile ? 8 : 10,
+                    alignItems: "end",
+                  }}
+                >
                   <div className="formRow">
                     <label>Buy mode</label>
                     <select value={manualBuyMode} onChange={(e) => setManualBuyMode(e.target.value)}>                      <option value="QTY">Token qty</option>
@@ -11065,7 +11049,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="e.g. 0.01" />
                     </div>
                   )}
-                </>
+                </div>
               ) : (
                 <div className="formRow">
                   <label>Qty (token)</label>

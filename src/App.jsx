@@ -8221,7 +8221,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </select>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap:"nowrap", marginBottom: 10 }}>
                       <div style={{ flex: 1 }} />
                       <button
                         type="button"
@@ -8347,7 +8347,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Balances</div>
                   {/* Active chain for wallet + grid */}
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap:"nowrap" }}>
                     <button
                       key="ALL"
                       type="button"
@@ -8464,7 +8464,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       
                       {/* Grid budget info (per-chain, if available) */}
                       {gridBudgets?.by_chain && Object.keys(gridBudgets.by_chain).length ? (
-                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.82, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.82, display: "flex", gap: 8, flexWrap:"nowrap" }}>
                           <span>In bots: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.locked_usd || 0))}</b></span>
                           <span style={{ opacity: 0.6 }}>|</span>
                           <span>Free: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.available_usd || 0))}</b></span>
@@ -8880,7 +8880,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     )}
                   </div>
 
-                  <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap:"nowrap" }}>
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setVaultOperator(true); }}
@@ -9298,7 +9298,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             className="panelScroll"
             style={{
               display: "flex",
-              flexDirection: "column",
+              flexDirection:"row",
               minHeight: 0
             }}
           >
@@ -9365,7 +9365,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               className="pairsBox"
                               style={{
                                 display: "flex",
-                                flexDirection: "column",
+                                flexDirection:"row",
                                 minHeight: 0
                               }}
                             >
@@ -9428,9 +9428,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10, flexWrap:"nowrap" }}>
                   <div className="muted tiny">Showing {bestPairsToShow.length} / {bestPairsAll.length} pairs</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap:"nowrap" }}>
                     <button
                       className={String(bestPairsSortMode || "score") === "spread" ? "btn tiny" : "ghostBtn tiny"}
                       title="Sort by largest 30D spread first. Click again to return to score ranking."
@@ -9609,7 +9609,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div className="cardHead" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
                 <div>
                   <div className="cardTitle">{gridModalSym} chart</div>
-                  <div className="muted tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+                  <div className="muted tiny" style={{ display: "flex", gap: 10, flexWrap:"nowrap", marginTop: 4 }}>
                     <span>{timeframe}</span>
                     <span>{indexMode ? "Index 100" : "Price (USD)"}</span>
                     {gridModalRow ? <span>{fmtUsd(Number(gridModalRow?.price))}</span> : null}
@@ -9621,7 +9621,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <span>Hover for date + value</span>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap:"nowrap", justifyContent: "flex-end" }}>
                   <button
                     className={`chip ${!indexMode ? "active" : ""}`}
                     onClick={() => setIndexMode(false)}
@@ -9714,7 +9714,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div style={{ display: "grid", gap: 10 }}>
                         <div className="label">Performance (same period)</div>
                         {pairExplainLoading && <div className="muted tiny">Loading pair data…</div>}
-                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 10, flexWrap:"nowrap" }}>
                           <span className="pill silver">{a}: <span style={_pctColorStyle(ra)}>{_fmtPctLocal(ra)}</span></span>
                           <span className="pill silver">{b}: <span style={_pctColorStyle(rb)}>{_fmtPctLocal(rb)}</span></span>
                           <span className="pill">
@@ -9776,14 +9776,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               background: quality.bg,
                               border: `1px solid ${quality.border}`
                             }}>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                              <div style={{ display: "flex", flexWrap:"nowrap", gap: 8, alignItems: "center" }}>
                                 <span style={{ color: quality.color, fontWeight: 900 }}>{quality.label}</span>
                                 <span className="pill silver">Score {selectedPair.score}</span>
                               </div>
                               <div className="muted">
                                 <b>Now:</b> <b>{winner}</b> &gt; <b>{loser}</b> (short-term momentum / 30D view).
                               </div>
-                              <div className="tiny" style={{ display: "flex", flexWrap: "wrap", gap: 10, color: quality.color }}>
+                              <div className="tiny" style={{ display: "flex", flexWrap:"nowrap", gap: 10, color: quality.color }}>
                                 <span>Corr {(selectedPair.corr >= 0 ? "+" : "") + selectedPair.corr.toFixed(2)}</span>
                                 <span>Spread {_fmtPctLocal(spread)}</span>
                                 {Number.isFinite(selectedPair?.momentumScore) && <span>Momentum {selectedPair.momentumScore}</span>}
@@ -9951,7 +9951,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
 
                             <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap:"nowrap" }}>
                                 <div>
                                   <div className="label" style={{ marginBottom: 0 }}>Spread Analysis</div>
                                   <div className="muted tiny" style={{ marginTop: 2 }}>30D Relative Spread ({a} vs {b}) · Positive = {a} stronger · Negative = {b} stronger</div>
@@ -10003,7 +10003,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div className="label" style={{ marginBottom: 0 }}>Longer-Term Reversion Idea</div>
 
                         {aiExplainData.winner && aiExplainData.loser ? (
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap:"nowrap", alignItems: "center" }}>
                             <span className="pill" style={{ background: "rgba(255,92,92,0.18)", borderColor: "rgba(255,92,92,0.35)" }}>SELL {aiExplainData.winner} later-view</span>
                             <button
                               className="btn"
@@ -10070,7 +10070,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <>
-                            <div className="tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            <div className="tiny" style={{ display: "flex", gap: 10, flexWrap:"nowrap" }}>
                               <span className="pill silver">Stronger: <b>{aiExplainData.winner}</b></span>
                               <span className="pill silver">Weaker: <b>{aiExplainData.loser}</b></span>
                             </div>
@@ -10307,7 +10307,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="formRow">
                 <label>Payout asset</label>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap:"nowrap" }}>
                   {visiblePayoutAssets.map((asset) => {
                     const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
                     return (
@@ -10415,7 +10415,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   border: "1px solid rgba(255,255,255,.06)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap:"nowrap", marginBottom: 8 }}>
                   <div style={{ fontWeight: 800 }}>Risk & settlement preview</div>
                   <div
                     style={{
@@ -10440,7 +10440,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
                   <div>Settlement: <b>{manualSettlementPreview}</b></div>
                 </div>
-                <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 10, fontSize: 11, color: "#bdebd8" }}>
+                <div style={{ marginTop: 10, display: "flex", flexWrap:"nowrap", gap: 10, fontSize: 11, color: "#bdebd8" }}>
                   <span>In chain: <b>{fmtUsd(Number(manualVaultTotalQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
                   <span>Allocated: <b>{fmtUsd(Number(manualVaultAllocatedQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
                   <span>Settled: <b>{fmtUsd(Number(manualVaultSettledQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
@@ -10448,7 +10448,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               </div>
 
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -6, marginBottom: 12 }}>
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap:"nowrap", marginTop: -6, marginBottom: 12 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>
                 <input
                   value={manualSlippagePct}
@@ -10475,7 +10475,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               </div>
 
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 10 }}>
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 8, alignItems: "center", flexWrap:"nowrap", marginTop: -4, marginBottom: 10 }}>
                 <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Price preset:</div>
 
                 <button
@@ -10519,7 +10519,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </button>
               </div>
 
-              <div className="row" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+              <div className="row" style={{ display: "flex", gap: 8, flexWrap:"nowrap", alignItems: "center", marginBottom: 10 }}>
                 <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Quick price:</div>
 
                 <button className="btn" type="button" onClick={setManualPriceFromMarket} disabled={!shownGridPrice} title="Set price to current market" style={compactGridChipStyle}>
@@ -10610,7 +10610,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             <div className="gridRight">
               <div className="gridOrders">
-              <div className="ordersHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div className="ordersHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap:"nowrap" }}>
                 <button
                   type="button"
                   className="btnGhost"
@@ -10642,8 +10642,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             background: "rgba(255,255,255,.03)",
                           }}
                         >
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8, flexWrap:"nowrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap:"nowrap" }}>
                               <span className="pill silver">{chainKey}</span>
                               <span className="muted tiny">{chainOrders.length} open</span>
                               <span className="muted tiny">Exposure {fmtUsd(totalExposure)}</span>
@@ -10696,8 +10696,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   className="orderRow"
                                   style={{ padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
                                 >
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0, flex: "1 1 460px", fontSize: 11 }}>
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap:"nowrap" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap:"nowrap", minWidth: 0, flex: "1 1 460px", fontSize: 11 }}>
                                       <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`} style={{ fontSize: 10, padding: "4px 7px" }}>{o.side}</span>
                                       <span className="orderPx" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{fmtUsd(Number(o?.price || 0))}</span>
                                       <span className="muted" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{o?.qty ? `qty ${fmtQty(Number(o.qty), 4)}` : ""}</span>
@@ -10709,7 +10709,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: 11 }}>{profitText}</span>
                                       ) : null}
                                     </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", flex: "0 0 auto" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap:"nowrap", justifyContent: "flex-end", flex: "0 0 auto" }}>
                                       <button
                                         type="button"
                                         className="btn ghost"
@@ -10956,7 +10956,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
                 <div className="softBox" style={{ padding: 12 }}>
                   <div className="muted tiny" style={{ marginBottom: 8 }}>Your rating</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ display: "flex", flexWrap:"nowrap", gap: 8 }}>
                     {["AAA", "AA", "A", "B", "C", "RISK"].map((rt) => {
                       const chosen = String(ratingStatus?.user_rating_today || ratingStatus?.last_user_rating || "").toUpperCase() === rt;
                       const disabled = ratingBusy || ratingStatus?.can_vote === false;
@@ -11051,7 +11051,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <option value="volatility">Volatility</option>
                 </select>
               </div>
-<div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+<div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap:"nowrap" }}>
                 <label className="muted" style={{ display: "inline-flex", gap: 8, alignItems: "center", userSelect: "none" }}>
                   <input
                     type="checkbox"
@@ -11231,7 +11231,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             {(addResults || []).map((coin) => (
 <div key={coin.id} className="watchRow" style={{ alignItems: "center" }}>
-                <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                <div style={{ display: "flex", flexDirection:"row", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {coin.name} <span className="muted">({String(coin.symbol || "").toUpperCase()})</span>
                   </div>

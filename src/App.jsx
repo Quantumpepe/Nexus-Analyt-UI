@@ -2221,6 +2221,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const [activePanel, setActivePanel] = useState(null);
 
   const isCompactMobile = typeof window !== "undefined" && window.innerWidth <= 768;
+  const isCompactWatchNumbers = typeof window !== "undefined" && window.innerWidth <= 1280;
   const compactGridChipStyle = {
     minHeight: isCompactMobile ? "28px" : "34px",
     height: isCompactMobile ? "28px" : "34px",
@@ -8400,19 +8401,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
 
 
-        /* FINAL MOBILE WATCHLIST FIX - must stay after the older watchlist mobile rules. */
+        /* FINAL MOBILE WATCHLIST FIT - keep the delete button in-row without crushing columns. */
         @media (max-width: 780px) {
           .section-watch .panelScroll{ overflow-x: hidden !important; }
           .section-watch .watchTable{ width: 100% !important; max-width: 100% !important; overflow-x: auto !important; overflow-y: visible !important; -webkit-overflow-scrolling: touch !important; touch-action: pan-x pan-y !important; }
           .section-watch .watchScroll{ overflow: visible !important; max-width: none !important; width: max-content !important; }
           .section-watch .watchHead,
-          .section-watch .watchRow{ display: grid !important; grid-template-columns: 28px 26px 58px 48px 70px 62px 68px 78px 28px !important; gap: 4px !important; min-width: 510px !important; align-items: center !important; }
+          .section-watch .watchRow{ display: grid !important; grid-template-columns: 58px 36px 86px 62px 104px 104px 112px 128px 34px !important; gap: 5px !important; width: 864px !important; min-width: 864px !important; max-width: none !important; align-items: center !important; box-sizing: border-box !important; }
           .section-watch .watchHead.watchStickyHead{ position: sticky !important; top: 0 !important; z-index: 9 !important; background: rgba(2, 18, 17, 0.96) !important; backdrop-filter: blur(8px) !important; }
-          .section-watch .watchHead{ padding-left: 4px !important; padding-right: 4px !important; font-size: 9px !important; }
-          .section-watch .watchRow{ padding: 7px 4px !important; min-height: 44px !important; }
+          .section-watch .watchHead{ padding-left: 4px !important; padding-right: 4px !important; font-size: 9.5px !important; }
+          .section-watch .watchRow{ padding: 7px 4px !important; min-height: 46px !important; }
           .section-watch .watchRow > *, .section-watch .watchHead > *{ min-width: 0 !important; }
           .section-watch .watchCoin, .section-watch .watchSym{ min-width: 0 !important; white-space: nowrap !important; }
-          .section-watch .watchRow .mono{ font-size: 9.5px !important; line-height: 1.05 !important; white-space: nowrap !important; font-variant-numeric: tabular-nums !important; }
+          .section-watch .watchRow .mono{ font-size: 10px !important; line-height: 1.05 !important; white-space: nowrap !important; font-variant-numeric: tabular-nums !important; }
+          .section-watch .watchMiniSpark.watchMiniSparkCg{ width: 128px !important; height: 34px !important; }
+          .section-watch .watchRow svg,
+          .section-watch .watchRow canvas{ width: 128px !important; max-width: 128px !important; }
           .section-watch .watchRow .iconBtn{ width: 24px !important; height: 24px !important; min-width: 24px !important; margin-left: auto !important; justify-self: end !important; flex: 0 0 auto !important; }
         }
 `}</style>
@@ -11287,8 +11291,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                         <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtPct(r.change24h)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtUsd(r.price)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{isCompactMobile ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, paddingRight: 2, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{marketCap != null ? (isCompactMobile ? fmtCompactUsd(marketCap) : fmtUsd(marketCap)) : "—"}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{isCompactWatchNumbers ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, paddingRight: 2, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{marketCap != null ? (isCompactWatchNumbers ? fmtCompactUsd(marketCap) : fmtUsd(marketCap)) : "—"}</div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <InlineWatchSpark
                             sym={sym}
@@ -11380,8 +11384,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         </div>
                         <div className="watchCompactStats" style={{ gap: 10 }}>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>Vol {isCompactMobile ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</span>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? (isCompactMobile ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap)) : "—"}</span>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>Vol {isCompactWatchNumbers ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</span>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? (isCompactWatchNumbers ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap)) : "—"}</span>
                         </div>
                       </div>
                       <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center", minWidth: 0 }}>

@@ -11204,7 +11204,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "82px 42px minmax(90px,1fr) 72px 128px 160px 170px 132px 52px",
+                    gridTemplateColumns: "82px 42px minmax(90px,1fr) 72px 128px 150px 150px 112px 44px",
                     gap: 8,
                   }}
                 >
@@ -11241,7 +11241,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "82px 42px minmax(90px,1fr) 72px 128px 160px 170px 132px 52px",
+                          gridTemplateColumns: "82px 42px minmax(90px,1fr) 72px 128px 150px 150px 112px 44px",
                           gap: 8,
                         }}
                       >
@@ -11288,7 +11288,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             lineClassForSym={lineClassForSym}
                           />
                         </div>
-                        <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", width: "100%", paddingRight: 2 }}><button className="iconBtn" style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1, marginLeft: "auto" }} onClick={(e) => { e.preventDefault(); e.stopPropagation(); const mm = (r.mode || "market"); removeWatchItemByKey({ symbol: sym, mode: mm, tokenAddress: (mm === "dex" ? (r.contract || "") : "") , contract: (mm === "dex" ? (r.contract || "") : "") }); }} title="Remove">×</button></div>
+                        <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", minWidth: 0 }}>
+                          <button
+                            className="iconBtn"
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              width: 28,
+                              height: 28,
+                              minWidth: 28,
+                              flex: "0 0 28px",
+                              fontSize: 12,
+                              lineHeight: 1,
+                              margin: 0,
+                            }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const mm = (r.mode || "market");
+                              removeWatchItemByKey({
+                                symbol: sym,
+                                mode: mm,
+                                tokenAddress: (mm === "dex" ? (r.contract || "") : ""),
+                                contract: (mm === "dex" ? (r.contract || "") : ""),
+                              });
+                            }}
+                            title="Remove"
+                          >
+                            ×
+                          </button>
+                        </div>
                       </div>
                     );
                   })}

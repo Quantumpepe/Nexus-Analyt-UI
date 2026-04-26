@@ -11307,7 +11307,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "56px 34px minmax(78px,1fr) minmax(54px,.7fr) minmax(86px,.85fr) minmax(76px,.75fr) minmax(82px,.78fr) minmax(78px,.75fr) 32px",
+                          gridTemplateColumns: "56px 34px minmax(110px,1.35fr) minmax(86px,.85fr) minmax(110px,1fr) minmax(112px,1fr) minmax(120px,1.05fr) minmax(78px,.75fr) 32px",
                           gap: 8,
                         }}
                       >

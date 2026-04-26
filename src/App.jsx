@@ -4515,6 +4515,14 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
 
       const pairStats = pairWindows?.["30D"] || {};
+      const aiSignalContext = buildAiSignalContext({
+        syms: [a, b].filter(Boolean),
+        watchRows,
+        ratingSummaryBySymbol,
+        onchainBySymbol,
+        bestPairsToShow,
+      });
+      const aiSignalText = formatAiSignalContextForPrompt(aiSignalContext);
       const payload = {
         kind: "explain",
         symbols: [a, b].filter(Boolean),
@@ -4523,13 +4531,16 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         index_mode: !!indexMode,
         series_stats: pairStats,
         insight_windows: pairWindows,
+        ai_signal_context: aiSignalContext,
         question:
           `Analyze the current pair structure for ${a} vs ${b}. ` +
-          `Use the pair statistics, multi-timeframe context, and the wallet-bound order memory only to describe structure, behavior, and risk posture. ` +
+          `Use the pair statistics, multi-timeframe context, rating, community votes, and on-chain context to describe structure, behavior, and risk posture. ` +
+          `IMPORTANT: mention rating and on-chain confirmation explicitly when available. If on-chain is neutral or missing, say it is neutral/no strong signal instead of ignoring it. ` +
           `Do not tell the user what to do. ` +
           `Current pair correlation: ${Number.isFinite(corr) ? corr.toFixed(2) : "n/a"}. ` +
           `30D spread: ${Number.isFinite(spread) ? spread.toFixed(2) + "%" : "n/a"}. ` +
-          `Short bias: ${shortBias}. Long bias: ${longBias}.`,
+          `Short bias: ${shortBias}. Long bias: ${longBias}. ` +
+          (aiSignalText ? `Signal context: ${aiSignalText}` : ""),
       };
 
       let backendText = "";
@@ -4570,6 +4581,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         momentumShift,
         insightSummary,
         windows: pairWindows,
+        aiSignalContext,
       });
     } catch (e) {
       setAiExplainText("");

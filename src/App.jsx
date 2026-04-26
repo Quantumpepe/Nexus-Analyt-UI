@@ -10714,23 +10714,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   {errorMsg}
                 </div>
               ) : null}
-          <div style={{
-            marginTop: "10px",
-            padding: "10px 12px",
-            borderRadius: "8px",
-            background: "rgba(255, 165, 0, 0.08)",
-            border: "none",
-            fontSize: "13px",
-            lineHeight: "1.4",
-            color: "#f5c16c"
-          }}>
-            <strong>Warning:</strong> Trading low-liquidity tokens may fail (no fills or high slippage). 
-            You may still pay gas fees even if the trade does not execute successfully.
-          </div>
-
-              </div>
-
-              <div className="divider" />
+</div>
 
               <div className="label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 Manual order
@@ -10884,40 +10868,43 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div
                 style={{
-                  marginTop: 8,
-                  marginBottom: 12,
-                  padding: "10px 12px",
-                  borderRadius: 12,
+                  marginTop: 4,
+                  marginBottom: 8,
+                  padding: "8px 10px",
+                  borderRadius: 10,
                   background: "rgba(255,255,255,.04)",
                   border: "1px solid rgba(255,255,255,.06)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
-                  <div style={{ fontWeight: 800 }}>Risk & settlement preview</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14 }}>Risk & settlement preview</div>
                   <div
                     style={{
-                      padding: "6px 10px",
+                      padding: "4px 8px",
                       borderRadius: 999,
                       background: manualRiskState.tone,
                       border: manualRiskState.border,
                       color: manualRiskState.color,
                       fontWeight: 800,
-                      fontSize: 12,
+                      fontSize: 11,
+                      lineHeight: 1.1,
                     }}
                   >
                     {manualRiskState.label}
                   </div>
                 </div>
-                <div className="tiny muted" style={{ display: "grid", gap: 4 }}>
-                  <div>Chain: <b>{activeGridChainSymbol}</b></div>
-                  <div>Pool liquidity: <b>{manualPoolLiquidityUsd == null ? "Backend pending" : fmtUsd(manualPoolLiquidityUsd)}</b></div>
-                  <div>Open exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></div>
-                  <div>After this order: <b>{fmtUsd(manualExposureAfterUsd)}</b></div>
-                  <div>Estimated impact: <b>{manualEstimatedImpactPct == null ? "Backend pending" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></div>
-                  <div>Payout asset: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></div>
-                  <div>Settlement: <b>{manualSettlementPreview}</b></div>
+                <div className="tiny muted" style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", lineHeight: 1.25 }}>
+                  <span>Chain: <b>{activeGridChainSymbol}</b></span>
+                  <span>Liquidity: <b>{manualPoolLiquidityUsd == null ? "Backend pending" : fmtUsd(manualPoolLiquidityUsd)}</b></span>
+                  <span>Exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></span>
+                  <span>After: <b>{fmtUsd(manualExposureAfterUsd)}</b></span>
+                  <span>Impact: <b>{manualEstimatedImpactPct == null ? "Backend pending" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></span>
+                  <span>Payout: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></span>
                 </div>
-                <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 10, fontSize: 11, color: "#bdebd8" }}>
+                <div className="tiny muted" style={{ marginTop: 4, lineHeight: 1.25, whiteSpace: "normal", overflowWrap: "anywhere" }}>
+                  Settlement: <b>{manualSettlementPreview}</b>
+                </div>
+                <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: "4px 10px", fontSize: 11, color: "#bdebd8", lineHeight: 1.2 }}>
                   <span>In chain: <b>{fmtUsd(Number(manualVaultTotalQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
                   <span>Allocated: <b>{fmtUsd(Number(manualVaultAllocatedQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
                   <span>Settled: <b>{fmtUsd(Number(manualVaultSettledQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
@@ -10925,7 +10912,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               </div>
 
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: -6, marginBottom: 12 }}>
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 8 }}>
                 <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>
                 <input
                   value={manualSlippagePct}
@@ -10952,7 +10939,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               </div>
 
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 10 }}>
+              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: -2, marginBottom: 7 }}>
                 <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Price preset:</div>
 
                 <button
@@ -10996,7 +10983,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </button>
               </div>
 
-              <div className="row" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+              <div className="row" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 7 }}>
                 <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Quick price:</div>
 
                 <button className="btn" type="button" onClick={setManualPriceFromMarket} disabled={!shownGridPrice} title="Set price to current market" style={compactGridChipStyle}>

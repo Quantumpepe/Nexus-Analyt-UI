@@ -10625,7 +10625,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p>Du definierst ein <b>maximales Budget in der ausgewählten Payout-/Chain-Währung</b> (z. B. POL / BNB / ETH). Dieses Budget ist ein <b>globales Limit</b> für den gesamten Grid.</p>
                       <p>Das Budget gilt <b>nicht pro Order</b>, sondern für alle Grid-Orders zusammen.</p>
                       <p><b>BUY</b>-Orders kaufen Token, <b>SELL</b>-Orders verkaufen bereits vorhandene Token.</p>
-                      <p><b>SAFE / AGGRESSIVE</b> setzt nur deine Eingabewerte bzw. Presets. Es gibt keine vollautomatische Strategie-Ausführung nur durch den Modus.</p>
+                      
                       <p><b>Manual Orders</b> sind einzelne Orders und nicht Teil des eigentlichen Grid-Blocks.</p>
                       <p>BUY kann je nach Eingabe per <b>USD</b> oder per <b>Token-Menge</b> definiert werden.</p>
                     </>
@@ -10636,7 +10636,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p>You define a <b>maximum budget in the selected payout/chain asset</b> (for example POL / BNB / ETH). This budget is a <b>global limit</b> for the full grid.</p>
                       <p>The budget is <b>not per order</b>; it is shared across all grid orders.</p>
                       <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell tokens you already hold.</p>
-                      <p><b>SAFE / AGGRESSIVE</b> only changes your input preset values. It does not run a fully automatic strategy by itself.</p>
+                      
                       <p><b>Manual orders</b> are single orders and are not part of the main grid block.</p>
                       <p>BUY can be defined either by <b>USD</b> or by <b>token quantity</b>, depending on your input mode.</p>
                     </>

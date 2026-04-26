@@ -962,13 +962,60 @@ function watchSystemScore(row) {
 }
 
 function watchSystemRating(row) {
-  const s = watchSystemScore(row);
-  if (s >= 92) return "AAA";
-  if (s >= 82) return "AA";
-  if (s >= 72) return "A";
-  if (s >= 60) return "B";
-  if (s >= 48) return "C";
+  return ratingFromScore(watchSystemScore(row));
+}
+
+const USER_RATING_POINTS = {
+  AAA: 98,
+  AA: 90,
+  A: 80,
+  BBB: 70,
+  BB: 60,
+  B: 50,
+  CCC: 40,
+  CC: 30,
+  C: 20,
+  RISK: 5,
+};
+
+function ratingFromScore(score) {
+  const s = Number(score);
+  if (!Number.isFinite(s)) return "RISK";
+  if (s >= 95) return "AAA";
+  if (s >= 85) return "AA";
+  if (s >= 75) return "A";
+  if (s >= 65) return "BBB";
+  if (s >= 55) return "BB";
+  if (s >= 45) return "B";
+  if (s >= 35) return "CCC";
+  if (s >= 25) return "CC";
+  if (s >= 15) return "C";
   return "RISK";
+}
+
+function userRatingAverageScore(summary) {
+  const ratings = summary?.ratings || {};
+  let total = 0;
+  let count = 0;
+  for (const [rating, votes] of Object.entries(ratings)) {
+    const points = USER_RATING_POINTS[String(rating || "").toUpperCase()];
+    const c = Number(votes || 0);
+    if (!Number.isFinite(points) || !Number.isFinite(c) || c <= 0) continue;
+    total += points * c;
+    count += c;
+  }
+  return count > 0 ? total / count : null;
+}
+
+function watchFinalScore(row, summary) {
+  const systemScore = watchSystemScore(row);
+  const userAvg = userRatingAverageScore(summary);
+  if (!Number.isFinite(userAvg)) return systemScore;
+  return Math.max(0, Math.min(100, Math.round((systemScore * 0.8) + (userAvg * 0.2))));
+}
+
+function watchFinalRating(row, summary) {
+  return ratingFromScore(watchFinalScore(row, summary));
 }
 
 
@@ -3244,6 +3291,7 @@ const byChain = {};
   const [ratingStatus, setRatingStatus] = useState(null);
   const [ratingBusy, setRatingBusy] = useState(false);
   const [ratingErr, setRatingErr] = useState("");
+  const [ratingSummaryBySymbol, setRatingSummaryBySymbol] = useState({});
 
   const [watchSyncedWallet, setWatchSyncedWallet] = useLocalStorageState("nexus_watch_synced_wallet", "");
   const [appStateSyncedWallet, setAppStateSyncedWallet] = useLocalStorageState("nexus_app_state_synced_wallet", "");
@@ -3434,11 +3482,42 @@ const byChain = {};
     setWatchSortMode((prev) => (String(prev || "manual") === mode ? "manual" : mode));
   }, [setWatchSortMode]);
 
+  useEffect(() => {
+    const wa = resolveWalletAddress(wallet);
+    if (!wa) return;
+    const symbols = Array.from(new Set((sortedWatchRows || []).map((r) => String(r?.symbol || "").toUpperCase()).filter(Boolean)));
+    if (!symbols.length) return;
+    let cancelled = false;
+    Promise.all(symbols.map(async (sym) => {
+      try {
+        const r = await api(`/api/ratings/coin?symbol=${encodeURIComponent(sym)}&wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, {
+          method: "GET",
+          token,
+          wallet: wa,
+        });
+        return [sym, r?.summary || null];
+      } catch {
+        return [sym, null];
+      }
+    })).then((entries) => {
+      if (cancelled) return;
+      setRatingSummaryBySymbol((prev) => {
+        const next = { ...(prev || {}) };
+        for (const [sym, summary] of entries) {
+          if (summary) next[sym] = summary;
+        }
+        return next;
+      });
+    });
+    return () => { cancelled = true; };
+  }, [wallet, token, sortedWatchRows]);
+
   const openRatingModal = useCallback(async (row) => {
     const sym = String(row?.symbol || "").toUpperCase();
     if (!sym) return;
-    const sysRating = watchSystemRating(row);
-    const sysScore = watchSystemScore(row);
+    const summary = ratingSummaryBySymbol?.[sym];
+    const sysRating = watchFinalRating(row, summary);
+    const sysScore = watchFinalScore(row, summary);
     setRatingModal({ open: true, row, symbol: sym, systemRating: sysRating, systemScore: sysScore });
     setRatingStatus(null);
     setRatingErr("");
@@ -3457,7 +3536,7 @@ const byChain = {};
     } catch (e) {
       setRatingErr(e?.message || "Rating status failed");
     }
-  }, [wallet, token]);
+  }, [wallet, token, ratingSummaryBySymbol]);
 
   const closeRatingModal = useCallback(() => {
     setRatingModal({ open: false, row: null, symbol: "", systemRating: "", systemScore: 0 });
@@ -3480,6 +3559,7 @@ const byChain = {};
         body: { wallet: wa, wallet_address: wa, symbol: sym, rating },
       });
       setRatingStatus((prev) => ({ ...(prev || {}), ...(r || {}), can_vote: false, already_voted_today: true, user_rating_today: rating, last_user_rating: rating }));
+      if (r?.summary) setRatingSummaryBySymbol((prev) => ({ ...(prev || {}), [sym]: r.summary }));
     } catch (e) {
       const msg = e?.data?.error || e?.message || "Rating failed";
       setRatingErr(msg === "already rated today" ? "You already rated this coin today." : msg);
@@ -10823,7 +10903,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     const sym = String(r.symbol || "").toUpperCase();
                     const checked = compareSymbols.includes(sym);
                     const marketCap = r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap ?? null;
-                    const sysRating = watchSystemRating(r);
+                    const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym]);
                     return (
                       <div
                         key={`${sym}-${idx}`}
@@ -10888,7 +10968,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   const sym = String(r.symbol || "").toUpperCase();
                   const checked = compareSymbols.includes(sym);
                   const mm = (r.mode || "market");
-                  const sysRating = watchSystemRating(r);
+                  const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym]);
                   return (
                     <div
                       key={`${sym}-${idx}`}
@@ -10967,7 +11047,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="softBox" style={{ padding: 12 }}>
                   <div className="muted tiny" style={{ marginBottom: 8 }}>Your rating</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {["AAA", "AA", "A", "B", "C", "RISK"].map((rt) => {
+                    {["AAA", "AA", "A", "BBB", "BB", "B", "CCC", "CC", "C", "RISK"].map((rt) => {
                       const chosen = String(ratingStatus?.user_rating_today || ratingStatus?.last_user_rating || "").toUpperCase() === rt;
                       const disabled = ratingBusy || ratingStatus?.can_vote === false;
                       return (

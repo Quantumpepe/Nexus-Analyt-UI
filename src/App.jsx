@@ -143,6 +143,12 @@ function _cleanAiInsightSentence(s) {
 }
 
 function buildCompactAiInsight({ backendText = "", trendStructure = "", momentumShift = "", insightSummary = "" }) {
+  const raw = String(backendText || "").trim();
+
+  // Important for AI Insight:
+  // Do not cut the smart part away. The backend is now instructed to include
+  // rating + community + on-chain context. Keeping up to 5 clean sentences
+  // makes those signals visible without turning the card into a long report.
   const splitSentences = (value) =>
     String(value || "")
       .replace(/\n+/g, " ")
@@ -150,11 +156,11 @@ function buildCompactAiInsight({ backendText = "", trendStructure = "", momentum
       .map(_cleanAiInsightSentence)
       .filter(Boolean);
 
-  const backendSentences = splitSentences(backendText)
-    .filter((s) => s.length >= 20)
-    .slice(0, 3);
+  const backendSentences = splitSentences(raw)
+    .filter((s) => s.length >= 16)
+    .slice(0, 5);
 
-  if (backendSentences.length >= 2) {
+  if (backendSentences.length >= 1) {
     return backendSentences.join(" ");
   }
 
@@ -170,7 +176,7 @@ function buildCompactAiInsight({ backendText = "", trendStructure = "", momentum
     unique.push(part);
   }
 
-  return unique.slice(0, 3).join(" ") || "The current structure is mixed and does not show a fully clear edge yet.";
+  return unique.slice(0, 4).join(" ") || "The current structure is mixed and does not show a fully clear edge yet.";
 }
 
 const LS_WATCH_REMOVED = "nexus_watch_removed";
@@ -4558,12 +4564,31 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         backendText = "";
       }
 
-      const finalText = buildCompactAiInsight({
+      const finalTextRaw = buildCompactAiInsight({
         backendText,
         trendStructure,
         momentumShift,
         insightSummary,
       });
+
+      const signalCoins = Array.isArray(aiSignalContext?.coins) ? aiSignalContext.coins : [];
+      const signalLine = signalCoins.length
+        ? signalCoins.map((c) => {
+            const rating = c?.rating || "n/a";
+            const votes = Number(c?.user_rating_votes || 0);
+            const delta = Number(c?.onchain_delta || 0);
+            const ocSummary = String(c?.onchain?.summary || "").trim();
+            const ocShort = ocSummary
+              ? ocSummary
+              : (delta ? `on-chain delta ${delta > 0 ? "+" : ""}${delta}` : "on-chain neutral/no strong signal");
+            return `${c.symbol}: Rating ${rating}, Votes ${votes}, ${ocShort}`;
+          }).join(" | ")
+        : "";
+
+      const finalText = signalLine && !/rating|on-chain|onchain|community|vote/i.test(finalTextRaw)
+        ? `${finalTextRaw}\n\nSignal context: ${signalLine}`
+        : finalTextRaw;
+
       setAiExplainText(finalText);
       setAiExplainData({
         setup,

@@ -3755,6 +3755,12 @@ const byChain = {};
     try { window.open(link, "_blank", "noopener,noreferrer"); } catch {}
   }, [ratingStatus]);
 
+  const openRatingExplorer = useCallback(() => {
+    const link = String(ratingStatus?.coin_info?.explorer || "").trim();
+    if (!link) return;
+    try { window.open(link, "_blank", "noopener,noreferrer"); } catch {}
+  }, [ratingStatus]);
+
 
   const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
   const compareSymbols = useMemo(() => {
@@ -11346,20 +11352,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           ) : null}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        className={ratingStatus?.link_enabled ? "btn" : "btnGhost"}
-                        disabled={!ratingStatus?.link_enabled}
-                        onClick={openRatingLink}
-                        title={ratingStatus?.link_enabled ? "Open official coin page or CoinGecko fallback" : "No coin info link available yet"}
-                      >
-                        Coin Info
-                      </button>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          className={ratingStatus?.link_enabled ? "btn" : "btnGhost"}
+                          disabled={!ratingStatus?.link_enabled}
+                          onClick={openRatingLink}
+                          title={ratingStatus?.link_enabled ? "Open official coin page or CoinGecko fallback" : "No coin info link available yet"}
+                        >
+                          Coin Info
+                        </button>
+                        <button
+                          type="button"
+                          className={ratingStatus?.coin_info?.explorer ? "btn" : "btnGhost"}
+                          disabled={!ratingStatus?.coin_info?.explorer}
+                          onClick={openRatingExplorer}
+                          title={ratingStatus?.coin_info?.explorer ? "Open blockchain explorer" : "No explorer link available yet"}
+                        >
+                          Explorer
+                        </button>
+                      </div>
                     </div>
 
                     <div className="muted tiny" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       {ratingStatus?.coin_info?.homepage ? <span>Website ✓</span> : <span>Website fallback</span>}
-                      {ratingStatus?.coin_info?.explorer ? <span>Explorer ✓</span> : null}
+                      {ratingStatus?.coin_info?.explorer ? <span>Explorer ✓</span> : <span>Explorer —</span>}
                       {ratingStatus?.coin_info?.source ? <span>Source: {ratingStatus.coin_info.source}</span> : null}
                     </div>
                   </div>

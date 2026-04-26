@@ -2647,16 +2647,36 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     );
   };
 
-  const refreshVaultState = async (preferredChainKey = "") => {
+  const vaultStateFetchRef = useRef({ key: "", ts: 0, inflight: false });
+
+  const refreshVaultState = async (preferredChainKey = "", opts = {}) => {
     try {
       if (!wallet) return;
+      const force = opts === true || !!opts?.force;
       const forcedChain = String(preferredChainKey || "").toUpperCase().trim();
       const chainKey = (forcedChain || balActiveChain || wsChainKey || DEFAULT_CHAIN);
+
+      // Protect Alchemy/RPC quota:
+      // - Grid order execution still polls fast elsewhere (2.5s) and is NOT slowed here.
+      // - Vault balance/operator state is expensive and does not need every render.
+      // - When open orders run, keep vault state reasonably fresh (12s).
+      // - When no open orders run, refresh it only about once per minute.
+      const hasActiveGridOrdersForVault = Array.isArray(gridOrders) && gridOrders.some((o) => String(o?.status || "").toUpperCase() === "OPEN");
+      const minAgeMs = force ? 0 : (hasActiveGridOrdersForVault ? 12000 : 60000);
+      const nowMs = Date.now();
+      const cacheKey = `${String(wallet || "").toLowerCase()}|${chainKey}`;
+      if (!force && vaultStateFetchRef.current?.key === cacheKey && (nowMs - Number(vaultStateFetchRef.current?.ts || 0)) < minAgeMs) {
+        return;
+      }
+      if (!force && vaultStateFetchRef.current?.inflight && vaultStateFetchRef.current?.key === cacheKey) {
+        return;
+      }
+      vaultStateFetchRef.current = { key: cacheKey, ts: nowMs, inflight: true };
 
       // Primary path: backend RPC endpoint.
       // This avoids the embedded-wallet/provider race after F5.
       try {
-        const qs = new URLSearchParams({ wallet, chain: chainKey }).toString();
+        const qs = new URLSearchParams({ wallet, chain: chainKey, ...(force ? { refresh: "1" } : {}) }).toString();
         const r = await api(`/api/vault/state?${qs}`, { method: "GET", token, wallet });
         if (r && (r.status === "ok" || r.vault_balance !== undefined)) {
           const vaultBal = Number(r?.vault_balance ?? 0) || 0;
@@ -2676,6 +2696,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
             heldTokenBal: heldBal,
             operatorEnabled,
           });
+          vaultStateFetchRef.current = { key: cacheKey, ts: Date.now(), inflight: false };
           return;
         }
       } catch (_) {
@@ -2725,8 +2746,10 @@ const [wsChainKey, setWsChainKey] = useState(() => {
         heldTokenBal: Number(Utils.formatUnits(heldWei, 18)),
         operatorEnabled,
       });
+      vaultStateFetchRef.current = { key: cacheKey, ts: Date.now(), inflight: false };
     } catch (e) {
       // keep UI alive; vault state is best-effort
+      try { vaultStateFetchRef.current = { ...(vaultStateFetchRef.current || {}), inflight: false }; } catch (_) {}
     }
   };
 
@@ -2759,7 +2782,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       });
 
       setTxMsg(`${allowed ? "Operator enabled" : "Operator disabled"}. Tx: ${txHash}`);
-      setTimeout(() => refreshVaultState(), 1400);
+      setTimeout(() => refreshVaultState("", { force: true }), 1400);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Operator tx failed"));
     } finally {
@@ -2794,7 +2817,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       });
 
       setTxMsg(`Cycle start submitted. Tx: ${txHash}`);
-      setTimeout(() => refreshVaultState(), 1400);
+      setTimeout(() => refreshVaultState("", { force: true }), 1400);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Start cycle failed"));
     } finally {
@@ -2830,8 +2853,8 @@ const [wsChainKey, setWsChainKey] = useState(() => {
 
       setTxMsg(`Cycle end submitted. Tx: ${tx}`);
       // refresh vault state (inCycle should turn to NO after confirmation; refresh anyway)
-      setTimeout(() => { try { refreshVaultState(); } catch {} }, 1200);
-      setTimeout(() => { try { refreshVaultState(); } catch {} }, 4500);
+      setTimeout(() => { try { refreshVaultState("", { force: true }); } catch {} }, 1200);
+      setTimeout(() => { try { refreshVaultState("", { force: true }); } catch {} }, 4500);
       return tx;
     } catch (e) {
       setTxMsg(String(e?.message || e || "End cycle tx failed"));
@@ -3617,11 +3640,34 @@ const byChain = {};
     return () => { cancelled = true; };
   }, [wallet, token, sortedWatchRows]);
 
+  const onchainWatchSymbolsKey = useMemo(() => {
+    return Array.from(new Set((sortedWatchRows || []).map((r) => String(r?.symbol || "").toUpperCase()).filter(Boolean)))
+      .sort()
+      .join(",");
+  }, [sortedWatchRows]);
+
+  const onchainFetchRef = useRef({ key: "", ts: 0, inflight: false });
+
   useEffect(() => {
-    const symbols = Array.from(new Set((sortedWatchRows || []).map((r) => String(r?.symbol || "").toUpperCase()).filter(Boolean)));
+    const symbols = onchainWatchSymbolsKey ? onchainWatchSymbolsKey.split(",").filter(Boolean) : [];
     if (!symbols.length) return;
+
+    // Protect Moralis quota:
+    // Do not refetch on every price/watchlist render. Fetch only when the visible symbol set
+    // changes or when the cache is old. AI Insight still uses the latest cached signals.
+    const nowMs = Date.now();
+    const cacheKey = `${String(wallet || "").toLowerCase()}|${onchainWatchSymbolsKey}`;
+    const minAgeMs = 10 * 60 * 1000; // 10 minutes
+    if (onchainFetchRef.current?.key === cacheKey && (nowMs - Number(onchainFetchRef.current?.ts || 0)) < minAgeMs) {
+      return;
+    }
+    if (onchainFetchRef.current?.inflight && onchainFetchRef.current?.key === cacheKey) {
+      return;
+    }
+
     let cancelled = false;
     const t = setTimeout(() => {
+      onchainFetchRef.current = { key: cacheKey, ts: nowMs, inflight: true };
       api(`/api/onchain/signals?symbols=${encodeURIComponent(symbols.join(","))}`, {
         method: "GET",
         token,
@@ -3631,14 +3677,17 @@ const byChain = {};
           if (cancelled) return;
           const signals = res?.signals || {};
           setOnchainBySymbol((prev) => ({ ...(prev || {}), ...(signals || {}) }));
+          onchainFetchRef.current = { key: cacheKey, ts: Date.now(), inflight: false };
         })
-        .catch(() => {});
-    }, 350);
+        .catch(() => {
+          onchainFetchRef.current = { key: cacheKey, ts: Date.now(), inflight: false };
+        });
+    }, 800);
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [wallet, token, sortedWatchRows]);
+  }, [wallet, token, onchainWatchSymbolsKey]);
 
   const openRatingModal = useCallback(async (row) => {
     const sym = String(row?.symbol || "").toUpperCase();
@@ -4792,7 +4841,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     if (!wallet) return;
     if (!["POL", "BNB", "ETH"].includes(sym)) return;
 
-    const t1 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 250);
+    const t1 = setTimeout(() => { try { refreshVaultState(sym, { force: true }); } catch (_) {} }, 250);
     const t2 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 1200);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [wallet, gridItem]);
@@ -9230,7 +9279,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); refreshVaultState(); }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); refreshVaultState("", { force: true }); }}
                       disabled={txBusy || !wallet}
                       className="btn ghost"
                       style={{ height: 40, paddingInline: 14, fontSize: 13 }}

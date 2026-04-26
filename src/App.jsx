@@ -488,13 +488,14 @@ const fmtUsd = (n) => {
 };
 
 const fmtCompactUsd = (n) => {
-  if (n == null || !Number.isFinite(n)) return "—";
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000_000_000) return `$${stripTrailingZeros((n / 1_000_000_000_000).toFixed(1))}T`;
-  if (abs >= 1_000_000_000) return `$${stripTrailingZeros((n / 1_000_000_000).toFixed(1))}B`;
-  if (abs >= 1_000_000) return `$${stripTrailingZeros((n / 1_000_000).toFixed(1))}M`;
-  if (abs >= 1_000) return `$${stripTrailingZeros((n / 1_000).toFixed(1))}K`;
-  return fmtUsd(n);
+  if (n == null || !Number.isFinite(Number(n))) return "—";
+  const v = Number(n);
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000_000_000) return `$${stripTrailingZeros((v / 1_000_000_000_000).toFixed(1))}T`;
+  if (abs >= 1_000_000_000) return `$${stripTrailingZeros((v / 1_000_000_000).toFixed(1))}B`;
+  if (abs >= 1_000_000) return `$${stripTrailingZeros((v / 1_000_000).toFixed(1))}M`;
+  if (abs >= 1_000) return `$${stripTrailingZeros((v / 1_000).toFixed(1))}K`;
+  return fmtUsd(v);
 };
 
 const fmtQty = (n, maxDp = 6) => {
@@ -8208,7 +8209,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchHead,
           .section-watch .watchRow{
             min-width: 520px !important;
-            grid-template-columns: 28px 26px 48px 46px 68px 64px 64px 76px 28px !important;
+            grid-template-columns: 28px 54px 46px 68px 92px 94px 76px 28px !important;
             gap: 4px !important;
             align-items: center !important;
           }
@@ -8405,14 +8406,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchTable{ width: 100% !important; max-width: 100% !important; overflow-x: auto !important; overflow-y: visible !important; -webkit-overflow-scrolling: touch !important; touch-action: pan-x pan-y !important; }
           .section-watch .watchScroll{ overflow: visible !important; max-width: none !important; width: max-content !important; }
           .section-watch .watchHead,
-          .section-watch .watchRow{ display: grid !important; grid-template-columns: 30px 38px 82px 76px 122px 154px 180px 210px 56px !important; gap: 10px !important; min-width: 958px !important; align-items: center !important; }
+          .section-watch .watchRow{ display: grid !important; grid-template-columns: 28px 26px 58px 48px 70px 62px 68px 78px 28px !important; gap: 4px !important; min-width: 510px !important; align-items: center !important; }
           .section-watch .watchHead.watchStickyHead{ position: sticky !important; top: 0 !important; z-index: 9 !important; background: rgba(2, 18, 17, 0.96) !important; backdrop-filter: blur(8px) !important; }
-          .section-watch .watchHead{ padding-left: 8px !important; padding-right: 8px !important; font-size: 10px !important; }
-          .section-watch .watchRow{ padding: 8px !important; min-height: 54px !important; }
+          .section-watch .watchHead{ padding-left: 4px !important; padding-right: 4px !important; font-size: 9px !important; }
+          .section-watch .watchRow{ padding: 7px 4px !important; min-height: 44px !important; }
           .section-watch .watchRow > *, .section-watch .watchHead > *{ min-width: 0 !important; }
           .section-watch .watchCoin, .section-watch .watchSym{ min-width: 0 !important; white-space: nowrap !important; }
-          .section-watch .watchRow .mono{ font-size: 11px !important; line-height: 1.05 !important; white-space: nowrap !important; font-variant-numeric: tabular-nums !important; }
-          .section-watch .watchRow .iconBtn{ margin-left: auto !important; justify-self: end !important; flex: 0 0 auto !important; }
+          .section-watch .watchRow .mono{ font-size: 9.5px !important; line-height: 1.05 !important; white-space: nowrap !important; font-variant-numeric: tabular-nums !important; }
+          .section-watch .watchRow .iconBtn{ width: 24px !important; height: 24px !important; min-width: 24px !important; margin-left: auto !important; justify-self: end !important; flex: 0 0 auto !important; }
         }
 `}</style>
 <header className="topbar">
@@ -11286,8 +11287,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                         <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtPct(r.change24h)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtUsd(r.price)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtCompactUsd(r.volume24h)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, paddingRight: 2, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{marketCap != null ? fmtCompactUsd(marketCap) : "—"}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{isCompactMobile ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, paddingRight: 2, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{marketCap != null ? (isCompactMobile ? fmtCompactUsd(marketCap) : fmtUsd(marketCap)) : "—"}</div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <InlineWatchSpark
                             sym={sym}
@@ -11379,8 +11380,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         </div>
                         <div className="watchCompactStats" style={{ gap: 10 }}>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>Vol {fmtCompactUsd(r.volume24h)}</span>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : "—"}</span>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>Vol {isCompactMobile ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</span>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? (isCompactMobile ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap)) : "—"}</span>
                         </div>
                       </div>
                       <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center", minWidth: 0 }}>

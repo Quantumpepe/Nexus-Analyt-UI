@@ -10650,22 +10650,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="gridLeft">
 
           <div className="gridWrap">
-            <div className="gridControls">
-              <div className="formRow">
-                <label>Coin</label>
-                <select value={gridItem} onChange={(e) => setGridItem(e.target.value)}>
-                  {gridWalletCoins.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="gridControls">              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                  gap: isCompactMobile ? 8 : 10,
+                  alignItems: "end",
+                }}
+              >
+                <div className="formRow">
+                  <label>Coin</label>
+                  <select value={gridItem} onChange={(e) => setGridItem(e.target.value)}>
+                    {gridWalletCoins.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              
-              <div className="formRow">
-                <label>Budget (Qty)</label>
-                <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
+                <div className="formRow">
+                  <label>Budget (Qty)</label>
+                  <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
+                </div>
               </div>
 <div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.95 }}>
   {tB("Available:")} <b>{manualVaultAvailableQty.toFixed(6)}</b> {activeGridChainSymbol}
@@ -10752,18 +10759,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </span>
                 ) : null}
               </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                  gap: isCompactMobile ? 8 : 10,
+                  alignItems: "end",
+                }}
+              >
+                <div className="formRow">
+                  <label>Side</label>
+                  <select value={manualSide} onChange={(e) => setManualSide(e.target.value)}>
+                    <option value="BUY">BUY</option>
+                    <option value="SELL">SELL</option>
+                  </select>
+                </div>
 
-              <div className="formRow">
-                <label>Side</label>
-                <select value={manualSide} onChange={(e) => setManualSide(e.target.value)}>
-                  <option value="BUY">BUY</option>
-                  <option value="SELL">SELL</option>
-                </select>
-              </div>
-
-              <div className="formRow">
-                <label>Price</label>
-                <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="e.g. 94442" />
+                <div className="formRow">
+                  <label>Price</label>
+                  <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="e.g. 94442" />
+                </div>
               </div>
 
               <div className="formRow">

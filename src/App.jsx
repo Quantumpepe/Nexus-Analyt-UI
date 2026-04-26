@@ -487,6 +487,16 @@ const fmtUsd = (n) => {
   });
 };
 
+const fmtCompactUsd = (n) => {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000_000) return `$${stripTrailingZeros((n / 1_000_000_000_000).toFixed(1))}T`;
+  if (abs >= 1_000_000_000) return `$${stripTrailingZeros((n / 1_000_000_000).toFixed(1))}B`;
+  if (abs >= 1_000_000) return `$${stripTrailingZeros((n / 1_000_000).toFixed(1))}M`;
+  if (abs >= 1_000) return `$${stripTrailingZeros((n / 1_000).toFixed(1))}K`;
+  return fmtUsd(n);
+};
+
 const fmtQty = (n, maxDp = 6) => {
   if (n == null || !Number.isFinite(n)) return "—";
   // show more decimals for tiny values
@@ -8198,7 +8208,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchHead,
           .section-watch .watchRow{
             min-width: 520px !important;
-            grid-template-columns: 28px 54px 46px 68px 92px 94px 76px 28px !important;
+            grid-template-columns: 28px 26px 48px 46px 68px 64px 64px 76px 28px !important;
             gap: 4px !important;
             align-items: center !important;
           }
@@ -11276,8 +11286,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                         <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtPct(r.change24h)}</div>
                         <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtUsd(r.price)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtUsd(r.volume24h)}</div>
-                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, paddingRight: 2, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{marketCap != null ? fmtUsd(marketCap) : "—"}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtCompactUsd(r.volume24h)}</div>
+                        <div className="right mono" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 12, lineHeight: 1.1, paddingRight: 2, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{marketCap != null ? fmtCompactUsd(marketCap) : "—"}</div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                           <InlineWatchSpark
                             sym={sym}
@@ -11369,8 +11379,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         </div>
                         <div className="watchCompactStats" style={{ gap: 10 }}>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>Vol {fmtUsd(r.volume24h)}</span>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : "—"}</span>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>Vol {fmtCompactUsd(r.volume24h)}</span>
+                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : "—"}</span>
                         </div>
                       </div>
                       <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center", minWidth: 0 }}>

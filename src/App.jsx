@@ -10723,25 +10723,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : null}
 </div>
 
-              <div className="label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                Manual order
-
-                {aiGridManualOverride ? (
-                  <span className="pill silver" title="You changed AI-assisted settings manually. AI will not overwrite them while this override is active.">
-                    Manual override
-                  </span>
-                ) : aiGridAssistState?.active ? (
-                  <span className="pill" title="AI can softly adapt preset/slippage while a grid is running. Orders are never created automatically.">
-                    {aiGridAssistState.note || "AI Assist active"}
-                  </span>
-                ) : null}
-              </div>
               <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
                   gap: isCompactMobile ? 8 : 10,
                   alignItems: "end",
+                  marginTop: isCompactMobile ? 0 : -4,
                 }}
               >
                 <div className="formRow">

@@ -158,7 +158,7 @@ function buildCompactAiInsight({ backendText = "", trendStructure = "", momentum
 
   const backendSentences = splitSentences(raw)
     .filter((s) => s.length >= 16)
-    .slice(0, 5);
+    .slice(0, 7);
 
   if (backendSentences.length >= 1) {
     return backendSentences.join(" ");
@@ -4540,12 +4540,16 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         ai_signal_context: aiSignalContext,
         question:
           `Analyze the current pair structure for ${a} vs ${b}. ` +
-          `Use the pair statistics, multi-timeframe context, rating, community votes, and on-chain context to describe structure, behavior, and risk posture. ` +
+          `This is AI Insight Level 2: explain not only what the data says, but how the structure may behave. ` +
+          `Use pair statistics, multi-timeframe context, rating, community votes, on-chain context, and wallet-fit to describe structure, behavior, strategy fit, and risk posture. ` +
           `IMPORTANT: mention rating and on-chain confirmation explicitly when available. If on-chain is neutral or missing, say it is neutral/no strong signal instead of ignoring it. ` +
-          `Do not tell the user what to do. ` +
+          `Include a compact behavior read, for example range-bound, mean-reversion style, trend-bias, unstable/choppy, or low-conviction. ` +
+          `Include strategy fit without giving advice: grid-fit, wait/no-clean-setup, rotation-style, or continuation-risk. ` +
+          `Do not tell the user what to do and do not give buy/sell instructions. ` +
           `Current pair correlation: ${Number.isFinite(corr) ? corr.toFixed(2) : "n/a"}. ` +
           `30D spread: ${Number.isFinite(spread) ? spread.toFixed(2) + "%" : "n/a"}. ` +
           `Short bias: ${shortBias}. Long bias: ${longBias}. ` +
+          `Local setup classification: ${setup}, confidence ${confidence}/10, risk ${risk}, grid fit ${gridMode} (${gridRange}). ` +
           (aiSignalText ? `Signal context: ${aiSignalText}` : ""),
       };
 
@@ -4585,9 +4589,24 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
           }).join(" | ")
         : "";
 
-      const finalText = signalLine && !/rating|on-chain|onchain|community|vote/i.test(finalTextRaw)
-        ? `${finalTextRaw}\n\nSignal context: ${signalLine}`
-        : finalTextRaw;
+      const absSpreadForLevel2 = Math.abs(Number(spread));
+      const behaviorRead =
+        Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(absSpreadForLevel2) && absSpreadForLevel2 >= 2
+          ? "mean-reversion style behavior with visible imbalance"
+          : Number.isFinite(corr) && corr < 0.45
+            ? "unstable/choppy behavior because the pair relationship is weak"
+            : Number.isFinite(absSpreadForLevel2) && absSpreadForLevel2 < 0.75
+              ? "low-conviction/range-bound behavior because the spread is still narrow"
+              : "mixed behavior with limited confirmation";
+      const strategyFitLine = `Behavior: ${behaviorRead}. Strategy fit: ${gridMode || "Standard"} / ${gridRange || "n/a"} with ${risk || "medium"} risk.`;
+
+      let finalText = finalTextRaw;
+      if (signalLine && !/rating|on-chain|onchain|community|vote/i.test(finalText)) {
+        finalText = `${finalText}\n\nSignal context: ${signalLine}`;
+      }
+      if (!/behavior|strategy fit|grid-fit|range-bound|mean-reversion|unstable|choppy|conviction/i.test(finalText)) {
+        finalText = `${finalText}\n\nLevel 2: ${strategyFitLine}`;
+      }
 
       setAiExplainText(finalText);
       setAiExplainData({
@@ -11599,4 +11618,3 @@ const handlePanelActivate = useCallback((name) => (e) => {
 export default function App() {
   return <AppInner />;
 }
-

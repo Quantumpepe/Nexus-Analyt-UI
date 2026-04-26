@@ -7472,7 +7472,7 @@ const manualRiskState = useMemo(() => {
   };
 }, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
 
-const isWatchSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "watchlist";
+const isWatchSidebarCompact = isCompactMobile || (isDesktopWide && !!activePanel && activePanel !== "watchlist");
 const isGridSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "vault";
 const handlePanelActivate = useCallback((name) => (e) => {
   if (typeof window !== "undefined" && window.innerWidth <= 980) return;
@@ -7489,6 +7489,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
       
       <style>{`
         /* Mobile Watchlist: desktop-style table with one shared left/right scroll */
+        @media (max-width: 780px) {
+          .section-watch .watchCompact{
+            display: grid !important;
+            gap: 8px !important;
+          }
+          .section-watch .watchCompactCard{
+            grid-template-columns: 24px minmax(0,1fr) 112px 34px !important;
+            align-items: center !important;
+            gap: 8px !important;
+            padding: 8px 8px !important;
+            min-height: 46px !important;
+          }
+          .section-watch .watchCompactMain,
+          .section-watch .watchCompactTop,
+          .section-watch .watchCompactMeta{
+            min-width: 0 !important;
+          }
+          .section-watch .watchCompactStats{
+            display: none !important;
+          }
+          .section-watch .watchSym,
+          .section-watch .watchCompactMeta,
+          .section-watch .watchCompactPrice{
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+          }
+        }
+
         @media (max-width: 780px) {
           .section-watch .panelScroll{
             overflow-x: hidden !important;
@@ -11342,20 +11371,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       onDrop={(e) => { if (String(watchSortMode || "manual") === "manual") handleWatchDrop(e, r); }}
                       onDragEnd={handleWatchDragEnd}
                       style={{
+                        display: "grid",
+                        gridTemplateColumns: "24px minmax(0,1fr) 92px 32px",
+                        alignItems: "center",
+                        gap: 8,
+                        width: "100%",
+                        minWidth: 0,
+                        overflow: "hidden",
                         cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                         border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                         background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                        gridTemplateColumns: "26px minmax(0,1fr) 132px 34px",
-                        paddingRight: 8,
+                        padding: "8px 8px",
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 24, minWidth: 24 }}>
                         <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
                       </div>
-                      <div className="watchCompactMain">
-                        <div className="watchCompactTop" style={{ gap: 6 }}>
-                          <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
+                      <div className="watchCompactMain" style={{ minWidth: 0, overflow: "hidden" }}>
+                        <div className="watchCompactTop" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap" }}>
+                          <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap" }}>
+                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sym}</div>
                             <button
                               type="button"
                               className="pill silver"
@@ -11368,15 +11403,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
                           </div>
                         </div>
-                        <div className="watchCompactStats" style={{ gap: 10 }}>
+                        <div className="watchCompactStats" style={{ display: "none" }}>
                           <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>Vol {fmtUsd(r.volume24h)}</span>
                           <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : "—"}</span>
                         </div>
                       </div>
-                      <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center", minWidth: 0 }}>
-                        <div className="mono" style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtUsd(r.price)}</div>
+                      <div className="watchCompactPrice" style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", minWidth: 0, overflow: "hidden" }}>
+                        <div className="mono" style={{ fontWeight: 900, fontSize: 12, lineHeight: 1.1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "right", maxWidth: "100%" }}>{fmtUsd(r.price)}</div>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: 34 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, minWidth: 32 }}>
                         <button
                           className="iconBtn"
                           style={{

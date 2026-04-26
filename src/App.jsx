@@ -7472,7 +7472,7 @@ const manualRiskState = useMemo(() => {
   };
 }, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
 
-const isWatchSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "watchlist";
+const isWatchSidebarCompact = isCompactMobile || (isDesktopWide && !!activePanel && activePanel !== "watchlist");
 const isGridSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "vault";
 const handlePanelActivate = useCallback((name) => (e) => {
   if (typeof window !== "undefined" && window.innerWidth <= 980) return;
@@ -7489,6 +7489,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
       
       <style>{`
         /* Mobile Watchlist: desktop-style table with one shared left/right scroll */
+        @media (max-width: 780px) {
+          .section-watch .watchCompact{
+            display: grid !important;
+            gap: 8px !important;
+          }
+          .section-watch .watchCompactCard{
+            grid-template-columns: 24px minmax(0,1fr) 112px 34px !important;
+            align-items: center !important;
+            gap: 8px !important;
+            padding: 8px 8px !important;
+            min-height: 46px !important;
+          }
+          .section-watch .watchCompactMain,
+          .section-watch .watchCompactTop,
+          .section-watch .watchCompactMeta{
+            min-width: 0 !important;
+          }
+          .section-watch .watchCompactStats{
+            display: none !important;
+          }
+          .section-watch .watchSym,
+          .section-watch .watchCompactMeta,
+          .section-watch .watchCompactPrice{
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+          }
+        }
+
         @media (max-width: 780px) {
           .section-watch .panelScroll{
             overflow-x: hidden !important;

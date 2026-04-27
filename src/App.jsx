@@ -1010,84 +1010,6 @@ function ratingFromScore(score) {
   return "RISK";
 }
 
-function buildGridTraderAiContext({
-  gridItem,
-  activeGridChainSymbol,
-  manualSide,
-  manualOrderMode,
-  manualPrice,
-  manualQty,
-  manualOrderUsd,
-  manualPayoutAsset,
-  manualVaultAvailableQty,
-  manualVaultAllocatedQty,
-  manualVaultTotalQty,
-  manualVaultSettledQty,
-  manualPoolLiquidityUsd,
-  manualOpenExposureUsd,
-  manualExposureAfterUsd,
-  manualEstimatedImpactPct,
-  manualRiskState,
-  activeGridNativeUsd,
-  vaultState,
-}) {
-  const n = (v, fallback = 0) => {
-    const x = Number(v);
-    return Number.isFinite(x) ? x : fallback;
-  };
-
-  const sym = String(gridItem || "").split(":").pop().toUpperCase();
-  const side = String(manualSide || "").toUpperCase();
-  const chainAsset = String(activeGridChainSymbol || "POL").toUpperCase();
-
-  return {
-    type: "grid_trader_context",
-    selected_symbol: sym,
-    chain_asset: chainAsset,
-    side,
-    order_mode: String(manualOrderMode || "").toLowerCase(),
-    manual_price: n(manualPrice, null),
-    manual_qty_token: n(manualQty, null),
-    manual_order_usd: n(manualOrderUsd, 0),
-    payout_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
-
-    vault: {
-      available_qty: n(manualVaultAvailableQty, 0),
-      allocated_qty: n(manualVaultAllocatedQty, 0),
-      total_qty: n(manualVaultTotalQty, 0),
-      settled_qty: n(manualVaultSettledQty, 0),
-      native_usd: n(activeGridNativeUsd, 0),
-      liquidity_usd: Number.isFinite(Number(manualPoolLiquidityUsd)) ? Number(manualPoolLiquidityUsd) : null,
-      balance_source: vaultState?.balanceSource || "",
-      contract_native_balance: n(vaultState?.contractNativeBalance, 0),
-      wallet_accounting_balance: n(vaultState?.walletAccountingBalance, 0),
-    },
-
-    execution_risk: {
-      state: manualRiskState?.key || "",
-      label: manualRiskState?.label || "",
-      pool_liquidity_usd: Number.isFinite(Number(manualPoolLiquidityUsd)) ? Number(manualPoolLiquidityUsd) : null,
-      open_exposure_usd: n(manualOpenExposureUsd, 0),
-      exposure_after_usd: n(manualExposureAfterUsd, 0),
-      estimated_impact_pct: Number.isFinite(Number(manualEstimatedImpactPct)) ? Number(manualEstimatedImpactPct) : null,
-      interpretation:
-        manualRiskState?.key === "green" ? "Normal execution risk for the current vault/liquidity context."
-        : manualRiskState?.key === "yellow" ? "Moderate execution impact; slippage/liquidity should be watched."
-        : manualRiskState?.key === "red" ? "High execution impact risk; route/slippage/liquidity quality matters."
-        : manualRiskState?.key === "no_liquidity" ? "No available vault liquidity for this chain asset."
-        : manualRiskState?.key === "input_needed" ? "Order amount is not complete enough to estimate impact yet."
-        : "Execution risk is still being checked.",
-    },
-
-    ai_use_rules: [
-      "Use this as Grid Trader / vault fit context only.",
-      "Do not give direct buy/sell commands.",
-      "Explain whether the selected setup looks liquid, crowded, underfunded, or execution-risky.",
-      "Combine this with Market Condition (OE/RVOL), ratings and on-chain context.",
-    ],
-  };
-}
-
 function userRatingAverageScore(summary) {
   const ratings = summary?.ratings || {};
   let total = 0;
@@ -2851,6 +2773,9 @@ const [wsChainKey, setWsChainKey] = useState(() => {
             heldTokenBalWei: heldWei,
             heldTokenBal: heldBal,
             operatorEnabled,
+            balanceSource: r?.vault_balance_source || "",
+            contractNativeBalance: Number(r?.vault_contract_native_balance ?? 0) || 0,
+            walletAccountingBalance: Number(r?.wallet_accounting_balance ?? 0) || 0,
           });
           vaultStateFetchRef.current = { key: cacheKey, ts: Date.now(), inflight: false };
           return;
@@ -3371,15 +3296,33 @@ useEffect(() => {
         baseChains.map(async (c) => {
           try {
             let nativeStr = "";
+            let backendNativeNum = NaN;
             try {
               const backendNative = backendNativeBalances?.[c]?.native;
               if (backendNative !== null && backendNative !== undefined && Number.isFinite(Number(backendNative))) {
-                nativeStr = String(backendNative);
+                backendNativeNum = Number(backendNative);
+                nativeStr = String(backendNativeNum);
+              }
+            } catch (_) {}
+
+            // Important: backend RPC can legally return 0 when the RPC/provider is stale
+            // or when the wrong source is queried. Do not treat 0 as final; verify through
+            // the connected wallet provider and prefer the larger value.
+            try {
+              const provider = await _getEmbeddedProvider();
+              const chainId = CHAIN_ID?.[c];
+              if (provider && chainId) {
+                await _trySwitchChain(provider, chainId);
+                const rawBal = await provider.request({ method: "eth_getBalance", params: [address, "latest"] });
+                const providerNum = Number(Utils.formatEther(hexToBigInt(rawBal || "0x0")));
+                if (Number.isFinite(providerNum) && (!Number.isFinite(backendNativeNum) || providerNum > backendNativeNum)) {
+                  nativeStr = String(providerNum);
+                }
               }
             } catch (_) {}
 
             if (!nativeStr) {
-              throw new Error(c + " backend RPC balance unavailable");
+              throw new Error(c + " backend/provider balance unavailable");
             }
 
             const nativeNum = Number(nativeStr);
@@ -3438,6 +3381,10 @@ return [c, { native, stables, custom }];
       const out = {};
       for (const [c, v] of results) out[c] = v;
       setBalByChain(out);
+      const chainErrors = Object.entries(out)
+        .filter(([, v]) => v?.error)
+        .map(([c, v]) => `${c}: ${v.error}`);
+      setBalError(chainErrors.length ? chainErrors.join(" · ") : "");
 
       // Compute wallet total value in USD (best-effort; unpriced tokens are excluded from total).
       (async () => {
@@ -4823,30 +4770,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         marketConditionBySymbol,
         bestPairsToShow,
       });
-
-      const gridTraderContext = buildGridTraderAiContext({
-        gridItem,
-        activeGridChainSymbol,
-        manualSide,
-        manualOrderMode,
-        manualPrice,
-        manualQty,
-        manualOrderUsd,
-        manualPayoutAsset,
-        manualVaultAvailableQty,
-        manualVaultAllocatedQty,
-        manualVaultTotalQty,
-        manualVaultSettledQty,
-        manualPoolLiquidityUsd,
-        manualOpenExposureUsd,
-        manualExposureAfterUsd,
-        manualEstimatedImpactPct,
-        manualRiskState,
-        activeGridNativeUsd,
-        vaultState,
-      });
-      aiSignalContext.grid_trader_context = gridTraderContext;
-
       const aiSignalText = formatAiSignalContextForPrompt(aiSignalContext);
       const payload = {
         kind: "explain",
@@ -4860,7 +4783,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         question:
           `Analyze the current pair structure for ${a} vs ${b}. ` +
           `This is AI Insight Level 2: explain not only what the data says, but how the structure may behave. ` +
-          `Use pair statistics, multi-timeframe context, rating, community votes, on-chain context, Market Condition, and Grid Trader/vault execution context to describe structure, behavior, strategy fit, and risk posture. ` +
+          `Use pair statistics, multi-timeframe context, rating, community votes, on-chain context, and wallet-fit to describe structure, behavior, strategy fit, and risk posture. ` +
           `IMPORTANT: mention rating, market condition (OE/RVOL), and on-chain confirmation explicitly when available. If on-chain is neutral or missing, say it is neutral/no strong signal instead of ignoring it. ` +
           `Include a compact behavior read, for example range-bound, mean-reversion style, trend-bias, unstable/choppy, or low-conviction. ` +
           `Include strategy fit without giving advice: grid-fit, wait/no-clean-setup, rotation-style, or continuation-risk. ` +
@@ -7548,30 +7471,6 @@ async function runAi() {
         marketConditionBySymbol,
         bestPairsToShow,
       });
-
-      const gridTraderContext = buildGridTraderAiContext({
-        gridItem,
-        activeGridChainSymbol,
-        manualSide,
-        manualOrderMode,
-        manualPrice,
-        manualQty,
-        manualOrderUsd,
-        manualPayoutAsset,
-        manualVaultAvailableQty,
-        manualVaultAllocatedQty,
-        manualVaultTotalQty,
-        manualVaultSettledQty,
-        manualPoolLiquidityUsd,
-        manualOpenExposureUsd,
-        manualExposureAfterUsd,
-        manualEstimatedImpactPct,
-        manualRiskState,
-        activeGridNativeUsd,
-        vaultState,
-      });
-      aiSignalContext.grid_trader_context = gridTraderContext;
-
       const aiSignalText = formatAiSignalContextForPrompt(aiSignalContext);
 
       const statsText = Object.entries(seriesStats)
@@ -7602,7 +7501,7 @@ async function runAi() {
         `Coins: ${syms.join(", ")}\n` +
         (statsText ? `Series stats (${tf}):\n${statsText}\n` : "") +
         (insightText ? `\nMulti-timeframe insight context (use this for AI Insight / trend-structure comparison):\n${insightText}\n` : "") +
-        (aiSignalText ? `\nRating, community, market-condition, on-chain and Grid Trader/vault context (merge this into the AI Insight, do not list it mechanically):\n${aiSignalText}\n` : "");
+        (aiSignalText ? `\nRating, community and on-chain context (merge this into the AI Insight, do not list it mechanically):\n${aiSignalText}\n` : "");
 
       const questionText =
         isFollowUpAsk && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;

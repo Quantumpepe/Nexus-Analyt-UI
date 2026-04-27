@@ -142,6 +142,27 @@ function _cleanAiInsightSentence(s) {
     .trim();
 }
 
+
+  const aiRiskTone = (level) => {
+    const v = String(level || "").toLowerCase();
+    if (v.includes("high")) return { border: "rgba(255,82,82,0.45)", bg: "rgba(255,82,82,0.10)", color: "#ff6b6b", label: "HIGH RISK" };
+    if (v.includes("medium")) return { border: "rgba(255,193,7,0.45)", bg: "rgba(255,193,7,0.10)", color: "#ffc107", label: "WATCH" };
+    return { border: "rgba(0,255,136,0.35)", bg: "rgba(0,255,136,0.08)", color: "#21d07a", label: "CONTROLLED" };
+  };
+
+  const aiConfidenceTone = (value) => {
+    const n = Number(value || 0);
+    if (n >= 8) return { color: "#21d07a", label: "HIGH" };
+    if (n >= 6) return { color: "#ffc107", label: "MEDIUM" };
+    return { color: "#ff6b6b", label: "LOW" };
+  };
+
+  const aiTagLabel = (tag) =>
+    String(tag || "")
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (m) => m.toUpperCase());
+
+
 function buildCompactAiInsight({ backendText = "", trendStructure = "", momentumShift = "", insightSummary = "" }) {
   const raw = String(backendText || "").trim();
 
@@ -10560,38 +10581,84 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
 
-                      {aiExplainData.engineV2 ? (
-                        <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                          <div className="label" style={{ marginBottom: 0 }}>AI Engine Level 2</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8 }}>
-                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                              <div className="muted tiny">Edge</div>
-                              <div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.engineV2.edge || "No clean edge yet"}</div>
+                      {aiExplainData.engineV2 ? (() => {
+                        const riskTone = aiRiskTone(aiExplainData.engineV2.exit_risk || aiExplainData.risk);
+                        const confTone = aiConfidenceTone(aiExplainData.engineV2.confidence || aiExplainData.confidence);
+                        const confValue = Math.max(0, Math.min(10, Number(aiExplainData.engineV2.confidence || aiExplainData.confidence || 0)));
+                        const tags = Array.isArray(aiExplainData.engineV2.tags) ? aiExplainData.engineV2.tags.slice(0, 6) : [];
+                        return (
+                          <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: "12px", background: "rgba(255,255,255,0.025)" }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                              <div className="label" style={{ marginBottom: 0 }}>AI Engine Level 2{/* UI_UPGRADE_V1_DEPLOY_MARKER */}</div>
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                <span style={{ border: `1px solid ${riskTone.border}`, background: riskTone.bg, color: riskTone.color, borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 900 }}>
+                                  {riskTone.label}
+                                </span>
+                                {aiExplainData.engineV2.pre_exit_warning ? (
+                                  <span style={{ border: "1px solid rgba(255,152,0,0.45)", background: "rgba(255,152,0,0.10)", color: "#ffb74d", borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 900 }}>
+                                    PRE-EXIT
+                                  </span>
+                                ) : null}
+                                {Array.isArray(aiExplainData.engineV2.contradictions) && aiExplainData.engineV2.contradictions.length ? (
+                                  <span style={{ border: "1px solid rgba(255,82,82,0.45)", background: "rgba(255,82,82,0.10)", color: "#ff6b6b", borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 900 }}>
+                                    CONTRADICTION
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
-                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                              <div className="muted tiny">Exit Risk</div>
-                              <div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.engineV2.exit_risk || aiExplainData.risk || "Medium"}</div>
-                              {aiExplainData.engineV2.pre_exit_warning ? (
-                                <div className="muted tiny" style={{ marginTop: 4, color: "#ff9800" }}>⚠ Pre-exit warning active</div>
-                              ) : null}
+
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
+                              <div style={{ border: "1px solid rgba(0,255,136,0.18)", borderRadius: 12, padding: "10px 12px", background: "rgba(0,255,136,0.045)" }}>
+                                <div className="muted tiny">Edge</div>
+                                <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.engineV2.edge || "No clean edge yet"}</div>
+                              </div>
+                              <div style={{ border: `1px solid ${riskTone.border}`, borderRadius: 12, padding: "10px 12px", background: riskTone.bg }}>
+                                <div className="muted tiny">Exit Risk</div>
+                                <div style={{ fontWeight: 900, marginTop: 4, color: riskTone.color }}>{aiExplainData.engineV2.exit_risk || aiExplainData.risk || "Medium"}</div>
+                                {aiExplainData.engineV2.pre_exit_warning ? (
+                                  <div className="muted tiny" style={{ marginTop: 4, color: "#ffb74d", fontWeight: 800 }}>⚠ Pre-exit warning active</div>
+                                ) : null}
+                              </div>
+                              <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                                <div className="muted tiny">Setup Bias</div>
+                                <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.engineV2.setup_bias || "No clean setup"}</div>
+                              </div>
                             </div>
-                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                              <div className="muted tiny">Setup Bias</div>
-                              <div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.engineV2.setup_bias || "No clean setup"}</div>
+
+                            <div style={{ display: "grid", gap: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                                <div className="muted tiny">Confidence</div>
+                                <div style={{ color: confTone.color, fontWeight: 900, fontSize: 12 }}>{confTone.label} {confValue ? `(${confValue}/10)` : ""}</div>
+                              </div>
+                              <div style={{ height: 8, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+                                <div style={{ height: "100%", width: `${Math.round(confValue * 10)}%`, background: confTone.color, borderRadius: 999 }} />
+                              </div>
                             </div>
+
+                            {tags.length ? (
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {tags.map((tag) => (
+                                  <span key={tag} style={{ border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)", borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 800 }}>
+                                    {aiTagLabel(tag)}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+
+                            {Array.isArray(aiExplainData.engineV2.contradictions) && aiExplainData.engineV2.contradictions.length ? (
+                              <div className="muted tiny" style={{ lineHeight: 1.5, color: "#ff6b6b", border: "1px solid rgba(255,82,82,0.30)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,82,82,0.07)", fontWeight: 800 }}>
+                                ⚠ Contradiction: {aiExplainData.engineV2.contradictions[0]}
+                              </div>
+                            ) : null}
+
+                            {Array.isArray(aiExplainData.engineV2.drivers) && aiExplainData.engineV2.drivers.length ? (
+                              <div className="muted tiny" style={{ lineHeight: 1.5 }}>
+                                Drivers: {aiExplainData.engineV2.drivers.join(" · ")}
+                              </div>
+                            ) : null}
                           </div>
-                          {Array.isArray(aiExplainData.engineV2.contradictions) && aiExplainData.engineV2.contradictions.length ? (
-                            <div className="muted tiny" style={{ lineHeight: 1.5, color: "#ff5252", border: "1px solid rgba(255,82,82,0.25)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,82,82,0.06)" }}>
-                              ⚠ Contradiction: {aiExplainData.engineV2.contradictions[0]}
-                            </div>
-                          ) : null}
-                          {Array.isArray(aiExplainData.engineV2.drivers) && aiExplainData.engineV2.drivers.length ? (
-                            <div className="muted tiny" style={{ lineHeight: 1.5 }}>
-                              Drivers: {aiExplainData.engineV2.drivers.join(" · ")}
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
+                        );
+                      })() : null}
 
                       {(aiExplainData.trendStructure || aiExplainData.momentumShift || aiExplainData.insightSummary) ? (
                         <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>

@@ -10589,7 +10589,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return (
                           <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: "12px", background: "rgba(255,255,255,0.025)" }}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                              <div className="label" style={{ marginBottom: 0 }}>AI Engine Level 2{/* UI_UPGRADE_V1_DEPLOY_MARKER */}</div>
+                              <div className="label" style={{ marginBottom: 0 }}>AI Engine Level 2{/* UI_UPGRADE_V1_DEPLOY_MARKER */}
+                              <div style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                marginTop: 6,
+                                marginBottom: 6
+                              }}>
+                                <div style={{
+                                  fontWeight: 900,
+                                  fontSize: 14,
+                                  color: riskTone.color
+                                }}>
+                                  {riskTone.label}
+                                </div>
+                                <div style={{
+                                  fontWeight: 800,
+                                  fontSize: 12,
+                                  opacity: 0.8
+                                }}>
+                                  {aiExplainData.engineV2?.setup_bias}
+                                </div>
+                              </div>
+</div>
                               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                                 <span style={{ border: `1px solid ${riskTone.border}`, background: riskTone.bg, color: riskTone.color, borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 900 }}>
                                   {riskTone.label}
@@ -10614,7 +10636,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
                               <div style={{ border: `1px solid ${riskTone.border}`, borderRadius: 12, padding: "10px 12px", background: riskTone.bg }}>
                                 <div className="muted tiny">Exit Risk</div>
-                                <div style={{ fontWeight: 900, marginTop: 4, color: riskTone.color }}>{aiExplainData.engineV2.exit_risk || aiExplainData.risk || "Medium"}</div>
+                                <div style={{ fontWeight: 900, marginTop: 4, color: riskTone.color, fontSize: 16 }}>{aiExplainData.engineV2.exit_risk || aiExplainData.risk || "Medium"}</div>
                                 {aiExplainData.engineV2.pre_exit_warning ? (
                                   <div className="muted tiny" style={{ marginTop: 4, color: "#ffb74d", fontWeight: 800 }}>⚠ Pre-exit warning active</div>
                                 ) : null}
@@ -10631,7 +10653,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div style={{ color: confTone.color, fontWeight: 900, fontSize: 12 }}>{confTone.label} {confValue ? `(${confValue}/10)` : ""}</div>
                               </div>
                               <div style={{ height: 8, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                                <div style={{ height: "100%", width: `${Math.round(confValue * 10)}%`, background: confTone.color, borderRadius: 999 }} />
+                                <div style={{ height: "100%", width: `${Math.round(confValue * 10)}%`, background: confTone.color, borderRadius: 999, transition: "width 0.6s ease" }} />
                               </div>
                             </div>
 

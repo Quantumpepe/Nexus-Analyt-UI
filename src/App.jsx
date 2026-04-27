@@ -5910,7 +5910,32 @@ useEffect(() => {
 
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       applyGridMetaResponse(r, srvItemId || gridItemId);
-      if (r?.vault_state) setVaultState((prev) => ({ ...(prev || {}), ...(r.vault_state || {}) }));
+
+      // /api/grid/init returns backend vault_state with backend field names
+      // (vault_balance, vault_balance_wei). The UI reads the historical frontend
+      // fields (polBalance, polBalanceWei), so normalize here. Otherwise a real
+      // on-chain vault balance can show as 0 in Grid Trader until a separate
+      // /api/vault/state refresh happens.
+      if (r?.vault_state) {
+        const vs = r.vault_state || {};
+        const rawBal = vs.vault_balance ?? vs.polBalance ?? vs.nativeBalance ?? null;
+        const rawWei = vs.vault_balance_wei ?? vs.polBalanceWei ?? vs.nativeBalanceWei ?? null;
+        const rawHeldBal = vs.heldTokenBal ?? vs.held_token_bal ?? null;
+        const rawHeldWei = vs.heldTokenBalWei ?? vs.held_token_bal_wei ?? null;
+        setVaultState((prev) => ({
+          ...(prev || {}),
+          ...(vs || {}),
+          polBalance: rawBal != null ? (Number(rawBal) || 0) : (Number(prev?.polBalance) || 0),
+          polBalanceWei: rawWei != null ? hexToBigInt(rawWei) : (prev?.polBalanceWei ?? null),
+          heldToken: vs.heldToken ?? vs.held_token ?? prev?.heldToken ?? null,
+          heldTokenBal: rawHeldBal != null ? (Number(rawHeldBal) || 0) : (Number(prev?.heldTokenBal) || 0),
+          heldTokenBalWei: rawHeldWei != null ? hexToBigInt(rawHeldWei) : (prev?.heldTokenBalWei ?? null),
+          inCycle: !!(vs.inCycle ?? vs.in_cycle ?? prev?.inCycle),
+          operatorEnabled: !!(vs.operatorEnabled ?? vs.operator_enabled ?? prev?.operatorEnabled),
+        }));
+      }
+
+      setTimeout(() => { try { refreshVaultState(srvChain || activeGridChainKey || "", { force: true }); } catch (_) {} }, 300);
     } catch (e) {
       setErrorMsg((prev) => prev || `Grid init: ${e?.message || e}`);
     }

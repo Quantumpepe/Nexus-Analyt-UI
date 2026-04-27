@@ -3296,27 +3296,30 @@ useEffect(() => {
         baseChains.map(async (c) => {
           try {
             let nativeStr = "";
+            let backendNativeNum = NaN;
             try {
               const backendNative = backendNativeBalances?.[c]?.native;
               if (backendNative !== null && backendNative !== undefined && Number.isFinite(Number(backendNative))) {
-                nativeStr = String(backendNative);
+                backendNativeNum = Number(backendNative);
+                nativeStr = String(backendNativeNum);
               }
             } catch (_) {}
 
-            if (!nativeStr) {
-              // Backend RPC fallback failed. Try the connected wallet provider directly
-              // for the currently selected chain. This still uses no Alchemy and fixes
-              // cases where the backend RPC is slow/down but the wallet can read balance.
-              try {
-                const provider = await _getEmbeddedProvider();
-                const chainId = CHAIN_ID?.[c];
-                if (provider && chainId) {
-                  await _trySwitchChain(provider, chainId);
-                  const rawBal = await provider.request({ method: "eth_getBalance", params: [address, "latest"] });
-                  nativeStr = Utils.formatEther(hexToBigInt(rawBal || "0x0"));
+            // Important: backend RPC can legally return 0 when the RPC/provider is stale
+            // or when the wrong source is queried. Do not treat 0 as final; verify through
+            // the connected wallet provider and prefer the larger value.
+            try {
+              const provider = await _getEmbeddedProvider();
+              const chainId = CHAIN_ID?.[c];
+              if (provider && chainId) {
+                await _trySwitchChain(provider, chainId);
+                const rawBal = await provider.request({ method: "eth_getBalance", params: [address, "latest"] });
+                const providerNum = Number(Utils.formatEther(hexToBigInt(rawBal || "0x0")));
+                if (Number.isFinite(providerNum) && (!Number.isFinite(backendNativeNum) || providerNum > backendNativeNum)) {
+                  nativeStr = String(providerNum);
                 }
-              } catch (_) {}
-            }
+              }
+            } catch (_) {}
 
             if (!nativeStr) {
               throw new Error(c + " backend/provider balance unavailable");

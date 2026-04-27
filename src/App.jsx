@@ -4615,7 +4615,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   async function runAiExplain() {
     if (!requirePro("AI explain")) return;
-    if (!selectedPair) return;
+    if (!selectedPair) {
+      setAiExplainText("Select a pair first, then run AI Insight.");
+      return;
+    }
     setAiExplainLoading(true);
     try {
       const [a, b] = _pairSyms(selectedPair.pair);
@@ -7501,7 +7504,7 @@ async function runAi() {
         `Coins: ${syms.join(", ")}\n` +
         (statsText ? `Series stats (${tf}):\n${statsText}\n` : "") +
         (insightText ? `\nMulti-timeframe insight context (use this for AI Insight / trend-structure comparison):\n${insightText}\n` : "") +
-        (aiSignalText ? `\nRating, community and on-chain context (merge this into the AI Insight, do not list it mechanically):\n${aiSignalText}\n` : "");
+        (aiSignalText ? `\nRating, community, market-condition and on-chain context (merge this into the AI Insight, do not list it mechanically):\n${aiSignalText}\n` : "");
 
       const questionText =
         isFollowUpAsk && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;
@@ -10494,11 +10497,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div className="label">AI commentary (optional)</div>
                     <button
                       className="btnGhost"
-                      onClick={runAiExplain}
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        runAiExplain();
+                      }}
                       disabled={aiExplainLoading}
-                      title={!isPro ? "Subscribe to Nexus Pro to use AI" : ""}
+                      title={!isPro ? "Redeem or active access required to use AI" : "Run AI Insight"}
                     >
-                      {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight" : "Pro required")}
+                      {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight" : "Access required")}
                     </button>
                   </div>
                   {aiExplainData ? (

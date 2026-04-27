@@ -4868,6 +4868,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
           ? (Number(engineV2.confidence) >= 8 ? "HIGH" : Number(engineV2.confidence) >= 6 ? "MEDIUM" : "LOW")
           : confidenceLabel,
         risk: engineV2?.risk || risk,
+        exitRisk: engineV2?.exit_risk || null,
+        preExitWarning: Boolean(engineV2?.pre_exit_warning),
+        contradictions: Array.isArray(engineV2?.contradictions) ? engineV2.contradictions : [],
         gridMode,
         gridRange,
         why,
@@ -10566,14 +10569,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.engineV2.edge || "No clean edge yet"}</div>
                             </div>
                             <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                              <div className="muted tiny">Invalidation / Risk</div>
-                              <div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.engineV2.invalidation || aiExplainData.engineV2.risk || "Mixed confirmation"}</div>
+                              <div className="muted tiny">Exit Risk</div>
+                              <div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.engineV2.exit_risk || aiExplainData.risk || "Medium"}</div>
+                              {aiExplainData.engineV2.pre_exit_warning ? (
+                                <div className="muted tiny" style={{ marginTop: 4, color: "#ff9800" }}>⚠ Pre-exit warning active</div>
+                              ) : null}
                             </div>
                             <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
                               <div className="muted tiny">Setup Bias</div>
                               <div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.engineV2.setup_bias || "No clean setup"}</div>
                             </div>
                           </div>
+                          {Array.isArray(aiExplainData.engineV2.contradictions) && aiExplainData.engineV2.contradictions.length ? (
+                            <div className="muted tiny" style={{ lineHeight: 1.5, color: "#ff5252", border: "1px solid rgba(255,82,82,0.25)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,82,82,0.06)" }}>
+                              ⚠ Contradiction: {aiExplainData.engineV2.contradictions[0]}
+                            </div>
+                          ) : null}
                           {Array.isArray(aiExplainData.engineV2.drivers) && aiExplainData.engineV2.drivers.length ? (
                             <div className="muted tiny" style={{ lineHeight: 1.5 }}>
                               Drivers: {aiExplainData.engineV2.drivers.join(" · ")}

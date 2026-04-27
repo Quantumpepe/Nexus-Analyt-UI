@@ -11478,8 +11478,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   const sym = String(r.symbol || "").toUpperCase();
                   const checked = compareSymbols.includes(sym);
                   const mm = (r.mode || "market");
+                  const marketCondition = marketConditionBySymbol?.[sym];
+                  const mcUi = marketConditionUi(marketCondition?.state);
+                  const mcTitle = marketCondition?.ai_context?.interpretation || marketCondition?.condition?.insight || marketCondition?.label || "Market Condition";
                   const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym]);
-                                    return (
+                  return (
                     <div
                       key={`${sym}-${idx}`}
                       className="watchCompactCard"

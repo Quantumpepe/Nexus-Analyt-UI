@@ -2773,6 +2773,9 @@ const [wsChainKey, setWsChainKey] = useState(() => {
             heldTokenBalWei: heldWei,
             heldTokenBal: heldBal,
             operatorEnabled,
+            balanceSource: r?.vault_balance_source || "",
+            contractNativeBalance: Number(r?.vault_contract_native_balance ?? 0) || 0,
+            walletAccountingBalance: Number(r?.wallet_accounting_balance ?? 0) || 0,
           });
           vaultStateFetchRef.current = { key: cacheKey, ts: Date.now(), inflight: false };
           return;
@@ -3301,7 +3304,22 @@ useEffect(() => {
             } catch (_) {}
 
             if (!nativeStr) {
-              throw new Error(c + " backend RPC balance unavailable");
+              // Backend RPC fallback failed. Try the connected wallet provider directly
+              // for the currently selected chain. This still uses no Alchemy and fixes
+              // cases where the backend RPC is slow/down but the wallet can read balance.
+              try {
+                const provider = await _getEmbeddedProvider();
+                const chainId = CHAIN_ID?.[c];
+                if (provider && chainId) {
+                  await _trySwitchChain(provider, chainId);
+                  const rawBal = await provider.request({ method: "eth_getBalance", params: [address, "latest"] });
+                  nativeStr = Utils.formatEther(hexToBigInt(rawBal || "0x0"));
+                }
+              } catch (_) {}
+            }
+
+            if (!nativeStr) {
+              throw new Error(c + " backend/provider balance unavailable");
             }
 
             const nativeNum = Number(nativeStr);
@@ -3360,6 +3378,10 @@ return [c, { native, stables, custom }];
       const out = {};
       for (const [c, v] of results) out[c] = v;
       setBalByChain(out);
+      const chainErrors = Object.entries(out)
+        .filter(([, v]) => v?.error)
+        .map(([c, v]) => `${c}: ${v.error}`);
+      setBalError(chainErrors.length ? chainErrors.join(" · ") : "");
 
       // Compute wallet total value in USD (best-effort; unpriced tokens are excluded from total).
       (async () => {

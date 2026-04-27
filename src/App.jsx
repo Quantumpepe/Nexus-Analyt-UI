@@ -11324,10 +11324,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               type="button"
                               className="pill silver"
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
-                              title={userStars ? `Your Rating: ${renderUserStars(userStars)}` : `Add your rating for ${sym}`}
+                              title={userRatingBySymbol?.[sym] ? `User Rating: ${userRatingBySymbol?.[sym]}` : `Add your rating for ${sym}`}
                               style={{ marginLeft: 6, padding: "1px 5px", fontSize: 9, lineHeight: 1.1, cursor: "pointer", whiteSpace: "nowrap" }}
                             >
-                              {userStars ? userRatingBySymbol?.[sym] || '-' : "☆"}
+                              {userRatingBySymbol?.[sym] || "-"}
                             </button>
                           </div>
                         </div>
@@ -11426,10 +11426,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               type="button"
                               className="pill silver"
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
-                              title={userStars ? `Your Rating: ${renderUserStars(userStars)}` : `Add your rating for ${sym}`}
+                              title={userRatingBySymbol?.[sym] ? `User Rating: ${userRatingBySymbol?.[sym]}` : `Add your rating for ${sym}`}
                               style={{ padding: "2px 5px", fontSize: 10, lineHeight: 1.1, cursor: "pointer" }}
                             >
-                              {userStars ? userRatingBySymbol?.[sym] || '-' : "☆"}
+                              {userRatingBySymbol?.[sym] || "-"}
                             </button>
                             <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
                           </div>
@@ -11513,10 +11513,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     Your personal User Rating (not mixed with System Rating)
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {[1, 2, 3, 4, 5].map((stars) => {
-                      const chosenStars = userStarsFromRating(ratingStatus?.user_rating_today || ratingStatus?.last_user_rating);
-                      const chosen = chosenStars === stars;
-                      const rt = userRatingFromStars(stars);
+                    {["AAA", "AA", "A", "BBB", "BB", "B", "CCC", "CC", "C", "RISK"].map((rt) => {
+                      const chosen = String(ratingStatus?.user_rating_today || ratingStatus?.last_user_rating || "").toUpperCase() === rt;
                       return (
                         <button
                           key={rt}
@@ -11524,17 +11522,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           className={chosen ? "btn" : "btnGhost"}
                           disabled={ratingBusy}
                           onClick={() => submitUserRating(rt)}
-                          title={`Set your rating for ${ratingModal.symbol} to ${renderUserStars(stars)}`}
+                          title={`Set your rating for ${ratingModal.symbol} to ${rt}`}
                           style={{ minWidth: 62, justifyContent: "center" }}
                         >
-                          {renderUserStars(stars)}
+                          {rt}
                         </button>
                       );
                     })}
                   </div>
                   <div className="muted tiny" style={{ marginTop: 8 }}>
-                    {userStarsFromRating(ratingStatus?.user_rating_today || ratingStatus?.last_user_rating)
-                      ? `Your saved rating: ${renderUserStars(userStarsFromRating(ratingStatus?.user_rating_today || ratingStatus?.last_user_rating))}`
+                    {(ratingStatus?.user_rating_today || ratingStatus?.last_user_rating)
+                      ? `Your saved rating: ${ratingStatus?.user_rating_today || ratingStatus?.last_user_rating}`
                       : "No personal rating saved yet."}
                   </div>
                 </div>

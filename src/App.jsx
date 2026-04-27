@@ -1035,13 +1035,37 @@ function watchOnchainScoreDelta(onchain) {
   return Math.max(-5, Math.min(5, Math.round(n)));
 }
 
+function marketConditionUi(state) {
+  const s = String(state || "").toUpperCase();
+  if (s === "REAL_BREAKOUT") return { text: "Breakout", color: "#16c784", border: "rgba(22,199,132,.45)" };
+  if (s === "FAKE_MOVE") return { text: "Weak", color: "#ea3943", border: "rgba(234,57,67,.45)" };
+  if (s === "EARLY_ACCUMULATION") return { text: "Early", color: "#f5b300", border: "rgba(245,179,0,.45)" };
+  if (s === "OVEREXTENDED") return { text: "Hot", color: "#ff8a3d", border: "rgba(255,138,61,.45)" };
+  return { text: "Normal", color: "var(--muted)", border: "rgba(255,255,255,.12)" };
+}
+
+function normalizeMarketConditionForAi(mc) {
+  if (!mc || typeof mc !== "object") return null;
+  const ctx = mc.ai_context || {};
+  return {
+    state: mc.state || ctx.market_condition_state || "",
+    label: mc.label || ctx.market_condition_label || "",
+    level: mc.level || "",
+    confidence: mc.confidence || "",
+    oe_pct: Number.isFinite(Number(mc.oe_pct ?? ctx.overextension_pct)) ? Number(mc.oe_pct ?? ctx.overextension_pct) : null,
+    rvol: Number.isFinite(Number(mc.rvol ?? ctx.relative_volume)) ? Number(mc.rvol ?? ctx.relative_volume) : null,
+    score_delta: Number.isFinite(Number(mc.score_delta)) ? Number(mc.score_delta) : 0,
+    interpretation: ctx.interpretation || mc.interpretation || mc.condition?.insight || "",
+  };
+}
+
 function watchFinalRating(row, summary, onchain) {
   const base = watchFinalScore(row, summary);
   const delta = watchOnchainScoreDelta(onchain);
   return ratingFromScore(Math.max(0, Math.min(100, base + delta)));
 }
 
-function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainBySymbol, bestPairsToShow }) {
+function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainBySymbol, marketConditionBySymbol, bestPairsToShow }) {
   const selected = Array.isArray(syms) ? syms.map((s) => String(s || "").toUpperCase()).filter(Boolean) : [];
   const rowBySym = new Map();
   for (const r of Array.isArray(watchRows) ? watchRows : []) {
@@ -1053,6 +1077,7 @@ function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainB
     const row = rowBySym.get(sym) || {};
     const summary = ratingSummaryBySymbol?.[sym] || null;
     const onchain = onchainBySymbol?.[sym] || null;
+    const marketCondition = normalizeMarketConditionForAi(marketConditionBySymbol?.[sym]);
     const baseScore = watchFinalScore(row, summary);
     const onchainDelta = watchOnchainScoreDelta(onchain);
     const finalScore = Math.max(0, Math.min(100, baseScore + onchainDelta));
@@ -1069,6 +1094,7 @@ function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainB
       price: Number.isFinite(Number(row?.price)) ? Number(row.price) : null,
       volume_24h: Number.isFinite(Number(row?.volume24h)) ? Number(row.volume24h) : null,
       market_cap: Number.isFinite(Number(row?.marketCap ?? row?.market_cap)) ? Number(row?.marketCap ?? row?.market_cap) : null,
+      market_condition: marketCondition,
       onchain: onchain ? {
         icon: onchain.icon || "",
         label: onchain.label || "",
@@ -1115,10 +1141,14 @@ function formatAiSignalContextForPrompt(ctx) {
   const coins = Array.isArray(ctx?.coins) ? ctx.coins : [];
   const lines = coins.map((c) => {
     const oc = c.onchain;
+    const mc = c.market_condition;
     const ocText = oc?.summary ? `on-chain: ${oc.summary}` : "on-chain: neutral/no strong signal";
+    const mcText = mc?.state
+      ? `market condition: ${mc.label || mc.state} (OE=${mc.oe_pct ?? "n/a"}%, RVOL=${mc.rvol ?? "n/a"}x, confidence=${mc.confidence || "n/a"}; ${mc.interpretation || "no interpretation"})`
+      : "market condition: unavailable";
     const voteText = Number(c.user_rating_votes || 0) > 0 ? `community votes=${c.user_rating_votes}, avg=${c.user_rating_avg_score ?? "n/a"}` : "community votes=0";
     const ch = Number.isFinite(Number(c.change_24h_pct)) ? `${Number(c.change_24h_pct).toFixed(2)}% 24h` : "24h n/a";
-    return `${c.symbol}: rating=${c.rating}, score=${c.score}, base=${c.base_score}, onchain_delta=${c.onchain_delta}, ${ch}, ${voteText}, ${ocText}`;
+    return `${c.symbol}: rating=${c.rating}, score=${c.score}, base=${c.base_score}, onchain_delta=${c.onchain_delta}, ${ch}, ${voteText}, ${ocText}, ${mcText}`;
   });
 
   const pairLines = (Array.isArray(ctx?.relevant_pairs) ? ctx.relevant_pairs : []).map((p) =>
@@ -3431,6 +3461,7 @@ const byChain = {};
   const [ratingSummaryBySymbol, setRatingSummaryBySymbol] = useState({});
   const [userRatingBySymbol, setUserRatingBySymbol] = useState({});
   const [onchainBySymbol, setOnchainBySymbol] = useState({});
+  const [marketConditionBySymbol, setMarketConditionBySymbol] = useState({});
 
   const [watchSyncedWallet, setWatchSyncedWallet] = useLocalStorageState("nexus_watch_synced_wallet", "");
   const [appStateSyncedWallet, setAppStateSyncedWallet] = useLocalStorageState("nexus_app_state_synced_wallet", "");
@@ -3664,6 +3695,53 @@ const byChain = {};
       .sort()
       .join(",");
   }, [sortedWatchRows]);
+
+  const marketConditionFetchRef = useRef({ key: "", ts: 0, inflight: false });
+
+  useEffect(() => {
+    const symbols = onchainWatchSymbolsKey ? onchainWatchSymbolsKey.split(",").filter(Boolean) : [];
+    if (!symbols.length) return;
+
+    const nowMs = Date.now();
+    const cacheKey = onchainWatchSymbolsKey;
+    const minAgeMs = 10 * 60 * 1000; // 10 minutes
+    if (marketConditionFetchRef.current?.key === cacheKey && (nowMs - Number(marketConditionFetchRef.current?.ts || 0)) < minAgeMs) {
+      return;
+    }
+    if (marketConditionFetchRef.current?.inflight && marketConditionFetchRef.current?.key === cacheKey) {
+      return;
+    }
+
+    let cancelled = false;
+    const t = setTimeout(() => {
+      marketConditionFetchRef.current = { key: cacheKey, ts: nowMs, inflight: true };
+      Promise.all(symbols.map(async (sym) => {
+        try {
+          const r = await api(`/api/market-condition?symbol=${encodeURIComponent(sym)}`, { method: "GET", token, wallet });
+          return [sym, r || null];
+        } catch {
+          return [sym, null];
+        }
+      })).then((entries) => {
+        if (cancelled) return;
+        setMarketConditionBySymbol((prev) => {
+          const next = { ...(prev || {}) };
+          for (const [sym, data] of entries) {
+            if (data?.status === "ok" || data?.state) next[sym] = data;
+          }
+          return next;
+        });
+        marketConditionFetchRef.current = { key: cacheKey, ts: Date.now(), inflight: false };
+      }).catch(() => {
+        marketConditionFetchRef.current = { key: cacheKey, ts: Date.now(), inflight: false };
+      });
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [onchainWatchSymbolsKey, token, wallet]);
 
   const onchainFetchRef = useRef({ key: "", ts: 0, inflight: false });
 
@@ -4601,6 +4679,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         watchRows,
         ratingSummaryBySymbol,
         onchainBySymbol,
+        marketConditionBySymbol,
         bestPairsToShow,
       });
       const aiSignalText = formatAiSignalContextForPrompt(aiSignalContext);
@@ -4617,7 +4696,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
           `Analyze the current pair structure for ${a} vs ${b}. ` +
           `This is AI Insight Level 2: explain not only what the data says, but how the structure may behave. ` +
           `Use pair statistics, multi-timeframe context, rating, community votes, on-chain context, and wallet-fit to describe structure, behavior, strategy fit, and risk posture. ` +
-          `IMPORTANT: mention rating and on-chain confirmation explicitly when available. If on-chain is neutral or missing, say it is neutral/no strong signal instead of ignoring it. ` +
+          `IMPORTANT: mention rating, market condition (OE/RVOL), and on-chain confirmation explicitly when available. If on-chain is neutral or missing, say it is neutral/no strong signal instead of ignoring it. ` +
           `Include a compact behavior read, for example range-bound, mean-reversion style, trend-bias, unstable/choppy, or low-conviction. ` +
           `Include strategy fit without giving advice: grid-fit, wait/no-clean-setup, rotation-style, or continuation-risk. ` +
           `Do not tell the user what to do and do not give buy/sell instructions. ` +
@@ -7276,6 +7355,7 @@ async function runAi() {
         watchRows,
         ratingSummaryBySymbol,
         onchainBySymbol,
+        marketConditionBySymbol,
         bestPairsToShow,
       });
       const aiSignalText = formatAiSignalContextForPrompt(aiSignalContext);
@@ -11273,6 +11353,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     const checked = compareSymbols.includes(sym);
                     const marketCap = r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap ?? null;
                     const onchain = onchainBySymbol?.[sym];
+                    const marketCondition = marketConditionBySymbol?.[sym];
+                    const mcUi = marketConditionUi(marketCondition?.state);
+                    const mcTitle = marketCondition?.ai_context?.interpretation || marketCondition?.condition?.insight || marketCondition?.label || "Market Condition";
                     const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym], onchain);
                                         const onchainIcon = String(onchain?.icon || "");
                     const onchainTitle = String(onchain?.summary || onchain?.label || "On-chain signal");
@@ -11329,6 +11412,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               {userRatingBySymbol?.[sym] || "-"}
                             </button>
+                            <span
+                              className="pill silver"
+                              title={mcTitle}
+                              style={{ marginLeft: 5, padding: "1px 5px", fontSize: 9, lineHeight: 1.1, whiteSpace: "nowrap", color: mcUi.color, borderColor: mcUi.border }}
+                            >
+                              {mcUi.text}
+                            </span>
                           </div>
                         </div>
                         <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtPct(r.change24h)}</div>
@@ -11431,6 +11521,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               {userRatingBySymbol?.[sym] || "-"}
                             </button>
+                            <span
+                              className="pill silver"
+                              title={mcTitle}
+                              style={{ padding: "2px 5px", fontSize: 10, lineHeight: 1.1, color: mcUi.color, borderColor: mcUi.border }}
+                            >
+                              {mcUi.text}
+                            </span>
                             <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
                           </div>
                         </div>

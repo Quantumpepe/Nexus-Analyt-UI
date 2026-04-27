@@ -3243,36 +3243,71 @@ useEffect(() => {
     return clients;
   }, [ALCHEMY_KEY]);
 
+  const fetchBackendNativeBalances = async (address, chains) => {
+    try {
+      const q = new URLSearchParams({
+        wallet: String(address || ""),
+        wallet_address: String(address || ""),
+        chains: (Array.isArray(chains) ? chains : ENABLED_CHAINS).join(","),
+      }).toString();
+      const r = await api(`/api/wallet/native-balances?${q}`, { method: "GET", token, wallet: address });
+      return r?.balances || {};
+    } catch {
+      return {};
+    }
+  };
+
+  const fetchBackendTokenBalances = async (address, chain, specs) => {
+    try {
+      const tokenSpecs = Array.isArray(specs) ? specs.filter((t) => /^0x[a-fA-F0-9]{40}$/.test(String(t?.address || ""))) : [];
+      if (!tokenSpecs.length) return {};
+      const r = await api("/api/wallet/token-balances", {
+        method: "POST",
+        token,
+        wallet: address,
+        body: {
+          wallet: String(address || ""),
+          wallet_address: String(address || ""),
+          chain: String(chain || "").toUpperCase(),
+          tokens: tokenSpecs.map((t) => ({ address: t.address })),
+        },
+      });
+      return r?.balances || {};
+    } catch {
+      return {};
+    }
+  };
+
   const refreshBalances = async () => {
     if (!wallet) return;
-    if (!ALCHEMY_KEY) {
-      setBalError("Alchemy key missing (VITE_ALCHEMY_KEY).");
-      return;
-    }
-    if (!alchemyClients) {
-      setBalError("Alchemy client init failed. Check VITE_ALCHEMY_KEY and restart dev server.");
-      return;
-    }
-
+    // Wallet balances are loaded through the backend RPC fallback.
+    // This avoids frontend Alchemy limits and keeps API keys out of the browser path.
     setBalLoading(true);
     setBalError("");
     try {
       const address = wallet;
       const baseChains = ENABLED_CHAINS;
+      const backendNativeBalances = await fetchBackendNativeBalances(address, baseChains);
 
       const results = await Promise.all(
         baseChains.map(async (c) => {
           try {
-            if (!alchemyClients[c]) {
-              throw new Error(c + " not supported by alchemy-sdk (update alchemy-sdk or disable this chain).");
+            let nativeStr = "";
+            try {
+              const backendNative = backendNativeBalances?.[c]?.native;
+              if (backendNative !== null && backendNative !== undefined && Number.isFinite(Number(backendNative))) {
+                nativeStr = String(backendNative);
+              }
+            } catch (_) {}
+
+            if (!nativeStr) {
+              throw new Error(c + " backend RPC balance unavailable");
             }
-            const bal = await alchemyClients[c].core.getBalance(address);
-// ethers v5 BigNumber -> string
-const nativeStr = Utils.formatEther(bal);
-const nativeNum = Number(nativeStr);
-const native = Number.isFinite(nativeNum)
-  ? stripTrailingZeros(nativeNum.toFixed(6))
-  : nativeStr;
+
+            const nativeNum = Number(nativeStr);
+            const native = Number.isFinite(nativeNum)
+              ? stripTrailingZeros(nativeNum.toFixed(6))
+              : nativeStr;
 
 // Phase 2: whitelisted tokens (per chain)
 // Phase 2: tokens are fetched ONLY from (a) stable whitelist + (b) user-added tokens.
@@ -3298,22 +3333,12 @@ const stables = {};
 const custom = [];
 
 if (allSpecs.length) {
-  const resp = await alchemyClients[c].core.getTokenBalances(
-    address,
-    allSpecs.map((t) => t.address)
-  );
-  const byAddr = new Map(
-    (resp?.tokenBalances || []).map((tb) => [
-      String(tb?.contractAddress || "").toLowerCase(),
-      tb?.tokenBalance,
-    ])
-  );
-
+  const respBalances = await fetchBackendTokenBalances(address, c, allSpecs);
   const stableAddrSet = new Set(stableSpecs.map((t) => String(t?.address || "").toLowerCase()));
 
   for (const t of allSpecs) {
-    const raw = byAddr.get(t.address) || "0x0";
-    const bi = hexToBigInt(raw);
+    const rawBalance = respBalances?.[t.address]?.balance_raw;
+    const bi = rawBalance != null ? BigInt(String(rawBalance || "0")) : 0n;
     const val = stripTrailingZeros(formatNativeFromWei(bi, t.decimals, 6));
     if (stableAddrSet.has(t.address)) {
       // For stables, show compact (2 decimals) unless tiny.
@@ -3327,7 +3352,7 @@ if (allSpecs.length) {
 
 return [c, { native, stables, custom }];
           } catch (e) {
-            return [c, { native: "—", error: String(e?.message || e || "error") }];
+            return [c, { native: "—", error: String(e?.message || e || "backend RPC balance unavailable") }];
           }
         })
       );

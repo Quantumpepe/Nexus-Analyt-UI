@@ -983,11 +983,6 @@ function watchSystemRating(row) {
 }
 
 const USER_RATING_POINTS = {
-  STAR_5: 100,
-  STAR_4: 80,
-  STAR_3: 60,
-  STAR_2: 40,
-  STAR_1: 20,
   AAA: 98,
   AA: 90,
   A: 80,
@@ -999,28 +994,6 @@ const USER_RATING_POINTS = {
   C: 20,
   RISK: 5,
 };
-
-function userRatingFromStars(stars) {
-  const n = Math.max(1, Math.min(5, Number(stars) || 0));
-  return `STAR_${n}`;
-}
-
-function userStarsFromRating(rating) {
-  const rt = String(rating || "").trim().toUpperCase().replace("-", "_");
-  const m = rt.match(/^STAR_([1-5])$/);
-  if (m) return Number(m[1]);
-  if (rt === "AAA" || rt === "AA") return 5;
-  if (rt === "A" || rt === "BBB") return 4;
-  if (rt === "BB" || rt === "B") return 3;
-  if (rt === "CCC" || rt === "CC" || rt === "C") return 2;
-  if (rt === "RISK") return 1;
-  return 0;
-}
-
-function renderUserStars(stars) {
-  const n = Math.max(0, Math.min(5, Number(stars) || 0));
-  return `${"★".repeat(n)}${"☆".repeat(5 - n)}`;
-}
 
 function ratingFromScore(score) {
   const s = Number(score);
@@ -11301,8 +11274,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     const marketCap = r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap ?? null;
                     const onchain = onchainBySymbol?.[sym];
                     const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym], onchain);
-                    const userStars = userStarsFromRating(userRatingBySymbol?.[sym]);
-                    const onchainIcon = String(onchain?.icon || "");
+                                        const onchainIcon = String(onchain?.icon || "");
                     const onchainTitle = String(onchain?.summary || onchain?.label || "On-chain signal");
                     return (
                       <div
@@ -11355,7 +11327,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               title={userStars ? `Your Rating: ${renderUserStars(userStars)}` : `Add your rating for ${sym}`}
                               style={{ marginLeft: 6, padding: "1px 5px", fontSize: 9, lineHeight: 1.1, cursor: "pointer", whiteSpace: "nowrap" }}
                             >
-                              {userStars ? `★${userStars}` : "☆"}
+                              {userStars ? userRatingBySymbol?.[sym] || '-' : "☆"}
                             </button>
                           </div>
                         </div>
@@ -11417,8 +11389,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   const checked = compareSymbols.includes(sym);
                   const mm = (r.mode || "market");
                   const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym]);
-                  const userStars = userStarsFromRating(userRatingBySymbol?.[sym]);
-                  return (
+                                    return (
                     <div
                       key={`${sym}-${idx}`}
                       className="watchCompactCard"
@@ -11458,7 +11429,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               title={userStars ? `Your Rating: ${renderUserStars(userStars)}` : `Add your rating for ${sym}`}
                               style={{ padding: "2px 5px", fontSize: 10, lineHeight: 1.1, cursor: "pointer" }}
                             >
-                              {userStars ? `★${userStars}` : "☆"}
+                              {userStars ? userRatingBySymbol?.[sym] || '-' : "☆"}
                             </button>
                             <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
                           </div>
@@ -11530,7 +11501,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="muted tiny">
                     System Rating: <b>{ratingModal.systemRating}</b> · Score {ratingModal.systemScore}
                     <br />
-                    User Rating: <b>{renderUserStars(userStarsFromRating(ratingStatus?.user_rating_today || ratingStatus?.last_user_rating)) || "☆☆☆☆☆"}</b>
+                    User Rating: <b>{ratingStatus?.user_rating_today || ratingStatus?.last_user_rating || "-"}</b>
                   </div>
                 </div>
                 <button className="iconBtn" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); closeRatingModal(); }}>×</button>

@@ -11631,11 +11631,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "56px 34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 32px",
+                    gridTemplateColumns: "82px 34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 32px",
                     gap: 8,
                   }}
                 >
-                  <div className="center" style={{ textAlign: "center" }}># / Rating</div>
+                  <div
+                    className="center"
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "22px 38px 18px",
+                      alignItems: "center",
+                      justifyItems: "center",
+                      textAlign: "center",
+                      width: "100%",
+                    }}
+                  >
+                    <span>#</span>
+                    <span>Rating</span>
+                    <span></span>
+                  </div>
                   <div aria-hidden="true" />
                   <div style={{ paddingLeft: 2 }}>Coin</div>
                   <div className="right">%</div>
@@ -11671,18 +11685,50 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "56px 34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 32px",
+                          gridTemplateColumns: "82px 34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 32px",
                           gap: 8,
+                          alignItems: "center",
+                          minHeight: 54,
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", gap: 5, fontSize: 11 }}>
-                          <span style={{ opacity: 0.62 }}>{idx + 1}</span>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "22px 38px 18px",
+                            alignItems: "center",
+                            justifyItems: "center",
+                            width: "100%",
+                            fontSize: 11,
+                            minWidth: 0,
+                          }}
+                        >
+                          <span
+                            className="mono"
+                            style={{
+                              opacity: 0.62,
+                              width: 22,
+                              textAlign: "right",
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {idx + 1}
+                          </span>
                           <button
                             type="button"
                             className="pill silver"
                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
                             title={`System Rating ${sysRating} · click to rate ${sym}`}
-                            style={{ padding: "2px 6px", fontSize: 10, lineHeight: 1.1, cursor: "pointer" }}
+                            style={{
+                              width: 36,
+                              minWidth: 36,
+                              maxWidth: 36,
+                              padding: "2px 0",
+                              fontSize: 10,
+                              lineHeight: 1.1,
+                              cursor: "pointer",
+                              textAlign: "center",
+                              justifyContent: "center",
+                            }}
                           >
                             {sysRating}
                           </button>
@@ -11690,11 +11736,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill silver"
                               title={onchainTitle}
-                              style={{ padding: "2px 5px", fontSize: 10, lineHeight: 1.1 }}
+                              style={{
+                                width: 18,
+                                minWidth: 18,
+                                maxWidth: 18,
+                                padding: "2px 0",
+                                fontSize: 10,
+                                lineHeight: 1.1,
+                                justifyContent: "center",
+                                textAlign: "center",
+                              }}
                             >
                               {onchainIcon}
                             </span>
-                          ) : null}
+                          ) : (
+                            <span style={{ width: 18, minWidth: 18 }} />
+                          )}
                         </div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
                           <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.95)" }} />

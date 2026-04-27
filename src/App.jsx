@@ -1037,11 +1037,49 @@ function watchOnchainScoreDelta(onchain) {
 
 function marketConditionUi(state) {
   const s = String(state || "").toUpperCase();
-  if (s === "REAL_BREAKOUT") return { text: "Breakout", color: "#16c784", border: "rgba(22,199,132,.45)" };
-  if (s === "FAKE_MOVE") return { text: "Weak", color: "#ea3943", border: "rgba(234,57,67,.45)" };
-  if (s === "EARLY_ACCUMULATION") return { text: "Early", color: "#f5b300", border: "rgba(245,179,0,.45)" };
-  if (s === "OVEREXTENDED") return { text: "Hot", color: "#ff8a3d", border: "rgba(255,138,61,.45)" };
-  return { text: "Normal", color: "var(--muted)", border: "rgba(255,255,255,.12)" };
+  if (s === "REAL_BREAKOUT") {
+    return {
+      code: "B",
+      text: "Breakout",
+      color: "#16c784",
+      border: "rgba(22,199,132,.45)",
+      help: "Breakout: price is extended, but strong relative volume confirms the move."
+    };
+  }
+  if (s === "FAKE_MOVE") {
+    return {
+      code: "W",
+      text: "Weak",
+      color: "#ea3943",
+      border: "rgba(234,57,67,.45)",
+      help: "Weak: price is extended, but volume does not confirm the move. Fake-move risk is higher."
+    };
+  }
+  if (s === "EARLY_ACCUMULATION") {
+    return {
+      code: "E",
+      text: "Early",
+      color: "#f5b300",
+      border: "rgba(245,179,0,.45)",
+      help: "Early: relative volume is high while price is not yet heavily extended."
+    };
+  }
+  if (s === "OVEREXTENDED") {
+    return {
+      code: "H",
+      text: "Hot",
+      color: "#ff8a3d",
+      border: "rgba(255,138,61,.45)",
+      help: "Hot: price is far above its 20-day average. Pullback risk can increase."
+    };
+  }
+  return {
+    code: "N",
+    text: "Normal",
+    color: "var(--muted)",
+    border: "rgba(255,255,255,.12)",
+    help: "Normal: no strong Overextension/RVOL anomaly detected."
+  };
 }
 
 function normalizeMarketConditionForAi(mc) {
@@ -11297,7 +11335,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
         {/* Watchlist */}
         <section className={`card section-watch dashboardPanel ${activePanel === "watchlist" ? "panelActive" : ""}`} onClick={handlePanelActivate("watchlist")}>
           <div className="cardHead">
-            <div className="cardTitle">Watchlist</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0 }}>
+                    <div className="cardTitle">Watchlist</div>
+                    <div
+                      className="muted tiny"
+                      title={"Market Condition based on Overextension (OE) + Relative Volume (RVOL)\nB = Breakout: volume confirms the move\nW = Weak: move is not volume-confirmed\nE = Early: volume builds before strong price extension\nH = Hot: strongly overextended\nN = Normal: no strong anomaly"}
+                      style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 10, lineHeight: 1.1, whiteSpace: "nowrap" }}
+                    >
+                      <span style={{ color: "#16c784", fontWeight: 800 }}>B</span><span>Breakout</span>
+                      <span style={{ color: "#ea3943", fontWeight: 800 }}>W</span><span>Weak</span>
+                      <span style={{ color: "#f5b300", fontWeight: 800 }}>E</span><span>Early</span>
+                      <span style={{ color: "#ff8a3d", fontWeight: 800 }}>H</span><span>Hot</span>
+                      <span style={{ color: "var(--muted)", fontWeight: 800 }}>N</span><span>Normal</span>
+                    </div>
+                  </div>
             <div className="cardActions" style={{ alignItems: "center" }}>
               <button className="btn" onClick={() => setAddOpen(true)}>+ Add</button>
               <button className="btnGhost" onClick={() => fetchWatchSnapshot(null, { force: true, user: true })}>Refresh</button>
@@ -11355,7 +11406,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     const onchain = onchainBySymbol?.[sym];
                     const marketCondition = marketConditionBySymbol?.[sym];
                     const mcUi = marketConditionUi(marketCondition?.state);
-                    const mcTitle = marketCondition?.ai_context?.interpretation || marketCondition?.condition?.insight || marketCondition?.label || "Market Condition";
+                    const mcTitle = `${mcUi.code} (${mcUi.code})\n${mcUi.help}\nOE: ${marketCondition?.oe_pct ?? "n/a"}% · RVOL: ${marketCondition?.rvol ?? "n/a"}x${marketCondition?.ai_context?.interpretation ? `\n\n${marketCondition.ai_context.interpretation}` : ""}`;
                     const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym], onchain);
                                         const onchainIcon = String(onchain?.icon || "");
                     const onchainTitle = String(onchain?.summary || onchain?.label || "On-chain signal");
@@ -11415,9 +11466,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill silver"
                               title={mcTitle}
-                              style={{ marginLeft: 5, padding: "1px 5px", fontSize: 9, lineHeight: 1.1, whiteSpace: "nowrap", color: mcUi.color, borderColor: mcUi.border }}
+                              style={{ marginLeft: 5, padding: "1px 5px", minWidth: 18, justifyContent: "center", textAlign: "center", fontSize: 9, lineHeight: 1.1, fontWeight: 900, whiteSpace: "nowrap", color: mcUi.color, borderColor: mcUi.border }}
                             >
-                              {mcUi.text}
+                              {mcUi.code}
                             </span>
                           </div>
                         </div>
@@ -11480,7 +11531,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   const mm = (r.mode || "market");
                   const marketCondition = marketConditionBySymbol?.[sym];
                   const mcUi = marketConditionUi(marketCondition?.state);
-                  const mcTitle = marketCondition?.ai_context?.interpretation || marketCondition?.condition?.insight || marketCondition?.label || "Market Condition";
+                  const mcTitle = `${mcUi.code} (${mcUi.code})\n${mcUi.help}\nOE: ${marketCondition?.oe_pct ?? "n/a"}% · RVOL: ${marketCondition?.rvol ?? "n/a"}x${marketCondition?.ai_context?.interpretation ? `\n\n${marketCondition.ai_context.interpretation}` : ""}`;
                   const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym]);
                   return (
                     <div
@@ -11527,9 +11578,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill silver"
                               title={mcTitle}
-                              style={{ padding: "2px 5px", fontSize: 10, lineHeight: 1.1, color: mcUi.color, borderColor: mcUi.border }}
+                              style={{ padding: "2px 5px", minWidth: 20, justifyContent: "center", textAlign: "center", fontSize: 10, lineHeight: 1.1, fontWeight: 900, color: mcUi.color, borderColor: mcUi.border }}
                             >
-                              {mcUi.text}
+                              {mcUi.code}
                             </span>
                             <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
                           </div>

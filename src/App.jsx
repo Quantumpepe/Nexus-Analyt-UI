@@ -4802,7 +4802,11 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
       try {
         const r = await api("/api/ai/insight", { method: "POST", token, body: payload });
-		console.log("AI RESPONSE:", r);  
+        console.log("AI RESPONSE:", r);
+        const backendEngineV2 = r?.ai_engine_v2 || r?.engine_v2 || null;
+        if (backendEngineV2 && typeof backendEngineV2 === "object") {
+          payload.__backendEngineV2 = backendEngineV2;
+        }
         backendText =
           r?.answer ??
           r?.output ??
@@ -4813,6 +4817,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         backendText = "";
       }
 
+      const engineV2 = payload.__backendEngineV2 || null;
       const finalTextRaw = buildCompactAiInsight({
         backendText,
         trendStructure,
@@ -4855,10 +4860,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
       setAiExplainText(finalText);
       setAiExplainData({
-        setup,
-        confidence,
-        confidenceLabel,
-        risk,
+        setup: engineV2?.verdict || setup,
+        confidence: Number.isFinite(Number(engineV2?.confidence)) ? Number(engineV2.confidence) : confidence,
+        confidenceLabel: Number.isFinite(Number(engineV2?.confidence))
+          ? (Number(engineV2.confidence) >= 8 ? "HIGH" : Number(engineV2.confidence) >= 6 ? "MEDIUM" : "LOW")
+          : confidenceLabel,
+        risk: engineV2?.risk || risk,
         gridMode,
         gridRange,
         why,
@@ -4871,6 +4878,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         insightSummary,
         windows: pairWindows,
         aiSignalContext,
+        engineV2,
       });
     } catch (e) {
       setAiExplainText("");
@@ -10537,6 +10545,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             : "This conclusion is descriptive only and should not be read as an automatic trade command."}
                         </div>
                       </div>
+
+                      {aiExplainData.engineV2 ? (
+                        <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                          <div className="label" style={{ marginBottom: 0 }}>AI Engine Level 2</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8 }}>
+                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                              <div className="muted tiny">Edge</div>
+                              <div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.engineV2.edge || "No clean edge yet"}</div>
+                            </div>
+                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                              <div className="muted tiny">Invalidation / Risk</div>
+                              <div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.engineV2.invalidation || aiExplainData.engineV2.risk || "Mixed confirmation"}</div>
+                            </div>
+                            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                              <div className="muted tiny">Setup Bias</div>
+                              <div style={{ fontWeight: 800, marginTop: 4 }}>{aiExplainData.engineV2.setup_bias || "No clean setup"}</div>
+                            </div>
+                          </div>
+                          {Array.isArray(aiExplainData.engineV2.drivers) && aiExplainData.engineV2.drivers.length ? (
+                            <div className="muted tiny" style={{ lineHeight: 1.5 }}>
+                              Drivers: {aiExplainData.engineV2.drivers.join(" · ")}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
 
                       {(aiExplainData.trendStructure || aiExplainData.momentumShift || aiExplainData.insightSummary) ? (
                         <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>

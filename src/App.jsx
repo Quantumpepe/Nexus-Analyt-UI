@@ -677,7 +677,9 @@ async function api(
     // Hard safety timeout so UI never gets stuck due to Render sleep/hanging connections.
     const ctrl = new AbortController();
     const timeoutMs =
-      path?.includes("/api/access/redeem") ? 60000 : method === "GET" ? 15000 : 60000;
+      path?.includes("/api/access/redeem") ? 60000 :
+      path?.includes("/api/grid/") ? 60000 :
+      method === "GET" ? 15000 : 60000;
 
     const tm = setTimeout(() => {
       try {
@@ -6102,8 +6104,17 @@ const fetchGridOrders = useCallback(async () => {
 
     applyGridMetaResponse(r, gridItemId);
   } catch (e) {
-    // Keep existing orders on transient errors; just surface message
-    setErrorMsg(`Grid orders: ${e.message}`);
+    // Browser/timeout aborts are transient. Keep current grid state and do not show a red error box.
+    const msg = String(e?.message || e || "");
+    if (
+      e?.name === "AbortError" ||
+      msg.toLowerCase().includes("abort") ||
+      msg.toLowerCase().includes("signal is aborted")
+    ) {
+      return;
+    }
+    // Keep existing orders on real backend errors; surface message.
+    setErrorMsg(`Grid orders: ${msg || "temporary backend error"}`);
   }
 }, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
 

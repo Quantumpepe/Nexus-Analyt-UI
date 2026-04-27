@@ -7553,11 +7553,32 @@ const manualEstimatedImpactPct = useMemo(() => {
 const manualRiskState = useMemo(() => {
   const liq = Number(manualPoolLiquidityUsd);
   const impact = Number(manualEstimatedImpactPct);
-  if (!Number.isFinite(liq) || liq <= 0 || !Number.isFinite(impact) || impact < 0) {
+
+  if (!Number.isFinite(liq)) {
     return {
       key: "pending",
-      label: "⏳ Backend pending",
+      label: "⏳ Checking liquidity",
       tone: "rgba(245, 193, 108, 0.18)",
+      border: "1px solid rgba(245, 193, 108, 0.28)",
+      color: "#f5c16c",
+    };
+  }
+
+  if (liq <= 0) {
+    return {
+      key: "no_liquidity",
+      label: "🔴 No vault liquidity",
+      tone: "rgba(239, 68, 68, 0.15)",
+      border: "1px solid rgba(239, 68, 68, 0.28)",
+      color: "#fca5a5",
+    };
+  }
+
+  if (!Number.isFinite(impact) || impact < 0) {
+    return {
+      key: "input_needed",
+      label: "🟡 Enter order amount",
+      tone: "rgba(245, 193, 108, 0.16)",
       border: "1px solid rgba(245, 193, 108, 0.28)",
       color: "#f5c16c",
     };
@@ -11001,10 +11022,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
                 <div className="tiny muted" style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", lineHeight: 1.25 }}>
                   <span>Chain: <b>{activeGridChainSymbol}</b></span>
-                  <span>Liquidity: <b>{manualPoolLiquidityUsd == null ? "Backend pending" : fmtUsd(manualPoolLiquidityUsd)}</b></span>
+                  <span>Liquidity: <b>{manualPoolLiquidityUsd == null ? "Checking..." : (Number(manualPoolLiquidityUsd) <= 0 ? "No liquidity" : fmtUsd(manualPoolLiquidityUsd))}</b></span>
                   <span>Exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></span>
                   <span>After: <b>{fmtUsd(manualExposureAfterUsd)}</b></span>
-                  <span>Impact: <b>{manualEstimatedImpactPct == null ? "Backend pending" : `${manualEstimatedImpactPct.toFixed(2)}%`}</b></span>
+                  <span>Impact: <b>{manualPoolLiquidityUsd == null ? "Checking..." : (Number(manualPoolLiquidityUsd) <= 0 ? "No liquidity" : (manualEstimatedImpactPct == null ? "Enter order" : `${manualEstimatedImpactPct.toFixed(2)}%`))}</b></span>
                   <span>Payout: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></span>
                 </div>
                 <div className="tiny muted" style={{ marginTop: 4, lineHeight: 1.25, whiteSpace: "normal", overflowWrap: "anywhere" }}>

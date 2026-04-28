@@ -7768,7 +7768,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
     <div className="app nexusApp">
       
       <style>{`
-        /* Mobile Watchlist: desktop-style table with one shared left/right scroll */
+        /* Mobile Watchlist: card-style rows, no sideways table scroll */
         @media (max-width: 780px) {
           .section-watch .panelScroll{
             overflow-x: hidden !important;
@@ -7777,49 +7777,62 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchTable{
             width: 100% !important;
             max-width: 100% !important;
-            overflow-x: auto !important;
+            overflow-x: hidden !important;
             overflow-y: visible !important;
-            -webkit-overflow-scrolling: touch;
-            touch-action: pan-x pan-y;
             position: relative !important;
           }
 
           .section-watch .watchHead.watchStickyHead{
-            display: grid !important;
-            position: sticky !important;
-            top: 0 !important;
-            z-index: 9 !important;
-            background: rgba(2, 18, 17, 0.96) !important;
-            backdrop-filter: blur(8px);
+            display: none !important;
           }
 
           .section-watch .watchScroll{
             overflow: visible !important;
-            max-width: none !important;
-          }
-
-          .section-watch .watchHead,
-          .section-watch .watchRow,
-          .section-watch .watchScroll{
-            /* 9 columns must match the JSX row exactly.
-               A wider shared table fixes cramped mobile numbers and keeps the remove X at the far right. */
-            min-width: 900px !important;
-          }
-
-          .section-watch .watchHead,
-          .section-watch .watchRow{
-            grid-template-columns: 34px minmax(76px, 1fr) 76px 120px 148px 172px 190px 150px 52px !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            display: grid !important;
             gap: 8px !important;
-            align-items: center !important;
           }
 
-          .section-watch .watchHead > *,
+          .section-watch .watchRow{
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            display: grid !important;
+            grid-template-columns: 28px minmax(62px, 1fr) 64px 92px !important;
+            grid-template-areas:
+              "rank coin pct price"
+              "rank vol mcap signals"
+              "rank chart chart actions" !important;
+            gap: 7px 8px !important;
+            align-items: center !important;
+            padding: 10px 8px !important;
+            min-height: 0 !important;
+          }
+
           .section-watch .watchRow > *{
             min-width: 0 !important;
           }
 
-          .section-watch .watchRow{
-            padding: 8px 6px !important;
+          .section-watch .watchRow > :nth-child(1){ grid-area: rank !important; align-self: center !important; }
+          .section-watch .watchRow > :nth-child(2){ grid-area: coin !important; justify-content: flex-start !important; }
+          .section-watch .watchRow > :nth-child(3){ grid-area: pct !important; justify-content: flex-end !important; font-size: 12px !important; }
+          .section-watch .watchRow > :nth-child(4){ grid-area: price !important; justify-content: flex-end !important; font-size: 12px !important; }
+          .section-watch .watchRow > :nth-child(5){ grid-area: vol !important; justify-content: flex-start !important; font-size: 11px !important; opacity: .92; }
+          .section-watch .watchRow > :nth-child(6){ grid-area: mcap !important; justify-content: flex-end !important; font-size: 11px !important; opacity: .92; }
+          .section-watch .watchRow > :nth-child(7){ grid-area: chart !important; justify-content: flex-start !important; max-width: 100% !important; overflow: hidden !important; }
+          .section-watch .watchRow > :nth-child(8){ grid-area: signals !important; justify-content: flex-end !important; gap: 4px !important; transform: scale(.92); transform-origin: right center; }
+          .section-watch .watchRow > :nth-child(9){ grid-area: actions !important; justify-content: flex-end !important; }
+
+          .section-watch .watchSym{
+            font-size: 13px !important;
+            max-width: 68px !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+          }
+
+          .section-watch .watchSignals input{
+            margin-right: 0 !important;
           }
         }
 

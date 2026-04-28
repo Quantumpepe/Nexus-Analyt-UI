@@ -7808,7 +7808,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           .section-watch .watchHead,
           .section-watch .watchRow{
-            grid-template-columns: 30px 36px minmax(76px, 1fr) 76px 120px 148px 172px 190px 52px !important;
+            grid-template-columns: 34px minmax(76px, 1fr) 76px 120px 148px 172px 190px 150px 52px !important;
             gap: 8px !important;
             align-items: center !important;
           }
@@ -11631,32 +11631,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "82px 34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 32px",
+                    gridTemplateColumns: "34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 150px 32px",
                     gap: 8,
                   }}
                 >
-                  <div
-                    className="center"
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "22px 38px 18px",
-                      alignItems: "center",
-                      justifyItems: "center",
-                      textAlign: "center",
-                      width: "100%",
-                    }}
-                  >
-                    <span>#</span>
-                    <span>Rating</span>
-                    <span></span>
-                  </div>
-                  <div aria-hidden="true" />
+                  <div className="center" style={{ textAlign: "center" }}>#</div>
                   <div style={{ paddingLeft: 2 }}>Coin</div>
                   <div className="right">%</div>
                   <div className="right">Price</div>
                   <div className="right">24h Vol</div>
                   <div className="right">Market Cap</div>
                   <div className="center" style={{ textAlign: "center" }}>7D Chart</div>
+                  <div className="center" style={{ textAlign: "center" }}>Signals</div>
                   <div className="right"> </div>
                 </div>
 
@@ -11685,96 +11671,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "82px 34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 32px",
+                          gridTemplateColumns: "34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 150px 32px",
                           gap: 8,
                           alignItems: "center",
                           minHeight: 54,
                         }}
                       >
                         <div
+                          className="mono"
                           style={{
-                            display: "grid",
-                            gridTemplateColumns: "22px 38px 18px",
+                            display: "flex",
                             alignItems: "center",
-                            justifyItems: "center",
+                            justifyContent: "center",
                             width: "100%",
+                            opacity: 0.62,
                             fontSize: 11,
-                            minWidth: 0,
+                            fontVariantNumeric: "tabular-nums",
                           }}
                         >
-                          <span
-                            className="mono"
-                            style={{
-                              opacity: 0.62,
-                              width: 22,
-                              textAlign: "right",
-                              fontVariantNumeric: "tabular-nums",
-                            }}
-                          >
-                            {idx + 1}
-                          </span>
-                          <button
-                            type="button"
-                            className="pill silver"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
-                            title={`System Rating ${sysRating} · click to rate ${sym}`}
-                            style={{
-                              width: 36,
-                              minWidth: 36,
-                              maxWidth: 36,
-                              padding: "2px 0",
-                              fontSize: 10,
-                              lineHeight: 1.1,
-                              cursor: "pointer",
-                              textAlign: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            {sysRating}
-                          </button>
-                          {onchainIcon ? (
-                            <span
-                              className="pill silver"
-                              title={onchainTitle}
-                              style={{
-                                width: 18,
-                                minWidth: 18,
-                                maxWidth: 18,
-                                padding: "2px 0",
-                                fontSize: 10,
-                                lineHeight: 1.1,
-                                justifyContent: "center",
-                                textAlign: "center",
-                              }}
-                            >
-                              {onchainIcon}
-                            </span>
-                          ) : (
-                            <span style={{ width: 18, minWidth: 18 }} />
-                          )}
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
-                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.95)" }} />
+                          {idx + 1}
                         </div>
                         <div className="watchCoin" style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", minWidth: 0, whiteSpace: "nowrap" }}>
                             <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
-                            <button
-                              type="button"
-                              className="pill silver"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
-                              title={userRatingBySymbol?.[sym] ? `User Rating: ${userRatingBySymbol?.[sym]}` : `Add your rating for ${sym}`}
-                              style={{ marginLeft: 6, padding: "1px 5px", fontSize: 9, lineHeight: 1.1, cursor: "pointer", whiteSpace: "nowrap" }}
-                            >
-                              {userRatingBySymbol?.[sym] || "-"}
-                            </button>
-                            <span
-                              className="pill silver"
-                              title={mcTitle}
-                              style={{ marginLeft: 5, padding: "1px 5px", minWidth: 18, justifyContent: "center", textAlign: "center", fontSize: 9, lineHeight: 1.1, fontWeight: 900, whiteSpace: "nowrap", color: mcUi.color, borderColor: mcUi.border }}
-                            >
-                              {mcUi.code}
-                            </span>
                           </div>
                         </div>
                         <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtPct(r.change24h)}</div>
@@ -11790,6 +11709,54 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             colorForSym={colorForSym}
                             lineClassForSym={lineClassForSym}
                           />
+                        </div>
+                        <div
+                          className="watchSignals"
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "flex-end",
+                            gap: 5,
+                            minWidth: 0,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleCompare(sym)}
+                            disabled={!checked && compareSymbols.length >= 20}
+                            title="Compare"
+                            style={{ transform: "scale(0.9)", marginRight: 2 }}
+                          />
+                          <button
+                            type="button"
+                            className="pill silver"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
+                            title={`System Rating ${sysRating} · click to rate ${sym}`}
+                            style={{ width: 34, minWidth: 34, maxWidth: 34, padding: "2px 0", fontSize: 10, lineHeight: 1.1, cursor: "pointer", textAlign: "center", justifyContent: "center" }}
+                          >
+                            {sysRating}
+                          </button>
+                          <button
+                            type="button"
+                            className="pill silver"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
+                            title={userRatingBySymbol?.[sym] ? `User Rating: ${userRatingBySymbol?.[sym]}` : `Add your rating for ${sym}`}
+                            style={{ width: 26, minWidth: 26, maxWidth: 26, padding: "2px 0", fontSize: 9, lineHeight: 1.1, cursor: "pointer", textAlign: "center", justifyContent: "center" }}
+                          >
+                            {userRatingBySymbol?.[sym] || "-"}
+                          </button>
+                          {onchainIcon ? (
+                            <span className="pill silver" title={onchainTitle} style={{ width: 18, minWidth: 18, maxWidth: 18, padding: "2px 0", fontSize: 10, lineHeight: 1.1, justifyContent: "center", textAlign: "center" }}>
+                              {onchainIcon}
+                            </span>
+                          ) : (
+                            <span style={{ width: 18, minWidth: 18 }} />
+                          )}
+                          <span className="pill silver" title={mcTitle} style={{ width: 20, minWidth: 20, maxWidth: 20, padding: "2px 0", justifyContent: "center", textAlign: "center", fontSize: 9, lineHeight: 1.1, fontWeight: 900, color: mcUi.color, borderColor: mcUi.border }}>
+                            {mcUi.code}
+                          </span>
                         </div>
                         <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", minWidth: 0 }}>
                           <button

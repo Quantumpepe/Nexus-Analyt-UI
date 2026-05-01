@@ -7768,10 +7768,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
     <div className="app nexusApp">
       
       <style>{`
-        /* Mobile Watchlist: one-line trader layout.
-           Desktop keeps all data. Mobile shows the most important data first:
-           # | Coin | % | Price | 24h Vol | Signals.
-           Market Cap, Chart and remove button stay desktop-only to keep mobile clean. */
+        /* Mobile Watchlist: one compact row per coin, no card/multi-row layout */
         @media (max-width: 780px) {
           .section-watch .panelScroll{
             overflow-x: hidden !important;
@@ -7780,17 +7777,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchTable{
             width: 100% !important;
             max-width: 100% !important;
-            min-width: 0 !important;
             overflow-x: hidden !important;
             overflow-y: visible !important;
             position: relative !important;
-          }
-
-          .section-watch .watchScroll{
-            width: 100% !important;
-            max-width: 100% !important;
-            min-width: 0 !important;
-            overflow: visible !important;
           }
 
           .section-watch .watchHead.watchStickyHead{
@@ -7802,12 +7791,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
             backdrop-filter: blur(8px);
           }
 
-          .section-watch .watchHead,
-          .section-watch .watchRow{
-            width: 100% !important;
+          .section-watch .watchScroll{
+            overflow: visible !important;
             max-width: 100% !important;
             min-width: 0 !important;
-            grid-template-columns: 22px minmax(58px, 1.15fr) 52px minmax(76px, 1fr) minmax(72px, 1fr) minmax(96px, 1.35fr) !important;
+          }
+
+          .section-watch .watchHead,
+          .section-watch .watchRow,
+          .section-watch .watchScroll{
+            min-width: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+
+          .section-watch .watchHead,
+          .section-watch .watchRow{
+            grid-template-columns: 24px minmax(54px, 1fr) 54px 72px 70px 74px !important;
             gap: 4px !important;
             align-items: center !important;
           }
@@ -7815,16 +7815,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchHead > *,
           .section-watch .watchRow > *{
             min-width: 0 !important;
-            overflow: hidden !important;
           }
 
           .section-watch .watchRow{
             padding: 7px 4px !important;
             min-height: 42px !important;
             height: 42px !important;
+            overflow: hidden !important;
           }
 
-          /* Hide Market Cap, 7D Chart and Remove on mobile only. */
+          /* Mobile column mapping: keep one line only.
+             Show: # | Coin | % | Price | 24h Vol | Signals.
+             Hide Market Cap, Chart and remove button to protect one-row readability. */
           .section-watch .watchHead > :nth-child(6),
           .section-watch .watchHead > :nth-child(7),
           .section-watch .watchHead > :nth-child(9),
@@ -7834,60 +7836,49 @@ const handlePanelActivate = useCallback((name) => (e) => {
             display: none !important;
           }
 
-          .section-watch .watchRow > :nth-child(1),
-          .section-watch .watchHead > :nth-child(1){
+          .section-watch .watchHead > :nth-child(1)::before{ content: "#"; }
+          .section-watch .watchHead > :nth-child(1){ font-size: 0 !important; }
+          .section-watch .watchHead > :nth-child(8)::before{ content: "Signals"; }
+          .section-watch .watchHead > :nth-child(8){ font-size: 0 !important; text-align: right !important; }
+          .section-watch .watchHead > :nth-child(8)::before{ font-size: 11px !important; }
+
+          .section-watch .watchRow > :nth-child(1){
             justify-content: center !important;
-            text-align: center !important;
             font-size: 10px !important;
           }
 
-          .section-watch .watchRow > :nth-child(2),
-          .section-watch .watchHead > :nth-child(2){
+          .section-watch .watchRow > :nth-child(2){
             justify-content: flex-start !important;
-            text-align: left !important;
           }
 
           .section-watch .watchRow > :nth-child(3),
           .section-watch .watchRow > :nth-child(4),
-          .section-watch .watchRow > :nth-child(5),
-          .section-watch .watchHead > :nth-child(3),
-          .section-watch .watchHead > :nth-child(4),
-          .section-watch .watchHead > :nth-child(5){
+          .section-watch .watchRow > :nth-child(5){
             justify-content: flex-end !important;
-            text-align: right !important;
             font-size: 10.5px !important;
             line-height: 1 !important;
             white-space: nowrap !important;
           }
 
-          .section-watch .watchRow > :nth-child(8),
-          .section-watch .watchHead > :nth-child(8){
+          .section-watch .watchRow > :nth-child(8){
             justify-content: flex-end !important;
-            text-align: right !important;
+            gap: 2px !important;
+            transform: scale(.82);
+            transform-origin: right center;
             overflow: visible !important;
           }
 
-          .section-watch .watchRow > :nth-child(8){
-            gap: 3px !important;
-            transform: scale(.80);
-            transform-origin: right center;
-            display: flex !important;
-            flex-wrap: nowrap !important;
-          }
-
           .section-watch .watchSignals input{
-            margin: 0 !important;
-            transform: scale(.86) !important;
+            margin-right: 0 !important;
           }
 
           .section-watch .watchSignals .pill{
-            font-size: 8.5px !important;
-            line-height: 1 !important;
+            font-size: 9px !important;
           }
 
           .section-watch .watchSym{
             font-size: 11.5px !important;
-            max-width: 68px !important;
+            max-width: 56px !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
             white-space: nowrap !important;

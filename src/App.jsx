@@ -8770,16 +8770,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
             display: block !important;
             overflow: visible !important;
             max-width: none !important;
-            width: max(100%, 736px) !important;
-            min-width: 736px !important;
+            width: max(100%, 790px) !important;
+            min-width: 790px !important;
           }
           .section-watch .watchHead,
           .section-watch .watchRow{
             display: grid !important;
-            width: max(100%, 736px) !important;
-            min-width: 736px !important;
+            width: max(100%, 790px) !important;
+            min-width: 790px !important;
             max-width: none !important;
-            grid-template-columns: 76px 36px minmax(70px,1fr) 60px 108px 100px 102px minmax(86px,.9fr) 34px !important;
+            grid-template-columns: 28px 64px 54px 86px 112px 108px 104px 150px 38px !important;
             gap: 5px !important;
             align-items: center !important;
             box-sizing: border-box !important;
@@ -8821,6 +8821,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
             justify-self: end !important;
             flex: 0 0 auto !important;
           }
+          .section-watch .watchSignals{
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            justify-content: flex-start !important;
+            align-items: center !important;
+            gap: 5px !important;
+            overflow: visible !important;
+            min-width: 150px !important;
+          }
+          .section-watch .watchSignals .pill{
+            flex: 0 0 auto !important;
+          }
+          .section-watch .watchRow > :nth-child(9),
+          .section-watch .watchHead > :nth-child(9){
+            overflow: visible !important;
+            justify-content: center !important;
+          }
+
         }
 `}</style>
 <header className="topbar">

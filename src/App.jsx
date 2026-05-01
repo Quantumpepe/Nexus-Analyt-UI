@@ -7768,29 +7768,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
     <div className="app nexusApp">
       
       <style>{`
-        /* Mobile Watchlist: one-line trader layout.
-           Desktop keeps all data. Mobile shows the most important data first:
-           # | Coin | % | Price | 24h Vol | Signals.
-           Market Cap, Chart and remove button stay desktop-only to keep mobile clean. */
+        /* Mobile Watchlist fix:
+           Keep the same desktop columns on phone, only smaller and horizontally scrollable.
+           Nothing is hidden: Market Cap, 7D Chart and X remain visible. */
         @media (max-width: 780px) {
-          .section-watch .panelScroll{
-            overflow-x: hidden !important;
+          .section-watch{
+            overflow: hidden !important;
           }
 
-          .section-watch .watchTable{
-            width: 100% !important;
-            max-width: 100% !important;
-            min-width: 0 !important;
-            overflow-x: hidden !important;
-            overflow-y: visible !important;
-            position: relative !important;
-          }
-
+          .section-watch .panelScroll,
+          .section-watch .watchTable,
           .section-watch .watchScroll{
             width: 100% !important;
             max-width: 100% !important;
-            min-width: 0 !important;
-            overflow: visible !important;
+            overflow-x: auto !important;
+            overflow-y: visible !important;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .section-watch .watchTable{
+            position: relative !important;
           }
 
           .section-watch .watchHead.watchStickyHead{
@@ -7804,41 +7801,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           .section-watch .watchHead,
           .section-watch .watchRow{
-            width: 100% !important;
-            max-width: 100% !important;
-            min-width: 0 !important;
-            grid-template-columns: 22px minmax(58px, 1.15fr) 52px minmax(76px, 1fr) minmax(72px, 1fr) minmax(96px, 1.35fr) !important;
-            gap: 4px !important;
+            display: grid !important;
+            width: 980px !important;
+            min-width: 980px !important;
+            max-width: none !important;
+            grid-template-columns: 34px 100px 72px 128px 138px 150px 122px 132px 42px !important;
+            gap: 7px !important;
             align-items: center !important;
           }
 
           .section-watch .watchHead > *,
           .section-watch .watchRow > *{
             min-width: 0 !important;
+            white-space: nowrap !important;
             overflow: hidden !important;
+            text-overflow: ellipsis !important;
           }
 
           .section-watch .watchRow{
-            padding: 7px 4px !important;
-            min-height: 42px !important;
-            height: 42px !important;
+            padding: 7px 8px !important;
+            min-height: 46px !important;
           }
 
-          /* Hide Market Cap, 7D Chart and Remove on mobile only. */
-          .section-watch .watchHead > :nth-child(6),
-          .section-watch .watchHead > :nth-child(7),
-          .section-watch .watchHead > :nth-child(9),
-          .section-watch .watchRow > :nth-child(6),
-          .section-watch .watchRow > :nth-child(7),
-          .section-watch .watchRow > :nth-child(9){
-            display: none !important;
+          .section-watch .watchHead{
+            padding-left: 8px !important;
+            padding-right: 8px !important;
           }
 
           .section-watch .watchRow > :nth-child(1),
           .section-watch .watchHead > :nth-child(1){
             justify-content: center !important;
             text-align: center !important;
-            font-size: 10px !important;
           }
 
           .section-watch .watchRow > :nth-child(2),
@@ -7850,29 +7843,51 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchRow > :nth-child(3),
           .section-watch .watchRow > :nth-child(4),
           .section-watch .watchRow > :nth-child(5),
+          .section-watch .watchRow > :nth-child(6),
           .section-watch .watchHead > :nth-child(3),
           .section-watch .watchHead > :nth-child(4),
-          .section-watch .watchHead > :nth-child(5){
+          .section-watch .watchHead > :nth-child(5),
+          .section-watch .watchHead > :nth-child(6){
             justify-content: flex-end !important;
             text-align: right !important;
             font-size: 10.5px !important;
-            line-height: 1 !important;
-            white-space: nowrap !important;
+            line-height: 1.05 !important;
+          }
+
+          .section-watch .watchRow > :nth-child(7),
+          .section-watch .watchHead > :nth-child(7){
+            justify-content: center !important;
+            text-align: center !important;
+            overflow: visible !important;
           }
 
           .section-watch .watchRow > :nth-child(8),
           .section-watch .watchHead > :nth-child(8){
-            justify-content: flex-end !important;
-            text-align: right !important;
+            justify-content: flex-start !important;
+            text-align: left !important;
             overflow: visible !important;
           }
 
-          .section-watch .watchRow > :nth-child(8){
-            gap: 3px !important;
-            transform: scale(.80);
-            transform-origin: right center;
+          .section-watch .watchRow > :nth-child(9),
+          .section-watch .watchHead > :nth-child(9){
+            display: flex !important;
+            justify-content: center !important;
+            text-align: center !important;
+            overflow: visible !important;
+          }
+
+          .section-watch .watchSym{
+            font-size: 11.5px !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            white-space: nowrap !important;
+          }
+
+          .section-watch .watchSignals{
             display: flex !important;
             flex-wrap: nowrap !important;
+            gap: 4px !important;
+            align-items: center !important;
           }
 
           .section-watch .watchSignals input{
@@ -7885,12 +7900,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
             line-height: 1 !important;
           }
 
-          .section-watch .watchSym{
-            font-size: 11.5px !important;
-            max-width: 68px !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-            white-space: nowrap !important;
+          .section-watch .watchMiniSpark,
+          .section-watch .watchSpark,
+          .section-watch canvas{
+            max-width: 116px !important;
           }
         }
 
@@ -8800,128 +8813,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchMiniSpark.watchMiniSparkCg{ width: 86px !important; height: 32px !important; }
           .section-watch .watchRow svg,
           .section-watch .watchRow canvas{ width: 86px !important; max-width: 86px !important; }
-          .section-watch .watchRow .iconBtn{
-            width: 24px !important;
-            height: 24px !important;
-            min-width: 24px !important;
-            margin-left: auto !important;
-            justify-self: end !important;
-            flex: 0 0 auto !important;
-          }
-        }
-
-        /* MOBILE WATCHLIST DESKTOP-LIKE TABLE FIX
-           Only affects the Watchlist on phone/tablet widths.
-           Keeps the same 9 desktop columns and makes the whole table swipeable. */
-        @media (max-width: 820px) {
-          .section-watch .panelScroll{
-            overflow: hidden !important;
-            max-width: 100% !important;
-          }
-
-          .section-watch .watchTable{
-            display: block !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            overflow-x: auto !important;
-            overflow-y: auto !important;
-            -webkit-overflow-scrolling: touch !important;
-            overscroll-behavior-x: contain !important;
-            touch-action: pan-x pan-y !important;
-          }
-
-          .section-watch .watchScroll{
-            display: block !important;
-            width: 900px !important;
-            min-width: 900px !important;
-            max-width: none !important;
-            overflow: visible !important;
-          }
-
-          .section-watch .watchHead,
-          .section-watch .watchRow{
-            display: grid !important;
-            width: 900px !important;
-            min-width: 900px !important;
-            max-width: none !important;
-            grid-template-columns: 32px 78px 62px 120px 132px 148px 118px 162px 32px !important;
-            gap: 6px !important;
-            align-items: center !important;
-            box-sizing: border-box !important;
-          }
-
-          .section-watch .watchHead > *,
-          .section-watch .watchRow > *{
-            display: flex !important;
-            min-width: 0 !important;
-            overflow: hidden !important;
-            white-space: nowrap !important;
-            text-overflow: ellipsis !important;
-          }
-
-          .section-watch .watchHead.watchStickyHead{
-            position: sticky !important;
-            top: 0 !important;
-            z-index: 20 !important;
-            background: rgba(2,18,17,.96) !important;
-            backdrop-filter: blur(8px) !important;
-          }
-
-          .section-watch .watchHead{
-            padding-left: 5px !important;
-            padding-right: 5px !important;
-            font-size: 10px !important;
-          }
-
-          .section-watch .watchRow{
-            padding: 7px 5px !important;
-            min-height: 46px !important;
-          }
-
-          .section-watch .watchCoin,
-          .section-watch .watchSym{
-            min-width: 0 !important;
-            max-width: none !important;
-            white-space: nowrap !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-          }
-
-          .section-watch .watchRow .mono{
-            font-size: 10.5px !important;
-            line-height: 1.05 !important;
-            white-space: nowrap !important;
-            font-variant-numeric: tabular-nums !important;
-          }
-
-          .section-watch .watchSignals{
-            gap: 5px !important;
-            transform: none !important;
-            flex-wrap: nowrap !important;
-            overflow: visible !important;
-          }
-
-          .section-watch .watchSignals input{
-            margin: 0 2px 0 0 !important;
-            transform: scale(.9) !important;
-            flex: 0 0 auto !important;
-          }
-
-          .section-watch .watchSignals .pill{
-            flex: 0 0 auto !important;
-          }
-
-          .section-watch .watchMiniSpark.watchMiniSparkCg{
-            width: 110px !important;
-            height: 34px !important;
-          }
-
-          .section-watch .watchRow svg,
-          .section-watch .watchRow canvas{
-            width: 110px !important;
-            max-width: 110px !important;
-          }
-
           .section-watch .watchRow .iconBtn{
             width: 24px !important;
             height: 24px !important;

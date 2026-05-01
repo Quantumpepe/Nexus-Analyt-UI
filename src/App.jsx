@@ -7809,7 +7809,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             width: 100% !important;
             max-width: 100% !important;
             min-width: 0 !important;
-            grid-template-columns: 20px minmax(48px, .9fr) 48px minmax(62px, 1fr) minmax(58px, .9fr) 82px !important;
+            grid-template-columns: 22px minmax(64px, 1.2fr) 50px minmax(72px, 1fr) minmax(72px, 1fr) minmax(92px, 1.45fr) !important;
             gap: 3px !important;
             align-items: center !important;
           }
@@ -7872,9 +7872,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
 
           .section-watch .watchRow > :nth-child(8){
-            gap: 1px !important;
-            transform: scale(.72);
+            gap: 3px !important;
+            transform: scale(.78);
             transform-origin: right center;
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            justify-content: flex-end !important;
           }
 
           .section-watch .watchSignals input{
@@ -7888,8 +7891,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
 
           .section-watch .watchSym{
-            font-size: 11px !important;
-            max-width: 52px !important;
+            font-size: 11.5px !important;
+            max-width: 68px !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
             white-space: nowrap !important;

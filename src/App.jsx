@@ -7768,7 +7768,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
     <div className="app nexusApp">
       
       <style>{`
-        /* Mobile Watchlist: strict one-line compact layout, no horizontal scroll */
+        /* Mobile Watchlist: one compact row per coin, no card/multi-row layout */
         @media (max-width: 780px) {
           .section-watch .panelScroll{
             overflow-x: hidden !important;
@@ -7777,22 +7777,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchTable{
             width: 100% !important;
             max-width: 100% !important;
-            min-width: 0 !important;
             overflow-x: hidden !important;
             overflow-y: visible !important;
             position: relative !important;
-          }
-
-          .section-watch .watchTable::-webkit-scrollbar{
-            display: none !important;
-          }
-
-          .section-watch .watchScroll{
-            width: 100% !important;
-            max-width: 100% !important;
-            min-width: 0 !important;
-            overflow-x: hidden !important;
-            overflow-y: visible !important;
           }
 
           .section-watch .watchHead.watchStickyHead{
@@ -7804,31 +7791,42 @@ const handlePanelActivate = useCallback((name) => (e) => {
             backdrop-filter: blur(8px);
           }
 
-          .section-watch .watchHead,
-          .section-watch .watchRow{
-            width: 100% !important;
+          .section-watch .watchScroll{
+            overflow: visible !important;
             max-width: 100% !important;
             min-width: 0 !important;
-            grid-template-columns: 22px minmax(64px, 1.2fr) 50px minmax(72px, 1fr) minmax(72px, 1fr) minmax(92px, 1.45fr) !important;
-            gap: 3px !important;
+          }
+
+          .section-watch .watchHead,
+          .section-watch .watchRow,
+          .section-watch .watchScroll{
+            min-width: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+
+          .section-watch .watchHead,
+          .section-watch .watchRow{
+            grid-template-columns: 24px minmax(54px, 1fr) 54px 72px 70px 74px !important;
+            gap: 4px !important;
             align-items: center !important;
           }
 
           .section-watch .watchHead > *,
           .section-watch .watchRow > *{
             min-width: 0 !important;
-            overflow: hidden !important;
           }
 
           .section-watch .watchRow{
-            padding: 7px 3px !important;
+            padding: 7px 4px !important;
             min-height: 42px !important;
             height: 42px !important;
+            overflow: hidden !important;
           }
 
-          /* Mobile visible columns:
-             # | Coin | % | Price | 24h Vol | Signals
-             Hide Market Cap, 7D Chart and Remove only on mobile. */
+          /* Mobile column mapping: keep one line only.
+             Show: # | Coin | % | Price | 24h Vol | Signals.
+             Hide Market Cap, Chart and remove button to protect one-row readability. */
           .section-watch .watchHead > :nth-child(6),
           .section-watch .watchHead > :nth-child(7),
           .section-watch .watchHead > :nth-child(9),
@@ -7838,61 +7836,49 @@ const handlePanelActivate = useCallback((name) => (e) => {
             display: none !important;
           }
 
-          .section-watch .watchHead > :nth-child(1),
+          .section-watch .watchHead > :nth-child(1)::before{ content: "#"; }
+          .section-watch .watchHead > :nth-child(1){ font-size: 0 !important; }
+          .section-watch .watchHead > :nth-child(8)::before{ content: "Signals"; }
+          .section-watch .watchHead > :nth-child(8){ font-size: 0 !important; text-align: right !important; }
+          .section-watch .watchHead > :nth-child(8)::before{ font-size: 11px !important; }
+
           .section-watch .watchRow > :nth-child(1){
             justify-content: center !important;
-            text-align: center !important;
             font-size: 10px !important;
           }
 
-          .section-watch .watchHead > :nth-child(2),
           .section-watch .watchRow > :nth-child(2){
             justify-content: flex-start !important;
-            text-align: left !important;
           }
 
-          .section-watch .watchHead > :nth-child(3),
-          .section-watch .watchHead > :nth-child(4),
-          .section-watch .watchHead > :nth-child(5),
           .section-watch .watchRow > :nth-child(3),
           .section-watch .watchRow > :nth-child(4),
           .section-watch .watchRow > :nth-child(5){
             justify-content: flex-end !important;
-            text-align: right !important;
-            font-size: 10px !important;
+            font-size: 10.5px !important;
             line-height: 1 !important;
             white-space: nowrap !important;
           }
 
-          .section-watch .watchHead > :nth-child(8),
           .section-watch .watchRow > :nth-child(8){
             justify-content: flex-end !important;
-            text-align: right !important;
+            gap: 2px !important;
+            transform: scale(.82);
+            transform-origin: right center;
             overflow: visible !important;
           }
 
-          .section-watch .watchRow > :nth-child(8){
-            gap: 3px !important;
-            transform: scale(.78);
-            transform-origin: right center;
-            display: flex !important;
-            flex-wrap: nowrap !important;
-            justify-content: flex-end !important;
-          }
-
           .section-watch .watchSignals input{
-            margin: 0 !important;
-            transform: scale(.82) !important;
+            margin-right: 0 !important;
           }
 
           .section-watch .watchSignals .pill{
-            font-size: 8.5px !important;
-            line-height: 1 !important;
+            font-size: 9px !important;
           }
 
           .section-watch .watchSym{
             font-size: 11.5px !important;
-            max-width: 68px !important;
+            max-width: 56px !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
             white-space: nowrap !important;
@@ -11707,32 +11693,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "82px 34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 32px",
+                    gridTemplateColumns: "34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 150px 32px",
                     gap: 8,
                   }}
                 >
-                  <div
-                    className="center"
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "22px 38px 18px",
-                      alignItems: "center",
-                      justifyItems: "center",
-                      textAlign: "center",
-                      width: "100%",
-                    }}
-                  >
-                    <span>#</span>
-                    <span>Rating</span>
-                    <span></span>
-                  </div>
-                  <div aria-hidden="true" />
+                  <div className="center" style={{ textAlign: "center" }}>#</div>
                   <div style={{ paddingLeft: 2 }}>Coin</div>
                   <div className="right">%</div>
                   <div className="right">Price</div>
                   <div className="right">24h Vol</div>
                   <div className="right">Market Cap</div>
                   <div className="center" style={{ textAlign: "center" }}>7D Chart</div>
+                  <div className="center" style={{ textAlign: "center" }}>Signals</div>
                   <div className="right"> </div>
                 </div>
 
@@ -11761,96 +11733,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "82px 34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 32px",
+                          gridTemplateColumns: "34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 150px 32px",
                           gap: 8,
                           alignItems: "center",
                           minHeight: 54,
                         }}
                       >
                         <div
+                          className="mono"
                           style={{
-                            display: "grid",
-                            gridTemplateColumns: "22px 38px 18px",
+                            display: "flex",
                             alignItems: "center",
-                            justifyItems: "center",
+                            justifyContent: "center",
                             width: "100%",
+                            opacity: 0.62,
                             fontSize: 11,
-                            minWidth: 0,
+                            fontVariantNumeric: "tabular-nums",
                           }}
                         >
-                          <span
-                            className="mono"
-                            style={{
-                              opacity: 0.62,
-                              width: 22,
-                              textAlign: "right",
-                              fontVariantNumeric: "tabular-nums",
-                            }}
-                          >
-                            {idx + 1}
-                          </span>
-                          <button
-                            type="button"
-                            className="pill silver"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
-                            title={`System Rating ${sysRating} · click to rate ${sym}`}
-                            style={{
-                              width: 36,
-                              minWidth: 36,
-                              maxWidth: 36,
-                              padding: "2px 0",
-                              fontSize: 10,
-                              lineHeight: 1.1,
-                              cursor: "pointer",
-                              textAlign: "center",
-                              justifyContent: "center",
-                            }}
-                          >
-                            {sysRating}
-                          </button>
-                          {onchainIcon ? (
-                            <span
-                              className="pill silver"
-                              title={onchainTitle}
-                              style={{
-                                width: 18,
-                                minWidth: 18,
-                                maxWidth: 18,
-                                padding: "2px 0",
-                                fontSize: 10,
-                                lineHeight: 1.1,
-                                justifyContent: "center",
-                                textAlign: "center",
-                              }}
-                            >
-                              {onchainIcon}
-                            </span>
-                          ) : (
-                            <span style={{ width: 18, minWidth: 18 }} />
-                          )}
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
-                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.95)" }} />
+                          {idx + 1}
                         </div>
                         <div className="watchCoin" style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", minWidth: 0, whiteSpace: "nowrap" }}>
                             <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
-                            <button
-                              type="button"
-                              className="pill silver"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
-                              title={userRatingBySymbol?.[sym] ? `User Rating: ${userRatingBySymbol?.[sym]}` : `Add your rating for ${sym}`}
-                              style={{ marginLeft: 6, padding: "1px 5px", fontSize: 9, lineHeight: 1.1, cursor: "pointer", whiteSpace: "nowrap" }}
-                            >
-                              {userRatingBySymbol?.[sym] || "-"}
-                            </button>
-                            <span
-                              className="pill silver"
-                              title={mcTitle}
-                              style={{ marginLeft: 5, padding: "1px 5px", minWidth: 18, justifyContent: "center", textAlign: "center", fontSize: 9, lineHeight: 1.1, fontWeight: 900, whiteSpace: "nowrap", color: mcUi.color, borderColor: mcUi.border }}
-                            >
-                              {mcUi.code}
-                            </span>
                           </div>
                         </div>
                         <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtPct(r.change24h)}</div>
@@ -11866,6 +11771,54 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             colorForSym={colorForSym}
                             lineClassForSym={lineClassForSym}
                           />
+                        </div>
+                        <div
+                          className="watchSignals"
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "flex-end",
+                            gap: 5,
+                            minWidth: 0,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleCompare(sym)}
+                            disabled={!checked && compareSymbols.length >= 20}
+                            title="Compare"
+                            style={{ transform: "scale(0.9)", marginRight: 2 }}
+                          />
+                          <button
+                            type="button"
+                            className="pill silver"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
+                            title={`System Rating ${sysRating} · click to rate ${sym}`}
+                            style={{ width: 34, minWidth: 34, maxWidth: 34, padding: "2px 0", fontSize: 10, lineHeight: 1.1, cursor: "pointer", textAlign: "center", justifyContent: "center" }}
+                          >
+                            {sysRating}
+                          </button>
+                          <button
+                            type="button"
+                            className="pill silver"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
+                            title={userRatingBySymbol?.[sym] ? `User Rating: ${userRatingBySymbol?.[sym]}` : `Add your rating for ${sym}`}
+                            style={{ width: 26, minWidth: 26, maxWidth: 26, padding: "2px 0", fontSize: 9, lineHeight: 1.1, cursor: "pointer", textAlign: "center", justifyContent: "center" }}
+                          >
+                            {userRatingBySymbol?.[sym] || "-"}
+                          </button>
+                          {onchainIcon ? (
+                            <span className="pill silver" title={onchainTitle} style={{ width: 18, minWidth: 18, maxWidth: 18, padding: "2px 0", fontSize: 10, lineHeight: 1.1, justifyContent: "center", textAlign: "center" }}>
+                              {onchainIcon}
+                            </span>
+                          ) : (
+                            <span style={{ width: 18, minWidth: 18 }} />
+                          )}
+                          <span className="pill silver" title={mcTitle} style={{ width: 20, minWidth: 20, maxWidth: 20, padding: "2px 0", justifyContent: "center", textAlign: "center", fontSize: 9, lineHeight: 1.1, fontWeight: 900, color: mcUi.color, borderColor: mcUi.border }}>
+                            {mcUi.code}
+                          </span>
                         </div>
                         <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", minWidth: 0 }}>
                           <button

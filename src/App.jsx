@@ -7768,7 +7768,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
     <div className="app nexusApp">
       
       <style>{`
-        /* Mobile Watchlist: one compact row per coin, deploy-safe CSS only */
+        /* Mobile Watchlist: strict one-line compact layout, no horizontal scroll */
         @media (max-width: 780px) {
           .section-watch .panelScroll{
             overflow-x: hidden !important;
@@ -7777,9 +7777,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchTable{
             width: 100% !important;
             max-width: 100% !important;
+            min-width: 0 !important;
             overflow-x: hidden !important;
             overflow-y: visible !important;
             position: relative !important;
+          }
+
+          .section-watch .watchTable::-webkit-scrollbar{
+            display: none !important;
+          }
+
+          .section-watch .watchScroll{
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            overflow-x: hidden !important;
+            overflow-y: visible !important;
           }
 
           .section-watch .watchHead.watchStickyHead{
@@ -7791,42 +7804,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
             backdrop-filter: blur(8px);
           }
 
-          .section-watch .watchScroll{
-            overflow: visible !important;
-            max-width: 100% !important;
-            min-width: 0 !important;
-          }
-
-          .section-watch .watchHead,
-          .section-watch .watchRow,
-          .section-watch .watchScroll{
-            min-width: 0 !important;
-            width: 100% !important;
-            max-width: 100% !important;
-          }
-
           .section-watch .watchHead,
           .section-watch .watchRow{
-            grid-template-columns: 24px minmax(56px, 1fr) 54px 76px 78px 96px !important;
-            gap: 4px !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            grid-template-columns: 20px minmax(48px, .9fr) 48px minmax(62px, 1fr) minmax(58px, .9fr) 82px !important;
+            gap: 3px !important;
             align-items: center !important;
           }
 
           .section-watch .watchHead > *,
           .section-watch .watchRow > *{
             min-width: 0 !important;
-          }
-
-          .section-watch .watchRow{
-            padding: 7px 4px !important;
-            min-height: 42px !important;
-            height: 42px !important;
             overflow: hidden !important;
           }
 
-          /* Keep mobile to one line:
-             visible columns are #, Coin, %, Price, 24h Vol and Signals.
-             Market Cap, 7D Chart and Remove are hidden on mobile only. */
+          .section-watch .watchRow{
+            padding: 7px 3px !important;
+            min-height: 42px !important;
+            height: 42px !important;
+          }
+
+          /* Mobile visible columns:
+             # | Coin | % | Price | 24h Vol | Signals
+             Hide Market Cap, 7D Chart and Remove only on mobile. */
           .section-watch .watchHead > :nth-child(6),
           .section-watch .watchHead > :nth-child(7),
           .section-watch .watchHead > :nth-child(9),
@@ -7857,7 +7859,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchRow > :nth-child(5){
             justify-content: flex-end !important;
             text-align: right !important;
-            font-size: 10.5px !important;
+            font-size: 10px !important;
             line-height: 1 !important;
             white-space: nowrap !important;
           }
@@ -7866,26 +7868,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-watch .watchRow > :nth-child(8){
             justify-content: flex-end !important;
             text-align: right !important;
-          }
-
-          .section-watch .watchRow > :nth-child(8){
-            gap: 2px !important;
-            transform: scale(.82);
-            transform-origin: right center;
             overflow: visible !important;
           }
 
+          .section-watch .watchRow > :nth-child(8){
+            gap: 1px !important;
+            transform: scale(.72);
+            transform-origin: right center;
+          }
+
           .section-watch .watchSignals input{
-            margin-right: 0 !important;
+            margin: 0 !important;
+            transform: scale(.82) !important;
           }
 
           .section-watch .watchSignals .pill{
-            font-size: 9px !important;
+            font-size: 8.5px !important;
+            line-height: 1 !important;
           }
 
           .section-watch .watchSym{
-            font-size: 11.5px !important;
-            max-width: 58px !important;
+            font-size: 11px !important;
+            max-width: 52px !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
             white-space: nowrap !important;
@@ -11700,18 +11704,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div
                   className="watchHead watchStickyHead"
                   style={{
-                    gridTemplateColumns: "34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 150px 32px",
+                    gridTemplateColumns: "82px 34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 32px",
                     gap: 8,
                   }}
                 >
-                  <div className="center" style={{ textAlign: "center" }}>#</div>
+                  <div
+                    className="center"
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "22px 38px 18px",
+                      alignItems: "center",
+                      justifyItems: "center",
+                      textAlign: "center",
+                      width: "100%",
+                    }}
+                  >
+                    <span>#</span>
+                    <span>Rating</span>
+                    <span></span>
+                  </div>
+                  <div aria-hidden="true" />
                   <div style={{ paddingLeft: 2 }}>Coin</div>
                   <div className="right">%</div>
                   <div className="right">Price</div>
                   <div className="right">24h Vol</div>
                   <div className="right">Market Cap</div>
                   <div className="center" style={{ textAlign: "center" }}>7D Chart</div>
-                  <div className="center" style={{ textAlign: "center" }}>Signals</div>
                   <div className="right"> </div>
                 </div>
 
@@ -11740,29 +11758,96 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                          gridTemplateColumns: "34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 150px 32px",
+                          gridTemplateColumns: "82px 34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 32px",
                           gap: 8,
                           alignItems: "center",
                           minHeight: 54,
                         }}
                       >
                         <div
-                          className="mono"
                           style={{
-                            display: "flex",
+                            display: "grid",
+                            gridTemplateColumns: "22px 38px 18px",
                             alignItems: "center",
-                            justifyContent: "center",
+                            justifyItems: "center",
                             width: "100%",
-                            opacity: 0.62,
                             fontSize: 11,
-                            fontVariantNumeric: "tabular-nums",
+                            minWidth: 0,
                           }}
                         >
-                          {idx + 1}
+                          <span
+                            className="mono"
+                            style={{
+                              opacity: 0.62,
+                              width: 22,
+                              textAlign: "right",
+                              fontVariantNumeric: "tabular-nums",
+                            }}
+                          >
+                            {idx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            className="pill silver"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
+                            title={`System Rating ${sysRating} · click to rate ${sym}`}
+                            style={{
+                              width: 36,
+                              minWidth: 36,
+                              maxWidth: 36,
+                              padding: "2px 0",
+                              fontSize: 10,
+                              lineHeight: 1.1,
+                              cursor: "pointer",
+                              textAlign: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {sysRating}
+                          </button>
+                          {onchainIcon ? (
+                            <span
+                              className="pill silver"
+                              title={onchainTitle}
+                              style={{
+                                width: 18,
+                                minWidth: 18,
+                                maxWidth: 18,
+                                padding: "2px 0",
+                                fontSize: 10,
+                                lineHeight: 1.1,
+                                justifyContent: "center",
+                                textAlign: "center",
+                              }}
+                            >
+                              {onchainIcon}
+                            </span>
+                          ) : (
+                            <span style={{ width: 18, minWidth: 18 }} />
+                          )}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.95)" }} />
                         </div>
                         <div className="watchCoin" style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", minWidth: 0, whiteSpace: "nowrap" }}>
                             <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
+                            <button
+                              type="button"
+                              className="pill silver"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
+                              title={userRatingBySymbol?.[sym] ? `User Rating: ${userRatingBySymbol?.[sym]}` : `Add your rating for ${sym}`}
+                              style={{ marginLeft: 6, padding: "1px 5px", fontSize: 9, lineHeight: 1.1, cursor: "pointer", whiteSpace: "nowrap" }}
+                            >
+                              {userRatingBySymbol?.[sym] || "-"}
+                            </button>
+                            <span
+                              className="pill silver"
+                              title={mcTitle}
+                              style={{ marginLeft: 5, padding: "1px 5px", minWidth: 18, justifyContent: "center", textAlign: "center", fontSize: 9, lineHeight: 1.1, fontWeight: 900, whiteSpace: "nowrap", color: mcUi.color, borderColor: mcUi.border }}
+                            >
+                              {mcUi.code}
+                            </span>
                           </div>
                         </div>
                         <div className={`right mono ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", fontSize: 13, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{fmtPct(r.change24h)}</div>
@@ -11778,54 +11863,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             colorForSym={colorForSym}
                             lineClassForSym={lineClassForSym}
                           />
-                        </div>
-                        <div
-                          className="watchSignals"
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "flex-end",
-                            gap: 5,
-                            minWidth: 0,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleCompare(sym)}
-                            disabled={!checked && compareSymbols.length >= 20}
-                            title="Compare"
-                            style={{ transform: "scale(0.9)", marginRight: 2 }}
-                          />
-                          <button
-                            type="button"
-                            className="pill silver"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
-                            title={`System Rating ${sysRating} · click to rate ${sym}`}
-                            style={{ width: 34, minWidth: 34, maxWidth: 34, padding: "2px 0", fontSize: 10, lineHeight: 1.1, cursor: "pointer", textAlign: "center", justifyContent: "center" }}
-                          >
-                            {sysRating}
-                          </button>
-                          <button
-                            type="button"
-                            className="pill silver"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRatingModal(r); }}
-                            title={userRatingBySymbol?.[sym] ? `User Rating: ${userRatingBySymbol?.[sym]}` : `Add your rating for ${sym}`}
-                            style={{ width: 26, minWidth: 26, maxWidth: 26, padding: "2px 0", fontSize: 9, lineHeight: 1.1, cursor: "pointer", textAlign: "center", justifyContent: "center" }}
-                          >
-                            {userRatingBySymbol?.[sym] || "-"}
-                          </button>
-                          {onchainIcon ? (
-                            <span className="pill silver" title={onchainTitle} style={{ width: 18, minWidth: 18, maxWidth: 18, padding: "2px 0", fontSize: 10, lineHeight: 1.1, justifyContent: "center", textAlign: "center" }}>
-                              {onchainIcon}
-                            </span>
-                          ) : (
-                            <span style={{ width: 18, minWidth: 18 }} />
-                          )}
-                          <span className="pill silver" title={mcTitle} style={{ width: 20, minWidth: 20, maxWidth: 20, padding: "2px 0", justifyContent: "center", textAlign: "center", fontSize: 9, lineHeight: 1.1, fontWeight: 900, color: mcUi.color, borderColor: mcUi.border }}>
-                            {mcUi.code}
-                          </span>
                         </div>
                         <div className="right" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", minWidth: 0 }}>
                           <button

@@ -7768,7 +7768,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
     <div className="app nexusApp">
       
       <style>{`
-        /* Mobile Watchlist: one compact row per coin, no card/multi-row layout */
+        /* Mobile Watchlist: card-style rows, no sideways table scroll */
         @media (max-width: 780px) {
           .section-watch .panelScroll{
             overflow-x: hidden !important;
@@ -7783,105 +7783,56 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
 
           .section-watch .watchHead.watchStickyHead{
-            display: grid !important;
-            position: sticky !important;
-            top: 0 !important;
-            z-index: 9 !important;
-            background: rgba(2, 18, 17, 0.96) !important;
-            backdrop-filter: blur(8px);
+            display: none !important;
           }
 
           .section-watch .watchScroll{
             overflow: visible !important;
             max-width: 100% !important;
             min-width: 0 !important;
+            display: grid !important;
+            gap: 8px !important;
           }
 
-          .section-watch .watchHead,
-          .section-watch .watchRow,
-          .section-watch .watchScroll{
-            min-width: 0 !important;
+          .section-watch .watchRow{
             width: 100% !important;
             max-width: 100% !important;
-          }
-
-          .section-watch .watchHead,
-          .section-watch .watchRow{
-            grid-template-columns: 24px minmax(54px, 1fr) 54px 72px 70px 74px !important;
-            gap: 4px !important;
+            min-width: 0 !important;
+            display: grid !important;
+            grid-template-columns: 28px minmax(62px, 1fr) 64px 92px !important;
+            grid-template-areas:
+              "rank coin pct price"
+              "rank vol mcap signals"
+              "rank chart chart actions" !important;
+            gap: 7px 8px !important;
             align-items: center !important;
+            padding: 10px 8px !important;
+            min-height: 0 !important;
           }
 
-          .section-watch .watchHead > *,
           .section-watch .watchRow > *{
             min-width: 0 !important;
           }
 
-          .section-watch .watchRow{
-            padding: 7px 4px !important;
-            min-height: 42px !important;
-            height: 42px !important;
+          .section-watch .watchRow > :nth-child(1){ grid-area: rank !important; align-self: center !important; }
+          .section-watch .watchRow > :nth-child(2){ grid-area: coin !important; justify-content: flex-start !important; }
+          .section-watch .watchRow > :nth-child(3){ grid-area: pct !important; justify-content: flex-end !important; font-size: 12px !important; }
+          .section-watch .watchRow > :nth-child(4){ grid-area: price !important; justify-content: flex-end !important; font-size: 12px !important; }
+          .section-watch .watchRow > :nth-child(5){ grid-area: vol !important; justify-content: flex-start !important; font-size: 11px !important; opacity: .92; }
+          .section-watch .watchRow > :nth-child(6){ grid-area: mcap !important; justify-content: flex-end !important; font-size: 11px !important; opacity: .92; }
+          .section-watch .watchRow > :nth-child(7){ grid-area: chart !important; justify-content: flex-start !important; max-width: 100% !important; overflow: hidden !important; }
+          .section-watch .watchRow > :nth-child(8){ grid-area: signals !important; justify-content: flex-end !important; gap: 4px !important; transform: scale(.92); transform-origin: right center; }
+          .section-watch .watchRow > :nth-child(9){ grid-area: actions !important; justify-content: flex-end !important; }
+
+          .section-watch .watchSym{
+            font-size: 13px !important;
+            max-width: 68px !important;
             overflow: hidden !important;
-          }
-
-          /* Mobile column mapping: keep one line only.
-             Show: # | Coin | % | Price | 24h Vol | Signals.
-             Hide Market Cap, Chart and remove button to protect one-row readability. */
-          .section-watch .watchHead > :nth-child(6),
-          .section-watch .watchHead > :nth-child(7),
-          .section-watch .watchHead > :nth-child(9),
-          .section-watch .watchRow > :nth-child(6),
-          .section-watch .watchRow > :nth-child(7),
-          .section-watch .watchRow > :nth-child(9){
-            display: none !important;
-          }
-
-          .section-watch .watchHead > :nth-child(1)::before{ content: "#"; }
-          .section-watch .watchHead > :nth-child(1){ font-size: 0 !important; }
-          .section-watch .watchHead > :nth-child(8)::before{ content: "Signals"; }
-          .section-watch .watchHead > :nth-child(8){ font-size: 0 !important; text-align: right !important; }
-          .section-watch .watchHead > :nth-child(8)::before{ font-size: 11px !important; }
-
-          .section-watch .watchRow > :nth-child(1){
-            justify-content: center !important;
-            font-size: 10px !important;
-          }
-
-          .section-watch .watchRow > :nth-child(2){
-            justify-content: flex-start !important;
-          }
-
-          .section-watch .watchRow > :nth-child(3),
-          .section-watch .watchRow > :nth-child(4),
-          .section-watch .watchRow > :nth-child(5){
-            justify-content: flex-end !important;
-            font-size: 10.5px !important;
-            line-height: 1 !important;
-            white-space: nowrap !important;
-          }
-
-          .section-watch .watchRow > :nth-child(8){
-            justify-content: flex-end !important;
-            gap: 2px !important;
-            transform: scale(.82);
-            transform-origin: right center;
-            overflow: visible !important;
+            text-overflow: ellipsis !important;
           }
 
           .section-watch .watchSignals input{
             margin-right: 0 !important;
-          }
-
-          .section-watch .watchSignals .pill{
-            font-size: 9px !important;
-          }
-
-          .section-watch .watchSym{
-            font-size: 11.5px !important;
-            max-width: 56px !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-            white-space: nowrap !important;
           }
         }
 

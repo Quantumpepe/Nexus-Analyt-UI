@@ -12361,7 +12361,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
             <div className="cardActions" style={{ alignItems: "center" }}>
               <button className="btn" onClick={() => setAddOpen(true)}>+ Add</button>
-              <button className="btnGhost" onClick={() => fetchWatchSnapshot(null, { force: true, user: true })}>Refresh</button>
               <button
                 type="button"
                 className={String(watchSortMode || "manual") === "winner" ? "btn" : "btnGhost"}
@@ -12380,8 +12379,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </button>
               <InfoButton title="Watchlist">
                 <Help showClose dismissable
-                  de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Drag & Drop</b> über den Griff links ändert die Reihenfolge. Diese Reihenfolge wird mit deiner Wallet auf dem Server gespeichert.</p><p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p><p><b>Refresh</b>: Nach dem Hinzufügen oder Ändern eines Coins/Tokens einmal drücken, damit Preis, 24h und Volumen nachgeladen werden.</p></>}
-                  en={<><p><b>Compare</b> checkbox controls the compare set (max 20).</p><p><b>Drag & Drop</b> using the handle on the left changes the order. This order is saved on the server for your wallet.</p><p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p><p><b>Refresh</b>: After adding or changing a coin/token, press once so price, 24h, and volume can be fetched.</p></>}
+                  de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Drag & Drop</b> über den Griff links ändert die Reihenfolge. Diese Reihenfolge wird mit deiner Wallet auf dem Server gespeichert.</p><p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p></>}
+                  en={<><p><b>Compare</b> checkbox controls the compare set (max 20).</p><p><b>Drag & Drop</b> using the handle on the left changes the order. This order is saved on the server for your wallet.</p><p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p></>}
                 />
               </InfoButton>
             </div>

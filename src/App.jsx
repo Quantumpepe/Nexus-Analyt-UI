@@ -5095,38 +5095,46 @@ useEffect(() => {
     }
   })();
 }, [gridItem]);
-  // Grid coin source: wallet holdings only (native + stables + user-added tokens).
-  // This avoids showing market/watchlist items that cannot be traded from the wallet.
+  // Grid coin source: Privy app-wallet holdings across ALL supported chains.
+  // Important: this must NOT depend on the currently active Privy/wallet network.
+  // The Grid selector should always show POL / BNB / ETH and all wallet tokens from every chain.
   const gridWalletCoins = useMemo(() => {
-    const chain = String(balActiveChain || DEFAULT_CHAIN).toUpperCase();
-    const row = balByChain?.[chain] || {};
     const out = [];
+    const chains = Array.isArray(ENABLED_CHAINS) && ENABLED_CHAINS.length
+      ? ENABLED_CHAINS
+      : ["POL", "BNB", "ETH"];
 
-    // native coin of the active chain (ETH / POL / BNB)
-    out.push(chain);
+    for (const rawChain of chains) {
+      const chain = String(rawChain || "").toUpperCase().trim();
+      if (!chain) continue;
+      const row = balByChain?.[chain] || {};
 
-    // stables present on this chain (USDC/USDT etc.)
-    const stablesMap = row?.stables || {};
-    for (const k of Object.keys(stablesMap)) out.push(String(k).toUpperCase());
+      // native coin per supported chain (ETH / POL / BNB), independent of active network
+      out.push(chain);
 
-    // user-added tokens
-    const custom = row?.custom || [];
-    for (const t of custom) {
-      const sym = String(t?.symbol || "").toUpperCase().trim();
-      if (sym) out.push(sym);
+      // stables present on this chain (USDC/USDT etc.)
+      const stablesMap = row?.stables || {};
+      for (const k of Object.keys(stablesMap)) out.push(String(k).toUpperCase());
+
+      // user-added tokens
+      const custom = row?.custom || [];
+      for (const t of custom) {
+        const sym = String(t?.symbol || "").toUpperCase().trim();
+        if (sym) out.push(sym);
+      }
     }
 
-    // unique
+    // unique symbols for the current Grid UI. Chain labels can be added later without changing execution logic.
     const seen = new Set();
     const uniq = [];
     for (const s of out) {
-      const k = String(s || "").toUpperCase();
+      const k = String(s || "").toUpperCase().trim();
       if (!k || seen.has(k)) continue;
       seen.add(k);
       uniq.push(k);
     }
     return uniq;
-  }, [balByChain, balActiveChain]);
+  }, [balByChain]);
 
   // Keep selected grid coin valid when chain/balances change
   useEffect(() => {
@@ -5138,33 +5146,31 @@ useEffect(() => {
     }
   }, [gridUiHydrated, gridWalletCoins, gridItem]);
 
-  // Restore the last used grid coin for the active wallet chain immediately after refresh.
-  // Without this, the wallet tab can show the right chain (e.g. POL) while the Grid still
-  // points to the default chain/coin until the user clicks the chain again.
+  // Restore Grid coin only when there is no valid selection.
+  // Do NOT force the Grid coin to the active Privy/wallet chain; the selector is multi-chain.
   useEffect(() => {
     if (!gridUiHydrated) return;
-    const chain = String(balActiveChain || DEFAULT_CHAIN).toUpperCase();
-    if (!chain) return;
+    const cur = String(gridItem || "").toUpperCase();
+    if (cur && gridWalletCoins.includes(cur)) return;
+
     try {
-      const saved = String(localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || "").toUpperCase();
-      if (saved && saved !== String(gridItem || "").toUpperCase()) {
-        setGridItem(saved);
+      const savedGlobal = String(localStorage.getItem(`${LS_GRID_COIN_PREFIX}:ALL`) || "").toUpperCase();
+      if (savedGlobal && gridWalletCoins.includes(savedGlobal)) {
+        setGridItem(savedGlobal);
         return;
       }
     } catch (_) {}
-    if (["ETH", "POL", "BNB"].includes(chain) && String(gridItem || "").toUpperCase() !== chain) {
-      setGridItem(chain);
-    }
-  }, [gridUiHydrated, balActiveChain]);
 
-  // Persist the selected grid coin per chain so refresh restores the same working context.
+    if (gridWalletCoins.length) setGridItem(gridWalletCoins[0]);
+  }, [gridUiHydrated, gridWalletCoins, gridItem]);
+
+  // Persist the selected grid coin globally because the Grid selector is multi-chain.
   useEffect(() => {
     if (!gridUiHydrated) return;
-    const chain = String(balActiveChain || DEFAULT_CHAIN).toUpperCase();
     const sym = String(gridItem || "").toUpperCase();
-    if (!chain || !sym) return;
-    try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${chain}`, sym); } catch (_) {}
-  }, [gridUiHydrated, balActiveChain, gridItem]);
+    if (!sym) return;
+    try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:ALL`, sym); } catch (_) {}
+  }, [gridUiHydrated, gridItem]);
 
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
 

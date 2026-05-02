@@ -5091,6 +5091,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       return DEFAULT_CHAIN;
     }
   });
+  const [rotationSelectedPick, setRotationSelectedPick] = useState(null);
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
@@ -5182,53 +5183,72 @@ useEffect(() => {
     return gridWalletCoinsByChain?.[ck] || [];
   }, [gridWalletCoinsByChain, activeGridChainKey]);
 
+  const handleRotationPickToGrid = useCallback((pick) => {
+    const rawSym = String(pick?.sym || pick || "").toUpperCase().trim();
+    if (!rawSym) return;
 
-  const resolveRotationPickToGrid = useCallback((rawSym) => {
-    const sym = String(rawSym || "").toUpperCase().trim();
-    const byChain = gridWalletCoinsByChain || {};
-
-    const hasCoin = (chain, coin) => {
-      const ck = String(chain || "").toUpperCase();
-      const target = String(coin || "").toUpperCase();
-      return Array.isArray(byChain?.[ck]) && byChain[ck].map((x) => String(x || "").toUpperCase()).includes(target);
+    const coinsByChain = gridWalletCoinsByChain || {};
+    const hasCoinOnChain = (chain, coin) => {
+      const list = coinsByChain?.[String(chain || "").toUpperCase()] || [];
+      return list.map((x) => String(x || "").toUpperCase()).includes(String(coin || "").toUpperCase());
     };
 
-    // BTC/SOL are shown as known market symbols, but Grid execution uses wrapped assets on EVM.
-    if (sym === "BTC") {
-      if (hasCoin("ETH", "WBTC")) return { chain: "ETH", coin: "WBTC" };
-      if (hasCoin("BNB", "BTCB")) return { chain: "BNB", coin: "BTCB" };
-      for (const chain of Object.keys(byChain)) {
-        if (hasCoin(chain, "WBTC")) return { chain, coin: "WBTC" };
-        if (hasCoin(chain, "BTCB")) return { chain, coin: "BTCB" };
+    const chooseFirstAvailable = (options) => {
+      for (const opt of options) {
+        if (hasCoinOnChain(opt.chain, opt.coin)) return opt;
       }
-    }
+      return null;
+    };
 
-    if (sym === "SOL") {
-      for (const chain of Object.keys(byChain)) {
-        if (hasCoin(chain, "WSOL")) return { chain, coin: "WSOL" };
+    let resolved = null;
+    let note = "";
+
+    if (rawSym === "BTC") {
+      resolved = chooseFirstAvailable([
+        { chain: "ETH", coin: "WBTC" },
+        { chain: "BNB", coin: "BTCB" },
+        { chain: "BNB", coin: "WBTC" },
+        { chain: "POL", coin: "WBTC" },
+      ]);
+      note = resolved ? `${rawSym} applied as ${resolved.coin} on ${resolved.chain}` : "BTC needs WBTC/BTCB in the wallet first.";
+    } else if (rawSym === "SOL") {
+      resolved = chooseFirstAvailable([
+        { chain: "ETH", coin: "WSOL" },
+        { chain: "BNB", coin: "WSOL" },
+        { chain: "POL", coin: "WSOL" },
+      ]);
+      note = resolved ? `${rawSym} applied as ${resolved.coin} on ${resolved.chain}` : "SOL needs WSOL in the wallet first.";
+    } else {
+      const preferred = [activeGridChainKey, ...Object.keys(coinsByChain || {})]
+        .map((x) => String(x || "").toUpperCase())
+        .filter((x, i, arr) => x && arr.indexOf(x) === i);
+      for (const chain of preferred) {
+        if (hasCoinOnChain(chain, rawSym)) {
+          resolved = { chain, coin: rawSym };
+          break;
+        }
       }
+      note = resolved ? `${rawSym} applied on ${resolved.chain}` : `${rawSym} is not available in the wallet grid assets yet.`;
     }
 
-    // Normal EVM assets: find the selected symbol on any wallet network.
-    for (const chain of Object.keys(byChain)) {
-      if (hasCoin(chain, sym)) return { chain, coin: sym };
+    if (resolved) {
+      setGridChain(String(resolved.chain || "").toUpperCase());
+      setGridItem(String(resolved.coin || "").toUpperCase());
+      try {
+        localStorage.setItem("nexus_grid_chain", String(resolved.chain || "").toUpperCase());
+        localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${String(resolved.chain || "").toUpperCase()}`, String(resolved.coin || "").toUpperCase());
+      } catch (_) {}
     }
 
-    return null;
-  }, [gridWalletCoinsByChain]);
-
-  const applyRotationPickToGrid = useCallback((rawSym) => {
-    const resolved = resolveRotationPickToGrid(rawSym);
-    if (!resolved?.chain || !resolved?.coin) return;
-
-    const chain = String(resolved.chain).toUpperCase();
-    const coin = String(resolved.coin).toUpperCase();
-    setGridChain(chain);
-    setGridItem(coin);
-
-    try { localStorage.setItem("nexus_grid_chain", chain); } catch (_) {}
-    try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${chain}`, coin); } catch (_) {}
-  }, [resolveRotationPickToGrid]);
+    setRotationSelectedPick({
+      source: rawSym,
+      chain: resolved?.chain || "",
+      coin: resolved?.coin || "",
+      ok: Boolean(resolved),
+      note,
+      ts: Date.now(),
+    });
+  }, [gridWalletCoinsByChain, activeGridChainKey]);
 
   // Keep selected Grid network valid, independent from active Privy network.
   useEffect(() => {
@@ -11386,17 +11406,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             {picks.map((p, idx) => (
                               <div
                                 key={`${p.sym}-${idx}`}
-                                role="button"
-                                tabIndex={0}
-                                title="Use this recommendation in Normal Grid"
-                                onClick={() => applyRotationPickToGrid(p.sym)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault();
-                                    applyRotationPickToGrid(p.sym);
-                                  }
-                                }}
+                                onClick={() => handleRotationPickToGrid(p)}
+                                title="Use this recommendation for the Grid setup"
                                 style={{
+                                  cursor: "pointer",
                                   display: "grid",
                                   gridTemplateColumns: isCompactMobile ? "1fr" : "70px 1fr auto",
                                   gap: 8,
@@ -11405,7 +11418,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   borderRadius: 12,
                                   background: idx === 0 ? "rgba(34,197,94,.10)" : "rgba(255,255,255,.03)",
                                   border: idx === 0 ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(255,255,255,.06)",
-                                  cursor: "pointer",
                                 }}
                               >
                                 <div>
@@ -11433,6 +11445,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         );
                       })()}
                     </div>
+
+                    {rotationSelectedPick && (
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          borderRadius: 12,
+                          background: rotationSelectedPick.ok ? "rgba(34,197,94,.10)" : "rgba(245,158,11,.10)",
+                          border: rotationSelectedPick.ok ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(245,158,11,.35)",
+                          color: rotationSelectedPick.ok ? "#d9fff0" : "#facc15",
+                        }}
+                      >
+                        <div style={{ fontWeight: 900, marginBottom: 4 }}>Selected recommendation</div>
+                        <div className="muted tiny" style={{ lineHeight: 1.45 }}>
+                          {rotationSelectedPick.note}
+                          {rotationSelectedPick.ok && (
+                            <>
+                              <br />
+                              Grid setup updated: {rotationSelectedPick.chain} / {rotationSelectedPick.coin}. Switch to Normal Grid to review Budget and start.
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     <div
                       style={{

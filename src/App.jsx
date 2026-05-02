@@ -11564,8 +11564,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 )}
                               </div>
                               <div className="muted tiny" style={{ display: "grid", gap: 3, minWidth: 0 }}>
-                                <div>Score {p.score}/100 · {p.rating} · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
-                                <div>Whale: {p.whaleText || "Neutral"}</div>
+                                <div>Score {p.score}/100 · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
                               </div>
                               <div style={{ display: "flex", gap: 6, justifyContent: isCompactMobile ? "flex-start" : "flex-end", alignItems: "center", flexWrap: "wrap" }}>
                                 <span className={`pill ${p.score >= 70 ? "green" : p.score >= 55 ? "silver" : "red"}`}>
@@ -11597,49 +11596,50 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           );
                         }
 
-                        const topPicks = picks.slice(0, 3);
-                        const chainGroups = picks.reduce((acc, pick, idx) => {
-                          const resolved = resolveRotationPreview(pick.sym);
-                          const chain = resolved?.chain || "WATCHLIST";
+                        const scopedPicks = picks
+                          .map((pick, idx) => {
+                            const resolved = resolveRotationPreview(pick.sym);
+                            return { ...pick, _rank: idx, _chain: resolved?.chain || "WATCHLIST" };
+                          })
+                          .filter((pick) =>
+                            rotationNetworkScope === "ALL"
+                              ? true
+                              : String(pick._chain || "").toUpperCase() === String(rotationNetworkScope || "").toUpperCase()
+                          );
+
+                        if (!scopedPicks.length) {
+                          return (
+                            <div className="muted tiny">
+                              No recommendations available for the selected Network scope.
+                            </div>
+                          );
+                        }
+
+                        const chainGroups = scopedPicks.reduce((acc, pick) => {
+                          const chain = pick._chain || "WATCHLIST";
                           if (!acc[chain]) acc[chain] = [];
-                          acc[chain].push({ ...pick, _rank: idx });
+                          acc[chain].push(pick);
                           return acc;
                         }, {});
 
                         return (
-                          <div style={{ display: "grid", gap: 8 }}>
-                            {topPicks.map((p, idx) => renderPickCard(p, idx))}
-                            {picks.length > 3 && (
-                              <button
-                                type="button"
-                                className="miniBtn"
-                                onClick={() => setRotationShowAllRecommendations((v) => !v)}
-                                style={{ justifySelf: "start" }}
-                              >
-                                {rotationShowAllRecommendations ? "Hide all recommendations ▲" : `Show all recommendations ▼ (${picks.length})`}
-                              </button>
-                            )}
-                            {rotationShowAllRecommendations && picks.length > 3 && (
-                              <div
-                                style={{
-                                  display: "grid",
-                                  gap: 10,
-                                  padding: "10px",
-                                  borderRadius: 12,
-                                  background: "rgba(255,255,255,.025)",
-                                  border: "1px solid rgba(255,255,255,.06)",
-                                  maxHeight: 360,
-                                  overflow: "auto",
-                                }}
-                              >
-                                {Object.entries(chainGroups).map(([chain, list]) => (
-                                  <div key={chain} style={{ display: "grid", gap: 6 }}>
-                                    <div className="label" style={{ marginBottom: 0 }}>{chainLabel(chain)}</div>
-                                    {list.map((p) => renderPickCard(p, p._rank, true))}
-                                  </div>
-                                ))}
+                          <div
+                            style={{
+                              display: "grid",
+                              gap: 10,
+                              maxHeight: 260,
+                              overflowY: "auto",
+                              paddingRight: 4,
+                            }}
+                          >
+                            {Object.entries(chainGroups).map(([chain, list]) => (
+                              <div key={chain} style={{ display: "grid", gap: 6 }}>
+                                {rotationNetworkScope === "ALL" && (
+                                  <div className="label" style={{ marginBottom: 0 }}>{chainLabel(chain)}</div>
+                                )}
+                                {list.map((p) => renderPickCard(p, p._rank, true))}
                               </div>
-                            )}
+                            ))}
                           </div>
                         );
                       })()}

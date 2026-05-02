@@ -5102,6 +5102,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationAllowDexSpread, setRotationAllowDexSpread] = useState(true);
   const [rotationAllowCexDexSpread, setRotationAllowCexDexSpread] = useState(false);
   const [rotationRouters, setRotationRouters] = useState({ QuickSwap: true, Uniswap: true, PancakeSwap: true, "1inch": true, "0x": false, SushiSwap: false });
+  const [rotationAutoSwapEnabled, setRotationAutoSwapEnabled] = useState(true);
+  const [rotationSwapSource, setRotationSwapSource] = useState("AUTO");
   const [rotationBudgetReleased, setRotationBudgetReleased] = useState(false);
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
@@ -11470,6 +11472,64 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div><b>Network scope:</b> {rotationNetworkScope === "ALL" ? "All wallet networks" : rotationNetworkScope} · <b>Mode:</b> {rotationMode === "AUTO_AFTER_RELEASE" ? "Auto after release" : rotationMode === "MANUAL_CONFIRM" ? "Manual confirm" : "Recommendation first"}</div>
                         <div><b>Current position:</b> Not running yet · <b>Next target:</b> {rotationSelectedPick?.ok ? `${rotationSelectedPick.coin} on ${rotationSelectedPick.chain}` : "—"}</div>
                         <div><b>Last action:</b> Waiting for user selection / budget release</div>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        background: "rgba(59,130,246,.07)",
+                        border: "1px solid rgba(59,130,246,.22)",
+                        display: "grid",
+                        gap: 10,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <div className="label" style={{ marginBottom: 0 }}>Vault Funding / Auto Swap</div>
+                        <span className={`pill ${rotationAutoSwapEnabled ? "green" : "silver"}`}>{rotationAutoSwapEnabled ? "SWAP READY" : "SWAP OFF"}</span>
+                      </div>
+                      <div className="muted tiny" style={{ lineHeight: 1.45 }}>
+                        If the selected Rotation asset is missing or too low, Nexus can prepare a Vault swap from another available asset. The backend calculates the route; the user must approve/sign with Privy before execution.
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
+                        <button
+                          type="button"
+                          className={rotationAutoSwapEnabled ? "btn" : "miniBtn"}
+                          onClick={() => { setRotationAutoSwapEnabled((v) => !v); setRotationBudgetReleased(false); }}
+                        >
+                          Auto-swap preparation: {rotationAutoSwapEnabled ? "ON" : "OFF"}
+                        </button>
+                        <select
+                          value={rotationSwapSource}
+                          onChange={(e) => { setRotationSwapSource(e.target.value); setRotationBudgetReleased(false); }}
+                          disabled={!rotationSelectedPick?.ok || !rotationAutoSwapEnabled}
+                        >
+                          <option value="AUTO">Auto source asset</option>
+                          {gridWalletChains.map((ck) => (
+                            <option key={`rotation-swap-source-${ck}`} value={ck}>{ck}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                          gap: 6,
+                          padding: "9px 10px",
+                          borderRadius: 10,
+                          background: "rgba(0,0,0,.14)",
+                          border: "1px solid rgba(255,255,255,.06)",
+                        }}
+                      >
+                        <div className="muted tiny"><b>Target asset:</b> {rotationSelectedPick?.ok ? `${rotationSelectedPick.coin} on ${rotationSelectedPick.chain}` : "Select recommendation first"}</div>
+                        <div className="muted tiny"><b>Target available:</b> Backend / Vault check pending</div>
+                        <div className="muted tiny"><b>Required budget:</b> {rotationBudgetRelease ? `${rotationBudgetRelease} USD equivalent` : "Enter Rotation Budget"}</div>
+                        <div className="muted tiny"><b>Swap needed:</b> {rotationSelectedPick?.ok && rotationBudgetRelease ? "Backend will compare target balance vs required amount" : "Waiting for selection + budget"}</div>
+                        <div className="muted tiny"><b>Source asset:</b> {rotationSwapSource === "AUTO" ? "Best available Vault asset" : rotationSwapSource}</div>
+                        <div className="muted tiny"><b>Estimated route:</b> Backend route pending</div>
+                        <div className="muted tiny"><b>Privy signature:</b> Required before swap/execution</div>
+                        <div className="muted tiny"><b>Status:</b> {rotationAutoSwapEnabled ? "Ready for backend funding check" : "Auto-swap disabled"}</div>
                       </div>
                     </div>
 

@@ -12540,40 +12540,40 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <Help showClose dismissable
                   de={
                     <>
+                      <div style={{ marginBottom: 14, padding: 12, border: "1px solid rgba(34,197,94,.35)", borderRadius: 14, background: "rgba(34,197,94,.06)" }}>
+                        <p style={{ marginTop: 0 }}><b>Symbol-Legende / Watchlist Signals</b></p>
+                        <p><b>B</b> = Breakout · starke Bewegung / Momentum</p>
+                        <p><b>W</b> = Weak · schwaches Asset</p>
+                        <p><b>E</b> = Early · frühe mögliche Bewegung</p>
+                        <p><b>H</b> = Hot · hohe Aktivität / starkes Volumen</p>
+                        <p><b>N</b> = Normal · keine besondere Marktsituation</p>
+                        <p><b>NEWS</b> = echte Whale-Aktivität. Klick auf NEWS zeigt Betrag, DEX, Zeit und Wallet.</p>
+                        <p><b>🔥</b> = kein klares Whale-Signal / normale Aktivität.</p>
+                        <p><b>Farben:</b> Grün = positiv, Rot = negativ, Gelb = neutral/früh.</p>
+                      </div>
+
                       <p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p>
                       <p><b>Drag & Drop</b> über den Griff links ändert die Reihenfolge. Diese Reihenfolge wird mit deiner Wallet auf dem Server gespeichert.</p>
                       <p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p>
-
-                      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.12)" }}>
-                        <p><b>Symbol-Legende / Signals</b></p>
-                        <p><b>B = Breakout</b><br/>Starke Bewegung nach oben, oft mit Momentum.</p>
-                        <p><b>W = Weak</b><br/>Schwaches Asset mit geringer Marktstärke.</p>
-                        <p><b>E = Early</b><br/>Frühe Phase einer möglichen Bewegung.</p>
-                        <p><b>H = Hot</b><br/>Sehr hohe Aktivität oder starkes Volumen.</p>
-                        <p><b>N = Normal</b><br/>Normale Marktbedingungen ohne besonderes Signal.</p>
-                        <p><b>NEWS</b><br/>Echte Whale-Aktivität wurde erkannt. Wenn du den NEWS-Text anklickst, siehst du Betrag, DEX, Zeit und Wallet.</p>
-                        <p><b>🔥</b><br/>Kein klares Whale-Signal / normale Aktivität.</p>
-                        <p><b>Farben:</b><br/>Grün = positiv, Rot = negativ, Gelb = neutral oder frühe Phase.</p>
-                      </div>
                     </>
                   }
                   en={
                     <>
+                      <div style={{ marginBottom: 14, padding: 12, border: "1px solid rgba(34,197,94,.35)", borderRadius: 14, background: "rgba(34,197,94,.06)" }}>
+                        <p style={{ marginTop: 0 }}><b>Symbol Legend / Watchlist Signals</b></p>
+                        <p><b>B</b> = Breakout · strong movement / momentum</p>
+                        <p><b>W</b> = Weak · weak asset</p>
+                        <p><b>E</b> = Early · early potential move</p>
+                        <p><b>H</b> = Hot · high activity / strong volume</p>
+                        <p><b>N</b> = Normal · no special market condition</p>
+                        <p><b>NEWS</b> = real whale activity. Click NEWS to see amount, DEX, time and wallet.</p>
+                        <p><b>🔥</b> = no clear whale signal / normal activity.</p>
+                        <p><b>Colors:</b> Green = positive, Red = negative, Yellow = neutral/early.</p>
+                      </div>
+
                       <p><b>Compare</b> checkbox controls the compare set (max 20).</p>
                       <p><b>Drag & Drop</b> using the handle on the left changes the order. This order is saved on the server for your wallet.</p>
                       <p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p>
-
-                      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.12)" }}>
-                        <p><b>Symbol Legend / Signals</b></p>
-                        <p><b>B = Breakout</b><br/>Strong upward movement, often momentum-driven.</p>
-                        <p><b>W = Weak</b><br/>Weak asset with low market strength.</p>
-                        <p><b>E = Early</b><br/>Early stage of a potential move.</p>
-                        <p><b>H = Hot</b><br/>Very high activity or strong volume.</p>
-                        <p><b>N = Normal</b><br/>Normal market conditions without a special signal.</p>
-                        <p><b>NEWS</b><br/>Real whale activity was detected. Click the NEWS text to see amount, DEX, time and wallet.</p>
-                        <p><b>🔥</b><br/>No clear whale signal / normal activity.</p>
-                        <p><b>Colors:</b><br/>Green = positive, Red = negative, Yellow = neutral or early stage.</p>
-                      </div>
                     </>
                   }
                 />

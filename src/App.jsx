@@ -5093,10 +5093,15 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   });
   const [rotationSelectedPick, setRotationSelectedPick] = useState(null);
   const [rotationShowAllRecommendations, setRotationShowAllRecommendations] = useState(false);
+  const [rotationNetworkScope, setRotationNetworkScope] = useState("ALL");
+  const [rotationMode, setRotationMode] = useState("RECOMMENDATION");
   const [rotationBudgetRelease, setRotationBudgetRelease] = useState("");
   const [rotationRiskLimit, setRotationRiskLimit] = useState("");
   const [rotationMinNetAdvantage, setRotationMinNetAdvantage] = useState("0.5");
   const [rotationMaxSlippage, setRotationMaxSlippage] = useState("1");
+  const [rotationAllowDexSpread, setRotationAllowDexSpread] = useState(true);
+  const [rotationAllowCexDexSpread, setRotationAllowCexDexSpread] = useState(false);
+  const [rotationRouters, setRotationRouters] = useState({ QuickSwap: true, Uniswap: true, PancakeSwap: true, "1inch": true, "0x": false, SushiSwap: false });
   const [rotationBudgetReleased, setRotationBudgetReleased] = useState(false);
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
@@ -5257,6 +5262,11 @@ useEffect(() => {
   }, [rotationSelectedPick, rotationBudgetRelease]);
 
   const resetRotationBudgetRelease = useCallback(() => {
+    setRotationBudgetReleased(false);
+  }, []);
+
+  const toggleRotationRouter = useCallback((router) => {
+    setRotationRouters((prev) => ({ ...(prev || {}), [router]: !prev?.[router] }));
     setRotationBudgetReleased(false);
   }, []);
 
@@ -11349,14 +11359,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     >
                       <div className="formRow">
                         <label>Network scope</label>
-                        <select disabled value="ALL">
+                        <select value={rotationNetworkScope} onChange={(e) => { setRotationNetworkScope(e.target.value); setRotationBudgetReleased(false); }}>
                           <option value="ALL">All wallet networks</option>
+                          {gridWalletChains.map((ck) => (
+                            <option key={`rotation-scope-${ck}`} value={ck}>{ck}</option>
+                          ))}
                         </select>
                       </div>
                       <div className="formRow">
                         <label>Mode</label>
-                        <select disabled value="RECOMMENDATION">
+                        <select value={rotationMode} onChange={(e) => { setRotationMode(e.target.value); setRotationBudgetReleased(false); }}>
                           <option value="RECOMMENDATION">Recommendation first</option>
+                          <option value="MANUAL_CONFIRM">Manual confirm</option>
+                          <option value="AUTO_AFTER_RELEASE">Auto after release</option>
                         </select>
                       </div>
                       <div className="formRow">
@@ -11394,6 +11409,86 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           disabled={!rotationSelectedPick?.ok}
                           placeholder="e.g. 1"
                         />
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        background: "rgba(34,197,94,.07)",
+                        border: "1px solid rgba(34,197,94,.18)",
+                        display: "grid",
+                        gap: 8,
+                      }}
+                    >
+                      <div className="label" style={{ marginBottom: 0 }}>Rotation status</div>
+                      <div className="muted tiny" style={{ display: "grid", gap: 4, lineHeight: 1.45 }}>
+                        <div><b>Status:</b> {rotationBudgetReleased ? "Budget released / ready to start" : rotationSelectedPick?.ok ? "Ready for budget release" : "Idle / select a recommendation"}</div>
+                        <div><b>Network scope:</b> {rotationNetworkScope === "ALL" ? "All wallet networks" : rotationNetworkScope} · <b>Mode:</b> {rotationMode === "AUTO_AFTER_RELEASE" ? "Auto after release" : rotationMode === "MANUAL_CONFIRM" ? "Manual confirm" : "Recommendation first"}</div>
+                        <div><b>Current position:</b> Not running yet · <b>Next target:</b> {rotationSelectedPick?.ok ? `${rotationSelectedPick.coin} on ${rotationSelectedPick.chain}` : "—"}</div>
+                        <div><b>Last action:</b> Waiting for user selection / budget release</div>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        background: "rgba(245,158,11,.07)",
+                        border: "1px solid rgba(245,158,11,.20)",
+                        display: "grid",
+                        gap: 10,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <div className="label" style={{ marginBottom: 0 }}>Spread / Route Check</div>
+                        <span className={`pill ${rotationAllowDexSpread ? "green" : "silver"}`}>{rotationAllowDexSpread ? "DEX ON" : "DEX OFF"}</span>
+                      </div>
+                      <div className="muted tiny" style={{ lineHeight: 1.45 }}>
+                        Checks later if Nexus can buy cheaper on one router/market and sell higher on another, after fees and slippage. Backend will fill these values.
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
+                        <button type="button" className={rotationAllowDexSpread ? "btn" : "miniBtn"} onClick={() => { setRotationAllowDexSpread((v) => !v); setRotationBudgetReleased(false); }}>
+                          DEX spread check: {rotationAllowDexSpread ? "ON" : "OFF"}
+                        </button>
+                        <button type="button" className={rotationAllowCexDexSpread ? "btn" : "miniBtn"} onClick={() => { setRotationAllowCexDexSpread((v) => !v); setRotationBudgetReleased(false); }}>
+                          CEX/DEX spread: {rotationAllowCexDexSpread ? "ON" : "OFF"}
+                        </button>
+                      </div>
+                      <div>
+                        <div className="label" style={{ marginBottom: 6 }}>Allowed routers</div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {["QuickSwap", "Uniswap", "PancakeSwap", "1inch", "0x", "SushiSwap"].map((router) => (
+                            <button
+                              key={`rotation-router-${router}`}
+                              type="button"
+                              className={rotationRouters?.[router] ? "btn" : "miniBtn"}
+                              onClick={() => toggleRotationRouter(router)}
+                              style={{ padding: "7px 10px" }}
+                            >
+                              {router}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                          gap: 6,
+                          padding: "9px 10px",
+                          borderRadius: 10,
+                          background: "rgba(0,0,0,.14)",
+                          border: "1px solid rgba(255,255,255,.06)",
+                        }}
+                      >
+                        <div className="muted tiny"><b>Buy source:</b> Backend route pending</div>
+                        <div className="muted tiny"><b>Sell target:</b> Backend route pending</div>
+                        <div className="muted tiny"><b>Gross spread:</b> —</div>
+                        <div className="muted tiny"><b>Fees + slippage:</b> —</div>
+                        <div className="muted tiny"><b>Net advantage:</b> needs ≥ {rotationMinNetAdvantage || "—"}%</div>
+                        <div className="muted tiny"><b>Status:</b> Not checked yet</div>
                       </div>
                     </div>
 
@@ -11590,6 +11685,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Score:</b> {Number.isFinite(rotationSelectedPick.score) ? `${rotationSelectedPick.score}/100` : "—"} · <b>Rating:</b> {rotationSelectedPick.rating || "—"} · <b>24h:</b> {Number.isFinite(rotationSelectedPick.change24h) ? `${rotationSelectedPick.change24h >= 0 ? "+" : ""}${rotationSelectedPick.change24h.toFixed(2)}%` : "—"}</div>
                               <div><b>Whale / On-chain:</b> {rotationSelectedPick.whaleText || "Neutral"} · <b>Market:</b> {rotationSelectedPick.riskText || "Normal"}</div>
                               <div><b>Rotation Budget:</b> {rotationBudgetRelease ? `$${rotationBudgetRelease}` : "not entered"} · <b>Risk:</b> {rotationRiskLimit || "not set"} · <b>Min advantage:</b> {rotationMinNetAdvantage || "—"}% · <b>Slippage:</b> {rotationMaxSlippage || "—"}%</div>
+                              <div><b>Scope:</b> {rotationNetworkScope === "ALL" ? "All wallet networks" : rotationNetworkScope} · <b>Mode:</b> {rotationMode === "AUTO_AFTER_RELEASE" ? "Auto after release" : rotationMode === "MANUAL_CONFIRM" ? "Manual confirm" : "Recommendation first"}</div>
+                              <div><b>Spread check:</b> DEX {rotationAllowDexSpread ? "ON" : "OFF"} · CEX/DEX {rotationAllowCexDexSpread ? "ON" : "OFF"}</div>
                               <div><b>Status:</b> {rotationBudgetReleased ? "Budget released for Nexus Rotation" : "Ready for budget release"}</div>
                             </>
                           )}
@@ -11613,6 +11710,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div>• Whale signal + Exit Risk before rotation</div>
                         <div>• On-chain liquidity and slippage check</div>
                         <div>• Multi-DEX router selection through backend</div>
+                        <div>• Spread check: buy cheaper / sell higher after fees</div>
                         <div>• User-bounded budget only</div>
                       </div>
                     </div>

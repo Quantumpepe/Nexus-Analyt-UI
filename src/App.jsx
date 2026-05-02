@@ -927,6 +927,74 @@ function Help({ de, en }) {
   );
 }
 
+
+function RotationInfoTrigger() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className="btn"
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
+        style={{ marginTop: 14 }}
+      >
+        Rotation Info
+      </button>
+
+      {open && (
+        <div
+          className="modalBackdrop"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}
+          style={{ zIndex: 99999 }}
+        >
+          <div
+            className="modal modalHelp"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+              maxHeight: "82vh",
+              overflowY: "auto",
+            }}
+          >
+            <div className="modalHead">
+              <div className="cardTitle">Nexus Rotation</div>
+              <button
+                className="iconBtn"
+                type="button"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}
+              >
+                ×
+              </button>
+            </div>
+            <div className="helpBody">
+              <Help
+                de={
+                  <>
+                    <p><b>Nexus Rotation</b> ist ein datenbasiertes System, das Kapital zwischen verschiedenen Assets verschiebt.</p>
+                    <p><b>Ziel:</b> Kapital wird dort eingesetzt, wo Score, Momentum, Volumen und Marktstruktur am stärksten sind.</p>
+                    <p><b>Wie es funktioniert:</b></p>
+                    <p>1. Empfehlung auswählen.<br/>2. Budget freigeben.<br/>3. Vault prüfen.<br/>4. Später führt der Vault nur nach User-Signatur aus.</p>
+                    <p><b>Wichtig:</b> Nexus Rotation garantiert keinen Gewinn. Es ist ein Risiko- und Rebalancing-System auf Basis von Daten.</p>
+                  </>
+                }
+                en={
+                  <>
+                    <p><b>Nexus Rotation</b> is a data-driven system that shifts capital between different assets.</p>
+                    <p><b>Goal:</b> capital is allocated where score, momentum, volume and market structure are strongest.</p>
+                    <p><b>How it works:</b></p>
+                    <p>1. Select a recommendation.<br/>2. Release budget.<br/>3. Check the vault.<br/>4. Later, the vault only executes after user signature.</p>
+                    <p><b>Important:</b> Nexus Rotation does not guarantee profit. It is a risk and rebalancing system based on data.</p>
+                  </>
+                }
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function InfoButton({ title = "Info", children }) {
   const [open, setOpen] = useState(false);
 
@@ -943,6 +1011,8 @@ function InfoButton({ title = "Info", children }) {
             onClick={(e) => e.stopPropagation()}
             style={{
               background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+              maxHeight: "82vh",
+              overflowY: "auto",
             }}
           >
             <div className="modalHead">
@@ -11390,6 +11460,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </>
                   }
                 />
+                <RotationInfoTrigger />
               </InfoButton>
             </div>
           </div>
@@ -12437,8 +12508,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </button>
               <InfoButton title="Watchlist">
                 <Help showClose dismissable
-                  de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Drag & Drop</b> über den Griff links ändert die Reihenfolge. Diese Reihenfolge wird mit deiner Wallet auf dem Server gespeichert.</p><p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p></>}
-                  en={<><p><b>Compare</b> checkbox controls the compare set (max 20).</p><p><b>Drag & Drop</b> using the handle on the left changes the order. This order is saved on the server for your wallet.</p><p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p></>}
+                  de={
+                    <>
+                      <p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p>
+                      <p><b>Drag & Drop</b> über den Griff links ändert die Reihenfolge. Diese Reihenfolge wird mit deiner Wallet auf dem Server gespeichert.</p>
+                      <p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p>
+
+                      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.12)" }}>
+                        <p><b>Symbol-Legende / Signals</b></p>
+                        <p><b>B = Breakout</b><br/>Starke Bewegung nach oben, oft mit Momentum.</p>
+                        <p><b>W = Weak</b><br/>Schwaches Asset mit geringer Marktstärke.</p>
+                        <p><b>E = Early</b><br/>Frühe Phase einer möglichen Bewegung.</p>
+                        <p><b>H = Hot</b><br/>Sehr hohe Aktivität oder starkes Volumen.</p>
+                        <p><b>N = Normal</b><br/>Normale Marktbedingungen ohne besonderes Signal.</p>
+                        <p><b>NEWS</b><br/>Echte Whale-Aktivität wurde erkannt. Wenn du den NEWS-Text anklickst, siehst du Betrag, DEX, Zeit und Wallet.</p>
+                        <p><b>🔥</b><br/>Kein klares Whale-Signal / normale Aktivität.</p>
+                        <p><b>Farben:</b><br/>Grün = positiv, Rot = negativ, Gelb = neutral oder frühe Phase.</p>
+                      </div>
+                    </>
+                  }
+                  en={
+                    <>
+                      <p><b>Compare</b> checkbox controls the compare set (max 20).</p>
+                      <p><b>Drag & Drop</b> using the handle on the left changes the order. This order is saved on the server for your wallet.</p>
+                      <p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p>
+
+                      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.12)" }}>
+                        <p><b>Symbol Legend / Signals</b></p>
+                        <p><b>B = Breakout</b><br/>Strong upward movement, often momentum-driven.</p>
+                        <p><b>W = Weak</b><br/>Weak asset with low market strength.</p>
+                        <p><b>E = Early</b><br/>Early stage of a potential move.</p>
+                        <p><b>H = Hot</b><br/>Very high activity or strong volume.</p>
+                        <p><b>N = Normal</b><br/>Normal market conditions without a special signal.</p>
+                        <p><b>NEWS</b><br/>Real whale activity was detected. Click the NEWS text to see amount, DEX, time and wallet.</p>
+                        <p><b>🔥</b><br/>No clear whale signal / normal activity.</p>
+                        <p><b>Colors:</b><br/>Green = positive, Red = negative, Yellow = neutral or early stage.</p>
+                      </div>
+                    </>
+                  }
                 />
               </InfoButton>
             </div>

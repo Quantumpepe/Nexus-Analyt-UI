@@ -5343,25 +5343,36 @@ useEffect(() => {
     return match || routers[0] || null;
   }, [rotationRouters, nexusRouters]);
 
+  // Nexus backend bridge preload.
+  // This runs immediately after the app loads so the Network tab shows the new backend links:
+  //   /api/nexus/routers
+  //   /api/nexus/fee-policy
+  // Order preview / execute-plan are triggered later when the user releases a Rotation budget.
   useEffect(() => {
     let cancelled = false;
-    const chain = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-    (async () => {
+    const chain = String(activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase();
+
+    const loadNexusBackendBridge = async () => {
       try {
         const r = await api(`/api/nexus/routers?chain=${encodeURIComponent(chain)}`, { method: "GET", token, wallet });
         if (!cancelled) setNexusRouters(Array.isArray(r?.routers) ? r.routers : []);
       } catch (e) {
+        console.warn("Nexus routers API not ready", e);
         if (!cancelled) setNexusRouters([]);
       }
+
       try {
         const fp = await api(`/api/nexus/fee-policy?chain=${encodeURIComponent(chain)}`, { method: "GET", token, wallet });
         if (!cancelled) setNexusFeePolicy(fp?.feePolicy || null);
       } catch (e) {
+        console.warn("Nexus fee-policy API not ready", e);
         if (!cancelled) setNexusFeePolicy(null);
       }
-    })();
+    };
+
+    loadNexusBackendBridge();
     return () => { cancelled = true; };
-  }, [activeGridChainKey, token, wallet]);
+  }, [activeGridChainKey, gridChain, token, wallet]);
 
   const buildRotationBackendBody = useCallback(() => {
     const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));

@@ -1026,6 +1026,78 @@ function NexusRotationInfoButton() {
   );
 }
 
+function WatchlistSignalsInfoButton() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        className="btnGhost"
+        type="button"
+        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
+        style={{ width: "100%", marginTop: 12, justifyContent: "center" }}
+      >
+        Watchlist Signal Info
+      </button>
+
+      {open && (
+        <div className="modalBackdrop" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}>
+          <div
+            className="modal modalHelp"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+              maxWidth: 760,
+            }}
+          >
+            <div className="modalHead">
+              <div className="cardTitle">Watchlist Signal Info</div>
+              <button
+                className="iconBtn"
+                type="button"
+                aria-label="Close Watchlist Signal Info"
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="helpBody">
+              <div className="helpBlock">
+                <div className="helpLangTitle">DE</div>
+                <div className="helpText">
+                  <p><b>Watchlist Signals</b> zeigen schnelle Hinweise direkt in der Watchlist. Sie sollen helfen, starke Bewegungen, Risiko und echte On-Chain-Aktivität schneller zu erkennen.</p>
+                  <p><b>Winner</b> bedeutet: Der Coin gehört aktuell zu den stärkeren Gewinnern in deiner Watchlist.</p>
+                  <p><b>Loser</b> bedeutet: Der Coin gehört aktuell zu den stärkeren Verlierern in deiner Watchlist.</p>
+                  <p><b>Market Condition</b> bewertet, ob eine Bewegung eher gesund, überhitzt oder schwach bestätigt ist. Dazu werden Preisbewegung und relatives Volumen genutzt.</p>
+                  <p><b>Whale / NEWS</b> ist besonders wichtig: Wenn <b>NEWS</b> erscheint, bedeutet das nicht normale Nachrichten, sondern echte Whale-Aktivität. Es wurde ein größerer Buy oder Sell erkannt.</p>
+                  <p><b>NEWS anklicken:</b> Wenn der User auf den NEWS-Text klickt, öffnet sich ein Detailfenster mit Betrag, DEX, Zeit, Wallet/Transaktion und ob es ein Whale Buy oder Whale Sell war.</p>
+                  <p><b>Wichtig:</b> Es werden keine Fake-News angezeigt. Wenn keine echte Whale-Aktivität gefunden wird, bleibt nur das normale Signal / Flame ohne künstliche Daten.</p>
+                </div>
+
+                <div className="helpLangTitle" style={{ marginTop: 14 }}>EN</div>
+                <div className="helpText">
+                  <p><b>Watchlist Signals</b> provide quick context directly inside the watchlist. They help users detect strong movement, risk and real on-chain activity faster.</p>
+                  <p><b>Winner</b> means: the coin is currently one of the stronger gainers inside your watchlist.</p>
+                  <p><b>Loser</b> means: the coin is currently one of the stronger losers inside your watchlist.</p>
+                  <p><b>Market Condition</b> evaluates whether a move looks healthy, overextended or weakly confirmed. It uses price movement and relative volume.</p>
+                  <p><b>Whale / NEWS</b> is the key point: when <b>NEWS</b> appears, it does not mean regular news. It means real whale activity was detected — a larger buy or sell happened on-chain.</p>
+                  <p><b>Click NEWS:</b> When the user clicks the NEWS text, a detail window opens with amount, DEX, time, wallet/transaction and whether it was a whale buy or whale sell.</p>
+                  <p><b>Important:</b> No fake news are shown. If no real whale activity is found, only the normal signal / flame remains without artificial data.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ------------------------
 // Health color (ampel)
 // ------------------------
@@ -12442,6 +12514,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Drag & Drop</b> über den Griff links ändert die Reihenfolge. Diese Reihenfolge wird mit deiner Wallet auf dem Server gespeichert.</p><p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p></>}
                   en={<><p><b>Compare</b> checkbox controls the compare set (max 20).</p><p><b>Drag & Drop</b> using the handle on the left changes the order. This order is saved on the server for your wallet.</p><p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p></>}
                 />
+                <WatchlistSignalsInfoButton />
               </InfoButton>
             </div>
           </div>

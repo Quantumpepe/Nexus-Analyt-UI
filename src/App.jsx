@@ -1062,6 +1062,21 @@ function watchOnchainScoreDelta(onchain) {
   return Math.max(-5, Math.min(5, Math.round(n)));
 }
 
+
+function formatWhaleTimeAgo(timestamp) {
+  if (!timestamp) return "recent";
+  const t = new Date(timestamp).getTime();
+  if (!Number.isFinite(t)) return "recent";
+  const seconds = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 function getWhaleNewsSignal(onchain) {
   if (!onchain) return { type: "neutral", label: "🔥", color: "#aaa", title: "No fresh whale activity" };
 
@@ -12512,6 +12527,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   type: whaleSignal.type,
                                   title: whaleSignal.title,
                                   summary: onchainTitle,
+                                  amountUsd: onchain?.amountUsd ?? onchain?.whale?.amountUsd ?? null,
+                                  buyUsd: onchain?.buyUsd ?? onchain?.whale?.buyUsd ?? null,
+                                  sellUsd: onchain?.sellUsd ?? onchain?.whale?.sellUsd ?? null,
+                                  dex: onchain?.latest?.dex ?? onchain?.whale?.latest?.dex ?? null,
+                                  time: onchain?.latest?.time ?? onchain?.whale?.latest?.time ?? null,
                                 });
                               }}
                               title={`${whaleSignal.title} · click for details`}
@@ -12733,8 +12753,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
 
               <div className="softBox" style={{ padding: 12, marginTop: 12 }}>
-                <div className="muted tiny" style={{ lineHeight: 1.45 }}>
-                  {activeWhaleNews.summary || "On-chain whale signal detected."}
+                <div style={{ display: "grid", gap: 7, fontSize: 12, lineHeight: 1.45 }}>
+                  <div>
+                    <b>Amount:</b>{" "}
+                    {Number(activeWhaleNews.amountUsd || 0) > 0
+                      ? `$${Number(activeWhaleNews.amountUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                      : activeWhaleNews.type === "buy" && Number(activeWhaleNews.buyUsd || 0) > 0
+                        ? `$${Number(activeWhaleNews.buyUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                        : activeWhaleNews.type === "sell" && Number(activeWhaleNews.sellUsd || 0) > 0
+                          ? `$${Number(activeWhaleNews.sellUsd).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                          : "pending"}
+                  </div>
+                  <div>
+                    <b>DEX:</b> {activeWhaleNews.dex || "pending"}
+                  </div>
+                  <div>
+                    <b>Time:</b> {formatWhaleTimeAgo(activeWhaleNews.time)}
+                  </div>
+                  {activeWhaleNews.summary && (
+                    <div className="muted tiny" style={{ marginTop: 4 }}>
+                      {activeWhaleNews.summary}
+                    </div>
+                  )}
                 </div>
               </div>
 

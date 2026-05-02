@@ -985,6 +985,8 @@ function NexusRotationInfoButton() {
             style={{
               background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
               maxWidth: 720,
+              maxHeight: "86vh",
+              overflow: "hidden",
             }}
           >
             <div className="modalHead">
@@ -1000,7 +1002,7 @@ function NexusRotationInfoButton() {
               </button>
             </div>
 
-            <div className="helpBody">
+            <div className="helpBody" style={{ maxHeight: "calc(86vh - 86px)", overflowY: "auto", paddingRight: 6 }}>
               <div className="helpBlock">
                 <div className="helpLangTitle">DE</div>
                 <div className="helpText">
@@ -1051,6 +1053,8 @@ function WatchlistSignalsInfoButton() {
             style={{
               background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
               maxWidth: 760,
+              maxHeight: "86vh",
+              overflow: "hidden",
             }}
           >
             <div className="modalHead">
@@ -1066,7 +1070,7 @@ function WatchlistSignalsInfoButton() {
               </button>
             </div>
 
-            <div className="helpBody">
+            <div className="helpBody" style={{ maxHeight: "calc(86vh - 86px)", overflowY: "auto", paddingRight: 6 }}>
               <div className="helpBlock">
                 <div className="helpLangTitle">DE</div>
                 <div className="helpText">

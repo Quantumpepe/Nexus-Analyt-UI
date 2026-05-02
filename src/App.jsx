@@ -5093,6 +5093,11 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   });
   const [rotationSelectedPick, setRotationSelectedPick] = useState(null);
   const [rotationShowAllRecommendations, setRotationShowAllRecommendations] = useState(false);
+  const [rotationBudgetRelease, setRotationBudgetRelease] = useState("");
+  const [rotationRiskLimit, setRotationRiskLimit] = useState("");
+  const [rotationMinNetAdvantage, setRotationMinNetAdvantage] = useState("0.5");
+  const [rotationMaxSlippage, setRotationMaxSlippage] = useState("1");
+  const [rotationBudgetReleased, setRotationBudgetReleased] = useState(false);
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
@@ -5235,9 +5240,25 @@ useEffect(() => {
       coin: resolved?.coin || "",
       ok: Boolean(resolved),
       note,
+      score: Number(pick?.score),
+      rating: pick?.rating || "",
+      change24h: Number(pick?.ch),
+      whaleText: pick?.whaleText || "Neutral",
+      riskText: pick?.riskText || "Normal",
       ts: Date.now(),
     });
+    setRotationBudgetReleased(false);
   }, [gridWalletCoinsByChain]);
+
+  const releaseRotationBudget = useCallback(() => {
+    const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+    if (!rotationSelectedPick?.ok || !Number.isFinite(amount) || amount <= 0) return;
+    setRotationBudgetReleased(true);
+  }, [rotationSelectedPick, rotationBudgetRelease]);
+
+  const resetRotationBudgetRelease = useCallback(() => {
+    setRotationBudgetReleased(false);
+  }, []);
 
   // Keep selected Grid network valid, independent from active Privy network.
   useEffect(() => {
@@ -11340,11 +11361,39 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                       <div className="formRow">
                         <label>Budget release</label>
-                        <input disabled placeholder="User releases budget before start" />
+                        <input
+                          value={rotationBudgetRelease}
+                          onChange={(e) => { setRotationBudgetRelease(e.target.value); setRotationBudgetReleased(false); }}
+                          disabled={!rotationSelectedPick?.ok}
+                          placeholder={rotationSelectedPick?.ok ? "Amount from Vault for this Rotation" : "Select a recommendation first"}
+                        />
                       </div>
                       <div className="formRow">
-                        <label>Risk limit</label>
-                        <input disabled placeholder="Max loss / slippage later" />
+                        <label>Risk limit (%)</label>
+                        <input
+                          value={rotationRiskLimit}
+                          onChange={(e) => { setRotationRiskLimit(e.target.value); setRotationBudgetReleased(false); }}
+                          disabled={!rotationSelectedPick?.ok}
+                          placeholder={rotationSelectedPick?.ok ? "Max loss for this Rotation" : "Select first"}
+                        />
+                      </div>
+                      <div className="formRow">
+                        <label>Min net advantage (%)</label>
+                        <input
+                          value={rotationMinNetAdvantage}
+                          onChange={(e) => { setRotationMinNetAdvantage(e.target.value); setRotationBudgetReleased(false); }}
+                          disabled={!rotationSelectedPick?.ok}
+                          placeholder="e.g. 0.5"
+                        />
+                      </div>
+                      <div className="formRow">
+                        <label>Max slippage (%)</label>
+                        <input
+                          value={rotationMaxSlippage}
+                          onChange={(e) => { setRotationMaxSlippage(e.target.value); setRotationBudgetReleased(false); }}
+                          disabled={!rotationSelectedPick?.ok}
+                          placeholder="e.g. 1"
+                        />
                       </div>
                     </div>
 
@@ -11532,13 +11581,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           color: rotationSelectedPick.ok ? "#d9fff0" : "#facc15",
                         }}
                       >
-                        <div style={{ fontWeight: 900, marginBottom: 4 }}>Selected recommendation</div>
-                        <div className="muted tiny" style={{ lineHeight: 1.45 }}>
-                          {rotationSelectedPick.note}
+                        <div style={{ fontWeight: 900, marginBottom: 6 }}>Selected recommendation</div>
+                        <div className="muted tiny" style={{ lineHeight: 1.55, display: "grid", gap: 3 }}>
+                          <div>{rotationSelectedPick.note}</div>
                           {rotationSelectedPick.ok && (
                             <>
-                              <br />
-                              Nexus Rotation setup prepared: {rotationSelectedPick.chain} / {rotationSelectedPick.coin}. Budget is still not released.
+                              <div><b>Source:</b> {rotationSelectedPick.source} → <b>Execution:</b> {rotationSelectedPick.coin} on {rotationSelectedPick.chain}</div>
+                              <div><b>Score:</b> {Number.isFinite(rotationSelectedPick.score) ? `${rotationSelectedPick.score}/100` : "—"} · <b>Rating:</b> {rotationSelectedPick.rating || "—"} · <b>24h:</b> {Number.isFinite(rotationSelectedPick.change24h) ? `${rotationSelectedPick.change24h >= 0 ? "+" : ""}${rotationSelectedPick.change24h.toFixed(2)}%` : "—"}</div>
+                              <div><b>Whale / On-chain:</b> {rotationSelectedPick.whaleText || "Neutral"} · <b>Market:</b> {rotationSelectedPick.riskText || "Normal"}</div>
+                              <div><b>Budget:</b> {rotationBudgetRelease || "not entered"} · <b>Risk:</b> {rotationRiskLimit || "not set"} · <b>Min advantage:</b> {rotationMinNetAdvantage || "—"}% · <b>Slippage:</b> {rotationMaxSlippage || "—"}%</div>
+                              <div><b>Status:</b> {rotationBudgetReleased ? "Budget released for Nexus Rotation" : "Ready for budget release"}</div>
                             </>
                           )}
                         </div>
@@ -11566,8 +11618,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
 
                     <div className="btnRow">
-                      <button className="btn" type="button" disabled title="Nexus Rotation logic will be connected later">Budget freigeben</button>
-                      <button className="btnDanger" type="button" disabled title="Nexus Rotation logic will be connected later">Start Rotation</button>
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={!rotationSelectedPick?.ok || !(Number(String(rotationBudgetRelease || "").replace(",", ".")) > 0)}
+                        onClick={releaseRotationBudget}
+                        title={rotationSelectedPick?.ok ? "Release this budget for Nexus Rotation" : "Select a recommendation first"}
+                      >
+                        {rotationBudgetReleased ? "Budget freigegeben" : "Budget freigeben"}
+                      </button>
+                      <button
+                        className="btnDanger"
+                        type="button"
+                        disabled={!rotationSelectedPick?.ok || !rotationBudgetReleased}
+                        title={rotationBudgetReleased ? "Rotation start logic will be connected to the Vault later" : "Release budget first"}
+                      >
+                        Start Rotation
+                      </button>
+                      {rotationBudgetReleased && (
+                        <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>
+                      )}
                     </div>
                   </div>
                 </div>

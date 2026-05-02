@@ -11444,22 +11444,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
 
                     <div
+                      className="muted tiny"
                       style={{
-                        padding: "10px 12px",
-                        borderRadius: 12,
-                        background: "rgba(34,197,94,.07)",
-                        border: "1px solid rgba(34,197,94,.18)",
-                        display: "grid",
-                        gap: 8,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        padding: "8px 10px",
+                        borderRadius: 10,
+                        background: "rgba(0,0,0,.14)",
+                        border: "1px solid rgba(255,255,255,.06)",
                       }}
                     >
-                      <div className="label" style={{ marginBottom: 0 }}>Rotation status</div>
-                      <div className="muted tiny" style={{ display: "grid", gap: 4, lineHeight: 1.45 }}>
-                        <div><b>Status:</b> {rotationBudgetReleased ? "Budget released / ready to start" : rotationSelectedPick?.ok ? "Ready for budget release" : "Idle / select a recommendation"}</div>
-                        <div><b>Network scope:</b> {rotationNetworkScope === "ALL" ? "All wallet networks" : rotationNetworkScope} · <b>Mode:</b> {rotationMode === "AUTO_AFTER_RELEASE" ? "Auto after release" : rotationMode === "MANUAL_CONFIRM" ? "Manual confirm" : "Recommendation first"}</div>
-                        <div><b>Current position:</b> Not running yet · <b>Next target:</b> {rotationSelectedPick?.ok ? `${rotationSelectedPick.coin} on ${rotationSelectedPick.chain}` : "—"}</div>
-                        <div><b>Last action:</b> Waiting for user selection / budget release</div>
-                      </div>
+                      <span>
+                        <b>Status:</b>{" "}
+                        {rotationBudgetReleased
+                          ? "Ready"
+                          : rotationSelectedPick?.ok
+                            ? "Waiting for budget"
+                            : "Idle"}
+                      </span>
+                      <span style={{ opacity: 0.75 }}>
+                        {rotationSelectedPick?.ok
+                          ? `${rotationSelectedPick.coin} / ${rotationSelectedPick.chain}`
+                          : "No selection"}
+                      </span>
                     </div>
 
                     <div

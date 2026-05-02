@@ -5102,8 +5102,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationAllowDexSpread, setRotationAllowDexSpread] = useState(true);
   const [rotationAllowCexDexSpread, setRotationAllowCexDexSpread] = useState(false);
   const [rotationRouters, setRotationRouters] = useState({ QuickSwap: true, Uniswap: true, PancakeSwap: true, "1inch": true, "0x": false, SushiSwap: false });
-  const [rotationAutoSwapEnabled, setRotationAutoSwapEnabled] = useState(true);
-  const [rotationSwapSource, setRotationSwapSource] = useState("AUTO");
+  const [rotationSwapModalOpen, setRotationSwapModalOpen] = useState(false);
+  const [rotationSwapFromAsset, setRotationSwapFromAsset] = useState("AUTO");
+  const [rotationSwapAmount, setRotationSwapAmount] = useState("");
   const [rotationBudgetReleased, setRotationBudgetReleased] = useState(false);
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
@@ -11472,31 +11473,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Vault Funding / Auto Swap</div>
-                        <span className={`pill ${rotationAutoSwapEnabled ? "green" : "silver"}`}>{rotationAutoSwapEnabled ? "SWAP READY" : "SWAP OFF"}</span>
+                        <div className="label" style={{ marginBottom: 0 }}>Vault Funding</div>
+                        <span className="pill green">SIGN REQUIRED</span>
                       </div>
+
                       <div className="muted tiny" style={{ lineHeight: 1.45 }}>
-                        If the selected Rotation asset is missing or too low, Nexus can prepare a Vault swap from another available asset. The backend calculates the route; the user must approve/sign with Privy before execution.
+                        If the selected Rotation asset is missing or too low, Nexus will open a swap confirmation window. The user chooses/accepts the source asset, confirms the swap, and signs with Privy before anything is executed.
                       </div>
-                      <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr", gap: 8 }}>
-                        <button
-                          type="button"
-                          className={rotationAutoSwapEnabled ? "btn" : "miniBtn"}
-                          onClick={() => { setRotationAutoSwapEnabled((v) => !v); setRotationBudgetReleased(false); }}
-                        >
-                          Auto-swap preparation: {rotationAutoSwapEnabled ? "ON" : "OFF"}
-                        </button>
-                        <select
-                          value={rotationSwapSource}
-                          onChange={(e) => { setRotationSwapSource(e.target.value); setRotationBudgetReleased(false); }}
-                          disabled={!rotationSelectedPick?.ok || !rotationAutoSwapEnabled}
-                        >
-                          <option value="AUTO">Auto source asset</option>
-                          {gridWalletChains.map((ck) => (
-                            <option key={`rotation-swap-source-${ck}`} value={ck}>{ck}</option>
-                          ))}
-                        </select>
-                      </div>
+
                       <div
                         style={{
                           display: "grid",
@@ -11508,15 +11492,116 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           border: "1px solid rgba(255,255,255,.06)",
                         }}
                       >
-                        <div className="muted tiny"><b>Target asset:</b> {rotationSelectedPick?.ok ? `${rotationSelectedPick.coin} on ${rotationSelectedPick.chain}` : "Select recommendation first"}</div>
-                        <div className="muted tiny"><b>Target available:</b> Backend / Vault check pending</div>
-                        <div className="muted tiny"><b>Required budget:</b> {rotationBudgetRelease ? `${rotationBudgetRelease} USD equivalent` : "Enter Rotation Budget"}</div>
-                        <div className="muted tiny"><b>Swap needed:</b> {rotationSelectedPick?.ok && rotationBudgetRelease ? "Backend will compare target balance vs required amount" : "Waiting for selection + budget"}</div>
-                        <div className="muted tiny"><b>Source asset:</b> {rotationSwapSource === "AUTO" ? "Best available Vault asset" : rotationSwapSource}</div>
-                        <div className="muted tiny"><b>Estimated route:</b> Backend route pending</div>
-                        <div className="muted tiny"><b>Privy signature:</b> Required before swap/execution</div>
-                        <div className="muted tiny"><b>Status:</b> {rotationAutoSwapEnabled ? "Ready for backend funding check" : "Auto-swap disabled"}</div>
+                        <div className="muted tiny"><b>Target:</b> {rotationSelectedPick?.ok ? `${rotationSelectedPick.coin} on ${rotationSelectedPick.chain}` : "Select recommendation first"}</div>
+                        <div className="muted tiny"><b>Budget:</b> {rotationBudgetRelease ? `${rotationBudgetRelease} USD equivalent` : "Enter Rotation Budget"}</div>
+                        <div className="muted tiny"><b>Funding status:</b> {rotationSelectedPick?.ok && rotationBudgetRelease ? "Backend checks target balance and opens swap window only if needed" : "Waiting for selection + budget"}</div>
+                        <div className="muted tiny"><b>User approval:</b> Privy signature required before swap/execution</div>
                       </div>
+
+                      <button
+                        type="button"
+                        className="miniBtn"
+                        disabled={!rotationSelectedPick?.ok || !rotationBudgetRelease}
+                        onClick={() => {
+                          setRotationSwapFromAsset("AUTO");
+                          setRotationSwapAmount("");
+                          setRotationSwapModalOpen(true);
+                        }}
+                        title={rotationSelectedPick?.ok && rotationBudgetRelease ? "Preview the swap confirmation window" : "Select recommendation and enter budget first"}
+                        style={{ justifySelf: "start" }}
+                      >
+                        Open swap confirmation preview
+                      </button>
+
+                      {rotationSwapModalOpen && (
+                        <div
+                          style={{
+                            position: "fixed",
+                            inset: 0,
+                            zIndex: 9999,
+                            background: "rgba(0,0,0,.62)",
+                            display: "grid",
+                            placeItems: "center",
+                            padding: 16,
+                          }}
+                          onClick={() => setRotationSwapModalOpen(false)}
+                        >
+                          <div
+                            style={{
+                              width: "min(520px, 96vw)",
+                              borderRadius: 18,
+                              padding: 16,
+                              background: "rgba(8,36,31,.98)",
+                              border: "1px solid rgba(34,197,94,.28)",
+                              boxShadow: "0 18px 60px rgba(0,0,0,.45)",
+                              display: "grid",
+                              gap: 12,
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                              <div style={{ fontWeight: 900, fontSize: 18 }}>Swap required</div>
+                              <button type="button" className="miniBtn" onClick={() => setRotationSwapModalOpen(false)}>×</button>
+                            </div>
+
+                            <div className="muted tiny" style={{ lineHeight: 1.45 }}>
+                              Nexus needs more of the selected Rotation asset. Review the funding swap below, confirm it, then sign with Privy. Backend will replace the pending values with the real route before execution.
+                            </div>
+
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                                gap: 8,
+                                padding: "10px 12px",
+                                borderRadius: 12,
+                                background: "rgba(0,0,0,.16)",
+                                border: "1px solid rgba(255,255,255,.07)",
+                              }}
+                            >
+                              <div className="muted tiny"><b>Need:</b> {rotationSelectedPick?.ok ? `${rotationSelectedPick.coin} on ${rotationSelectedPick.chain}` : "—"}</div>
+                              <div className="muted tiny"><b>Rotation budget:</b> {rotationBudgetRelease ? `$${rotationBudgetRelease}` : "—"}</div>
+                              <div className="muted tiny"><b>Available target:</b> Backend / Vault check pending</div>
+                              <div className="muted tiny"><b>Estimated route:</b> Backend route pending</div>
+                              <div className="muted tiny"><b>Max slippage:</b> {rotationMaxSlippage || "—"}%</div>
+                              <div className="muted tiny"><b>Min net advantage:</b> {rotationMinNetAdvantage || "—"}%</div>
+                            </div>
+
+                            <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
+                              <div className="formRow">
+                                <label>Swap from</label>
+                                <select value={rotationSwapFromAsset} onChange={(e) => setRotationSwapFromAsset(e.target.value)}>
+                                  <option value="AUTO">Auto best Vault asset</option>
+                                  {gridWalletChains.map((ck) => (
+                                    <option key={`rotation-swap-modal-source-${ck}`} value={ck}>{ck}</option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="formRow">
+                                <label>Amount to swap</label>
+                                <input
+                                  value={rotationSwapAmount}
+                                  onChange={(e) => setRotationSwapAmount(e.target.value)}
+                                  placeholder="Backend estimate / user override"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="muted tiny" style={{ color: "#facc15" }}>
+                              Privy signature will be required. No swap is executed from this preview.
+                            </div>
+
+                            <div className="btnRow">
+                              <button type="button" className="btn" onClick={() => setRotationSwapModalOpen(false)}>
+                                Confirm swap / Sign with Privy
+                              </button>
+                              <button type="button" className="miniBtn" onClick={() => setRotationSwapModalOpen(false)}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div

@@ -5238,6 +5238,36 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     return `${activeGridChainKey}:${sym}`;
   }, [activeGridChainKey, gridItem]);
 
+  // Nexus backend bridge: load Vault router allowlist + fee policy for the active Grid/Rotation chain.
+  // These calls are background checks only; they do not execute trades or touch the Vault.
+  useEffect(() => {
+    let cancelled = false;
+
+    const chain = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase().trim();
+
+    async function loadNexusBackendBridge() {
+      try {
+        const routers = await api(`/api/nexus/routers?chain=${encodeURIComponent(chain)}`, { token, wallet });
+        if (!cancelled) console.log("NEXUS ROUTERS", routers);
+      } catch (e) {
+        if (!cancelled) console.warn("NEXUS ROUTERS FAILED", e);
+      }
+
+      try {
+        const feePolicy = await api(`/api/nexus/fee-policy?chain=${encodeURIComponent(chain)}`, { token, wallet });
+        if (!cancelled) console.log("NEXUS FEE POLICY", feePolicy);
+      } catch (e) {
+        if (!cancelled) console.warn("NEXUS FEE POLICY FAILED", e);
+      }
+    }
+
+    loadNexusBackendBridge();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeGridChainKey, token, wallet]);
+
   // If the selected grid coin is a native coin, re-read the Vault on that chain after refresh.
   // Important: do NOT mutate wallet chain state here. We only force the vault read itself.
   useEffect(() => {

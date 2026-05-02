@@ -5148,17 +5148,13 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationMaxSlippage, setRotationMaxSlippage] = useState("1");
   const [rotationAllowDexSpread, setRotationAllowDexSpread] = useState(true);
   const [rotationAllowCexDexSpread, setRotationAllowCexDexSpread] = useState(false);
-  const [rotationRouters, setRotationRouters] = useState({ QuickSwap: true, Uniswap: true, PancakeSwap: true, "1inch": true, "0x": true, SushiSwap: false });
-  const [nexusRouters, setNexusRouters] = useState([]);
-  const [nexusFeePolicy, setNexusFeePolicy] = useState(null);
-  const [rotationBackendPreview, setRotationBackendPreview] = useState(null);
-  const [rotationBackendReport, setRotationBackendReport] = useState(null);
-  const [rotationBackendLoading, setRotationBackendLoading] = useState(false);
-  const [rotationBackendError, setRotationBackendError] = useState("");
+  const [rotationRouters, setRotationRouters] = useState({ QuickSwap: true, Uniswap: true, PancakeSwap: true, "1inch": true, "0x": false, SushiSwap: false });
   const [rotationSwapModalOpen, setRotationSwapModalOpen] = useState(false);
   const [rotationSwapFromAsset, setRotationSwapFromAsset] = useState("AUTO");
   const [rotationSwapAmount, setRotationSwapAmount] = useState("");
   const [rotationBudgetReleased, setRotationBudgetReleased] = useState(false);
+  const [rotationBackendLoading, setRotationBackendLoading] = useState(false);
+  const [rotationBackendMsg, setRotationBackendMsg] = useState("");
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
@@ -5317,6 +5313,56 @@ useEffect(() => {
     setRotationBudgetReleased(true);
   }, [rotationSelectedPick, rotationBudgetRelease]);
 
+  const startRotationSafeMode = useCallback(async () => {
+    // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
+    setRotationBackendLoading(true);
+    setRotationBackendMsg("");
+    try {
+      const chain = String(rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+      const native = chain === "BNB" ? "BNB" : chain === "ETH" ? "ETH" : "POL";
+      const symbol = String(rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || native).toUpperCase();
+      let amountUsd = Number(String(rotationBudgetRelease || "").replace(",", "."));
+      if (!Number.isFinite(amountUsd) || amountUsd <= 0) amountUsd = 1; // tiny test amount for preview/check
+      const slippagePct = Number(String(rotationMaxSlippage || "1").replace(",", "."));
+
+      const body = {
+        wallet,
+        chain,
+        symbol,
+        side: "BUY",
+        amountUsd,
+        amount_usd: amountUsd,
+        tokenIn: native,
+        token_in: native,
+        tokenOut: symbol,
+        token_out: symbol,
+        slippageBps: Number.isFinite(slippagePct) ? Math.round(slippagePct * 100) : 100,
+        slippage_bps: Number.isFinite(slippagePct) ? Math.round(slippagePct * 100) : 100,
+        riskLimitPct: rotationRiskLimit,
+        minNetAdvantagePct: rotationMinNetAdvantage,
+        safeMode: true,
+      };
+
+      const preview = await api("/api/nexus/order-preview", { method: "POST", token, wallet, body });
+      console.log("NEXUS ORDER PREVIEW", preview);
+
+      const exec = await api("/api/nexus/execute-plan", {
+        method: "POST",
+        token,
+        wallet,
+        body: { wallet, chain, preview, requireVaultBalance: true, safeMode: true },
+      });
+      console.log("NEXUS EXECUTION CHECK", exec);
+
+      setRotationBackendMsg("Vault check sent ✓");
+    } catch (e) {
+      console.error("NEXUS VAULT CHECK FAILED", e);
+      setRotationBackendMsg(`Vault check failed: ${e?.message || e}`);
+    } finally {
+      setRotationBackendLoading(false);
+    }
+  }, [rotationSelectedPick, activeGridChainKey, gridItem, rotationBudgetRelease, rotationMaxSlippage, rotationRiskLimit, rotationMinNetAdvantage, token, wallet]);
+
   const resetRotationBudgetRelease = useCallback(() => {
     setRotationBudgetReleased(false);
   }, []);
@@ -5324,126 +5370,7 @@ useEffect(() => {
   const toggleRotationRouter = useCallback((router) => {
     setRotationRouters((prev) => ({ ...(prev || {}), [router]: !prev?.[router] }));
     setRotationBudgetReleased(false);
-    setRotationBackendPreview(null);
-    setRotationBackendReport(null);
-    setRotationBackendError("");
   }, []);
-
-  const getSelectedNexusRouter = useCallback(() => {
-    const enabled = Object.entries(rotationRouters || {})
-      .filter(([, on]) => !!on)
-      .map(([k]) => String(k || "").toLowerCase().replace(/\s+/g, ""));
-    const routers = Array.isArray(nexusRouters) ? nexusRouters : [];
-    if (!routers.length) return null;
-    const match = routers.find((r) => {
-      const key = String(r?.key || "").toLowerCase().replace(/\s+/g, "");
-      const name = String(r?.name || "").toLowerCase().replace(/\s+/g, "");
-      return enabled.some((x) => key.includes(x) || name.includes(x) || (x === "1inch" && key.includes("oneinch")) || (x === "0x" && (key === "0x" || name.includes("0x"))));
-    });
-    return match || routers[0] || null;
-  }, [rotationRouters, nexusRouters]);
-
-  // Nexus backend bridge preload.
-  // This runs immediately after the app loads so the Network tab shows the new backend links:
-  //   /api/nexus/routers
-  //   /api/nexus/fee-policy
-  // Order preview / execute-plan are triggered later when the user releases a Rotation budget.
-  useEffect(() => {
-    let cancelled = false;
-    const chain = String(activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase();
-
-    const loadNexusBackendBridge = async () => {
-      try {
-        const r = await api(`/api/nexus/routers?chain=${encodeURIComponent(chain)}`, { method: "GET", token, wallet });
-        if (!cancelled) setNexusRouters(Array.isArray(r?.routers) ? r.routers : []);
-      } catch (e) {
-        console.warn("Nexus routers API not ready", e);
-        if (!cancelled) setNexusRouters([]);
-      }
-
-      try {
-        const fp = await api(`/api/nexus/fee-policy?chain=${encodeURIComponent(chain)}`, { method: "GET", token, wallet });
-        if (!cancelled) setNexusFeePolicy(fp?.feePolicy || null);
-      } catch (e) {
-        console.warn("Nexus fee-policy API not ready", e);
-        if (!cancelled) setNexusFeePolicy(null);
-      }
-    };
-
-    loadNexusBackendBridge();
-    return () => { cancelled = true; };
-  }, [activeGridChainKey, gridChain, token, wallet]);
-
-  const buildRotationBackendBody = useCallback(() => {
-    const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
-    const slippagePct = Number(String(rotationMaxSlippage || "").replace(",", "."));
-    const selectedRouter = getSelectedNexusRouter();
-    const chain = String(rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-    const native = chain === "BNB" ? "BNB" : chain === "ETH" ? "ETH" : "POL";
-    const sym = String(rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || native).toUpperCase();
-    return {
-      wallet,
-      chain,
-      symbol: sym,
-      side: "BUY",
-      amountUsd: Number.isFinite(amount) ? amount : 0,
-      tokenIn: native,
-      tokenOut: sym,
-      routerKey: selectedRouter?.key || "",
-      routerAddress: selectedRouter?.address || "",
-      slippageBps: Number.isFinite(slippagePct) ? Math.round(slippagePct * 100) : 100,
-      riskLimitPct: rotationRiskLimit,
-      minNetAdvantagePct: rotationMinNetAdvantage,
-      feeStable: nexusFeePolicy?.settlement?.stableSymbol || "",
-    };
-  }, [rotationBudgetRelease, rotationMaxSlippage, getSelectedNexusRouter, rotationSelectedPick, activeGridChainKey, gridItem, wallet, rotationRiskLimit, rotationMinNetAdvantage, nexusFeePolicy]);
-
-  const refreshRotationBackendPreview = useCallback(async () => {
-    if (!rotationSelectedPick?.ok) return null;
-    const body = buildRotationBackendBody();
-    if (!(Number(body.amountUsd) > 0)) return null;
-    setRotationBackendLoading(true);
-    setRotationBackendError("");
-    setRotationBackendReport(null);
-    try {
-      const r = await api("/api/nexus/order-preview", { method: "POST", token, wallet, body });
-      setRotationBackendPreview(r || null);
-      return r || null;
-    } catch (e) {
-      setRotationBackendError(String(e?.message || e || "Backend preview failed"));
-      setRotationBackendPreview(null);
-      return null;
-    } finally {
-      setRotationBackendLoading(false);
-    }
-  }, [rotationSelectedPick, buildRotationBackendBody, token, wallet]);
-
-  const startRotationSafeMode = useCallback(async () => {
-    if (!rotationSelectedPick?.ok || !rotationBudgetReleased) return;
-    setRotationBackendLoading(true);
-    setRotationBackendError("");
-    try {
-      const preview = rotationBackendPreview || await refreshRotationBackendPreview();
-      if (!preview) throw new Error("Missing backend preview");
-      const r = await api("/api/nexus/execute-plan", { method: "POST", token, wallet, body: { wallet, preview, requireVaultBalance: true } });
-      setRotationBackendReport(r || null);
-    } catch (e) {
-      setRotationBackendError(String(e?.message || e || "Execution safety check failed"));
-      setRotationBackendReport(null);
-    } finally {
-      setRotationBackendLoading(false);
-    }
-  }, [rotationSelectedPick, rotationBudgetReleased, rotationBackendPreview, refreshRotationBackendPreview, token, wallet]);
-
-  useEffect(() => {
-    if (!rotationBudgetReleased) {
-      setRotationBackendPreview(null);
-      setRotationBackendReport(null);
-      setRotationBackendError("");
-      return;
-    }
-    refreshRotationBackendPreview();
-  }, [rotationBudgetReleased, refreshRotationBackendPreview]);
 
   // Keep selected Grid network valid, independent from active Privy network.
   useEffect(() => {
@@ -11855,42 +11782,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Scope:</b> {rotationNetworkScope === "ALL" ? "All wallet networks" : rotationNetworkScope} · <b>Mode:</b> {rotationMode === "AUTO_AFTER_RELEASE" ? "Auto after release" : rotationMode === "MANUAL_CONFIRM" ? "Manual confirm" : "Recommendation first"}</div>
                               <div><b>Spread check:</b> DEX {rotationAllowDexSpread ? "ON" : "OFF"} · CEX/DEX {rotationAllowCexDexSpread ? "ON" : "OFF"}</div>
                               <div><b>Status:</b> {rotationBudgetReleased ? "Budget released for Nexus Rotation" : "Ready for budget release"}</div>
-                              {rotationBudgetReleased && (
-                                <div
-                                  style={{
-                                    marginTop: 6,
-                                    padding: "8px 10px",
-                                    borderRadius: 10,
-                                    background: "rgba(0,0,0,.16)",
-                                    border: "1px solid rgba(255,255,255,.08)",
-                                    color: "#d9fff0",
-                                  }}
-                                >
-                                  <div style={{ fontWeight: 900, marginBottom: 4 }}>Backend / Vault Preview</div>
-                                  {rotationBackendLoading ? (
-                                    <div>Checking backend preview…</div>
-                                  ) : rotationBackendError ? (
-                                    <div style={{ color: "#fca5a5" }}>{rotationBackendError}</div>
-                                  ) : rotationBackendPreview ? (
-                                    <>
-                                      <div><b>Preview:</b> {rotationBackendPreview.ready_for_vault ? "Ready" : "Blocked"} · <b>Router:</b> {rotationBackendPreview.router?.name || "not configured"}</div>
-                                      <div><b>Amount:</b> {fmtUsd(Number(rotationBackendPreview.amountUsd || 0))} · <b>Slippage:</b> {Number(rotationBackendPreview.slippageBps || 0) / 100}% · <b>Min out:</b> {Number(rotationBackendPreview.minAmountOut || 0) ? Number(rotationBackendPreview.minAmountOut || 0).toFixed(6) : "—"}</div>
-                                      <div><b>Fee:</b> {rotationBackendPreview.feePolicy?.applies ? `${fmtUsd(Number(rotationBackendPreview.feePolicy?.feeUsd || 0))} in ${rotationBackendPreview.feePolicy?.settlement?.stableSymbol || "USDC/USDT"}` : `No fee until $${Number(rotationBackendPreview.feePolicy?.minProfitForFeeUsd || 100).toFixed(0)} profit`}</div>
-                                      {Array.isArray(rotationBackendPreview.blocking_reasons) && rotationBackendPreview.blocking_reasons.length > 0 && (
-                                        <div style={{ color: "#facc15" }}><b>Needs:</b> {rotationBackendPreview.blocking_reasons.join(", ")}</div>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <div>Preview appears after budget release.</div>
-                                  )}
-                                  {rotationBackendReport && (
-                                    <div style={{ marginTop: 5, color: rotationBackendReport.can_execute ? "#86efac" : "#facc15" }}>
-                                      <b>Safe check:</b> {rotationBackendReport.can_execute ? "Vault payload ready" : "Blocked"}
-                                      {Array.isArray(rotationBackendReport.blocking_reasons) && rotationBackendReport.blocking_reasons.length > 0 ? ` · ${rotationBackendReport.blocking_reasons.join(", ")}` : ""}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
                             </>
                           )}
                         </div>
@@ -11918,9 +11809,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <button
                         className="btnDanger"
                         type="button"
-                        disabled={!rotationSelectedPick?.ok || !rotationBudgetReleased || rotationBackendLoading}
+                        disabled={rotationBackendLoading}
                         onClick={startRotationSafeMode}
-                        title={rotationBudgetReleased ? "Runs backend SAFE MODE check only. No trade, no swap, no Vault transaction." : "Release budget first"}
+                        title="Runs backend SAFE MODE check only. No trade, no swap, no Vault transaction."
                       >
                         {rotationBackendLoading ? "Checking…" : "Check Vault"}
                       </button>
@@ -11928,6 +11819,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>
                       )}
                     </div>
+                    {rotationBackendMsg ? (
+                      <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
+                        {rotationBackendMsg}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : (

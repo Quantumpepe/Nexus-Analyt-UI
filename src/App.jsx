@@ -11360,12 +11360,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </select>
                       </div>
                       <div className="formRow">
-                        <label>Budget release</label>
+                        <label>Rotation Budget ($)</label>
                         <input
                           value={rotationBudgetRelease}
                           onChange={(e) => { setRotationBudgetRelease(e.target.value); setRotationBudgetReleased(false); }}
                           disabled={!rotationSelectedPick?.ok}
-                          placeholder={rotationSelectedPick?.ok ? "Amount from Vault for this Rotation" : "Select a recommendation first"}
+                          placeholder={rotationSelectedPick?.ok ? "e.g. 500" : "Select a recommendation first"}
                         />
                       </div>
                       <div className="formRow">
@@ -11589,7 +11589,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Source:</b> {rotationSelectedPick.source} → <b>Execution:</b> {rotationSelectedPick.coin} on {rotationSelectedPick.chain}</div>
                               <div><b>Score:</b> {Number.isFinite(rotationSelectedPick.score) ? `${rotationSelectedPick.score}/100` : "—"} · <b>Rating:</b> {rotationSelectedPick.rating || "—"} · <b>24h:</b> {Number.isFinite(rotationSelectedPick.change24h) ? `${rotationSelectedPick.change24h >= 0 ? "+" : ""}${rotationSelectedPick.change24h.toFixed(2)}%` : "—"}</div>
                               <div><b>Whale / On-chain:</b> {rotationSelectedPick.whaleText || "Neutral"} · <b>Market:</b> {rotationSelectedPick.riskText || "Normal"}</div>
-                              <div><b>Budget:</b> {rotationBudgetRelease || "not entered"} · <b>Risk:</b> {rotationRiskLimit || "not set"} · <b>Min advantage:</b> {rotationMinNetAdvantage || "—"}% · <b>Slippage:</b> {rotationMaxSlippage || "—"}%</div>
+                              <div><b>Rotation Budget:</b> {rotationBudgetRelease ? `$${rotationBudgetRelease}` : "not entered"} · <b>Risk:</b> {rotationRiskLimit || "not set"} · <b>Min advantage:</b> {rotationMinNetAdvantage || "—"}% · <b>Slippage:</b> {rotationMaxSlippage || "—"}%</div>
                               <div><b>Status:</b> {rotationBudgetReleased ? "Budget released for Nexus Rotation" : "Ready for budget release"}</div>
                             </>
                           )}

@@ -959,6 +959,73 @@ function InfoButton({ title = "Info", children }) {
   );
 }
 
+
+function NexusRotationInfoButton() {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button
+        className="btnGhost"
+        type="button"
+        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
+        style={{ width: "100%", marginTop: 12, justifyContent: "center" }}
+      >
+        Rotation Info
+      </button>
+
+      {open && (
+        <div className="modalBackdrop" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}>
+          <div
+            className="modal modalHelp"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+              maxWidth: 720,
+            }}
+          >
+            <div className="modalHead">
+              <div className="cardTitle">Nexus Rotation Info</div>
+              <button
+                className="iconBtn"
+                type="button"
+                aria-label="Close Rotation Info"
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="helpBody">
+              <div className="helpBlock">
+                <div className="helpLangTitle">DE</div>
+                <div className="helpText">
+                  <p><b>Nexus Rotation</b> ist ein eigener Modus innerhalb des Grid-Bereichs. Er soll später automatisch erkennen, welches Asset im Moment die bessere Chance hat, und das verfügbare Budget gezielt dorthin rotieren.</p>
+                  <p>Die Rotation bewertet Coins anhand von Live-Daten wie Preisbewegung, Volumen, Market Cap, Whale-Signalen, Market Condition und später dem finalen Nexus Score.</p>
+                  <p><b>Bedienung:</b> Zuerst wählst du einen Coin aus der Watchlist oder aus den Rotation-Empfehlungen. Danach prüfst du Budget, Chain, Risiko und Vorschau. Erst wenn alles passt, kann das Budget für Nexus Rotation freigegeben werden.</p>
+                  <p><b>Wichtig:</b> Solange der Vault noch nicht final aktiv ist, ist Nexus Rotation ein Analyse- und Vorbereitungsmodus. Es wird nichts automatisch gekauft oder verkauft, ohne dass der User später explizit signiert.</p>
+                </div>
+
+                <div className="helpLangTitle" style={{ marginTop: 14 }}>EN</div>
+                <div className="helpText">
+                  <p><b>Nexus Rotation</b> is a dedicated mode inside the Grid section. Its goal is to detect which asset currently has the stronger opportunity and rotate the available budget toward that asset.</p>
+                  <p>The rotation logic evaluates coins using live data such as price movement, volume, market cap, whale signals, market condition and later the final Nexus Score.</p>
+                  <p><b>How to use it:</b> First select a coin from the Watchlist or from the rotation recommendations. Then review budget, chain, risk and preview. Only when everything looks correct should the budget be released for Nexus Rotation.</p>
+                  <p><b>Important:</b> Until the Vault is fully active, Nexus Rotation is an analysis and preparation mode. Nothing is bought or sold automatically unless the user explicitly signs later.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ------------------------
 // Health color (ampel)
 // ------------------------
@@ -11313,31 +11380,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="cardActions" style={{ alignItems: "center" }}>
              
               <span className="pill silver">Price: {shownGridPrice ? fmtUsd(shownGridPrice) : "—"}</span>
-              <InfoButton title="Grid Trader – Info">
-                <Help showClose dismissable
+              <InfoButton title="Grid Trader">
+                <Help
                   de={
                     <>
-                      <p><b>Grid Trader</b> verwaltet mehrere BUY- und SELL-Orders für den gewählten Coin.</p>
-                      <p>Du definierst ein <b>maximales Budget in der ausgewählten Payout-/Chain-Währung</b> (z. B. POL / BNB / ETH). Dieses Budget ist ein <b>globales Limit</b> für den gesamten Grid.</p>
-                      <p>Das Budget gilt <b>nicht pro Order</b>, sondern für alle Grid-Orders zusammen.</p>
-                      <p><b>BUY</b>-Orders kaufen Token, <b>SELL</b>-Orders verkaufen bereits vorhandene Token.</p>
-                      
-                      <p><b>Manual Orders</b> sind einzelne Orders und nicht Teil des eigentlichen Grid-Blocks.</p>
-                      <p>BUY kann je nach Eingabe per <b>USD</b> oder per <b>Token-Menge</b> definiert werden.</p>
+                      <p><b>Grid Trader</b> ist der Bereich, in dem ein Asset für eine Grid- oder Rotation-Strategie vorbereitet wird.</p>
+                      <p>Du wählst zuerst die Chain und den Coin. Danach prüfst du Preis, Budget, verfügbare Mittel, offene Orders und später auch Risiko, Slippage und Vorschau.</p>
+                      <p>Wichtig: Solange der Vault nicht final aktiv ist, dient dieser Bereich zur Analyse, Vorbereitung und Kontrolle. Automatische Käufe oder Verkäufe passieren erst später mit User-Signatur.</p>
                     </>
                   }
                   en={
                     <>
-                      <p><b>Grid Trader</b> manages multiple BUY and SELL orders for the selected coin.</p>
-                      <p>You define a <b>maximum budget in the selected payout/chain asset</b> (for example POL / BNB / ETH). This budget is a <b>global limit</b> for the full grid.</p>
-                      <p>The budget is <b>not per order</b>; it is shared across all grid orders.</p>
-                      <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell tokens you already hold.</p>
-                      
-                      <p><b>Manual orders</b> are single orders and are not part of the main grid block.</p>
-                      <p>BUY can be defined either by <b>USD</b> or by <b>token quantity</b>, depending on your input mode.</p>
+                      <p><b>Grid Trader</b> is the area where an asset is prepared for a grid or rotation strategy.</p>
+                      <p>First choose the chain and coin. Then review price, budget, available funds, open orders and later also risk, slippage and preview.</p>
+                      <p>Important: Until the Vault is fully active, this area is for analysis, preparation and control. Automatic buys or sells will only happen later with user signature.</p>
                     </>
                   }
                 />
+                <NexusRotationInfoButton />
               </InfoButton>
             </div>
           </div>

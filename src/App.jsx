@@ -11306,7 +11306,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   border: idx === 0 ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(255,255,255,.06)",
                                 }}
                               >
-                                <div style={{ fontWeight: 900 }}>{idx === 0 ? "#1 " : `#${idx + 1} `}{p.sym}</div>
+                                <div>
+                                 <div style={{ fontWeight: 900 }}>
+                                   {idx === 0 ? "#1 " : `#${idx + 1} `}
+                                   {p.sym}
+                                 </div>
+
+                                 {getAssetNote(p.sym) && (
+                                   <div style={{ fontSize: "12px", opacity: 0.7 }}>
+                                     {getAssetNote(p.sym)}
+                                   </div>
+                                 )}
+                                </div>
                                 <div className="muted tiny" style={{ display: "grid", gap: 3 }}>
                                   <div>Why: Score {p.score}/100 · Rating {p.rating} · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
                                   <div>Whale/On-chain: {p.whaleText || "Neutral"} · Market: {p.riskText || "Normal"}</div>

@@ -11251,6 +11251,79 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         background: "rgba(255,255,255,.035)",
                         border: "1px solid rgba(255,255,255,.07)",
                         display: "grid",
+                        gap: 10,
+                      }}
+                    >
+                      <div className="label" style={{ marginBottom: 0 }}>Watchlist recommendations</div>
+                      {(() => {
+                        const rows = Array.isArray(watchRows) ? watchRows : [];
+                        const picks = rows
+                          .map((r) => {
+                            const sym = String(r?.symbol || "").toUpperCase();
+                            if (!sym) return null;
+                            const onchain = onchainBySymbol?.[sym] || null;
+                            const marketCondition = normalizeMarketConditionForAi(marketConditionBySymbol?.[sym]);
+                            const baseScore = watchSystemScore(r);
+                            const onchainDelta = watchOnchainScoreDelta(onchain);
+                            const marketDelta = Number(marketCondition?.score_delta || 0);
+                            const score = Math.max(0, Math.min(100, Math.round(baseScore + onchainDelta + marketDelta)));
+                            const rating = ratingFromScore(score);
+                            const ch = Number(r?.change24h ?? r?.chg_24h ?? r?.usd_24h_change ?? r?.change_24h);
+                            const vol = Number(r?.volume24h ?? r?.total_volume ?? r?.volume_24h);
+                            const whaleText = String(onchain?.summary || onchain?.label || onchain?.state || "Neutral").trim();
+                            const riskText = marketCondition?.label || marketCondition?.state || "Normal";
+                            return { sym, score, rating, ch, vol, whaleText, riskText };
+                          })
+                          .filter(Boolean)
+                          .sort((a, b) => (b.score - a.score) || ((b.ch || 0) - (a.ch || 0)))
+                          .slice(0, 3);
+
+                        if (!picks.length) {
+                          return (
+                            <div className="muted tiny">
+                              No Watchlist data available yet. Add coins to the Watchlist and refresh, then Nexus Rotation can show recommendations here.
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            {picks.map((p, idx) => (
+                              <div
+                                key={`${p.sym}-${idx}`}
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: isCompactMobile ? "1fr" : "70px 1fr auto",
+                                  gap: 8,
+                                  alignItems: "center",
+                                  padding: "9px 10px",
+                                  borderRadius: 12,
+                                  background: idx === 0 ? "rgba(34,197,94,.10)" : "rgba(255,255,255,.03)",
+                                  border: idx === 0 ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(255,255,255,.06)",
+                                }}
+                              >
+                                <div style={{ fontWeight: 900 }}>{idx === 0 ? "#1 " : `#${idx + 1} `}{p.sym}</div>
+                                <div className="muted tiny" style={{ display: "grid", gap: 3 }}>
+                                  <div>Why: Score {p.score}/100 · Rating {p.rating} · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
+                                  <div>Whale/On-chain: {p.whaleText || "Neutral"} · Market: {p.riskText || "Normal"}</div>
+                                </div>
+                                <span className={`pill ${p.score >= 70 ? "green" : p.score >= 55 ? "silver" : "red"}`}>
+                                  {idx === 0 ? "Best" : "Option"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        background: "rgba(255,255,255,.035)",
+                        border: "1px solid rgba(255,255,255,.07)",
+                        display: "grid",
                         gap: 6,
                       }}
                     >

@@ -5195,6 +5195,13 @@ useEffect(() => {
   }, [gridUiHydrated, activeGridChainKey, gridItem]);
 
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
+  const [gridMode, setGridMode] = useState(() => {
+    try { return localStorage.getItem("nexus_grid_mode") || "normal"; } catch (_) { return "normal"; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("nexus_grid_mode", gridMode); } catch (_) {}
+  }, [gridMode]);
+
 
   // const uiChainKey defined above (useMemo) 
 
@@ -11152,6 +11159,119 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           <div className="panelScroll"><div className="gridLayout">
             <div className="gridLeft">
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 8,
+                  marginBottom: 10,
+                  padding: 4,
+                  borderRadius: 14,
+                  background: "rgba(255,255,255,.04)",
+                  border: "1px solid rgba(255,255,255,.08)",
+                }}
+              >
+                {[
+                  ["normal", "Normal Grid"],
+                  ["rotation", "Nexus Rotation"],
+                ].map(([mode, label]) => {
+                  const active = String(gridMode || "normal") === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setGridMode(mode)}
+                      style={{
+                        height: 36,
+                        borderRadius: 11,
+                        border: active ? "1px solid rgba(34,197,94,.65)" : "1px solid rgba(255,255,255,.08)",
+                        background: active ? "linear-gradient(90deg, #22c55e, #16a34a)" : "rgba(255,255,255,.04)",
+                        color: active ? "#071512" : "#d9fff0",
+                        fontWeight: 900,
+                        cursor: "pointer",
+                        boxShadow: active ? "0 0 16px rgba(34,197,94,.22)" : "none",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {String(gridMode || "normal") === "rotation" ? (
+                <div className="gridWrap">
+                  <div className="gridControls" style={{ display: "grid", gap: 12 }}>
+                    <div
+                      style={{
+                        padding: "12px",
+                        borderRadius: 14,
+                        background: "rgba(34,197,94,.08)",
+                        border: "1px solid rgba(34,197,94,.22)",
+                      }}
+                    >
+                      <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 4 }}>Nexus Rotation</div>
+                      <div className="muted tiny" style={{ lineHeight: 1.45 }}>
+                        Recommendation mode placeholder. The normal Grid is unchanged. Later this mode will use Watchlist scores, Whale signals, Exit Risk, On-Chain checks and router data before the user releases a budget.
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                        gap: isCompactMobile ? 8 : 10,
+                      }}
+                    >
+                      <div className="formRow">
+                        <label>Network scope</label>
+                        <select disabled value="ALL">
+                          <option value="ALL">All wallet networks</option>
+                        </select>
+                      </div>
+                      <div className="formRow">
+                        <label>Mode</label>
+                        <select disabled value="RECOMMENDATION">
+                          <option value="RECOMMENDATION">Recommendation first</option>
+                        </select>
+                      </div>
+                      <div className="formRow">
+                        <label>Budget release</label>
+                        <input disabled placeholder="User releases budget before start" />
+                      </div>
+                      <div className="formRow">
+                        <label>Risk limit</label>
+                        <input disabled placeholder="Max loss / slippage later" />
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        background: "rgba(255,255,255,.035)",
+                        border: "1px solid rgba(255,255,255,.07)",
+                        display: "grid",
+                        gap: 6,
+                      }}
+                    >
+                      <div className="label" style={{ marginBottom: 0 }}>Planned checks</div>
+                      <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
+                        <div>• Best asset recommendation from Watchlist ranking</div>
+                        <div>• Whale signal + Exit Risk before rotation</div>
+                        <div>• On-chain liquidity and slippage check</div>
+                        <div>• Multi-DEX router selection through backend</div>
+                        <div>• User-bounded budget only</div>
+                      </div>
+                    </div>
+
+                    <div className="btnRow">
+                      <button className="btn" type="button" disabled title="Nexus Rotation logic will be connected later">Budget freigeben</button>
+                      <button className="btnDanger" type="button" disabled title="Nexus Rotation logic will be connected later">Start Rotation</button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
 
           <div className="gridWrap">
             <div className="gridControls">              <div
@@ -11571,6 +11691,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               {!token && <div className="muted tiny">Wallet connected. First protected action may require one signature.</div>}
 </div>
+
+                </>
+              )}
 
             </div>
 

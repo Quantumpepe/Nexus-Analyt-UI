@@ -11782,27 +11782,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     )}
 
-                    <div
-                      style={{
-                        padding: "10px 12px",
-                        borderRadius: 12,
-                        background: "rgba(255,255,255,.035)",
-                        border: "1px solid rgba(255,255,255,.07)",
-                        display: "grid",
-                        gap: 6,
-                      }}
-                    >
-                      <div className="label" style={{ marginBottom: 0 }}>Planned checks</div>
-                      <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
-                        <div>• Best asset recommendation from Watchlist ranking</div>
-                        <div>• Whale signal + Exit Risk before rotation</div>
-                        <div>• On-chain liquidity and slippage check</div>
-                        <div>• Multi-DEX router selection through backend</div>
-                        <div>• Spread check: buy cheaper / sell higher after fees</div>
-                        <div>• User-bounded budget only</div>
-                      </div>
-                    </div>
-
                     <div className="btnRow">
                       <button
                         className="btn"

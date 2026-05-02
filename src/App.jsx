@@ -11564,8 +11564,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 )}
                               </div>
                               <div className="muted tiny" style={{ display: "grid", gap: 3, minWidth: 0 }}>
-                                <div>Why: Score {p.score}/100 · Rating {p.rating} · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
-                                <div>Whale/On-chain: {p.whaleText || "Neutral"} · Market: {p.riskText || "Normal"}</div>
+                                <div>Score {p.score}/100 · {p.rating} · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
+                                <div>Whale: {p.whaleText || "Neutral"}</div>
                               </div>
                               <div style={{ display: "flex", gap: 6, justifyContent: isCompactMobile ? "flex-start" : "flex-end", alignItems: "center", flexWrap: "wrap" }}>
                                 <span className={`pill ${p.score >= 70 ? "green" : p.score >= 55 ? "silver" : "red"}`}>

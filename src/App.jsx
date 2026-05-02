@@ -315,7 +315,11 @@ const TOKEN_WHITELIST = {
     { symbol: "USDT", address: "0x55d398326f99059fF775485246999027B3197955", decimals: 18 },
   ],
 };
-
+const getAssetNote = (coin) => {
+  if (coin === "BTC") return "via WBTC (ETH) / BTCB (BNB)";
+  if (coin === "SOL") return "via WSOL";
+  return null;
+};
 // ------------------------
 // Alchemy (wallet balances)
 // ------------------------

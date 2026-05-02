@@ -11309,7 +11309,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 }}
               >
                 {[
-                  ["normal", "Normal Grid"],
+                  ["normal", "Nexus Grid"],
                   ["rotation", "Nexus Rotation"],
                 ].map(([mode, label]) => {
                   const active = String(gridMode || "normal") === mode;
@@ -11338,20 +11338,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
               {String(gridMode || "normal") === "rotation" ? (
                 <div className="gridWrap">
                   <div className="gridControls" style={{ display: "grid", gap: 12 }}>
-                    <div
-                      style={{
-                        padding: "12px",
-                        borderRadius: 14,
-                        background: "rgba(34,197,94,.08)",
-                        border: "1px solid rgba(34,197,94,.22)",
-                      }}
-                    >
-                      <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 4 }}>Nexus Rotation</div>
-                      <div className="muted tiny" style={{ lineHeight: 1.45 }}>
-                        Recommendation mode placeholder. The normal Grid is unchanged. Later this mode will use Watchlist scores, Whale signals, Exit Risk, On-Chain checks and router data before the user releases a budget.
-                      </div>
-                    </div>
-
                     <div
                       style={{
                         padding: "10px 12px",

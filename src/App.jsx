@@ -959,181 +959,6 @@ function InfoButton({ title = "Info", children }) {
   );
 }
 
-
-function NexusRotationInfoButton() {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <>
-      <button
-        className="btnGhost"
-        type="button"
-        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
-        style={{ width: "100%", marginTop: 12, justifyContent: "center" }}
-      >
-        Rotation Info
-      </button>
-
-      {open && (
-        <div className="modalBackdrop" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}>
-          <div
-            className="modal modalHelp"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-              maxWidth: 720,
-              maxHeight: "86vh",
-              overflow: "hidden",
-            }}
-          >
-            <div className="modalHead">
-              <div className="cardTitle">Nexus Rotation Info</div>
-              <button
-                className="iconBtn"
-                type="button"
-                aria-label="Close Rotation Info"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="helpBody" style={{ maxHeight: "calc(86vh - 86px)", overflowY: "auto", paddingRight: 6 }}>
-              <div className="helpBlock">
-                <div className="helpLangTitle">DE</div>
-                <div className="helpText">
-                  <p><b>Nexus Rotation</b> ist ein eigener Modus innerhalb des Grid-Bereichs. Er soll später automatisch erkennen, welches Asset im Moment die bessere Chance hat, und das verfügbare Budget gezielt dorthin rotieren.</p>
-                  <p>Die Rotation bewertet Coins anhand von Live-Daten wie Preisbewegung, Volumen, Market Cap, Whale-Signalen, Market Condition und später dem finalen Nexus Score.</p>
-                  <p><b>Bedienung:</b> Zuerst wählst du einen Coin aus der Watchlist oder aus den Rotation-Empfehlungen. Danach prüfst du Budget, Chain, Risiko und Vorschau. Erst wenn alles passt, kann das Budget für Nexus Rotation freigegeben werden.</p>
-                  <p><b>Wichtig:</b> Solange der Vault noch nicht final aktiv ist, ist Nexus Rotation ein Analyse- und Vorbereitungsmodus. Es wird nichts automatisch gekauft oder verkauft, ohne dass der User später explizit signiert.</p>
-                </div>
-
-                <div className="helpLangTitle" style={{ marginTop: 14 }}>EN</div>
-                <div className="helpText">
-                  <p><b>Nexus Rotation</b> is a dedicated mode inside the Grid section. Its goal is to detect which asset currently has the stronger opportunity and rotate the available budget toward that asset.</p>
-                  <p>The rotation logic evaluates coins using live data such as price movement, volume, market cap, whale signals, market condition and later the final Nexus Score.</p>
-                  <p><b>How to use it:</b> First select a coin from the Watchlist or from the rotation recommendations. Then review budget, chain, risk and preview. Only when everything looks correct should the budget be released for Nexus Rotation.</p>
-                  <p><b>Important:</b> Until the Vault is fully active, Nexus Rotation is an analysis and preparation mode. Nothing is bought or sold automatically unless the user explicitly signs later.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-function WatchlistSignalsInfoButton() {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <>
-      <button
-        className="btnGhost"
-        type="button"
-        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
-        style={{ width: "100%", marginTop: 12, justifyContent: "center" }}
-      >
-        Watchlist Signal Info
-      </button>
-
-      {open && (
-        <div className="modalBackdrop" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}>
-          <div
-            className="modal modalHelp"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-              maxWidth: 760,
-              maxHeight: "86vh",
-              overflow: "hidden",
-            }}
-          >
-            <div className="modalHead">
-              <div className="cardTitle">Watchlist Signal Info</div>
-              <button
-                className="iconBtn"
-                type="button"
-                aria-label="Close Watchlist Signal Info"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(false); }}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="helpBody" style={{ maxHeight: "calc(86vh - 86px)", overflowY: "auto", paddingRight: 6 }}>
-              <div className="helpBlock">
-                <div className="helpLangTitle">DE</div>
-                <div className="helpText">
-                  <p><b>Watchlist Signals</b> zeigen schnelle Hinweise direkt in der Watchlist. Sie sollen helfen, starke Bewegungen, Risiko und echte On-Chain-Aktivität schneller zu erkennen.</p>
-                  <p><b>Winner</b> bedeutet: Der Coin gehört aktuell zu den stärkeren Gewinnern in deiner Watchlist.</p>
-                  <p><b>Loser</b> bedeutet: Der Coin gehört aktuell zu den stärkeren Verlierern in deiner Watchlist.</p>
-                  <p><b>Market Condition</b> bewertet, ob eine Bewegung eher gesund, überhitzt oder schwach bestätigt ist. Dazu werden Preisbewegung und relatives Volumen genutzt.</p>
-                  <p><b>Whale / NEWS</b> ist besonders wichtig: Wenn <b>NEWS</b> erscheint, bedeutet das nicht normale Nachrichten, sondern echte Whale-Aktivität. Es wurde ein größerer Buy oder Sell erkannt.</p>
-                  <p><b>NEWS anklicken:</b> Wenn der User auf den NEWS-Text klickt, öffnet sich ein Detailfenster mit Betrag, DEX, Zeit, Wallet/Transaktion und ob es ein Whale Buy oder Whale Sell war.</p>
-                  <p><b>Wichtig:</b> Es werden keine Fake-News angezeigt. Wenn keine echte Whale-Aktivität gefunden wird, bleibt nur das normale Signal / Flame ohne künstliche Daten.</p>
-
-                  <div style={{ marginTop: 14, padding: "12px", border: "1px solid rgba(255,255,255,.12)", borderRadius: 14, background: "rgba(255,255,255,.035)" }}>
-                    <p style={{ marginTop: 0 }}><b>Symbol-Legende</b></p>
-                    <p><b>B = Breakout</b><br/>Starke Bewegung nach oben, oft mit Momentum oder beginnender Stärke.</p>
-                    <p><b>W = Weak</b><br/>Schwaches Asset mit wenig Marktstärke oder negativer Tendenz.</p>
-                    <p><b>E = Early</b><br/>Frühe Phase einer möglichen Bewegung. Noch kein stark bestätigtes Signal.</p>
-                    <p><b>H = Hot</b><br/>Sehr hohe Aktivität, starkes Volumen oder auffällige Marktbewegung.</p>
-                    <p><b>N = Normal</b><br/>Normale Marktbedingungen ohne besonderes Signal.</p>
-                    <p><b>NEWS</b> = echte Whale-Aktivität erkannt. Grün bedeutet Whale Buy, Rot bedeutet Whale Sell. Der Text ist anklickbar und öffnet die Details.</p>
-                    <p><b>🔥</b> = Whale-Monitor ist aktiv, aber es wurde kein echter Whale Buy/Sell über der Schwelle gefunden.</p>
-                    <p><b>🟢 Grün</b> = positives Signal / Stärke / Buy-Druck.</p>
-                    <p><b>🟡 Gelb</b> = neutral, früh oder abwarten.</p>
-                    <p><b>🔴 Rot</b> = Risiko, Schwäche oder Sell-Druck.</p>
-                    <p><b>Winner</b> = Coin gehört aktuell zu den stärkeren Assets in der Watchlist.</p>
-                    <p><b>Loser</b> = Coin gehört aktuell zu den schwächeren Assets in der Watchlist.</p>
-                  </div>
-                </div>
-
-                <div className="helpLangTitle" style={{ marginTop: 14 }}>EN</div>
-                <div className="helpText">
-                  <p><b>Watchlist Signals</b> provide quick context directly inside the watchlist. They help users detect strong movement, risk and real on-chain activity faster.</p>
-                  <p><b>Winner</b> means: the coin is currently one of the stronger gainers inside your watchlist.</p>
-                  <p><b>Loser</b> means: the coin is currently one of the stronger losers inside your watchlist.</p>
-                  <p><b>Market Condition</b> evaluates whether a move looks healthy, overextended or weakly confirmed. It uses price movement and relative volume.</p>
-                  <p><b>Whale / NEWS</b> is the key point: when <b>NEWS</b> appears, it does not mean regular news. It means real whale activity was detected — a larger buy or sell happened on-chain.</p>
-                  <p><b>Click NEWS:</b> When the user clicks the NEWS text, a detail window opens with amount, DEX, time, wallet/transaction and whether it was a whale buy or whale sell.</p>
-                  <p><b>Important:</b> No fake news are shown. If no real whale activity is found, only the normal signal / flame remains without artificial data.</p>
-
-                  <div style={{ marginTop: 14, padding: "12px", border: "1px solid rgba(255,255,255,.12)", borderRadius: 14, background: "rgba(255,255,255,.035)" }}>
-                    <p style={{ marginTop: 0 }}><b>Symbol Legend</b></p>
-                    <p><b>B = Breakout</b><br/>Strong upward movement, often with momentum or emerging strength.</p>
-                    <p><b>W = Weak</b><br/>Weak asset with low market strength or negative tendency.</p>
-                    <p><b>E = Early</b><br/>Early stage of a possible move. Not yet a strongly confirmed signal.</p>
-                    <p><b>H = Hot</b><br/>High activity, strong volume or notable market movement.</p>
-                    <p><b>N = Normal</b><br/>Normal market conditions with no special signal.</p>
-                    <p><b>NEWS</b> = real whale activity detected. Green means whale buy, red means whale sell. The text is clickable and opens the details.</p>
-                    <p><b>🔥</b> = whale monitor is active, but no real whale buy/sell above the threshold was found.</p>
-                    <p><b>🟢 Green</b> = positive signal / strength / buy pressure.</p>
-                    <p><b>🟡 Yellow</b> = neutral, early or wait.</p>
-                    <p><b>🔴 Red</b> = risk, weakness or sell pressure.</p>
-                    <p><b>Winner</b> = coin is currently one of the stronger assets in the watchlist.</p>
-                    <p><b>Loser</b> = coin is currently one of the weaker assets in the watchlist.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
 // ------------------------
 // Health color (ampel)
 // ------------------------
@@ -5323,7 +5148,13 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationMaxSlippage, setRotationMaxSlippage] = useState("1");
   const [rotationAllowDexSpread, setRotationAllowDexSpread] = useState(true);
   const [rotationAllowCexDexSpread, setRotationAllowCexDexSpread] = useState(false);
-  const [rotationRouters, setRotationRouters] = useState({ QuickSwap: true, Uniswap: true, PancakeSwap: true, "1inch": true, "0x": false, SushiSwap: false });
+  const [rotationRouters, setRotationRouters] = useState({ QuickSwap: true, Uniswap: true, PancakeSwap: true, "1inch": true, "0x": true, SushiSwap: false });
+  const [nexusRouters, setNexusRouters] = useState([]);
+  const [nexusFeePolicy, setNexusFeePolicy] = useState(null);
+  const [rotationBackendPreview, setRotationBackendPreview] = useState(null);
+  const [rotationBackendReport, setRotationBackendReport] = useState(null);
+  const [rotationBackendLoading, setRotationBackendLoading] = useState(false);
+  const [rotationBackendError, setRotationBackendError] = useState("");
   const [rotationSwapModalOpen, setRotationSwapModalOpen] = useState(false);
   const [rotationSwapFromAsset, setRotationSwapFromAsset] = useState("AUTO");
   const [rotationSwapAmount, setRotationSwapAmount] = useState("");
@@ -5493,7 +5324,115 @@ useEffect(() => {
   const toggleRotationRouter = useCallback((router) => {
     setRotationRouters((prev) => ({ ...(prev || {}), [router]: !prev?.[router] }));
     setRotationBudgetReleased(false);
+    setRotationBackendPreview(null);
+    setRotationBackendReport(null);
+    setRotationBackendError("");
   }, []);
+
+  const getSelectedNexusRouter = useCallback(() => {
+    const enabled = Object.entries(rotationRouters || {})
+      .filter(([, on]) => !!on)
+      .map(([k]) => String(k || "").toLowerCase().replace(/\s+/g, ""));
+    const routers = Array.isArray(nexusRouters) ? nexusRouters : [];
+    if (!routers.length) return null;
+    const match = routers.find((r) => {
+      const key = String(r?.key || "").toLowerCase().replace(/\s+/g, "");
+      const name = String(r?.name || "").toLowerCase().replace(/\s+/g, "");
+      return enabled.some((x) => key.includes(x) || name.includes(x) || (x === "1inch" && key.includes("oneinch")) || (x === "0x" && (key === "0x" || name.includes("0x"))));
+    });
+    return match || routers[0] || null;
+  }, [rotationRouters, nexusRouters]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const chain = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+    (async () => {
+      try {
+        const r = await api(`/api/nexus/routers?chain=${encodeURIComponent(chain)}`, { method: "GET", token, wallet });
+        if (!cancelled) setNexusRouters(Array.isArray(r?.routers) ? r.routers : []);
+      } catch (e) {
+        if (!cancelled) setNexusRouters([]);
+      }
+      try {
+        const fp = await api(`/api/nexus/fee-policy?chain=${encodeURIComponent(chain)}`, { method: "GET", token, wallet });
+        if (!cancelled) setNexusFeePolicy(fp?.feePolicy || null);
+      } catch (e) {
+        if (!cancelled) setNexusFeePolicy(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeGridChainKey, token, wallet]);
+
+  const buildRotationBackendBody = useCallback(() => {
+    const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+    const slippagePct = Number(String(rotationMaxSlippage || "").replace(",", "."));
+    const selectedRouter = getSelectedNexusRouter();
+    const chain = String(rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+    const native = chain === "BNB" ? "BNB" : chain === "ETH" ? "ETH" : "POL";
+    const sym = String(rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || native).toUpperCase();
+    return {
+      wallet,
+      chain,
+      symbol: sym,
+      side: "BUY",
+      amountUsd: Number.isFinite(amount) ? amount : 0,
+      tokenIn: native,
+      tokenOut: sym,
+      routerKey: selectedRouter?.key || "",
+      routerAddress: selectedRouter?.address || "",
+      slippageBps: Number.isFinite(slippagePct) ? Math.round(slippagePct * 100) : 100,
+      riskLimitPct: rotationRiskLimit,
+      minNetAdvantagePct: rotationMinNetAdvantage,
+      feeStable: nexusFeePolicy?.settlement?.stableSymbol || "",
+    };
+  }, [rotationBudgetRelease, rotationMaxSlippage, getSelectedNexusRouter, rotationSelectedPick, activeGridChainKey, gridItem, wallet, rotationRiskLimit, rotationMinNetAdvantage, nexusFeePolicy]);
+
+  const refreshRotationBackendPreview = useCallback(async () => {
+    if (!rotationSelectedPick?.ok) return null;
+    const body = buildRotationBackendBody();
+    if (!(Number(body.amountUsd) > 0)) return null;
+    setRotationBackendLoading(true);
+    setRotationBackendError("");
+    setRotationBackendReport(null);
+    try {
+      const r = await api("/api/nexus/order-preview", { method: "POST", token, wallet, body });
+      setRotationBackendPreview(r || null);
+      return r || null;
+    } catch (e) {
+      setRotationBackendError(String(e?.message || e || "Backend preview failed"));
+      setRotationBackendPreview(null);
+      return null;
+    } finally {
+      setRotationBackendLoading(false);
+    }
+  }, [rotationSelectedPick, buildRotationBackendBody, token, wallet]);
+
+  const startRotationSafeMode = useCallback(async () => {
+    if (!rotationSelectedPick?.ok || !rotationBudgetReleased) return;
+    setRotationBackendLoading(true);
+    setRotationBackendError("");
+    try {
+      const preview = rotationBackendPreview || await refreshRotationBackendPreview();
+      if (!preview) throw new Error("Missing backend preview");
+      const r = await api("/api/nexus/execute-plan", { method: "POST", token, wallet, body: { wallet, preview, requireVaultBalance: true } });
+      setRotationBackendReport(r || null);
+    } catch (e) {
+      setRotationBackendError(String(e?.message || e || "Execution safety check failed"));
+      setRotationBackendReport(null);
+    } finally {
+      setRotationBackendLoading(false);
+    }
+  }, [rotationSelectedPick, rotationBudgetReleased, rotationBackendPreview, refreshRotationBackendPreview, token, wallet]);
+
+  useEffect(() => {
+    if (!rotationBudgetReleased) {
+      setRotationBackendPreview(null);
+      setRotationBackendReport(null);
+      setRotationBackendError("");
+      return;
+    }
+    refreshRotationBackendPreview();
+  }, [rotationBudgetReleased, refreshRotationBackendPreview]);
 
   // Keep selected Grid network valid, independent from active Privy network.
   useEffect(() => {
@@ -11488,24 +11427,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="cardActions" style={{ alignItems: "center" }}>
              
               <span className="pill silver">Price: {shownGridPrice ? fmtUsd(shownGridPrice) : "—"}</span>
-              <InfoButton title="Grid Trader">
-                <Help
+              <InfoButton title="Grid Trader – Info">
+                <Help showClose dismissable
                   de={
                     <>
-                      <p><b>Grid Trader</b> ist der Bereich, in dem ein Asset für eine Grid- oder Rotation-Strategie vorbereitet wird.</p>
-                      <p>Du wählst zuerst die Chain und den Coin. Danach prüfst du Preis, Budget, verfügbare Mittel, offene Orders und später auch Risiko, Slippage und Vorschau.</p>
-                      <p>Wichtig: Solange der Vault nicht final aktiv ist, dient dieser Bereich zur Analyse, Vorbereitung und Kontrolle. Automatische Käufe oder Verkäufe passieren erst später mit User-Signatur.</p>
+                      <p><b>Grid Trader</b> verwaltet mehrere BUY- und SELL-Orders für den gewählten Coin.</p>
+                      <p>Du definierst ein <b>maximales Budget in der ausgewählten Payout-/Chain-Währung</b> (z. B. POL / BNB / ETH). Dieses Budget ist ein <b>globales Limit</b> für den gesamten Grid.</p>
+                      <p>Das Budget gilt <b>nicht pro Order</b>, sondern für alle Grid-Orders zusammen.</p>
+                      <p><b>BUY</b>-Orders kaufen Token, <b>SELL</b>-Orders verkaufen bereits vorhandene Token.</p>
+                      
+                      <p><b>Manual Orders</b> sind einzelne Orders und nicht Teil des eigentlichen Grid-Blocks.</p>
+                      <p>BUY kann je nach Eingabe per <b>USD</b> oder per <b>Token-Menge</b> definiert werden.</p>
                     </>
                   }
                   en={
                     <>
-                      <p><b>Grid Trader</b> is the area where an asset is prepared for a grid or rotation strategy.</p>
-                      <p>First choose the chain and coin. Then review price, budget, available funds, open orders and later also risk, slippage and preview.</p>
-                      <p>Important: Until the Vault is fully active, this area is for analysis, preparation and control. Automatic buys or sells will only happen later with user signature.</p>
+                      <p><b>Grid Trader</b> manages multiple BUY and SELL orders for the selected coin.</p>
+                      <p>You define a <b>maximum budget in the selected payout/chain asset</b> (for example POL / BNB / ETH). This budget is a <b>global limit</b> for the full grid.</p>
+                      <p>The budget is <b>not per order</b>; it is shared across all grid orders.</p>
+                      <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell tokens you already hold.</p>
+                      
+                      <p><b>Manual orders</b> are single orders and are not part of the main grid block.</p>
+                      <p>BUY can be defined either by <b>USD</b> or by <b>token quantity</b>, depending on your input mode.</p>
                     </>
                   }
                 />
-                <NexusRotationInfoButton />
               </InfoButton>
             </div>
           </div>
@@ -11898,6 +11844,42 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Scope:</b> {rotationNetworkScope === "ALL" ? "All wallet networks" : rotationNetworkScope} · <b>Mode:</b> {rotationMode === "AUTO_AFTER_RELEASE" ? "Auto after release" : rotationMode === "MANUAL_CONFIRM" ? "Manual confirm" : "Recommendation first"}</div>
                               <div><b>Spread check:</b> DEX {rotationAllowDexSpread ? "ON" : "OFF"} · CEX/DEX {rotationAllowCexDexSpread ? "ON" : "OFF"}</div>
                               <div><b>Status:</b> {rotationBudgetReleased ? "Budget released for Nexus Rotation" : "Ready for budget release"}</div>
+                              {rotationBudgetReleased && (
+                                <div
+                                  style={{
+                                    marginTop: 6,
+                                    padding: "8px 10px",
+                                    borderRadius: 10,
+                                    background: "rgba(0,0,0,.16)",
+                                    border: "1px solid rgba(255,255,255,.08)",
+                                    color: "#d9fff0",
+                                  }}
+                                >
+                                  <div style={{ fontWeight: 900, marginBottom: 4 }}>Backend / Vault Preview</div>
+                                  {rotationBackendLoading ? (
+                                    <div>Checking backend preview…</div>
+                                  ) : rotationBackendError ? (
+                                    <div style={{ color: "#fca5a5" }}>{rotationBackendError}</div>
+                                  ) : rotationBackendPreview ? (
+                                    <>
+                                      <div><b>Preview:</b> {rotationBackendPreview.ready_for_vault ? "Ready" : "Blocked"} · <b>Router:</b> {rotationBackendPreview.router?.name || "not configured"}</div>
+                                      <div><b>Amount:</b> {fmtUsd(Number(rotationBackendPreview.amountUsd || 0))} · <b>Slippage:</b> {Number(rotationBackendPreview.slippageBps || 0) / 100}% · <b>Min out:</b> {Number(rotationBackendPreview.minAmountOut || 0) ? Number(rotationBackendPreview.minAmountOut || 0).toFixed(6) : "—"}</div>
+                                      <div><b>Fee:</b> {rotationBackendPreview.feePolicy?.applies ? `${fmtUsd(Number(rotationBackendPreview.feePolicy?.feeUsd || 0))} in ${rotationBackendPreview.feePolicy?.settlement?.stableSymbol || "USDC/USDT"}` : `No fee until $${Number(rotationBackendPreview.feePolicy?.minProfitForFeeUsd || 100).toFixed(0)} profit`}</div>
+                                      {Array.isArray(rotationBackendPreview.blocking_reasons) && rotationBackendPreview.blocking_reasons.length > 0 && (
+                                        <div style={{ color: "#facc15" }}><b>Needs:</b> {rotationBackendPreview.blocking_reasons.join(", ")}</div>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <div>Preview appears after budget release.</div>
+                                  )}
+                                  {rotationBackendReport && (
+                                    <div style={{ marginTop: 5, color: rotationBackendReport.can_execute ? "#86efac" : "#facc15" }}>
+                                      <b>Safe check:</b> {rotationBackendReport.can_execute ? "Vault payload ready" : "Blocked"}
+                                      {Array.isArray(rotationBackendReport.blocking_reasons) && rotationBackendReport.blocking_reasons.length > 0 ? ` · ${rotationBackendReport.blocking_reasons.join(", ")}` : ""}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </>
                           )}
                         </div>
@@ -11925,10 +11907,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <button
                         className="btnDanger"
                         type="button"
-                        disabled={!rotationSelectedPick?.ok || !rotationBudgetReleased}
-                        title={rotationBudgetReleased ? "Rotation start logic will be connected to the Vault later" : "Release budget first"}
+                        disabled={!rotationSelectedPick?.ok || !rotationBudgetReleased || rotationBackendLoading}
+                        onClick={startRotationSafeMode}
+                        title={rotationBudgetReleased ? "Runs backend SAFE MODE check only. No trade, no swap, no Vault transaction." : "Release budget first"}
                       >
-                        Start Rotation
+                        {rotationBackendLoading ? "Checking…" : "Check Vault"}
                       </button>
                       {rotationBudgetReleased && (
                         <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>
@@ -12550,7 +12533,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   de={<><p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p><p><b>Drag & Drop</b> über den Griff links ändert die Reihenfolge. Diese Reihenfolge wird mit deiner Wallet auf dem Server gespeichert.</p><p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p></>}
                   en={<><p><b>Compare</b> checkbox controls the compare set (max 20).</p><p><b>Drag & Drop</b> using the handle on the left changes the order. This order is saved on the server for your wallet.</p><p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p></>}
                 />
-                <WatchlistSignalsInfoButton />
               </InfoButton>
             </div>
           </div>

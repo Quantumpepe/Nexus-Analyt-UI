@@ -11352,6 +11352,48 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     <div
                       style={{
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        background: "rgba(0,0,0,.18)",
+                        border: "1px solid rgba(34,197,94,.22)",
+                        display: "grid",
+                        gap: 8,
+                      }}
+                    >
+                      <div className="label" style={{ marginBottom: 0 }}>Vault overview</div>
+                      <div
+                        className="muted tiny"
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                          gap: 6,
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        {(() => {
+                          const vaultTotalNative = Number(manualVaultTotalQty || 0);
+                          const gridAllocatedNative = Number(manualVaultAllocatedQty || 0);
+                          const px = Number(activeGridNativeUsd || 0);
+                          const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
+                          const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
+                          const rotationAllocatedUsd = rotationBudgetReleased ? Math.max(0, Number(String(rotationBudgetRelease || "").replace(",", ".")) || 0) : 0;
+                          const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
+                          const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
+                          return (
+                            <>
+                              <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
+                              <div><b>Grid allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
+                              <div><b>Rotation allocated:</b> {rotationAllocatedUsd ? fmtUsd(rotationAllocatedUsd) : "$0.00"}</div>
+                              <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
+                              <div style={{ gridColumn: isCompactMobile ? "auto" : "1 / -1" }}><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
                         display: "grid",
                         gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
                         gap: isCompactMobile ? 8 : 10,
@@ -11719,7 +11761,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <button
                         className="btn"
                         type="button"
-                        disabled={!rotationSelectedPick?.ok || !(Number(String(rotationBudgetRelease || "").replace(",", ".")) > 0)}
+                        disabled={(() => {
+                          const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+                          if (!rotationSelectedPick?.ok || !(amount > 0)) return true;
+                          const px = Number(activeGridNativeUsd || 0);
+                          const vaultTotalUsd = Number.isFinite(px) && px > 0 ? Number(manualVaultTotalQty || 0) * px : 0;
+                          const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? Number(manualVaultAllocatedQty || 0) * px : 0;
+                          const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd);
+                          return vaultTotalUsd > 0 && amount > availableUsd;
+                        })()}
                         onClick={releaseRotationBudget}
                         title={rotationSelectedPick?.ok ? "Release this budget for Nexus Rotation" : "Select a recommendation first"}
                       >

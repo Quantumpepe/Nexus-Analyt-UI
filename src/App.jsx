@@ -1062,6 +1062,42 @@ function watchOnchainScoreDelta(onchain) {
   return Math.max(-5, Math.min(5, Math.round(n)));
 }
 
+function getWhaleNewsSignal(onchain) {
+  if (!onchain) return { type: "neutral", label: "🔥", color: "#aaa", title: "No fresh whale activity" };
+
+  const raw = [
+    onchain?.action,
+    onchain?.type,
+    onchain?.direction,
+    onchain?.side,
+    onchain?.state,
+    onchain?.label,
+    onchain?.summary,
+    onchain?.icon,
+  ].map((v) => String(v || "").toLowerCase()).join(" ");
+
+  const sellWords = ["sell", "sold", "selling", "distribution", "distributed", "dump", "exit", "outflow to exchange", "exchange inflow", "to exchange", "bearish", "red"];
+  const buyWords = ["buy", "bought", "buying", "accumulation", "accumulated", "accumulate", "exchange outflow", "from exchange", "bullish", "green"];
+
+  if (sellWords.some((w) => raw.includes(w))) {
+    return { type: "sell", label: "NEWS", color: "#ef4444", title: "Whale sold recently" };
+  }
+
+  if (buyWords.some((w) => raw.includes(w))) {
+    return { type: "buy", label: "NEWS", color: "#22c55e", title: "Whale bought recently" };
+  }
+
+  const delta = Number(onchain?.score_delta ?? 0);
+  if (Number.isFinite(delta) && delta <= -2) {
+    return { type: "sell", label: "NEWS", color: "#ef4444", title: "Whale sold recently" };
+  }
+  if (Number.isFinite(delta) && delta >= 2) {
+    return { type: "buy", label: "NEWS", color: "#22c55e", title: "Whale bought recently" };
+  }
+
+  return { type: "neutral", label: "🔥", color: "#aaa", title: "No fresh whale activity" };
+}
+
 function marketConditionUi(state) {
   const s = String(state || "").toUpperCase();
   if (s === "REAL_BREAKOUT") {
@@ -3608,6 +3644,7 @@ const byChain = {};
   const [userRatingBySymbol, setUserRatingBySymbol] = useState({});
   const [onchainBySymbol, setOnchainBySymbol] = useState({});
   const [marketConditionBySymbol, setMarketConditionBySymbol] = useState({});
+  const [activeWhaleNews, setActiveWhaleNews] = useState(null);
 
   const [watchSyncedWallet, setWatchSyncedWallet] = useLocalStorageState("nexus_watch_synced_wallet", "");
   const [appStateSyncedWallet, setAppStateSyncedWallet] = useLocalStorageState("nexus_app_state_synced_wallet", "");
@@ -12373,6 +12410,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     const sysRating = watchFinalRating(r, ratingSummaryBySymbol?.[sym], onchain);
                                         const onchainIcon = String(onchain?.icon || "");
                     const onchainTitle = String(onchain?.summary || onchain?.label || "On-chain signal");
+                    const whaleSignal = getWhaleNewsSignal(onchain);
                     return (
                       <div
                         key={`${sym}-${idx}`}
@@ -12462,12 +12500,60 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           >
                             {userRatingBySymbol?.[sym] || "-"}
                           </button>
-                          {onchainIcon ? (
-                            <span className="pill silver" title={onchainTitle} style={{ width: 18, minWidth: 18, maxWidth: 18, padding: "2px 0", fontSize: 10, lineHeight: 1.1, justifyContent: "center", textAlign: "center" }}>
-                              {onchainIcon}
+                          {whaleSignal.type !== "neutral" ? (
+                            <button
+                              type="button"
+                              className="pill silver"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setActiveWhaleNews({
+                                  symbol: sym,
+                                  type: whaleSignal.type,
+                                  title: whaleSignal.title,
+                                  summary: onchainTitle,
+                                });
+                              }}
+                              title={`${whaleSignal.title} · click for details`}
+                              style={{
+                                width: 36,
+                                minWidth: 36,
+                                maxWidth: 36,
+                                padding: "2px 0",
+                                fontSize: 8.5,
+                                lineHeight: 1.1,
+                                cursor: "pointer",
+                                justifyContent: "center",
+                                textAlign: "center",
+                                fontWeight: 900,
+                                color: whaleSignal.color,
+                                borderColor: "rgba(255,255,255,.16)",
+                                background: "rgba(255,255,255,.035)",
+                              }}
+                            >
+                              NEWS
+                            </button>
+                          ) : onchainIcon ? (
+                            <span
+                              className="pill silver"
+                              title={onchainTitle}
+                              style={{
+                                width: 18,
+                                minWidth: 18,
+                                maxWidth: 18,
+                                padding: "2px 0",
+                                fontSize: 10,
+                                lineHeight: 1.1,
+                                justifyContent: "center",
+                                textAlign: "center",
+                              }}
+                            >
+                              {onchainIcon || "🔥"}
                             </span>
                           ) : (
-                            <span style={{ width: 18, minWidth: 18 }} />
+                            <span className="pill silver" title="No fresh whale activity" style={{ width: 18, minWidth: 18, maxWidth: 18, padding: "2px 0", fontSize: 10, lineHeight: 1.1, justifyContent: "center", textAlign: "center" }}>
+                              🔥
+                            </span>
                           )}
                           <span className="pill silver" title={mcTitle} style={{ width: 20, minWidth: 20, maxWidth: 20, padding: "2px 0", justifyContent: "center", textAlign: "center", fontSize: 9, lineHeight: 1.1, fontWeight: 900, color: mcUi.color, borderColor: mcUi.border }}>
                             {mcUi.code}
@@ -12621,6 +12707,43 @@ const handlePanelActivate = useCallback((name) => (e) => {
           <div className="muted tiny"></div>
         </div></section>
 
+
+        {activeWhaleNews && (
+          <div className="modalBackdrop" onClick={() => setActiveWhaleNews(null)}>
+            <div
+              className="modal"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxWidth: 380,
+                width: "calc(100vw - 28px)",
+                background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+              }}
+            >
+              <div className="modalHead">
+                <div>
+                  <div className="cardTitle">Whale Activity · {activeWhaleNews.symbol}</div>
+                  <div
+                    className="muted tiny"
+                    style={{ color: activeWhaleNews.type === "buy" ? "#22c55e" : "#ef4444", fontWeight: 900 }}
+                  >
+                    {activeWhaleNews.type === "buy" ? "Whale BOUGHT recently" : "Whale SOLD recently"}
+                  </div>
+                </div>
+                <button className="iconBtn" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setActiveWhaleNews(null); }}>×</button>
+              </div>
+
+              <div className="softBox" style={{ padding: 12, marginTop: 12 }}>
+                <div className="muted tiny" style={{ lineHeight: 1.45 }}>
+                  {activeWhaleNews.summary || "On-chain whale signal detected."}
+                </div>
+              </div>
+
+              <button type="button" className="btn" style={{ width: "100%", marginTop: 12 }} onClick={() => setActiveWhaleNews(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        )}
 
         {ratingModal.open && (
           <div className="modalBackdrop" onClick={closeRatingModal}>

@@ -11534,6 +11534,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return key;
                         };
 
+                        const inferWatchlistChain = (sym) => {
+                          const key = String(sym || "").toUpperCase().trim();
+                          if (!key) return "WATCHLIST";
+                          if (key === "ETH" || key === "BTC" || key === "WBTC" || key === "LINK" || key === "UNI" || key === "AAVE" || key === "PEPE") return "ETH";
+                          if (key === "BNB" || key === "BTCB" || key === "CAKE" || key === "SXA") return "BNB";
+                          if (key === "POL" || key === "MATIC" || key === "TBP" || key === "CC" || key === "XPR" || key === "JAM" || key === "ALKIMI") return "POL";
+                          const resolved = resolveRotationPreview(key);
+                          return resolved?.chain || "WATCHLIST";
+                        };
+
+                        const getPickScopeChain = (pick) => {
+                          const resolved = resolveRotationPreview(pick?.sym);
+                          return resolved?.chain || inferWatchlistChain(pick?.sym);
+                        };
+
                         const renderPickCard = (p, idx, compact = false) => {
                           const isSelected = String(rotationSelectedPick?.source || "").toUpperCase() === String(p?.sym || "").toUpperCase();
                           return (
@@ -11597,10 +11612,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         }
 
                         const scopedPicks = picks
-                          .map((pick, idx) => {
-                            const resolved = resolveRotationPreview(pick.sym);
-                            return { ...pick, _rank: idx, _chain: resolved?.chain || "WATCHLIST" };
-                          })
+                          .map((pick, idx) => ({
+                            ...pick,
+                            _rank: idx,
+                            _chain: getPickScopeChain(pick),
+                          }))
                           .filter((pick) =>
                             rotationNetworkScope === "ALL"
                               ? true

@@ -5092,6 +5092,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     }
   });
   const [rotationSelectedPick, setRotationSelectedPick] = useState(null);
+  const [rotationShowAllRecommendations, setRotationShowAllRecommendations] = useState(false);
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
@@ -5210,34 +5211,22 @@ useEffect(() => {
         { chain: "BNB", coin: "WBTC" },
         { chain: "POL", coin: "WBTC" },
       ]);
-      note = resolved ? `${rawSym} applied as ${resolved.coin} on ${resolved.chain}` : "BTC needs WBTC/BTCB in the wallet first.";
+      note = resolved ? `${rawSym} selected for Nexus Rotation as ${resolved.coin} on ${resolved.chain}.` : "BTC needs WBTC/BTCB in the Vault wallet first.";
     } else if (rawSym === "SOL") {
       resolved = chooseFirstAvailable([
         { chain: "ETH", coin: "WSOL" },
         { chain: "BNB", coin: "WSOL" },
         { chain: "POL", coin: "WSOL" },
       ]);
-      note = resolved ? `${rawSym} applied as ${resolved.coin} on ${resolved.chain}` : "SOL needs WSOL in the wallet first.";
+      note = resolved ? `${rawSym} selected for Nexus Rotation as ${resolved.coin} on ${resolved.chain}.` : "SOL needs WSOL in the Vault wallet first.";
     } else {
-      const preferred = [activeGridChainKey, ...Object.keys(coinsByChain || {})]
-        .map((x) => String(x || "").toUpperCase())
-        .filter((x, i, arr) => x && arr.indexOf(x) === i);
-      for (const chain of preferred) {
+      for (const chain of Object.keys(coinsByChain || {}).map((x) => String(x || "").toUpperCase())) {
         if (hasCoinOnChain(chain, rawSym)) {
           resolved = { chain, coin: rawSym };
           break;
         }
       }
-      note = resolved ? `${rawSym} applied on ${resolved.chain}` : `${rawSym} is not available in the wallet grid assets yet.`;
-    }
-
-    if (resolved) {
-      setGridChain(String(resolved.chain || "").toUpperCase());
-      setGridItem(String(resolved.coin || "").toUpperCase());
-      try {
-        localStorage.setItem("nexus_grid_chain", String(resolved.chain || "").toUpperCase());
-        localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${String(resolved.chain || "").toUpperCase()}`, String(resolved.coin || "").toUpperCase());
-      } catch (_) {}
+      note = resolved ? `${rawSym} selected for Nexus Rotation on ${resolved.chain}.` : `${rawSym} is not available in the Vault wallet assets yet.`;
     }
 
     setRotationSelectedPick({
@@ -5248,7 +5237,7 @@ useEffect(() => {
       note,
       ts: Date.now(),
     });
-  }, [gridWalletCoinsByChain, activeGridChainKey]);
+  }, [gridWalletCoinsByChain]);
 
   // Keep selected Grid network valid, independent from active Privy network.
   useEffect(() => {
@@ -11390,8 +11379,72 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             return { sym, score, rating, ch, vol, whaleText, riskText };
                           })
                           .filter(Boolean)
-                          .sort((a, b) => (b.score - a.score) || ((b.ch || 0) - (a.ch || 0)))
-                          .slice(0, 3);
+                          .sort((a, b) => (b.score - a.score) || ((b.ch || 0) - (a.ch || 0)));
+
+                        const resolveRotationPreview = (sym) => {
+                          const rawSym = String(sym || "").toUpperCase().trim();
+                          const coinsByChain = gridWalletCoinsByChain || {};
+                          const hasCoinOnChain = (chain, coin) => {
+                            const list = coinsByChain?.[String(chain || "").toUpperCase()] || [];
+                            return list.map((x) => String(x || "").toUpperCase()).includes(String(coin || "").toUpperCase());
+                          };
+                          const chooseFirstAvailable = (options) => {
+                            for (const opt of options) {
+                              if (hasCoinOnChain(opt.chain, opt.coin)) return opt;
+                            }
+                            return null;
+                          };
+                          if (rawSym === "BTC") return chooseFirstAvailable([{ chain: "ETH", coin: "WBTC" }, { chain: "BNB", coin: "BTCB" }, { chain: "BNB", coin: "WBTC" }, { chain: "POL", coin: "WBTC" }]);
+                          if (rawSym === "SOL") return chooseFirstAvailable([{ chain: "ETH", coin: "WSOL" }, { chain: "BNB", coin: "WSOL" }, { chain: "POL", coin: "WSOL" }]);
+                          for (const chain of Object.keys(coinsByChain || {}).map((x) => String(x || "").toUpperCase())) {
+                            if (hasCoinOnChain(chain, rawSym)) return { chain, coin: rawSym };
+                          }
+                          return null;
+                        };
+
+                        const chainLabel = (chain) => {
+                          const key = String(chain || "").toUpperCase();
+                          if (key === "POL") return "Polygon";
+                          if (key === "BNB") return "BNB Chain";
+                          if (key === "ETH") return "Ethereum";
+                          if (key === "WATCHLIST") return "Watchlist only";
+                          return key;
+                        };
+
+                        const renderPickCard = (p, idx, compact = false) => (
+                          <div
+                            key={`${p.sym}-${idx}-${compact ? "all" : "top"}`}
+                            onClick={() => handleRotationPickToGrid(p)}
+                            title="Select this recommendation for Nexus Rotation"
+                            style={{
+                              cursor: "pointer",
+                              display: "grid",
+                              gridTemplateColumns: isCompactMobile ? "1fr" : compact ? "62px 1fr auto" : "70px 1fr auto",
+                              gap: 8,
+                              alignItems: "center",
+                              padding: compact ? "8px 9px" : "9px 10px",
+                              borderRadius: 12,
+                              background: idx === 0 ? "rgba(34,197,94,.10)" : "rgba(255,255,255,.03)",
+                              border: idx === 0 ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(255,255,255,.06)",
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontWeight: 900 }}>
+                                {idx === 0 ? "#1 " : `#${idx + 1} `}{p.sym}
+                              </div>
+                              {getAssetNote(p.sym) && (
+                                <div style={{ fontSize: "12px", opacity: 0.7 }}>{getAssetNote(p.sym)}</div>
+                              )}
+                            </div>
+                            <div className="muted tiny" style={{ display: "grid", gap: 3 }}>
+                              <div>Why: Score {p.score}/100 · Rating {p.rating} · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
+                              <div>Whale/On-chain: {p.whaleText || "Neutral"} · Market: {p.riskText || "Normal"}</div>
+                            </div>
+                            <span className={`pill ${p.score >= 70 ? "green" : p.score >= 55 ? "silver" : "red"}`}>
+                              {idx === 0 ? "Best" : "Option"}
+                            </span>
+                          </div>
+                        );
 
                         if (!picks.length) {
                           return (
@@ -11401,46 +11454,49 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           );
                         }
 
+                        const topPicks = picks.slice(0, 3);
+                        const chainGroups = picks.reduce((acc, pick, idx) => {
+                          const resolved = resolveRotationPreview(pick.sym);
+                          const chain = resolved?.chain || "WATCHLIST";
+                          if (!acc[chain]) acc[chain] = [];
+                          acc[chain].push({ ...pick, _rank: idx });
+                          return acc;
+                        }, {});
+
                         return (
                           <div style={{ display: "grid", gap: 8 }}>
-                            {picks.map((p, idx) => (
+                            {topPicks.map((p, idx) => renderPickCard(p, idx))}
+                            {picks.length > 3 && (
+                              <button
+                                type="button"
+                                className="miniBtn"
+                                onClick={() => setRotationShowAllRecommendations((v) => !v)}
+                                style={{ justifySelf: "start" }}
+                              >
+                                {rotationShowAllRecommendations ? "Hide all recommendations ▲" : `Show all recommendations ▼ (${picks.length})`}
+                              </button>
+                            )}
+                            {rotationShowAllRecommendations && picks.length > 3 && (
                               <div
-                                key={`${p.sym}-${idx}`}
-                                onClick={() => handleRotationPickToGrid(p)}
-                                title="Use this recommendation for the Grid setup"
                                 style={{
-                                  cursor: "pointer",
                                   display: "grid",
-                                  gridTemplateColumns: isCompactMobile ? "1fr" : "70px 1fr auto",
-                                  gap: 8,
-                                  alignItems: "center",
-                                  padding: "9px 10px",
+                                  gap: 10,
+                                  padding: "10px",
                                   borderRadius: 12,
-                                  background: idx === 0 ? "rgba(34,197,94,.10)" : "rgba(255,255,255,.03)",
-                                  border: idx === 0 ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(255,255,255,.06)",
+                                  background: "rgba(255,255,255,.025)",
+                                  border: "1px solid rgba(255,255,255,.06)",
+                                  maxHeight: 360,
+                                  overflow: "auto",
                                 }}
                               >
-                                <div>
-                                 <div style={{ fontWeight: 900 }}>
-                                   {idx === 0 ? "#1 " : `#${idx + 1} `}
-                                   {p.sym}
-                                 </div>
-
-                                 {getAssetNote(p.sym) && (
-                                   <div style={{ fontSize: "12px", opacity: 0.7 }}>
-                                     {getAssetNote(p.sym)}
-                                   </div>
-                                 )}
-                                </div>
-                                <div className="muted tiny" style={{ display: "grid", gap: 3 }}>
-                                  <div>Why: Score {p.score}/100 · Rating {p.rating} · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
-                                  <div>Whale/On-chain: {p.whaleText || "Neutral"} · Market: {p.riskText || "Normal"}</div>
-                                </div>
-                                <span className={`pill ${p.score >= 70 ? "green" : p.score >= 55 ? "silver" : "red"}`}>
-                                  {idx === 0 ? "Best" : "Option"}
-                                </span>
+                                {Object.entries(chainGroups).map(([chain, list]) => (
+                                  <div key={chain} style={{ display: "grid", gap: 6 }}>
+                                    <div className="label" style={{ marginBottom: 0 }}>{chainLabel(chain)}</div>
+                                    {list.map((p) => renderPickCard(p, p._rank, true))}
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            )}
                           </div>
                         );
                       })()}
@@ -11462,7 +11518,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           {rotationSelectedPick.ok && (
                             <>
                               <br />
-                              Grid setup updated: {rotationSelectedPick.chain} / {rotationSelectedPick.coin}. Switch to Normal Grid to review Budget and start.
+                              Nexus Rotation setup prepared: {rotationSelectedPick.chain} / {rotationSelectedPick.coin}. Budget is still not released.
                             </>
                           )}
                         </div>

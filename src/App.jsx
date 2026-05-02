@@ -2282,6 +2282,16 @@ function AppInner() {
 
   // Multi-chain config (UI is ready; test phase enables POL + BNB)
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
+  const CHAIN_LABELS = {
+    ETH: "ETH (Ethereum)",
+    POL: "POL (Polygon)",
+    BNB: "BNB (BNB Chain)",
+    ARB: "ARB (Arbitrum)",
+    OP: "OP (Optimism)",
+    BASE: "BASE (Base)",
+    AVAX: "AVAX (Avalanche)",
+    FTM: "FTM (Fantom)",
+  };
   const ENABLED_CHAINS = ["POL","BNB","ETH"];
   const DEFAULT_CHAIN = "POL";
 
@@ -2976,6 +2986,27 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [balLoading, setBalLoading] = useState(false);
   const [balError, setBalError] = useState("");
   const [balByChain, setBalByChain] = useState({}); // { ETH: { native: "0.0" }, ... }
+
+  // Dynamic wallet-chain list used by Wallet details and Withdraw & Send.
+  // It is built from the Privy app-wallet balance object, so new EVM networks
+  // (BASE, ARB, AVAX, etc.) appear automatically once balances are loaded.
+  const walletChainKeys = useMemo(() => {
+    const supported = new Set(Object.keys(CHAIN_ID || {}));
+    const fromWallet = Object.keys(balByChain || {})
+      .map((c) => String(c || "").toUpperCase().trim())
+      .filter((c) => c && supported.has(c));
+    const fallback = (Array.isArray(ENABLED_CHAINS) ? ENABLED_CHAINS : [])
+      .map((c) => String(c || "").toUpperCase().trim())
+      .filter((c) => c && supported.has(c));
+    const seen = new Set();
+    const merged = [...fromWallet, ...fallback].filter((c) => !seen.has(c) && seen.add(c));
+    return merged.length ? merged : [DEFAULT_CHAIN];
+  }, [balByChain]);
+
+  const walletChainOptions = useMemo(() => {
+    return walletChainKeys.map((k) => ({ k, label: CHAIN_LABELS?.[k] || k }));
+  }, [walletChainKeys]);
+
   const [showAllWalletChains, setShowAllWalletChains] = useState(() => {
     try { return localStorage.getItem("nexus_wallet_bal_all") !== "0"; } catch (_) { return true; }
   });
@@ -9253,7 +9284,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       ALL
                     </button>
 
-                    {ENABLED_CHAINS.map((c) => {
+                    {walletChainKeys.map((c) => {
                       const active = !showAllWalletChains && (balActiveChain || DEFAULT_CHAIN) === c;
                       return (
                         <button
@@ -9316,7 +9347,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               )}
 
               <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                {(showAllWalletChains ? ENABLED_CHAINS : [balActiveChain || DEFAULT_CHAIN]).map((c) => {
+                {(showAllWalletChains ? walletChainKeys : [balActiveChain || DEFAULT_CHAIN]).map((c) => {
                   const row = balByChain?.[c] || {};
                   const nativeLabel = c; // ETH / POL / BNB
 
@@ -9544,14 +9575,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   onChange={(e) => setWsChainKey(e.target.value)}
                   style={{ marginLeft: 8, padding: "6px 10px", borderRadius: 10 }}
                 >
-                  {[
-                    { k: "BNB", label: "BNB (BNB Chain)", enabled: true },
-                    { k: "POL", label: "POL (Polygon)", enabled: true },
-                    { k: "ETH", label: "ETH (Ethereum)", enabled: true },
-                    
-                  ].map((c) => (
-                    <option key={c.k} value={c.k} disabled={!ENABLED_CHAINS.includes(c.k)}>
-                      {c.label}{!ENABLED_CHAINS.includes(c.k) ? " — soon" : ""}
+                  {walletChainOptions.map((c) => (
+                    <option key={c.k} value={c.k}>
+                      {c.label}
                     </option>
                   ))}
                 </select>

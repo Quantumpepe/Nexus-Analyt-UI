@@ -9194,6 +9194,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </button>
               </div>
 
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(202,138,4,0.45)",
+                  background: "rgba(133,77,14,0.22)",
+                  color: "#facc15",
+                  fontSize: 12,
+                  lineHeight: 1.45,
+                  fontWeight: 700,
+                }}
+              >
+                <div style={{ fontWeight: 900, marginBottom: 3 }}>Wrapped asset notice</div>
+                <div>BTC is handled only via WBTC (ETH) / BTCB (BNB).</div>
+                <div>SOL is handled only via WSOL.</div>
+              </div>
+
               <div className="muted" style={{ marginTop: 10, wordBreak: "break-all" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <div><b>Address</b></div>

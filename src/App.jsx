@@ -1077,6 +1077,22 @@ function WatchlistSignalsInfoButton() {
                   <p><b>Whale / NEWS</b> ist besonders wichtig: Wenn <b>NEWS</b> erscheint, bedeutet das nicht normale Nachrichten, sondern echte Whale-Aktivität. Es wurde ein größerer Buy oder Sell erkannt.</p>
                   <p><b>NEWS anklicken:</b> Wenn der User auf den NEWS-Text klickt, öffnet sich ein Detailfenster mit Betrag, DEX, Zeit, Wallet/Transaktion und ob es ein Whale Buy oder Whale Sell war.</p>
                   <p><b>Wichtig:</b> Es werden keine Fake-News angezeigt. Wenn keine echte Whale-Aktivität gefunden wird, bleibt nur das normale Signal / Flame ohne künstliche Daten.</p>
+
+                  <div style={{ marginTop: 14, padding: "12px", border: "1px solid rgba(255,255,255,.12)", borderRadius: 14, background: "rgba(255,255,255,.035)" }}>
+                    <p style={{ marginTop: 0 }}><b>Symbol-Legende</b></p>
+                    <p><b>B = Breakout</b><br/>Starke Bewegung nach oben, oft mit Momentum oder beginnender Stärke.</p>
+                    <p><b>W = Weak</b><br/>Schwaches Asset mit wenig Marktstärke oder negativer Tendenz.</p>
+                    <p><b>E = Early</b><br/>Frühe Phase einer möglichen Bewegung. Noch kein stark bestätigtes Signal.</p>
+                    <p><b>H = Hot</b><br/>Sehr hohe Aktivität, starkes Volumen oder auffällige Marktbewegung.</p>
+                    <p><b>N = Normal</b><br/>Normale Marktbedingungen ohne besonderes Signal.</p>
+                    <p><b>NEWS</b> = echte Whale-Aktivität erkannt. Grün bedeutet Whale Buy, Rot bedeutet Whale Sell. Der Text ist anklickbar und öffnet die Details.</p>
+                    <p><b>🔥</b> = Whale-Monitor ist aktiv, aber es wurde kein echter Whale Buy/Sell über der Schwelle gefunden.</p>
+                    <p><b>🟢 Grün</b> = positives Signal / Stärke / Buy-Druck.</p>
+                    <p><b>🟡 Gelb</b> = neutral, früh oder abwarten.</p>
+                    <p><b>🔴 Rot</b> = Risiko, Schwäche oder Sell-Druck.</p>
+                    <p><b>Winner</b> = Coin gehört aktuell zu den stärkeren Assets in der Watchlist.</p>
+                    <p><b>Loser</b> = Coin gehört aktuell zu den schwächeren Assets in der Watchlist.</p>
+                  </div>
                 </div>
 
                 <div className="helpLangTitle" style={{ marginTop: 14 }}>EN</div>
@@ -1088,6 +1104,22 @@ function WatchlistSignalsInfoButton() {
                   <p><b>Whale / NEWS</b> is the key point: when <b>NEWS</b> appears, it does not mean regular news. It means real whale activity was detected — a larger buy or sell happened on-chain.</p>
                   <p><b>Click NEWS:</b> When the user clicks the NEWS text, a detail window opens with amount, DEX, time, wallet/transaction and whether it was a whale buy or whale sell.</p>
                   <p><b>Important:</b> No fake news are shown. If no real whale activity is found, only the normal signal / flame remains without artificial data.</p>
+
+                  <div style={{ marginTop: 14, padding: "12px", border: "1px solid rgba(255,255,255,.12)", borderRadius: 14, background: "rgba(255,255,255,.035)" }}>
+                    <p style={{ marginTop: 0 }}><b>Symbol Legend</b></p>
+                    <p><b>B = Breakout</b><br/>Strong upward movement, often with momentum or emerging strength.</p>
+                    <p><b>W = Weak</b><br/>Weak asset with low market strength or negative tendency.</p>
+                    <p><b>E = Early</b><br/>Early stage of a possible move. Not yet a strongly confirmed signal.</p>
+                    <p><b>H = Hot</b><br/>High activity, strong volume or notable market movement.</p>
+                    <p><b>N = Normal</b><br/>Normal market conditions with no special signal.</p>
+                    <p><b>NEWS</b> = real whale activity detected. Green means whale buy, red means whale sell. The text is clickable and opens the details.</p>
+                    <p><b>🔥</b> = whale monitor is active, but no real whale buy/sell above the threshold was found.</p>
+                    <p><b>🟢 Green</b> = positive signal / strength / buy pressure.</p>
+                    <p><b>🟡 Yellow</b> = neutral, early or wait.</p>
+                    <p><b>🔴 Red</b> = risk, weakness or sell pressure.</p>
+                    <p><b>Winner</b> = coin is currently one of the stronger assets in the watchlist.</p>
+                    <p><b>Loser</b> = coin is currently one of the weaker assets in the watchlist.</p>
+                  </div>
                 </div>
               </div>
             </div>

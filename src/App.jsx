@@ -12547,7 +12547,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <p><b>E</b> = Early · frühe mögliche Bewegung</p>
                         <p><b>H</b> = Hot · hohe Aktivität / starkes Volumen</p>
                         <p><b>N</b> = Normal · keine besondere Marktsituation</p>
-                        <p><b>NEWS</b> = echte Whale-Aktivität. Klick auf NEWS zeigt Betrag, DEX, Zeit und Wallet.</p>
+                        <p><b>NEWS</b> = echte Whale-Aktivität.</p>
+                        <p style={{ marginLeft: 10 }}>Wenn <b>NEWS</b> erscheint, war ein echter Whale aktiv. Das kann ein <b>Kauf</b> oder <b>Verkauf</b> sein.</p>
+                        <p style={{ marginLeft: 10 }}>Du kannst den <b>NEWS-Text anklicken</b>. Dann öffnet sich das Whale-Fenster mit: <b>Buy/Sell</b>, Betrag in USD, DEX, Zeit, Wallet und falls vorhanden Transaktion.</p>
+                        <p style={{ marginLeft: 10 }}>Grün = Whale Buy, Rot = Whale Sell. Keine NEWS bedeutet: keine bestätigte Whale-Aktivität.</p>
                         <p><b>🔥</b> = kein klares Whale-Signal / normale Aktivität.</p>
                         <p><b>Farben:</b> Grün = positiv, Rot = negativ, Gelb = neutral/früh.</p>
                       </div>
@@ -12566,7 +12569,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <p><b>E</b> = Early · early potential move</p>
                         <p><b>H</b> = Hot · high activity / strong volume</p>
                         <p><b>N</b> = Normal · no special market condition</p>
-                        <p><b>NEWS</b> = real whale activity. Click NEWS to see amount, DEX, time and wallet.</p>
+                        <p><b>NEWS</b> = real whale activity.</p>
+                        <p style={{ marginLeft: 10 }}>When <b>NEWS</b> appears, a real whale was active. It can be a <b>buy</b> or a <b>sell</b>.</p>
+                        <p style={{ marginLeft: 10 }}>You can <b>click the NEWS text</b>. This opens the whale window with: <b>Buy/Sell</b>, USD amount, DEX, time, wallet and transaction if available.</p>
+                        <p style={{ marginLeft: 10 }}>Green = whale buy, red = whale sell. No NEWS means: no confirmed whale activity.</p>
                         <p><b>🔥</b> = no clear whale signal / normal activity.</p>
                         <p><b>Colors:</b> Green = positive, Red = negative, Yellow = neutral/early.</p>
                       </div>

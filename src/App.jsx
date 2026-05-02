@@ -1078,39 +1078,34 @@ function formatWhaleTimeAgo(timestamp) {
 }
 
 function getWhaleNewsSignal(onchain) {
-  if (!onchain) return { type: "neutral", label: "🔥", color: "#aaa", title: "No fresh whale activity" };
+  // IMPORTANT:
+  // NEWS must only appear for a REAL Bitquery whale buy/sell signal.
+  // No text guessing, no score_delta guessing, no fake NEWS.
+  const whale = onchain?.whale && typeof onchain.whale === "object" ? onchain.whale : onchain;
+  const source = String(whale?.source || "").toLowerCase();
+  const action = String(whale?.action || "").toLowerCase();
+  const amount = Number(whale?.amountUsd || whale?.latest?.amountUsd || 0);
+  const dex = String(whale?.latest?.dex || whale?.dex || "").trim();
+  const time = String(whale?.latest?.time || whale?.time || "").trim();
 
-  const raw = [
-    onchain?.action,
-    onchain?.type,
-    onchain?.direction,
-    onchain?.side,
-    onchain?.state,
-    onchain?.label,
-    onchain?.summary,
-    onchain?.icon,
-  ].map((v) => String(v || "").toLowerCase()).join(" ");
+  const isRealBitqueryWhale =
+    source === "bitquery" &&
+    (action === "buy" || action === "sell") &&
+    Number.isFinite(amount) &&
+    amount > 0 &&
+    !!dex &&
+    dex.toLowerCase() !== "pending" &&
+    !!time;
 
-  const sellWords = ["sell", "sold", "selling", "distribution", "distributed", "dump", "exit", "outflow to exchange", "exchange inflow", "to exchange", "bearish", "red"];
-  const buyWords = ["buy", "bought", "buying", "accumulation", "accumulated", "accumulate", "exchange outflow", "from exchange", "bullish", "green"];
-
-  if (sellWords.some((w) => raw.includes(w))) {
-    return { type: "sell", label: "NEWS", color: "#ef4444", title: "Whale sold recently" };
+  if (!isRealBitqueryWhale) {
+    return { type: "neutral", label: "🔥", color: "#aaa", title: "No fresh whale activity" };
   }
 
-  if (buyWords.some((w) => raw.includes(w))) {
+  if (action === "buy") {
     return { type: "buy", label: "NEWS", color: "#22c55e", title: "Whale bought recently" };
   }
 
-  const delta = Number(onchain?.score_delta ?? 0);
-  if (Number.isFinite(delta) && delta <= -2) {
-    return { type: "sell", label: "NEWS", color: "#ef4444", title: "Whale sold recently" };
-  }
-  if (Number.isFinite(delta) && delta >= 2) {
-    return { type: "buy", label: "NEWS", color: "#22c55e", title: "Whale bought recently" };
-  }
-
-  return { type: "neutral", label: "🔥", color: "#aaa", title: "No fresh whale activity" };
+  return { type: "sell", label: "NEWS", color: "#ef4444", title: "Whale sold recently" };
 }
 
 function marketConditionUi(state) {
@@ -12522,16 +12517,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
+                                const realWhale = onchain?.whale && typeof onchain.whale === "object" ? onchain.whale : onchain;
                                 setActiveWhaleNews({
                                   symbol: sym,
                                   type: whaleSignal.type,
                                   title: whaleSignal.title,
-                                  summary: onchainTitle,
-                                  amountUsd: onchain?.amountUsd ?? onchain?.whale?.amountUsd ?? null,
-                                  buyUsd: onchain?.buyUsd ?? onchain?.whale?.buyUsd ?? null,
-                                  sellUsd: onchain?.sellUsd ?? onchain?.whale?.sellUsd ?? null,
-                                  dex: onchain?.latest?.dex ?? onchain?.whale?.latest?.dex ?? null,
-                                  time: onchain?.latest?.time ?? onchain?.whale?.latest?.time ?? null,
+                                  summary: realWhale?.summary || onchainTitle,
+                                  amountUsd: realWhale?.amountUsd ?? realWhale?.latest?.amountUsd ?? null,
+                                  buyUsd: realWhale?.buyUsd ?? null,
+                                  sellUsd: realWhale?.sellUsd ?? null,
+                                  dex: realWhale?.latest?.dex ?? realWhale?.dex ?? null,
+                                  time: realWhale?.latest?.time ?? realWhale?.time ?? null,
                                 });
                               }}
                               title={`${whaleSignal.title} · click for details`}

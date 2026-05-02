@@ -11411,40 +11411,60 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return key;
                         };
 
-                        const renderPickCard = (p, idx, compact = false) => (
-                          <div
-                            key={`${p.sym}-${idx}-${compact ? "all" : "top"}`}
-                            onClick={() => handleRotationPickToGrid(p)}
-                            title="Select this recommendation for Nexus Rotation"
-                            style={{
-                              cursor: "pointer",
-                              display: "grid",
-                              gridTemplateColumns: isCompactMobile ? "1fr" : compact ? "62px 1fr auto" : "70px 1fr auto",
-                              gap: 8,
-                              alignItems: "center",
-                              padding: compact ? "8px 9px" : "9px 10px",
-                              borderRadius: 12,
-                              background: idx === 0 ? "rgba(34,197,94,.10)" : "rgba(255,255,255,.03)",
-                              border: idx === 0 ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(255,255,255,.06)",
-                            }}
-                          >
-                            <div>
-                              <div style={{ fontWeight: 900 }}>
-                                {idx === 0 ? "#1 " : `#${idx + 1} `}{p.sym}
+                        const renderPickCard = (p, idx, compact = false) => {
+                          const isSelected = String(rotationSelectedPick?.source || "").toUpperCase() === String(p?.sym || "").toUpperCase();
+                          return (
+                            <div
+                              key={`${p.sym}-${idx}-${compact ? "all" : "top"}`}
+                              title="Nexus Rotation recommendation"
+                              style={{
+                                width: "100%",
+                                boxSizing: "border-box",
+                                display: "grid",
+                                gridTemplateColumns: isCompactMobile ? "1fr" : compact ? "62px minmax(0,1fr) auto" : "70px minmax(0,1fr) auto",
+                                gap: 8,
+                                alignItems: "center",
+                                padding: compact ? "8px 9px" : "9px 10px",
+                                minHeight: compact ? 54 : 58,
+                                borderRadius: 12,
+                                background: isSelected ? "rgba(245,158,11,.11)" : idx === 0 ? "rgba(34,197,94,.10)" : "rgba(255,255,255,.03)",
+                                border: isSelected ? "1px solid rgba(245,158,11,.55)" : idx === 0 ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(255,255,255,.06)",
+                                transform: "none",
+                              }}
+                            >
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 900 }}>
+                                  {idx === 0 ? "#1 " : `#${idx + 1} `}{p.sym}
+                                </div>
+                                {getAssetNote(p.sym) && (
+                                  <div style={{ fontSize: "12px", opacity: 0.7 }}>{getAssetNote(p.sym)}</div>
+                                )}
                               </div>
-                              {getAssetNote(p.sym) && (
-                                <div style={{ fontSize: "12px", opacity: 0.7 }}>{getAssetNote(p.sym)}</div>
-                              )}
+                              <div className="muted tiny" style={{ display: "grid", gap: 3, minWidth: 0 }}>
+                                <div>Why: Score {p.score}/100 · Rating {p.rating} · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
+                                <div>Whale/On-chain: {p.whaleText || "Neutral"} · Market: {p.riskText || "Normal"}</div>
+                              </div>
+                              <div style={{ display: "flex", gap: 6, justifyContent: isCompactMobile ? "flex-start" : "flex-end", alignItems: "center", flexWrap: "wrap" }}>
+                                <span className={`pill ${p.score >= 70 ? "green" : p.score >= 55 ? "silver" : "red"}`}>
+                                  {isSelected ? "Selected" : idx === 0 ? "Best" : "Option"}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="miniBtn"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleRotationPickToGrid(p);
+                                  }}
+                                  style={{ height: 28, paddingInline: 10 }}
+                                  title="Select for Nexus Rotation only"
+                                >
+                                  Select
+                                </button>
+                              </div>
                             </div>
-                            <div className="muted tiny" style={{ display: "grid", gap: 3 }}>
-                              <div>Why: Score {p.score}/100 · Rating {p.rating} · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
-                              <div>Whale/On-chain: {p.whaleText || "Neutral"} · Market: {p.riskText || "Normal"}</div>
-                            </div>
-                            <span className={`pill ${p.score >= 70 ? "green" : p.score >= 55 ? "silver" : "red"}`}>
-                              {idx === 0 ? "Best" : "Option"}
-                            </span>
-                          </div>
-                        );
+                          );
+                        };
 
                         if (!picks.length) {
                           return (

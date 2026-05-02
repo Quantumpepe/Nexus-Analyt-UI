@@ -5182,6 +5182,54 @@ useEffect(() => {
     return gridWalletCoinsByChain?.[ck] || [];
   }, [gridWalletCoinsByChain, activeGridChainKey]);
 
+
+  const resolveRotationPickToGrid = useCallback((rawSym) => {
+    const sym = String(rawSym || "").toUpperCase().trim();
+    const byChain = gridWalletCoinsByChain || {};
+
+    const hasCoin = (chain, coin) => {
+      const ck = String(chain || "").toUpperCase();
+      const target = String(coin || "").toUpperCase();
+      return Array.isArray(byChain?.[ck]) && byChain[ck].map((x) => String(x || "").toUpperCase()).includes(target);
+    };
+
+    // BTC/SOL are shown as known market symbols, but Grid execution uses wrapped assets on EVM.
+    if (sym === "BTC") {
+      if (hasCoin("ETH", "WBTC")) return { chain: "ETH", coin: "WBTC" };
+      if (hasCoin("BNB", "BTCB")) return { chain: "BNB", coin: "BTCB" };
+      for (const chain of Object.keys(byChain)) {
+        if (hasCoin(chain, "WBTC")) return { chain, coin: "WBTC" };
+        if (hasCoin(chain, "BTCB")) return { chain, coin: "BTCB" };
+      }
+    }
+
+    if (sym === "SOL") {
+      for (const chain of Object.keys(byChain)) {
+        if (hasCoin(chain, "WSOL")) return { chain, coin: "WSOL" };
+      }
+    }
+
+    // Normal EVM assets: find the selected symbol on any wallet network.
+    for (const chain of Object.keys(byChain)) {
+      if (hasCoin(chain, sym)) return { chain, coin: sym };
+    }
+
+    return null;
+  }, [gridWalletCoinsByChain]);
+
+  const applyRotationPickToGrid = useCallback((rawSym) => {
+    const resolved = resolveRotationPickToGrid(rawSym);
+    if (!resolved?.chain || !resolved?.coin) return;
+
+    const chain = String(resolved.chain).toUpperCase();
+    const coin = String(resolved.coin).toUpperCase();
+    setGridChain(chain);
+    setGridItem(coin);
+
+    try { localStorage.setItem("nexus_grid_chain", chain); } catch (_) {}
+    try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${chain}`, coin); } catch (_) {}
+  }, [resolveRotationPickToGrid]);
+
   // Keep selected Grid network valid, independent from active Privy network.
   useEffect(() => {
     if (!gridUiHydrated) return;
@@ -11338,6 +11386,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             {picks.map((p, idx) => (
                               <div
                                 key={`${p.sym}-${idx}`}
+                                role="button"
+                                tabIndex={0}
+                                title="Use this recommendation in Normal Grid"
+                                onClick={() => applyRotationPickToGrid(p.sym)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    applyRotationPickToGrid(p.sym);
+                                  }
+                                }}
                                 style={{
                                   display: "grid",
                                   gridTemplateColumns: isCompactMobile ? "1fr" : "70px 1fr auto",
@@ -11347,6 +11405,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   borderRadius: 12,
                                   background: idx === 0 ? "rgba(34,197,94,.10)" : "rgba(255,255,255,.03)",
                                   border: idx === 0 ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(255,255,255,.06)",
+                                  cursor: "pointer",
                                 }}
                               >
                                 <div>

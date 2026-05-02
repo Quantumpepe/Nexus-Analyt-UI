@@ -9548,8 +9548,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     { k: "BNB", label: "BNB (BNB Chain)", enabled: true },
                     { k: "POL", label: "POL (Polygon)", enabled: true },
                     { k: "ETH", label: "ETH (Ethereum)", enabled: true },
-                    { k: "SOL", label: "SOL (soon)", enabled: false },
-                    { k: "BTC", label: "BTC (soon)", enabled: false },
+                    
                   ].map((c) => (
                     <option key={c.k} value={c.k} disabled={!ENABLED_CHAINS.includes(c.k)}>
                       {c.label}{!ENABLED_CHAINS.includes(c.k) ? " — soon" : ""}

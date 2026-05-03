@@ -2218,7 +2218,45 @@ function buildAlignedDailyLines(seriesBySym, opts = {}) {
   return { dates, lines };
 }
 
-function computeBestPairsFromSeries(seriesBySym, limit = 30) {
+const DEFAULT_COMPARE_WEIGHTS = { corr: 45, momentum: 25, opportunity: 20, stability: 10 };
+const COMPARE_WEIGHT_KEYS = ["corr", "momentum", "opportunity", "stability"];
+const COMPARE_WEIGHT_LABELS = {
+  corr: "Correlation",
+  momentum: "Momentum / RSI Gap",
+  opportunity: "Spread / Opportunity",
+  stability: "Stability / Volatility",
+};
+const COMPARE_WEIGHT_HELP = {
+  corr: "How strongly pair correlation affects the pair score.",
+  momentum: "How strongly RSI/momentum difference affects the pair score.",
+  opportunity: "How strongly the 30D spread/opportunity affects the pair score.",
+  stability: "How strongly similar volatility and stability affects the pair score.",
+};
+function sanitizeCompareWeights(input) {
+  const out = { ...DEFAULT_COMPARE_WEIGHTS };
+  const src = input && typeof input === "object" ? input : {};
+  for (const k of COMPARE_WEIGHT_KEYS) {
+    const n = Math.round(Number(src[k]));
+    out[k] = Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : DEFAULT_COMPARE_WEIGHTS[k];
+  }
+  let total = COMPARE_WEIGHT_KEYS.reduce((sum, k) => sum + out[k], 0);
+  if (total > 100) {
+    // Defensive cleanup for older/corrupt localStorage values. User edits still stay manual.
+    for (const k of [...COMPARE_WEIGHT_KEYS].reverse()) {
+      if (total <= 100) break;
+      const cut = Math.min(out[k], total - 100);
+      out[k] -= cut;
+      total -= cut;
+    }
+  }
+  return out;
+}
+function compareWeightTotal(weights) {
+  const w = sanitizeCompareWeights(weights);
+  return COMPARE_WEIGHT_KEYS.reduce((sum, k) => sum + Number(w[k] || 0), 0);
+}
+
+function computeBestPairsFromSeries(seriesBySym, limit = 30, scoreWeights = DEFAULT_COMPARE_WEIGHTS) {
   const { lines } = buildAlignedDailyLines(seriesBySym, { minDays: 20 });
   const syms = Object.keys(lines || {});
   if (syms.length < 2) return [];
@@ -2285,6 +2323,7 @@ function computeBestPairsFromSeries(seriesBySym, limit = 30) {
     return clamp(80 - (gap - 30) * 2, 35, 80);
   };
 
+  const weights = sanitizeCompareWeights(scoreWeights);
   const res = [];
   for (let i = 0; i < syms.length; i++) {
     for (let j = i + 1; j < syms.length; j++) {
@@ -2311,10 +2350,10 @@ function computeBestPairsFromSeries(seriesBySym, limit = 30) {
       // Composite: correlation still matters, but the score now also reflects momentum gap,
       // real 30D opportunity spread, and whether both assets have roughly comparable volatility.
       const score = Math.round(
-        (corrScore * 0.45) +
-        (momentumScore * 0.25) +
-        (opportunityScore * 0.20) +
-        (stabilityScore * 0.10)
+        (corrScore * (Number(weights.corr || 0) / 100)) +
+        (momentumScore * (Number(weights.momentum || 0) / 100)) +
+        (opportunityScore * (Number(weights.opportunity || 0) / 100)) +
+        (stabilityScore * (Number(weights.stability || 0) / 100))
       );
 
       res.push({
@@ -2376,6 +2415,7 @@ function computeBestPairs(chart, limit = 30) {
   if (syms.length < 2) return [];
   const normLines = normalizeToIndex(lines);
 
+  const weights = sanitizeCompareWeights(scoreWeights);
   const res = [];
   for (let i = 0; i < syms.length; i++) {
     for (let j = i + 1; j < syms.length; j++) {
@@ -5124,6 +5164,26 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [highlightedSyms, setHighlightedSyms] = useState([]);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
   const [bestPairsSortMode, setBestPairsSortMode] = useLocalStorageState("nexus_best_pairs_sort_mode", "score"); // score | spread
+  const [customCompareWeightsOn, setCustomCompareWeightsOn] = useLocalStorageState("nexus_compare_custom_weights_on", false);
+  const [compareWeights, setCompareWeights] = useLocalStorageState("nexus_compare_custom_weights_v1", DEFAULT_COMPARE_WEIGHTS);
+  const safeCompareWeights = useMemo(() => sanitizeCompareWeights(compareWeights), [compareWeights]);
+  const activeCompareWeights = useMemo(() => customCompareWeightsOn ? safeCompareWeights : DEFAULT_COMPARE_WEIGHTS, [customCompareWeightsOn, safeCompareWeights]);
+  const compareWeightsTotal = useMemo(() => compareWeightTotal(safeCompareWeights), [safeCompareWeights]);
+  const compareWeightsRemaining = Math.max(0, 100 - compareWeightsTotal);
+  const updateCompareWeight = useCallback((key, rawValue) => {
+    const k = String(key || "");
+    if (!COMPARE_WEIGHT_KEYS.includes(k)) return;
+    const requested = Math.max(0, Math.min(100, Math.round(Number(rawValue) || 0)));
+    setCompareWeights((prev) => {
+      const base = sanitizeCompareWeights(prev);
+      const otherTotal = COMPARE_WEIGHT_KEYS
+        .filter((x) => x !== k)
+        .reduce((sum, x) => sum + Number(base[x] || 0), 0);
+      const maxAllowed = Math.max(0, 100 - otherTotal);
+      return { ...base, [k]: Math.min(requested, maxAllowed) };
+    });
+  }, [setCompareWeights]);
+  const resetCompareWeights = useCallback(() => setCompareWeights(DEFAULT_COMPARE_WEIGHTS), [setCompareWeights]);
   const [gridModalSym, setGridModalSym] = useState(null);
 
   useEffect(() => {
@@ -5174,7 +5234,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     const sym = String(gridModalSym || "").toUpperCase().trim();
     return sym ? (watchRows || []).find((r) => String(r?.symbol || "").toUpperCase() === sym) || null : null;
   }, [gridModalSym, watchRows]);
-    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000), [compareSeries]);
+    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000, activeCompareWeights), [compareSeries, activeCompareWeights]);
   const bestPairsSorted = useMemo(() => {
     const rows = Array.isArray(bestPairsAll) ? [...bestPairsAll] : [];
     if (String(bestPairsSortMode || "score") !== "spread") return rows;
@@ -10475,10 +10535,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>First 10 / Next 10 / All</b> steuert, ob du die ersten 10, die zweiten 10 oder alle Compare-Coins sehen willst.</p>
                       <p><b>Grid-Detail</b>: Klick auf eine Kachel öffnet den großen Chart. Dort kannst du direkt zwischen <b>Price</b> und <b>Index 100</b> umschalten.</p>
                       <p><b>Legende</b>: Farbe → Coin. Klick auf einen Eintrag hebt einen Coin hervor.</p>
+                      <p><b>Custom Weighting</b>: Wenn OFF aktiv ist, nutzt Compare die System-Gewichtung. Wenn ON aktiv ist, kannst du die Score-Bestandteile mit Prozent-Reglern selbst verteilen. Die Summe kann nie über 100% gehen.</p>
                     </>
                   }
                   en={
   <>
+    <p><b>Custom Weighting</b>: OFF uses system weights. ON shows percentage sliders so the user can manually decide how much each score component should count. The total can never exceed 100%.</p>
     <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
     <ul>
       <li><b>Overbought (Red)</b> → strong recent buying, may be overextended</li>
@@ -10503,6 +10565,71 @@ const handlePanelActivate = useCallback((name) => (e) => {
               minHeight: 0
             }}
           >
+            <div
+              style={{
+                border: "1px solid rgba(255,255,255,.08)",
+                borderRadius: 16,
+                padding: "10px 12px",
+                marginBottom: 12,
+                background: customCompareWeightsOn ? "rgba(57,217,138,.06)" : "rgba(255,255,255,.025)",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <div className="label">Compare Score Weighting</div>
+                  <div className="muted tiny">
+                    {customCompareWeightsOn
+                      ? `Custom weighting active · Total ${compareWeightsTotal}% · Remaining ${compareWeightsRemaining}%`
+                      : "System weighting active"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  {customCompareWeightsOn && (
+                    <button className="ghostBtn tiny" onClick={resetCompareWeights} title="Reset to system default weights">
+                      Reset
+                    </button>
+                  )}
+                  <button
+                    className={customCompareWeightsOn ? "btn tiny" : "ghostBtn tiny"}
+                    onClick={() => setCustomCompareWeightsOn((v) => !v)}
+                    title={customCompareWeightsOn ? "Disable custom weighting and use system values" : "Enable custom weighting sliders"}
+                  >
+                    Custom Weighting: {customCompareWeightsOn ? "ON" : "OFF"}
+                  </button>
+                </div>
+              </div>
+
+              {customCompareWeightsOn && (
+                <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+                  {COMPARE_WEIGHT_KEYS.map((key) => {
+                    const current = Number(safeCompareWeights[key] || 0);
+                    const otherTotal = COMPARE_WEIGHT_KEYS.filter((k) => k !== key).reduce((sum, k) => sum + Number(safeCompareWeights[k] || 0), 0);
+                    const maxAllowed = Math.max(0, 100 - otherTotal);
+                    return (
+                      <label key={key} style={{ display: "flex", flexDirection: "column", gap: 6 }} title={COMPARE_WEIGHT_HELP[key]}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <span className="muted tiny">{COMPARE_WEIGHT_LABELS[key]}</span>
+                          <b className="tiny">{current}%</b>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max={maxAllowed}
+                          step="1"
+                          value={current}
+                          onChange={(e) => updateCompareWeight(key, e.target.value)}
+                        />
+                        <div className="muted tiny">Max now: {maxAllowed}%</div>
+                      </label>
+                    );
+                  })}
+                  <div className="muted tiny" style={{ gridColumn: "1 / -1" }}>
+                    The app does not auto-distribute the rest. You decide the full 100% manually. Scores use system values when Custom Weighting is OFF.
+                  </div>
+                </div>
+              )}
+            </div>
+
 			<div className="compareGrid">
             {/* Chart */}
 

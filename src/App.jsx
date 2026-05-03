@@ -12785,14 +12785,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
 						onMouseEnter={(e) => {
                           if (watchDropKey !== _watchKeyFromRow(r)) {
                             e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+                            e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.25)";
+                            e.currentTarget.style.transform = "translateY(-1px)";
                           }
                         }}
+
                         onMouseLeave={(e) => {
                           if (watchDropKey !== _watchKeyFromRow(r)) {
                             e.currentTarget.style.background =
                               idx % 2 === 1 ? "rgba(255,255,255,0.055)" : "transparent";
-                          }
-                        }}	  
+                            e.currentTarget.style.boxShadow = "none";
+                            e.currentTarget.style.transform = "none";
+                         }
+                       }}  
                         onDragStart={() => { if (String(watchSortMode || "manual") === "manual") handleWatchDragStart(r); }}
                         onDragOver={(e) => { if (String(watchSortMode || "manual") === "manual") handleWatchDragOver(e, r); }}
                         onDrop={(e) => { if (String(watchSortMode || "manual") === "manual") handleWatchDrop(e, r); }}
@@ -12801,6 +12806,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                           background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)": (idx % 2 === 1 ? "rgba(255,255,255,0.055)" : "transparent"),
+						  transition: "all 0.15s ease",
 						  gridTemplateColumns: "34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 150px 32px",
                           gap: 8,
                           alignItems: "center",

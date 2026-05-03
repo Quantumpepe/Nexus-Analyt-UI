@@ -12789,7 +12789,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         style={{
                           cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                           border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
-                          background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
+                          background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : (idx % 2 === 1 ? "rgba(255,255,255,0.025)" : "rgba(0,0,0,0.03)"),
                           gridTemplateColumns: "34px minmax(74px,.75fr) 68px minmax(120px,1.15fr) minmax(130px,1.25fr) minmax(150px,1.35fr) minmax(84px,.8fr) 150px 32px",
                           gap: 8,
                           alignItems: "center",
@@ -13495,8 +13495,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
             ) : null}
 
-            {(addResults || []).map((coin, index) => (
-  <div\3 style={background: index % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"}>
+            {(addResults || []).map((coin) => (
+<div key={coin.id} className="watchRow" style={{ alignItems: "center" }}>
                 <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {coin.name} <span className="muted">({String(coin.symbol || "").toUpperCase()})</span>

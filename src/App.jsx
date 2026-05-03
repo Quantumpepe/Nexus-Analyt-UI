@@ -5165,6 +5165,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
   const [bestPairsSortMode, setBestPairsSortMode] = useLocalStorageState("nexus_best_pairs_sort_mode", "score"); // score | spread
   const [customCompareWeightsOn, setCustomCompareWeightsOn] = useLocalStorageState("nexus_compare_custom_weights_on", false);
+  const [compareWeightPanelOpen, setCompareWeightPanelOpen] = useLocalStorageState("nexus_compare_weight_panel_open", false);
   const [compareWeights, setCompareWeights] = useLocalStorageState("nexus_compare_custom_weights_v1", DEFAULT_COMPARE_WEIGHTS);
   const safeCompareWeights = useMemo(() => sanitizeCompareWeights(compareWeights), [compareWeights]);
   const activeCompareWeights = useMemo(() => customCompareWeightsOn ? safeCompareWeights : DEFAULT_COMPARE_WEIGHTS, [customCompareWeightsOn, safeCompareWeights]);
@@ -10569,8 +10570,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               style={{
                 border: "1px solid rgba(255,255,255,.08)",
                 borderRadius: 16,
-                padding: "10px 12px",
-                marginBottom: 12,
+                padding: "8px 12px",
+                marginBottom: 8,
                 background: customCompareWeightsOn ? "rgba(57,217,138,.06)" : "rgba(255,255,255,.025)",
               }}
             >
@@ -10579,7 +10580,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="label">Compare Score Weighting</div>
                   <div className="muted tiny">
                     {customCompareWeightsOn
-                      ? `Custom weighting active · Total ${compareWeightsTotal}% · Remaining ${compareWeightsRemaining}%`
+                      ? `Custom active · Total ${compareWeightsTotal}% · Remaining ${compareWeightsRemaining}%`
                       : "System weighting active"}
                   </div>
                 </div>
@@ -10587,6 +10588,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   {customCompareWeightsOn && (
                     <button className="ghostBtn tiny" onClick={resetCompareWeights} title="Reset to system default weights">
                       Reset
+                    </button>
+                  )}
+                  {customCompareWeightsOn && (
+                    <button
+                      className="ghostBtn tiny"
+                      onClick={() => setCompareWeightPanelOpen((v) => !v)}
+                      title={compareWeightPanelOpen ? "Hide weighting settings" : "Open weighting settings"}
+                    >
+                      Settings {compareWeightPanelOpen ? "▲" : "▼"}
                     </button>
                   )}
                   <button
@@ -10599,14 +10609,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               </div>
 
-              {customCompareWeightsOn && (
-                <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+              {customCompareWeightsOn && compareWeightPanelOpen && (
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
                   {COMPARE_WEIGHT_KEYS.map((key) => {
                     const current = Number(safeCompareWeights[key] || 0);
                     const otherTotal = COMPARE_WEIGHT_KEYS.filter((k) => k !== key).reduce((sum, k) => sum + Number(safeCompareWeights[k] || 0), 0);
                     const maxAllowed = Math.max(0, 100 - otherTotal);
                     return (
-                      <label key={key} style={{ display: "flex", flexDirection: "column", gap: 6 }} title={COMPARE_WEIGHT_HELP[key]}>
+                      <label key={key} style={{ display: "flex", flexDirection: "column", gap: 5 }} title={COMPARE_WEIGHT_HELP[key]}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                           <span className="muted tiny">{COMPARE_WEIGHT_LABELS[key]}</span>
                           <b className="tiny">{current}%</b>
@@ -10647,12 +10657,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
               {viewMode === "overlay" ? (
               <>
                 {visibleCompareSymbols.length === 0 ? (
-                  <div className="chartEmpty" style={{ minHeight: 300 }}>
+                  <div className="chartEmpty" style={{ minHeight: 240 }}>
                     <div className="muted">No coins in this compare range.</div>
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={chartRaw} height={300} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <SvgChart chart={chartRaw} height={240} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     <div style={{ marginTop: 10 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>
@@ -10783,7 +10793,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     marginTop: 6,
 
                     minHeight: 0,
-                    maxHeight: "clamp(220px, 28vh, 330px)",
+                    maxHeight: "clamp(280px, 36vh, 460px)",
                     overflowY: "auto",
                     paddingBottom: 10,
                   }}

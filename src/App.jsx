@@ -4430,41 +4430,6 @@ const byChain = {};
     }
   }, [wallet, subToken, subChain, api, refreshAccess]);
 
-  const testAutoRenew = useCallback(async () => {
-    if (!wallet) {
-      setAutoRenewMsg("Wallet not connected.");
-      return;
-    }
-
-    setAutoRenewBusy(true);
-    setAutoRenewMsg("Running Auto Renew TEST...");
-
-    try {
-      const res = await api("/api/access/auto-renew/test-enable", {
-        method: "POST",
-        token,
-        wallet,
-        body: {
-          wallet,
-          chain: subChain || "POL",
-          token: subToken || "USDT",
-        },
-      });
-
-      if (res?.status === "error" || res?.ok === false) {
-        throw new Error(res?.error || "Auto Renew TEST failed.");
-      }
-
-      setAutoRenewMsg("Auto Renew TEST enabled.");
-      await refreshAccess();
-    } catch (e) {
-      setAutoRenewMsg(e?.message || "Auto Renew TEST failed.");
-      console.error("Auto Renew TEST failed:", e);
-    } finally {
-      setAutoRenewBusy(false);
-    }
-  }, [wallet, subChain, subToken, token, api, refreshAccess]);
-
   // NFTs disabled in Phase 1 (UI + backend)
 
   const subscribePay = useCallback(async () => {
@@ -9621,21 +9586,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           }}
                         >
                           {autoRenewBusy ? "..." : (access?.auto_renew_enabled ? "Auto Renew: ON" : "Auto Renew: OFF")}
-                        </button>
-                        <button
-                          type="button"
-                          className="pill"
-                          disabled={autoRenewBusy}
-                          onClick={testAutoRenew}
-                          style={{
-                            color: "#08130f",
-                            background: "#39d98a",
-                            border: "1px solid rgba(57,217,138,0.6)",
-                            cursor: autoRenewBusy ? "wait" : "pointer",
-                            fontWeight: 900
-                          }}
-                        >
-                          Auto Renew TEST
                         </button>
                       </div>
 

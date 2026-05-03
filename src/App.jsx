@@ -11060,6 +11060,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <>
                       <div style={{ display: "grid", gap: 10 }}>
                         <div className="label">Performance (same period)</div>
+<div className="label" style={{ marginBottom: 0 }}>Spread Analysis</div>
+                                  <div className="muted tiny" style={{ marginTop: 2 }}>30D Relative Spread ({a} vs {b}) · Positive = {a} stronger · Negative = {b} stronger</div>
+                                </div>
+                                <span className="pill silver">Latest: {_fmtPctLocal(latestSpread)}</span>
+                              </div>
+                              {rows.length ? (
+                                <svg viewBox={`0 0 ${svgW} ${svgH}`} preserveAspectRatio="none" style={{ width: "100%", height: 150, display: "block" }}>
+                                  {[yMin, yMin / 2, 0, yMax / 2, yMax].map((tick, idx) => (
+                                    <g key={idx}>
+                                      <line x1={padL} x2={svgW - padR} y1={sy(tick)} y2={sy(tick)} stroke={tick === 0 ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.08)"} strokeDasharray={tick === 0 ? "4 4" : "3 5"} />
+                                      <text x={6} y={sy(tick) + 4} fill="rgba(232,242,240,0.72)" fontSize="11">{_fmtPctLocal(tick)}</text>
+                                    </g>
+                                  ))}
+                                  <line x1={padL} x2={svgW - padR} y1={svgH - padB} y2={svgH - padB} stroke="rgba(255,255,255,0.12)" />
+                                  <path d={pathD} fill="none" stroke="#35e0a1" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+                                  {Number.isFinite(latestSpread) ? (
+                                    <>
+                                      <circle cx={latestX} cy={latestY} r="4.5" fill="#35e0a1" />
+                                      <text x={Math.max(padL + 8, latestX - 64)} y={Math.max(18, latestY - 10)} fill="#35e0a1" fontSize="12" fontWeight="700">{_fmtPctLocal(latestSpread)}</text>
+                                    </>
+                                  ) : null}
+                                  <text x={padL} y={svgH - 6} fill="rgba(232,242,240,0.72)" fontSize="11">Start</text>
+                                  <text x={padL + (innerW / 2)} y={svgH - 6} textAnchor="middle" fill="rgba(232,242,240,0.72)" fontSize="11">Mid</text>
+                                  <text x={svgW - padR} y={svgH - 6} textAnchor="end" fill="rgba(232,242,240,0.72)" fontSize="11">Now</text>
+                                  <text x={svgW - padR} y={Math.max(14, zeroY - 6)} textAnchor="end" fill="rgba(232,242,240,0.58)" fontSize="10">Mean reversion line (0%)</text>
+                                </svg>
+                              ) : (
+                                <div className="muted tiny">No spread series available yet.</div>
+
                         {pairExplainLoading && <div className="muted tiny">Loading pair data…</div>}
                         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                           <span className="pill silver">{a}: <span style={_pctColorStyle(ra)}>{_fmtPctLocal(ra)}</span></span>
@@ -11406,34 +11435,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                                 <div>
-                                  <div className="label" style={{ marginBottom: 0 }}>Spread Analysis</div>
-                                  <div className="muted tiny" style={{ marginTop: 2 }}>30D Relative Spread ({a} vs {b}) · Positive = {a} stronger · Negative = {b} stronger</div>
-                                </div>
-                                <span className="pill silver">Latest: {_fmtPctLocal(latestSpread)}</span>
-                              </div>
-                              {rows.length ? (
-                                <svg viewBox={`0 0 ${svgW} ${svgH}`} preserveAspectRatio="none" style={{ width: "100%", height: 190, display: "block" }}>
-                                  {[yMin, yMin / 2, 0, yMax / 2, yMax].map((tick, idx) => (
-                                    <g key={idx}>
-                                      <line x1={padL} x2={svgW - padR} y1={sy(tick)} y2={sy(tick)} stroke={tick === 0 ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.08)"} strokeDasharray={tick === 0 ? "4 4" : "3 5"} />
-                                      <text x={6} y={sy(tick) + 4} fill="rgba(232,242,240,0.72)" fontSize="11">{_fmtPctLocal(tick)}</text>
-                                    </g>
-                                  ))}
-                                  <line x1={padL} x2={svgW - padR} y1={svgH - padB} y2={svgH - padB} stroke="rgba(255,255,255,0.12)" />
-                                  <path d={pathD} fill="none" stroke="#35e0a1" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
-                                  {Number.isFinite(latestSpread) ? (
-                                    <>
-                                      <circle cx={latestX} cy={latestY} r="4.5" fill="#35e0a1" />
-                                      <text x={Math.max(padL + 8, latestX - 64)} y={Math.max(18, latestY - 10)} fill="#35e0a1" fontSize="12" fontWeight="700">{_fmtPctLocal(latestSpread)}</text>
-                                    </>
-                                  ) : null}
-                                  <text x={padL} y={svgH - 6} fill="rgba(232,242,240,0.72)" fontSize="11">Start</text>
-                                  <text x={padL + (innerW / 2)} y={svgH - 6} textAnchor="middle" fill="rgba(232,242,240,0.72)" fontSize="11">Mid</text>
-                                  <text x={svgW - padR} y={svgH - 6} textAnchor="end" fill="rgba(232,242,240,0.72)" fontSize="11">Now</text>
-                                  <text x={svgW - padR} y={Math.max(14, zeroY - 6)} textAnchor="end" fill="rgba(232,242,240,0.58)" fontSize="10">Mean reversion line (0%)</text>
-                                </svg>
-                              ) : (
-                                <div className="muted tiny">No spread series available yet.</div>
+                                  
                               )}
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
                                 <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Direction</div><div style={{ fontWeight: 900, marginTop: 4 }}>{spreadDirection}</div></div>

@@ -4381,10 +4381,13 @@ const byChain = {};
 
     setAutoRenewMsg("Requesting Privy auto-renew permission...");
 
-    const delegated = await delegateWallet({
-      address: embeddedAddress,
-      chainType: "ethereum",
-    });
+    const delegated = await Promise.race([
+      delegateWallet({
+        address: embeddedAddress,
+        chainType: "ethereum",
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Privy permission popup did not open or timed out. Auto Renew was not enabled.")), 20000)),
+    ]);
 
     const delegationId = String(
       delegated?.delegation_id ||
@@ -4392,10 +4395,12 @@ const byChain = {};
       delegated?.id ||
       delegated?.signer_id ||
       delegated?.signerId ||
-      delegated?.wallet_id ||
-      delegated?.walletId ||
-      `delegated:${embeddedAddress}`
+      ""
     );
+
+    if (!delegationId) {
+      throw new Error("Privy did not return a delegation ID. Auto Renew was not enabled.");
+    }
 
     const privyWalletId = String(
       embedded?.id ||

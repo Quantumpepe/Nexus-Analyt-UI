@@ -295,10 +295,6 @@ const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   return "https://nexus-analyt-pro.onrender.com";
 })();
 const ALCHEMY_KEY = (import.meta.env.VITE_ALCHEMY_KEY ?? "").trim();
-const TREASURY_ADDRESS = (import.meta.env.VITE_TREASURY_ADDRESS ?? "").trim();
-const API_KEY = (import.meta.env.VITE_NEXUS_API_KEY ?? "").trim();
-console.log("API_KEY loaded?", API_KEY ? "YES" : "NO");
-window.__API_KEY_OK__ = !!API_KEY;
 const TOKEN_WHITELIST = {
   ETH: [
     { symbol: "USDC", address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6 },
@@ -657,13 +653,11 @@ async function api(
   const wa = resolveWalletAddress(wallet);
 
   // Auth strategy:
-  // - Prefer the user/session token (JWT / itsdangerous) when available.
-  // - Fall back to the server API key (VITE_NEXUS_API_KEY) if present.
-  // Backend accepts both forms as Bearer tokens.
+  // - Frontend must NOT contain backend/API secrets.
+  // - Use the user/session token when available, plus credentials: "include" for cookies.
   const candidates = [];
   const t = (token || "").trim();
   if (t) candidates.push(t);
-  if (API_KEY) candidates.push(API_KEY);
 
   // Deduplicate while preserving order
   const seen = new Set();
@@ -683,12 +677,6 @@ async function api(
     }
 
     if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
-
-    // Keep for backward compatibility / debugging (backend doesn't rely on it)
-    if (API_KEY) {
-      headers["X-API-Key"] = API_KEY;
-      headers["x-api-key"] = API_KEY;
-    }
 
     if (wa) {
       headers["X-Wallet-Address"] = wa;
@@ -847,27 +835,16 @@ function _erc20TransferData(to, amountUnits) {
   const amtHex = amountUnits.toString(16);
   return selector + _hexPad64(addr) + _hexPad64(amtHex);
 }
-async function _ensureBnb() {
-  if (!window?.ethereum?.request) throw new Error("No injected wallet found (MetaMask).");
-  const chainHex = await window.ethereum.request({ method: "eth_chainId" });
-  if (String(chainHex).toLowerCase() === "0x38") return; // BNB Chain mainnet
-  try {
-    await window.ethereum.request({
-      method: "wallet_switchEthereumChain",
-      params: [{ chainId: "0x38" }],
-    });
-  } catch (e) {
-    throw new Error("Please switch your wallet to BNB Chain (BNB).");
-  }
-
 async function _ensureChain(chainKey) {
   if (!window?.ethereum?.request) throw new Error("No injected wallet found (MetaMask).");
   const want = String(chainKey || "").toUpperCase();
   const map = { ETH: "0x1", BNB: "0x38", POL: "0x89" };
   const wantHex = map[want];
   if (!wantHex) throw new Error("Unsupported chain.");
+
   const chainHex = await window.ethereum.request({ method: "eth_chainId" });
   if (String(chainHex).toLowerCase() === String(wantHex).toLowerCase()) return;
+
   try {
     await window.ethereum.request({
       method: "wallet_switchEthereumChain",
@@ -879,6 +856,23 @@ async function _ensureChain(chainKey) {
   }
 }
 
+async function fetchSubscribeConfig() {
+  const res = await fetch(`${API_BASE}/api/access/subscribe/config`, {
+    method: "GET",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  const txt = await res.text();
+  let data = null;
+  try { data = txt ? JSON.parse(txt) : null; } catch { data = { raw: txt }; }
+  if (!res.ok || !data || data.status === "error") {
+    throw new Error(data?.error || data?.message || `Payment config failed (HTTP ${res.status})`);
+  }
+  const treasury = String(data.treasury || "").trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(treasury)) {
+    throw new Error("Treasury address is not configured in backend.");
+  }
+  return data;
 }
 
 function useInterval(fn, ms, enabled = true) {
@@ -4478,39 +4472,35 @@ const byChain = {};
       setSubMsg("Wallet not connected.");
       return;
     }
-    if (!TREASURY_ADDRESS) {
-      setSubMsg("Missing treasury address (VITE_TREASURY_ADDRESS).");
-      return;
-    }
 
     setSubBusy(true);
     setSubMsg("");
     try {
-      const chainKey = String(subChain || "ETH").toUpperCase();
+      const chainKey = String(subChain || "POL").toUpperCase();
       const chainIdMap = { ETH: 1, BNB: 56, POL: 137 };
       const chainId = chainIdMap[chainKey];
       if (!chainId) throw new Error("Unsupported chain.");
-
-      // Ensure wallet is on the selected chain
-      await _ensureChain(chainKey);
 
       if (!["USDC", "USDT"].includes(String(subToken || "").toUpperCase())) {
         throw new Error("Subscription payment must be USDC or USDT.");
       }
 
-      // Auto Renew is web-preference-only here. Do NOT call Privy delegated actions in the browser.
-      // The one-time subscription payment below stays unchanged.
+      const cfg = await fetchSubscribeConfig();
+      const treasury = String(cfg?.treasury || "").trim();
+
+      // Ensure wallet is on the selected chain
+      await _ensureChain(chainKey);
 
       // Pay with stablecoin (USDC/USDT) on the selected chain
-      let txHash = null;
       const specs = TOKEN_WHITELIST[chainKey] || [];
       const spec = specs.find((t) => t.symbol === subToken);
       if (!spec?.address) throw new Error("Token not supported on this chain.");
 
-      const amountUnits = BigInt(SUB_PRICE_USD) * (10n ** BigInt(spec.decimals || 6));
-      const data = _erc20TransferData(TREASURY_ADDRESS, amountUnits);
+      const priceUsd = Number(cfg?.price_usd || SUB_PRICE_USD || 15);
+      const amountUnits = BigInt(Math.round(priceUsd)) * (10n ** BigInt(spec.decimals || 6));
+      const data = _erc20TransferData(treasury, amountUnits);
 
-      txHash = await window.ethereum.request({
+      const txHash = await window.ethereum.request({
         method: "eth_sendTransaction",
         params: [
           {
@@ -4524,6 +4514,8 @@ const byChain = {};
 
       const res = await api("/api/access/subscribe/verify", {
         method: "POST",
+        token,
+        wallet,
         body: { chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: subToken },
       });
 
@@ -4533,10 +4525,11 @@ const byChain = {};
       await refreshAccess();
     } catch (e) {
       setSubMsg(e?.message || "Payment failed.");
+      console.error("Payment failed:", e);
     } finally {
       setSubBusy(false);
     }
-  }, [wallet, subChain, subToken, refreshAccess]);
+  }, [wallet, subChain, subToken, token, api, refreshAccess]);
 
   // Best-pair explain (click -> modal)
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }
@@ -9657,7 +9650,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     <div className="row" style={{ gap: 8, marginTop: 8 }}>
                       <button className="btn" disabled={subBusy} onClick={subscribePay}>
-                        {subBusy ? "..." : "Pay & Activate"}
+                        {subBusy ? "..." : `Pay ${SUB_PRICE_USD} ${subToken} & Activate`}
                       </button>
                       <button
                         className="btnGhost"

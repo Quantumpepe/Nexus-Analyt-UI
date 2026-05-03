@@ -12784,7 +12784,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         draggable={String(watchSortMode || "manual") === "manual"}
 						onMouseEnter={(e) => {
                           if (watchDropKey !== _watchKeyFromRow(r)) {
-                            e.currentTarget.style.background = "rgba(255,255,255,0.08)";
                             e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.25)";
                             e.currentTarget.style.transform = "translateY(-1px)";
                           }

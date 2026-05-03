@@ -4293,6 +4293,12 @@ const byChain = {};
 
   // Pro access: subscription or redeem code
   const isPro = !!(access?.active);
+  const accessExpiresTs = Number(access?.expires_at || 0);
+  const accessDaysLeft = accessExpiresTs > 0
+    ? Math.ceil((accessExpiresTs - Math.floor(Date.now() / 1000)) / 86400)
+    : null;
+  const showAccessReminder = !!(isPro && accessDaysLeft !== null && accessDaysLeft <= 3);
+  const showAccessExpiredNotice = !!(!isPro && accessExpiresTs > 0);
 
   const requirePro = useCallback((actionLabel = "This action") => {
     if (isPro) return true;
@@ -9571,6 +9577,58 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                   </div>
                 )}
+
+                {showAccessReminder ? (
+                  <div style={{
+                    marginTop: 12,
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    background: "rgba(255,180,0,0.12)",
+                    border: "1px solid rgba(255,180,0,0.32)"
+                  }}>
+                    <div style={{ fontWeight: 900 }}>⚠ Subscription expires in {Math.max(0, accessDaysLeft)} day{Math.max(0, accessDaysLeft) === 1 ? "" : "s"}</div>
+                    <div className="hint" style={{ marginTop: 5, opacity: 0.9 }}>
+                      Renew now to keep opening new grids and Nexus Rotation actions. Existing grids continue running.
+                    </div>
+                    <button
+                      type="button"
+                      className="btnGhost"
+                      style={{ marginTop: 8 }}
+                      onClick={() => {
+                        setAccessTab("subscribe");
+                        setSubMsg("");
+                      }}
+                    >
+                      Renew now
+                    </button>
+                  </div>
+                ) : null}
+
+                {showAccessExpiredNotice ? (
+                  <div style={{
+                    marginTop: 12,
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    background: "rgba(255,92,92,0.12)",
+                    border: "1px solid rgba(255,92,92,0.32)"
+                  }}>
+                    <div style={{ fontWeight: 900 }}>Subscription expired</div>
+                    <div className="hint" style={{ marginTop: 5, opacity: 0.9 }}>
+                      Existing grids continue running, but new grids and new rotation actions require renewal.
+                    </div>
+                    <button
+                      type="button"
+                      className="btnGhost"
+                      style={{ marginTop: 8 }}
+                      onClick={() => {
+                        setAccessTab("subscribe");
+                        setSubMsg("");
+                      }}
+                    >
+                      Renew access
+                    </button>
+                  </div>
+                ) : null}
 
                 <div className="hint" style={{ marginTop: 14 }}>
                   Status: {isPro ? "ACTIVE" : "OFF"}

@@ -13,6 +13,20 @@ function safeSetGridOrdersFromResponse(r, setOrdersFn) {
 
 function getGridOrdersFromResponse(r) {
   return (
+
+<div style={{position:'fixed', bottom:'20px', right:'20px', zIndex:9999}}>
+  <button onClick={testAutoRenew} style={{
+    background: "#00ff88",
+    color: "#000",
+    padding: "10px 14px",
+    borderRadius: "8px",
+    border: "none",
+    cursor: "pointer",
+    fontWeight: "bold"
+  }}>
+    Auto Renew TEST
+  </button>
+</div>
     r?.orders ??
     r?.data?.orders ??
     r?.grid?.orders ??
@@ -13732,6 +13746,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
             padding-right: 6px;
             padding-bottom: 56px !important;
             scroll-padding-bottom: 56px !important;
+
+// 🔥 Auto Renew TEST Funktion (eingebaut)
+async function testAutoRenew() {
+  try {
+    console.log("🚀 Start Auto Renew Test");
+
+    const res = await fetch("https://nexus-analyt-pro.onrender.com/api/access/auto-renew/test-enable", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        wallet: window?.user?.wallet || "0x5b1bc5a85a8fe0cb51ef2d890c14cfcd5f79bd4f",
+        chain: "POL",
+        token: "USDT"
+      })
+    });
+
+    const text = await res.text();
+    console.log("✅ RESPONSE:", text);
+    alert("Auto Renew Test ausgeführt – check Console");
+  } catch (err) {
+    console.error("❌ Fehler:", err);
+  }
+}
           }
           .section-compare .liveListBox::-webkit-scrollbar,
           .section-compare .pairsScroll::-webkit-scrollbar{

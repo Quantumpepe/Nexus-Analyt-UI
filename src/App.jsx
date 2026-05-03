@@ -4269,6 +4269,8 @@ const byChain = {};
   const [subToken, setSubToken] = useState("USDT"); // USDC | USDT only
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState("");
+  const [autoRenewBusy, setAutoRenewBusy] = useState(false);
+  const [autoRenewMsg, setAutoRenewMsg] = useState("");
 
   const refreshAccess = useCallback(async () => {
     if (!wallet) {
@@ -4332,6 +4334,53 @@ const byChain = {};
 
   // Alias for UI handler (legacy name)
   const redeemAccess = redeemNow;
+
+  // Auto-Renew settings (safe mode: stores preference only; payment trigger comes later via Privy)
+  const fmtAccessDate = useCallback((ts) => {
+    const n = Number(ts);
+    if (!Number.isFinite(n) || n <= 0) return "—";
+    try {
+      return new Date(n * 1000).toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
+    } catch {
+      return "—";
+    }
+  }, []);
+
+  const setAutoRenewPreference = useCallback(async (enabled) => {
+    if (!wallet) {
+      setAutoRenewMsg("Wallet not connected.");
+      return;
+    }
+    if (!["USDC", "USDT"].includes(String(subToken || "").toUpperCase())) {
+      setAutoRenewMsg("Auto Renew supports USDC or USDT only.");
+      return;
+    }
+
+    setAutoRenewBusy(true);
+    setAutoRenewMsg("");
+    try {
+      const res = await api("/api/access/auto-renew/set", {
+        method: "POST",
+        body: {
+          wallet,
+          enabled: !!enabled,
+          token: subToken,
+          chain: subChain,
+        },
+      });
+
+      if (res?.status === "error" || res?.ok === false) {
+        throw new Error(res?.error || "Auto Renew update failed.");
+      }
+
+      setAutoRenewMsg(enabled ? "Auto Renew enabled. Payment will still require Privy permission." : "Auto Renew disabled.");
+      await refreshAccess();
+    } catch (e) {
+      setAutoRenewMsg(e?.message || "Auto Renew update failed.");
+    } finally {
+      setAutoRenewBusy(false);
+    }
+  }, [wallet, subToken, subChain, api, refreshAccess]);
 
   // NFTs disabled in Phase 1 (UI + backend)
 
@@ -9464,6 +9513,39 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </button>
                     </div><div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
                       Selected: <b>Nexus Pro ${SUB_PRICE_USD}</b> · <b>{subToken}</b>
+                    </div>
+
+                    <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.02)", margin: "10px 0" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ fontWeight: 900 }}>Auto Renew</div>
+                          <div className="hint" style={{ marginTop: 4, opacity: 0.82 }}>
+                            Optional. Keeps access active every 30 days with your Privy permission. USDC/USDT only.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className={`pill ${access?.auto_renew_enabled ? "active" : ""}`}
+                          disabled={autoRenewBusy}
+                          onClick={() => setAutoRenewPreference(!access?.auto_renew_enabled)}
+                          style={{
+                            color: "#fff",
+                            background: access?.auto_renew_enabled ? "rgba(57,217,138,0.24)" : "rgba(0,0,0,0.18)",
+                            border: access?.auto_renew_enabled ? "1px solid rgba(57,217,138,0.45)" : "1px solid rgba(255,255,255,0.12)",
+                            cursor: autoRenewBusy ? "wait" : "pointer"
+                          }}
+                        >
+                          {autoRenewBusy ? "..." : (access?.auto_renew_enabled ? "Auto Renew: ON" : "Auto Renew: OFF")}
+                        </button>
+                      </div>
+
+                      <div className="hint" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8, opacity: 0.9 }}>
+                        <span>Expires: <b>{fmtAccessDate(access?.expires_at)}</b></span>
+                        <span>Next billing: <b>{fmtAccessDate(access?.next_billing_ts || access?.expires_at)}</b></span>
+                        <span>Token: <b>{access?.preferred_token || subToken}</b></span>
+                        <span>Chain: <b>{access?.preferred_chain || subChain}</b></span>
+                      </div>
+                      {autoRenewMsg ? <div className="hint" style={{ marginTop: 8 }}>{autoRenewMsg}</div> : null}
                     </div>
 
                     <div className="row" style={{ gap: 8, marginTop: 8 }}>

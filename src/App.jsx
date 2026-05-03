@@ -13,20 +13,6 @@ function safeSetGridOrdersFromResponse(r, setOrdersFn) {
 
 function getGridOrdersFromResponse(r) {
   return (
-
-<div style={{position:'fixed', bottom:'20px', right:'20px', zIndex:9999}}>
-  <button onClick={testAutoRenew} style={{
-    background: "#00ff88",
-    color: "#000",
-    padding: "10px 14px",
-    borderRadius: "8px",
-    border: "none",
-    cursor: "pointer",
-    fontWeight: "bold"
-  }}>
-    Auto Renew TEST
-  </button>
-</div>
     r?.orders ??
     r?.data?.orders ??
     r?.grid?.orders ??
@@ -4449,6 +4435,41 @@ const byChain = {};
       setAutoRenewBusy(false);
     }
   }, [wallet, subToken, subChain, api, refreshAccess]);
+
+  const testAutoRenew = useCallback(async () => {
+    if (!wallet) {
+      setAutoRenewMsg("Wallet not connected.");
+      return;
+    }
+
+    setAutoRenewBusy(true);
+    setAutoRenewMsg("Running Auto Renew TEST...");
+
+    try {
+      const res = await api("/api/access/auto-renew/test-enable", {
+        method: "POST",
+        token,
+        wallet,
+        body: {
+          wallet,
+          chain: subChain || "POL",
+          token: subToken || "USDT",
+        },
+      });
+
+      if (res?.status === "error" || res?.ok === false) {
+        throw new Error(res?.error || "Auto Renew TEST failed.");
+      }
+
+      setAutoRenewMsg("Auto Renew TEST enabled.");
+      await refreshAccess();
+    } catch (e) {
+      setAutoRenewMsg(e?.message || "Auto Renew TEST failed.");
+      console.error("Auto Renew TEST failed:", e);
+    } finally {
+      setAutoRenewBusy(false);
+    }
+  }, [wallet, subChain, subToken, token, api, refreshAccess]);
 
   // NFTs disabled in Phase 1 (UI + backend)
 
@@ -9608,6 +9629,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         >
                           {autoRenewBusy ? "..." : (access?.auto_renew_enabled ? "Auto Renew: ON" : "Auto Renew: OFF")}
                         </button>
+                        <button
+                          type="button"
+                          className="pill"
+                          disabled={autoRenewBusy}
+                          onClick={testAutoRenew}
+                          style={{
+                            color: "#08130f",
+                            background: "#39d98a",
+                            border: "1px solid rgba(57,217,138,0.6)",
+                            cursor: autoRenewBusy ? "wait" : "pointer",
+                            fontWeight: 900
+                          }}
+                        >
+                          Auto Renew TEST
+                        </button>
                       </div>
 
                       <div className="hint" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8, opacity: 0.9 }}>
@@ -13746,32 +13782,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             padding-right: 6px;
             padding-bottom: 56px !important;
             scroll-padding-bottom: 56px !important;
-
-// 🔥 Auto Renew TEST Funktion (eingebaut)
-async function testAutoRenew() {
-  try {
-    console.log("🚀 Start Auto Renew Test");
-
-    const res = await fetch("https://nexus-analyt-pro.onrender.com/api/access/auto-renew/test-enable", {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        wallet: window?.user?.wallet || "0x5b1bc5a85a8fe0cb51ef2d890c14cfcd5f79bd4f",
-        chain: "POL",
-        token: "USDT"
-      })
-    });
-
-    const text = await res.text();
-    console.log("✅ RESPONSE:", text);
-    alert("Auto Renew Test ausgeführt – check Console");
-  } catch (err) {
-    console.error("❌ Fehler:", err);
-  }
-}
           }
           .section-compare .liveListBox::-webkit-scrollbar,
           .section-compare .pairsScroll::-webkit-scrollbar{

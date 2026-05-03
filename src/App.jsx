@@ -244,7 +244,7 @@ function _clearTombstone(key) {
 }
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets, useDelegatedActions } from "@privy-io/react-auth";
 
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
@@ -2498,6 +2498,7 @@ const [errorMsg, setErrorMsg] = useState("");
   // External wallets must be optional and only enabled explicitly elsewhere.
   const { ready, authenticated, login, logout, getAccessToken } = usePrivy();
   const { wallets: privyWallets } = useWallets();
+  const { delegateWallet } = useDelegatedActions();
 
   // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
   const _loginInFlight = useRef(false);
@@ -4352,6 +4353,84 @@ const byChain = {};
     }
   }, []);
 
+  const getPrimaryPrivyWallet = useCallback(() => {
+    return (
+      privyWallets?.find((w) =>
+        ["privy", "embedded"].includes(String(w?.walletClientType || "").toLowerCase()) ||
+        String(w?.connectorType || "").toLowerCase() === "embedded"
+      ) ||
+      privyWallets?.[0] ||
+      null
+    );
+  }, [privyWallets]);
+
+  const ensureAutoRenewConsent = useCallback(async () => {
+    if (!wallet) throw new Error("Wallet not connected.");
+    if (!authenticated) throw new Error("Privy login required.");
+    if (!delegateWallet) throw new Error("Privy delegation is not available in this build.");
+    if (!["USDC", "USDT"].includes(String(subToken || "").toUpperCase())) {
+      throw new Error("Auto Renew supports USDC or USDT only.");
+    }
+
+    const embedded = getPrimaryPrivyWallet();
+    const embeddedAddress = String(embedded?.address || "").toLowerCase();
+    if (!embedded || !embeddedAddress) throw new Error("Privy wallet not available.");
+    if (String(wallet || "").toLowerCase() !== embeddedAddress) {
+      throw new Error("Connected wallet mismatch. Please reconnect your wallet.");
+    }
+
+    setAutoRenewMsg("Requesting Privy auto-renew permission...");
+
+    const delegated = await delegateWallet({
+      address: embeddedAddress,
+      chainType: "ethereum",
+    });
+
+    const delegationId = String(
+      delegated?.delegation_id ||
+      delegated?.delegationId ||
+      delegated?.id ||
+      delegated?.signer_id ||
+      delegated?.signerId ||
+      delegated?.wallet_id ||
+      delegated?.walletId ||
+      `delegated:${embeddedAddress}`
+    );
+
+    const privyWalletId = String(
+      embedded?.id ||
+      embedded?.walletId ||
+      embedded?.wallet_id ||
+      delegated?.wallet_id ||
+      delegated?.walletId ||
+      embeddedAddress
+    );
+
+    const backendToken = await ensureBackendAuthToken();
+    const res = await api("/api/access/auto-renew/consent", {
+      method: "POST",
+      token: backendToken,
+      wallet,
+      body: {
+        wallet,
+        wallet_address: wallet,
+        token: subToken,
+        chain: subChain,
+        acknowledged: true,
+        accepted: true,
+        privy_wallet_id: privyWalletId,
+        privy_delegation_id: delegationId,
+        privy_policy_id: "",
+      },
+    });
+
+    if (res?.status === "error" || res?.ok === false) {
+      throw new Error(res?.error || "Auto Renew consent failed.");
+    }
+
+    return res;
+  }, [wallet, authenticated, delegateWallet, subToken, subChain, getPrimaryPrivyWallet, ensureBackendAuthToken, api]);
+
   const setAutoRenewPreference = useCallback(async (enabled) => {
     if (!wallet) {
       setAutoRenewMsg("Wallet not connected.");
@@ -4365,28 +4444,34 @@ const byChain = {};
     setAutoRenewBusy(true);
     setAutoRenewMsg("");
     try {
-      const res = await api("/api/access/auto-renew/set", {
-        method: "POST",
-        body: {
-          wallet,
-          enabled: !!enabled,
-          token: subToken,
-          chain: subChain,
-        },
-      });
+      if (enabled) {
+        await ensureAutoRenewConsent();
+        setAutoRenewMsg("Auto Renew enabled with Privy permission.");
+      } else {
+        const res = await api("/api/access/auto-renew/set", {
+          method: "POST",
+          body: {
+            wallet,
+            enabled: false,
+            token: subToken,
+            chain: subChain,
+          },
+        });
 
-      if (res?.status === "error" || res?.ok === false) {
-        throw new Error(res?.error || "Auto Renew update failed.");
+        if (res?.status === "error" || res?.ok === false) {
+          throw new Error(res?.error || "Auto Renew update failed.");
+        }
+
+        setAutoRenewMsg("Auto Renew disabled.");
       }
 
-      setAutoRenewMsg(enabled ? "Auto Renew enabled. Payment will still require Privy permission." : "Auto Renew disabled.");
       await refreshAccess();
     } catch (e) {
       setAutoRenewMsg(e?.message || "Auto Renew update failed.");
     } finally {
       setAutoRenewBusy(false);
     }
-  }, [wallet, subToken, subChain, api, refreshAccess]);
+  }, [wallet, subToken, subChain, api, refreshAccess, ensureAutoRenewConsent]);
 
   // NFTs disabled in Phase 1 (UI + backend)
 
@@ -4413,6 +4498,12 @@ const byChain = {};
 
       if (!["USDC", "USDT"].includes(String(subToken || "").toUpperCase())) {
         throw new Error("Subscription payment must be USDC or USDT.");
+      }
+
+      // If Auto Renew is ON, collect Privy permission before the one-time payment.
+      // If Auto Renew is OFF, this stays a normal one-time subscription payment.
+      if (access?.auto_renew_enabled && !(access?.privy_ready || (access?.privy_wallet_id && access?.privy_delegation_id))) {
+        await ensureAutoRenewConsent();
       }
 
       // Pay with stablecoin (USDC/USDT) on the selected chain
@@ -4450,7 +4541,7 @@ const byChain = {};
     } finally {
       setSubBusy(false);
     }
-  }, [wallet, subChain, subToken, refreshAccess]);
+  }, [wallet, subChain, subToken, access?.auto_renew_enabled, access?.privy_ready, access?.privy_wallet_id, access?.privy_delegation_id, ensureAutoRenewConsent, refreshAccess]);
 
   // Best-pair explain (click -> modal)
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }

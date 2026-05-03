@@ -13495,8 +13495,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
             ) : null}
 
-            {(addResults || []).map((coin) => (
-<div key={coin.id} className="watchRow" style={{ alignItems: "center" }}>
+            {(addResults || []).map((coin, index) => (
+  <div\3 style={background: index % 2 === 1 ? "rgba(255,255,255,0.02)" : "transparent"}>
                 <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
                   <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {coin.name} <span className="muted">({String(coin.symbol || "").toUpperCase()})</span>

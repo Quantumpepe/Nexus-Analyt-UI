@@ -887,22 +887,42 @@ async function _ensureChain(chainKey) {
 }
 
 async function fetchSubscribeConfig() {
-  const res = await fetch(`${API_BASE}/api/access/subscribe/config`, {
-    method: "GET",
-    credentials: "include",
-    headers: { Accept: "application/json" },
-  });
-  const txt = await res.text();
-  let data = null;
-  try { data = txt ? JSON.parse(txt) : null; } catch { data = { raw: txt }; }
-  if (!res.ok || !data || data.status === "error") {
-    throw new Error(data?.error || data?.message || `Payment config failed (HTTP ${res.status})`);
+  // Backend config is public (treasury + price). No API keys in frontend.
+  // Try the new endpoint first, then fall back to /api/config for older backend deploys.
+  const urls = [
+    `${API_BASE}/api/access/subscribe/config`,
+    `${API_BASE}/api/config`,
+  ];
+
+  let lastError = null;
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+      });
+      const txt = await res.text();
+      let data = null;
+      try { data = txt ? JSON.parse(txt) : null; } catch { data = { raw: txt }; }
+
+      if (!res.ok || !data || data.status === "error") {
+        lastError = new Error(data?.error || data?.message || `Payment config failed (HTTP ${res.status})`);
+        continue;
+      }
+
+      const treasury = String(data.treasury || "").trim();
+      if (!/^0x[a-fA-F0-9]{40}$/.test(treasury)) {
+        lastError = new Error("Treasury address is not configured in backend.");
+        continue;
+      }
+
+      return data;
+    } catch (e) {
+      lastError = e;
+    }
   }
-  const treasury = String(data.treasury || "").trim();
-  if (!/^0x[a-fA-F0-9]{40}$/.test(treasury)) {
-    throw new Error("Treasury address is not configured in backend.");
-  }
-  return data;
+  throw lastError || new Error("Payment config could not be loaded.");
 }
 
 function useInterval(fn, ms, enabled = true) {

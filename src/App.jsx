@@ -346,6 +346,30 @@ const getStableWhitelistForChain = (chain) => TOKEN_WHITELIST[normalizeWalletCha
 
 const getTokenSpecKey = (t) => String(t?.address || "").toLowerCase();
 
+const CHAIN_ID_BY_KEY = { ETH: 1, POL: 137, BNB: 56 };
+const CHAIN_KEY_BY_ID = { 1: "ETH", 137: "POL", 56: "BNB" };
+
+function decimalStringToUnits(value, decimals) {
+  const dec = Number(decimals || 6);
+  const s = String(value ?? "0").trim();
+  if (!/^\d+(\.\d+)?$/.test(s)) throw new Error("Invalid payment amount");
+  const [whole, fracRaw = ""] = s.split(".");
+  const frac = (fracRaw + "0".repeat(dec)).slice(0, dec);
+  return BigInt(whole || "0") * (10n ** BigInt(dec)) + BigInt(frac || "0");
+}
+
+function getSubscribeTokenSpec(config, chainKey, symbol) {
+  const c = normalizeWalletChainKey(chainKey);
+  const sym = String(symbol || "").toUpperCase();
+  const cfgToken = config?.tokens?.[c]?.[sym];
+  if (cfgToken?.address) {
+    return { symbol: sym, address: String(cfgToken.address), decimals: Number(cfgToken.decimals ?? 6) };
+  }
+  const local = (TOKEN_WHITELIST[c] || []).find((t) => String(t.symbol).toUpperCase() === sym);
+  if (local?.address) return local;
+  throw new Error(`${sym} is not supported on ${c}.`);
+}
+
 // ------------------------
 // Alchemy (wallet balances)
 // ------------------------
@@ -887,42 +911,22 @@ async function _ensureChain(chainKey) {
 }
 
 async function fetchSubscribeConfig() {
-  // Backend config is public (treasury + price). No API keys in frontend.
-  // Try the new endpoint first, then fall back to /api/config for older backend deploys.
-  const urls = [
-    `${API_BASE}/api/access/subscribe/config`,
-    `${API_BASE}/api/config`,
-  ];
-
-  let lastError = null;
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, {
-        method: "GET",
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      });
-      const txt = await res.text();
-      let data = null;
-      try { data = txt ? JSON.parse(txt) : null; } catch { data = { raw: txt }; }
-
-      if (!res.ok || !data || data.status === "error") {
-        lastError = new Error(data?.error || data?.message || `Payment config failed (HTTP ${res.status})`);
-        continue;
-      }
-
-      const treasury = String(data.treasury || "").trim();
-      if (!/^0x[a-fA-F0-9]{40}$/.test(treasury)) {
-        lastError = new Error("Treasury address is not configured in backend.");
-        continue;
-      }
-
-      return data;
-    } catch (e) {
-      lastError = e;
-    }
+  const res = await fetch(`${API_BASE}/api/access/subscribe/config`, {
+    method: "GET",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  const txt = await res.text();
+  let data = null;
+  try { data = txt ? JSON.parse(txt) : null; } catch { data = { raw: txt }; }
+  if (!res.ok || !data || data.status === "error") {
+    throw new Error(data?.error || data?.message || `Payment config failed (HTTP ${res.status})`);
   }
-  throw lastError || new Error("Payment config could not be loaded.");
+  const treasury = String(data.treasury || "").trim();
+  if (!/^0x[a-fA-F0-9]{40}$/.test(treasury)) {
+    throw new Error("Treasury address is not configured in backend.");
+  }
+  return data;
 }
 
 function useInterval(fn, ms, enabled = true) {
@@ -4542,17 +4546,18 @@ const byChain = {};
     setSubBusy(true);
     setSubMsg("");
     try {
-      const chainKey = String(subChain || "POL").toUpperCase();
-      const chainIdMap = { ETH: 1, BNB: 56, POL: 137 };
-      const chainId = chainIdMap[chainKey];
+      const chainKey = normalizeWalletChainKey(subChain || "POL");
+      const chainId = CHAIN_ID_BY_KEY[chainKey];
       if (!chainId) throw new Error("Unsupported chain.");
 
-      if (!["USDC", "USDT"].includes(String(subToken || "").toUpperCase())) {
+      const payToken = String(subToken || "").toUpperCase();
+      if (!["USDC", "USDT"].includes(payToken)) {
         throw new Error("Subscription payment must be USDC or USDT.");
       }
 
       const cfg = await fetchSubscribeConfig();
       const treasury = String(cfg?.treasury || "").trim();
+      if (!/^0x[a-fA-F0-9]{40}$/.test(treasury)) throw new Error("Treasury address is not configured.");
 
       // Use the Privy embedded wallet provider for payment.
       // Do NOT use window.ethereum here: with Privy embedded wallets it can throw
@@ -4567,13 +4572,16 @@ const byChain = {};
         throw new Error(`Wrong network. Please switch your Privy wallet to ${chainKey}.`);
       }
 
-      // Pay with stablecoin (USDC/USDT) on the selected chain
-      const specs = TOKEN_WHITELIST[chainKey] || [];
-      const spec = specs.find((t) => t.symbol === subToken);
-      if (!spec?.address) throw new Error("Token not supported on this chain.");
+      // Pay with stablecoin (USDC/USDT) on the selected chain.
+      // Token address + decimals come from backend config first, then local safe fallback.
+      const spec = getSubscribeTokenSpec(cfg, chainKey, payToken);
+      if (!/^0x[a-fA-F0-9]{40}$/.test(String(spec.address || ""))) {
+        throw new Error(`${payToken} address is not configured for ${chainKey}.`);
+      }
 
-      const priceUsd = Number(cfg?.price_usd || SUB_PRICE_USD || 15);
-      const amountUnits = BigInt(Math.round(priceUsd)) * (10n ** BigInt(spec.decimals || 6));
+      const priceUsd = String(cfg?.price_usd ?? SUB_PRICE_USD ?? "15");
+      const amountUnits = decimalStringToUnits(priceUsd, spec.decimals || 6);
+      if (amountUnits <= 0n) throw new Error("Payment amount is zero.");
       const data = _erc20TransferData(treasury, amountUnits);
 
       const txHash = await provider.request({
@@ -4592,7 +4600,7 @@ const byChain = {};
         method: "POST",
         token,
         wallet,
-        body: { wallet, wallet_address: wallet, chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: subToken },
+        body: { wallet, wallet_address: wallet, chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: payToken },
       });
 
       setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");

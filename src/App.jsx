@@ -3526,13 +3526,32 @@ useEffect(() => {
         body: {
           wallet: String(address || ""),
           wallet_address: String(address || ""),
-          chain: String(chain || "").toUpperCase(),
+          chain: normalizeWalletChainKey(chain),
           tokens: tokenSpecs.map((t) => ({ address: t.address, symbol: t.symbol, decimals: t.decimals })),
         },
       });
       return r?.balances || {};
     } catch {
       return {};
+    }
+  };
+
+  const fetchProviderErc20BalanceRaw = async (address, chain, tokenAddress) => {
+    try {
+      const c = normalizeWalletChainKey(chain);
+      const provider = await _getEmbeddedProvider();
+      const chainId = CHAIN_ID?.[c];
+      if (!provider?.request || !chainId) return null;
+      await _trySwitchChain(provider, chainId);
+      const walletHex = String(address || "").toLowerCase().replace(/^0x/, "").padStart(64, "0");
+      const to = String(tokenAddress || "");
+      if (!/^0x[a-fA-F0-9]{40}$/.test(to)) return null;
+      const data = "0x70a08231" + walletHex; // balanceOf(address)
+      const rawHex = await provider.request({ method: "eth_call", params: [{ to, data }, "latest"] });
+      if (!String(rawHex || "").startsWith("0x")) return null;
+      return hexToBigInt(rawHex).toString();
+    } catch {
+      return null;
     }
   };
 
@@ -3613,7 +3632,22 @@ if (allSpecs.length) {
   const stableAddrSet = new Set(stableSpecs.map((t) => String(t?.address || "").toLowerCase()));
 
   for (const t of allSpecs) {
-    const rawBalance = respBalances?.[t.address]?.balance_raw;
+    let rawBalance = respBalances?.[t.address]?.balance_raw;
+
+    // Backend RPC is the preferred source, but for Privy embedded wallets it can be
+    // missing/stale depending on the chain ENV. Fallback to the connected wallet
+    // provider and force the correct chain before reading ERC20 balanceOf.
+    try {
+      const backendBi = rawBalance != null ? BigInt(String(rawBalance || "0")) : 0n;
+      if (backendBi <= 0n) {
+        const providerRaw = await fetchProviderErc20BalanceRaw(address, c, t.address);
+        if (providerRaw != null) {
+          const providerBi = BigInt(String(providerRaw || "0"));
+          if (providerBi > backendBi) rawBalance = providerRaw;
+        }
+      }
+    } catch (_) {}
+
     const bi = rawBalance != null ? BigInt(String(rawBalance || "0")) : 0n;
     const val = stripTrailingZeros(formatNativeFromWei(bi, t.decimals, 6));
     if (stableAddrSet.has(t.address)) {

@@ -4534,8 +4534,18 @@ const byChain = {};
       const cfg = await fetchSubscribeConfig();
       const treasury = String(cfg?.treasury || "").trim();
 
-      // Ensure wallet is on the selected chain
-      await _ensureChain(chainKey);
+      // Use the Privy embedded wallet provider for payment.
+      // Do NOT use window.ethereum here: with Privy embedded wallets it can throw
+      // "The requested account and/or method has not been authorized by the user."
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, chainId);
+
+      // Hard safety check: payment must be sent on the selected subscription chain.
+      const currentHex = await provider.request({ method: "eth_chainId" });
+      const wantHex = "0x" + Number(chainId).toString(16);
+      if (String(currentHex).toLowerCase() !== String(wantHex).toLowerCase()) {
+        throw new Error(`Wrong network. Please switch your Privy wallet to ${chainKey}.`);
+      }
 
       // Pay with stablecoin (USDC/USDT) on the selected chain
       const specs = TOKEN_WHITELIST[chainKey] || [];
@@ -4546,7 +4556,7 @@ const byChain = {};
       const amountUnits = BigInt(Math.round(priceUsd)) * (10n ** BigInt(spec.decimals || 6));
       const data = _erc20TransferData(treasury, amountUnits);
 
-      const txHash = await window.ethereum.request({
+      const txHash = await provider.request({
         method: "eth_sendTransaction",
         params: [
           {
@@ -4575,7 +4585,7 @@ const byChain = {};
     } finally {
       setSubBusy(false);
     }
-  }, [wallet, subChain, subToken, token, api, refreshAccess]);
+  }, [wallet, subChain, subToken, token, api, refreshAccess, _getEmbeddedProvider, _trySwitchChain]);
 
   // Best-pair explain (click -> modal)
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }

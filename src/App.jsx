@@ -316,6 +316,36 @@ const getAssetNote = (coin) => {
   if (coin === "SOL") return "via WSOL";
   return null;
 };
+const normalizeWalletChainKey = (chain) => {
+  const raw = String(chain || "").trim().toUpperCase().replace(/^"|"$/g, "");
+  const map = {
+    ETH: "ETH",
+    ETHEREUM: "ETH",
+    1: "ETH",
+    POL: "POL",
+    POLYGON: "POL",
+    MATIC: "POL",
+    137: "POL",
+    BNB: "BNB",
+    BSC: "BNB",
+    BINANCE: "BNB",
+    56: "BNB",
+  };
+  return map[raw] || raw || "ETH";
+};
+
+const walletChainDisplayName = (chain) => {
+  const c = normalizeWalletChainKey(chain);
+  if (c === "ETH") return "Ethereum";
+  if (c === "POL") return "Polygon";
+  if (c === "BNB") return "BNB Chain";
+  return c;
+};
+
+const getStableWhitelistForChain = (chain) => TOKEN_WHITELIST[normalizeWalletChainKey(chain)] || [];
+
+const getTokenSpecKey = (t) => String(t?.address || "").toLowerCase();
+
 // ------------------------
 // Alchemy (wallet balances)
 // ------------------------
@@ -2515,12 +2545,12 @@ const [errorMsg, setErrorMsg] = useState("");
 const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
   const [balActiveChain, setBalActiveChain] = useState(() => {
-    try { return localStorage.getItem("nexus_wallet_bal_chain") || "BNB"; } catch (_) { return "BNB"; }
+    try { return normalizeWalletChainKey(localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN); } catch (_) { return DEFAULT_CHAIN; }
   });
   
 
 useEffect(() => {
-    try { localStorage.setItem("nexus_wallet_bal_chain", balActiveChain || "BNB"); } catch (_) {}
+    try { localStorage.setItem("nexus_wallet_bal_chain", normalizeWalletChainKey(balActiveChain || DEFAULT_CHAIN)); } catch (_) {}
   }, [balActiveChain]);
 const [wsChainKey, setWsChainKey] = useState(() => {
     try { return localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN; } catch (_) { return DEFAULT_CHAIN; }
@@ -3143,10 +3173,10 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const walletChainKeys = useMemo(() => {
     const supported = new Set(Object.keys(CHAIN_ID || {}));
     const fromWallet = Object.keys(balByChain || {})
-      .map((c) => String(c || "").toUpperCase().trim())
+      .map((c) => normalizeWalletChainKey(c))
       .filter((c) => c && supported.has(c));
     const fallback = (Array.isArray(ENABLED_CHAINS) ? ENABLED_CHAINS : [])
-      .map((c) => String(c || "").toUpperCase().trim())
+      .map((c) => normalizeWalletChainKey(c))
       .filter((c) => c && supported.has(c));
     const seen = new Set();
     const merged = [...fromWallet, ...fallback].filter((c) => !seen.has(c) && seen.add(c));
@@ -3205,7 +3235,7 @@ useEffect(() => {
   }, [walletKey, walletTokenStore]);
 
   const setWalletTokensForChain = (chain, nextList) => {
-    const c = String(chain || "").toUpperCase();
+    const c = normalizeWalletChainKey(chain);
     if (!walletKey) return;
     setWalletTokenStore((prev) => {
       const empty = { ETH: [], POL: [], BNB: [] };
@@ -3216,7 +3246,7 @@ useEffect(() => {
   };
 
   const removeWalletToken = (chain, tokenAddress) => {
-    const c = String(chain || "").toUpperCase();
+    const c = normalizeWalletChainKey(chain);
     const addr = String(tokenAddress || contract || "").toLowerCase();
 
     const cur = walletTokensByChain?.[c] || [];
@@ -3226,7 +3256,7 @@ useEffect(() => {
 
   // Add-token modal state
   const [addTokenOpen, setAddTokenOpen] = useState(false);
-  const [addTokenChain, setAddTokenChain] = useState("BNB");
+  const [addTokenChain, setAddTokenChain] = useState(() => normalizeWalletChainKey(DEFAULT_CHAIN));
   const [addTokenQuery, setAddTokenQuery] = useState("");
   const [addTokenContract, setAddTokenContract] = useState("");
   const [addTokenBusy, setAddTokenBusy] = useState(false);
@@ -3257,15 +3287,30 @@ useEffect(() => {
           decimals: Number(t?.decimals ?? 18),
         }))
         .filter((t) => t.address && t.symbol && Number.isFinite(t.decimals));
-      setTokenListCache((prev) => ({ ...(prev || {}), [c]: filtered }));
+
+      // Always include Nexus stable whitelist first (USDC/USDT), even if external lists fail/miss them.
+      const merged = [];
+      const seenTokens = new Set();
+      for (const t of [...getStableWhitelistForChain(c), ...filtered]) {
+        const addr = String(t?.address || "").toLowerCase();
+        if (!addr || seenTokens.has(addr)) continue;
+        seenTokens.add(addr);
+        merged.push({
+          address: addr,
+          symbol: String(t?.symbol || "").toUpperCase(),
+          name: String(t?.name || ""),
+          decimals: Number(t?.decimals ?? 18),
+        });
+      }
+      setTokenListCache((prev) => ({ ...(prev || {}), [c]: merged }));
     } catch {
       // If token list fetch fails, user can still add via contract address.
-      setTokenListCache((prev) => ({ ...(prev || {}), [c]: [] }));
+      setTokenListCache((prev) => ({ ...(prev || {}), [c]: getStableWhitelistForChain(c).map((t) => ({ ...t, address: String(t.address || "").toLowerCase() })) }));
     }
   };
 
   const openAddToken = (chain) => {
-    const c = String(chain || DEFAULT_CHAIN).toUpperCase();
+    const c = normalizeWalletChainKey(chain || balActiveChain || DEFAULT_CHAIN);
     setAddTokenChain(c);
     setAddTokenQuery("");
     setAddTokenContract("");
@@ -3275,7 +3320,7 @@ useEffect(() => {
   };
 
   const addWalletToken = async () => {
-    const chain = String(addTokenChain || "").toUpperCase();
+    const chain = normalizeWalletChainKey(addTokenChain || balActiveChain || DEFAULT_CHAIN);
     const list = walletTokensByChain?.[chain] || [];
 
     const safeAdd = (token) => {
@@ -3293,6 +3338,8 @@ useEffect(() => {
         name: String(token?.name || ""),
       }];
       setWalletTokensForChain(chain, next);
+      setBalActiveChain(chain);
+      setWsChainKey(chain);
       // Refresh balances after state commit (ensure new token list is included).
       // React state updates are async; calling refresh immediately can use stale walletTokens.
       requestAnimationFrame(() => requestAnimationFrame(() => refreshBalances()));
@@ -3480,7 +3527,7 @@ useEffect(() => {
           wallet: String(address || ""),
           wallet_address: String(address || ""),
           chain: String(chain || "").toUpperCase(),
-          tokens: tokenSpecs.map((t) => ({ address: t.address })),
+          tokens: tokenSpecs.map((t) => ({ address: t.address, symbol: t.symbol, decimals: t.decimals })),
         },
       });
       return r?.balances || {};
@@ -3540,7 +3587,7 @@ useEffect(() => {
 
 // Phase 2: whitelisted tokens (per chain)
 // Phase 2: tokens are fetched ONLY from (a) stable whitelist + (b) user-added tokens.
-const stableSpecs = TOKEN_WHITELIST[c] || [];
+const stableSpecs = getStableWhitelistForChain(c);
 const customSpecs = walletTokensByChain?.[c] || [];
 
 // De-dupe by contract address.
@@ -9792,8 +9839,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           type="button"
                           onClick={() => {
                             setShowAllWalletChains(false);
-                            setBalActiveChain(c);
-                            setWsChainKey(c);
+                            const nextChain = normalizeWalletChainKey(c);
+                            setBalActiveChain(nextChain);
+                            setWsChainKey(nextChain);
                           }}
                           title={`Show balances on ${c}`}
                           style={{
@@ -9847,7 +9895,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               )}
 
               <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                {(showAllWalletChains ? walletChainKeys : [balActiveChain || DEFAULT_CHAIN]).map((c) => {
+                {(showAllWalletChains ? walletChainKeys : [balActiveChain || DEFAULT_CHAIN]).map((chainRaw) => {
+                  const c = normalizeWalletChainKey(chainRaw);
                   const row = balByChain?.[c] || {};
                   const nativeLabel = c; // ETH / POL / BNB
 
@@ -9898,17 +9947,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           fontSize: 13,
                         }}
                       >
-                        {Object.keys(row.stables || { USDC: 0, USDT: 0 }).map((sym) => (
-                          <React.Fragment key={sym}>
-                            <div>
-                              <div className="muted">{sym}</div>
-                              <div style={{ fontSize: 12, opacity: 0.75 }}>{fmtUsd(1)}</div>
-                            </div>
-                            <div style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>
-                              {(row.stables && row.stables[sym]) ?? "0"}
-                            </div>
-                          </React.Fragment>
-                        ))}
+                        {Object.keys(row.stables || { USDC: 0, USDT: 0 }).map((sym) => {
+                          const stableBal = Number((row.stables && row.stables[sym]) ?? 0);
+                          return (
+                            <React.Fragment key={sym}>
+                              <div>
+                                <div className="muted">{sym}</div>
+                                <div style={{ fontSize: 12, opacity: 0.75 }}>Value: {Number.isFinite(stableBal) ? fmtUsd(stableBal) : "—"}</div>
+                              </div>
+                              <div style={{ fontVariantNumeric: "tabular-nums", textAlign: "right", fontWeight: 800 }}>
+                                {(row.stables && row.stables[sym]) ?? "0"}
+                              </div>
+                            </React.Fragment>
+                          );
+                        })}
                       </div>
 
                       {/* User-added tokens (unlimited) */}
@@ -9959,7 +10011,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            openAddToken(c);
+                            const nextChain = normalizeWalletChainKey(c);
+                            setBalActiveChain(nextChain);
+                            setWsChainKey(nextChain);
+                            openAddToken(nextChain);
                           }}
                           disabled={!wallet}
                         >
@@ -10507,23 +10562,33 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
                 <div>
                   <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Chain</div>
-                  <div
-                    className="input"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: 10,
-                      padding: "10px 12px",
-                      opacity: 0.9,
-                      cursor: "default",
-                      userSelect: "none",
-                    }}
-                  >
-                    <span>
-                      "Polygon"
-                    </span>
-                    <span className="muted" style={{ fontSize: 12 }}>{addTokenChain}</span>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {ENABLED_CHAINS.map((chainOpt) => {
+                      const opt = normalizeWalletChainKey(chainOpt);
+                      const active = normalizeWalletChainKey(addTokenChain) === opt;
+                      return (
+                        <button
+                          key={opt}
+                          type="button"
+                          className={active ? "btn" : "btnGhost"}
+                          style={{ padding: "8px 10px", borderRadius: 999, fontSize: 12, fontWeight: 800 }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setAddTokenChain(opt);
+                            setBalActiveChain(opt);
+                            setWsChainKey(opt);
+                            setAddTokenErr("");
+                            loadTokenList(opt);
+                          }}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                    Active: <b>{walletChainDisplayName(addTokenChain)}</b> ({normalizeWalletChainKey(addTokenChain)})
                   </div>
                 </div>
 

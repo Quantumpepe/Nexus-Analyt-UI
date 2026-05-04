@@ -4572,7 +4572,7 @@ const byChain = {};
         method: "POST",
         token,
         wallet,
-        body: { chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: subToken },
+        body: { wallet, wallet_address: wallet, chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: subToken },
       });
 
       setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");

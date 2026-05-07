@@ -10043,7 +10043,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       
                       {/* Grid budget info (per-chain, if available) */}
                       {gridBudgets?.by_chain && Object.keys(gridBudgets.by_chain).length ? (
-                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.82, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82, display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <span>In bots: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.locked_usd || 0))}</b></span>
                           <span style={{ opacity: 0.6 }}>|</span>
                           <span>Free: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.available_usd || 0))}</b></span>
@@ -10321,7 +10321,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – How it works</div>
                           <div style={{ marginBottom: 8 }}>
                             <b>1) Withdraw:</b> Funds are withdrawn from the Vault back to your connected Privy wallet first.
-                            The Vault always pays the connected wallet (<code style={{ fontSize: 11 }}>msg.sender</code>).
+                            The Vault always pays the connected wallet (<code style={{ fontSize: 12 }}>msg.sender</code>).
                           </div>
                           <div style={{ marginBottom: 10 }}>
                             <b>2) Send:</b> After the withdrawal is completed, you can optionally send the funds from your wallet to any other address.
@@ -10340,7 +10340,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – So funktioniert es</div>
                           <div style={{ marginBottom: 8 }}>
                             <b>1) Withdraw:</b> Das Guthaben wird zuerst aus dem Vault zurück in dein verbundenes Privy-Wallet ausgezahlt.
-                            Der Vault zahlt immer an das verbundene Wallet (<code style={{ fontSize: 11 }}>msg.sender</code>).
+                            Der Vault zahlt immer an das verbundene Wallet (<code style={{ fontSize: 12 }}>msg.sender</code>).
                           </div>
                           <div style={{ marginBottom: 10 }}>
                             <b>2) Send:</b> Nach dem Withdraw kannst du die Coins optional von deinem Wallet an eine beliebige Adresse weiterleiten.
@@ -11467,14 +11467,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 {[yMinQ, 0, yMaxQ].map((tick, idx) => (
                                   <g key={idx}>
                                     <line x1={padLq} x2={svgWq - padRq} y1={syQ(tick)} y2={syQ(tick)} stroke={tick === 0 ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.08)"} strokeDasharray={tick === 0 ? "4 4" : "3 5"} />
-                                    <text x={6} y={syQ(tick) + 4} fill="rgba(232,242,240,0.72)" fontSize="10">{_fmtPctLocal(tick)}</text>
+                                    <text x={6} y={syQ(tick) + 4} fill="rgba(232,242,240,0.88)" fontSize="11" fontWeight="700">{_fmtPctLocal(tick)}</text>
                                   </g>
                                 ))}
                                 <path d={pathDQ} fill="none" stroke="#35e0a1" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
                                 {Number.isFinite(latestSpreadQuick) ? (
                                   <>
                                     <circle cx={latestXQ} cy={latestYQ} r="4" fill="#35e0a1" />
-                                    <text x={Math.max(padLq + 8, latestXQ - 62)} y={Math.max(16, latestYQ - 9)} fill="#35e0a1" fontSize="11" fontWeight="700">{_fmtPctLocal(latestSpreadQuick)}</text>
+                                    {(() => {
+                                      const labelText = _fmtPctLocal(latestSpreadQuick);
+                                      const labelX = Math.min(svgWq - padRq - 8, Math.max(padLq + 52, latestXQ - 10));
+                                      const labelY = Math.min(svgHq - 22, Math.max(18, latestYQ - 12));
+                                      return (
+                                        <g>
+                                          <rect
+                                            x={labelX - 58}
+                                            y={labelY - 14}
+                                            width="64"
+                                            height="20"
+                                            rx="7"
+                                            fill="rgba(0,0,0,0.62)"
+                                            stroke="rgba(53,224,161,0.42)"
+                                          />
+                                          <text
+                                            x={labelX}
+                                            y={labelY}
+                                            textAnchor="end"
+                                            fill="#8ff7cd"
+                                            fontSize="12"
+                                            fontWeight="800"
+                                            paintOrder="stroke"
+                                            stroke="rgba(0,0,0,0.75)"
+                                            strokeWidth="2"
+                                          >
+                                            {labelText}
+                                          </text>
+                                        </g>
+                                      );
+                                    })()}
                                   </>
                                 ) : null}
                                 <text x={padLq} y={svgHq - 6} fill="rgba(232,242,240,0.72)" fontSize="10">Start</text>
@@ -11641,16 +11671,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
 </div>
                               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                <span style={{ border: `1px solid ${riskTone.border}`, background: riskTone.bg, color: riskTone.color, borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 900 }}>
+                                <span style={{ border: `1px solid ${riskTone.border}`, background: riskTone.bg, color: riskTone.color, borderRadius: 999, padding: "4px 8px", fontSize: 12, fontWeight: 900 }}>
                                   {riskTone.label}
                                 </span>
                                 {aiExplainData.engineV2.pre_exit_warning ? (
-                                  <span style={{ border: "1px solid rgba(255,152,0,0.45)", background: "rgba(255,152,0,0.10)", color: "#ffb74d", borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 900 }}>
+                                  <span style={{ border: "1px solid rgba(255,152,0,0.45)", background: "rgba(255,152,0,0.10)", color: "#ffb74d", borderRadius: 999, padding: "4px 8px", fontSize: 12, fontWeight: 900 }}>
                                     PRE-EXIT
                                   </span>
                                 ) : null}
                                 {Array.isArray(aiExplainData.engineV2.contradictions) && aiExplainData.engineV2.contradictions.length ? (
-                                  <span style={{ border: "1px solid rgba(255,82,82,0.45)", background: "rgba(255,82,82,0.10)", color: "#ff6b6b", borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 900 }}>
+                                  <span style={{ border: "1px solid rgba(255,82,82,0.45)", background: "rgba(255,82,82,0.10)", color: "#ff6b6b", borderRadius: 999, padding: "4px 8px", fontSize: 12, fontWeight: 900 }}>
                                     CONTRADICTION
                                   </span>
                                 ) : null}
@@ -11688,7 +11718,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             {tags.length ? (
                               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                 {tags.map((tag) => (
-                                  <span key={tag} style={{ border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)", borderRadius: 999, padding: "4px 8px", fontSize: 11, fontWeight: 800 }}>
+                                  <span key={tag} style={{ border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)", borderRadius: 999, padding: "4px 8px", fontSize: 12, fontWeight: 800 }}>
                                     {aiTagLabel(tag)}
                                   </span>
                                 ))}
@@ -12670,7 +12700,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       border: manualRiskState.border,
                       color: manualRiskState.color,
                       fontWeight: 800,
-                      fontSize: 11,
+                      fontSize: 12,
                       lineHeight: 1.1,
                     }}
                   >
@@ -12688,7 +12718,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="tiny muted" style={{ marginTop: 4, lineHeight: 1.25, whiteSpace: "normal", overflowWrap: "anywhere" }}>
                   Settlement: <b>{manualSettlementPreview}</b>
                 </div>
-                <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: "4px 10px", fontSize: 11, color: "#bdebd8", lineHeight: 1.2 }}>
+                <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: "4px 10px", fontSize: 12, color: "#bdebd8", lineHeight: 1.2 }}>
                   <span>In chain: <b>{fmtUsd(Number(manualVaultTotalQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
                   <span>Allocated: <b>{fmtUsd(Number(manualVaultAllocatedQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
                   <span>Settled: <b>{fmtUsd(Number(manualVaultSettledQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
@@ -12955,23 +12985,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   style={{ padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
                                 >
                                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0, flex: "1 1 460px", fontSize: 11 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0, flex: "1 1 460px", fontSize: 12 }}>
                                       <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`} style={{ fontSize: 10, padding: "4px 7px" }}>{o.side}</span>
-                                      <span className="orderPx" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{fmtUsd(Number(o?.price || 0))}</span>
-                                      <span className="muted" style={{ whiteSpace: "nowrap", fontSize: 11 }}>{o?.qty ? `qty ${fmtQty(Number(o.qty), 4)}` : ""}</span>
+                                      <span className="orderPx" style={{ whiteSpace: "nowrap", fontSize: 12 }}>{fmtUsd(Number(o?.price || 0))}</span>
+                                      <span className="muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}>{o?.qty ? `qty ${fmtQty(Number(o.qty), 4)}` : ""}</span>
                                       <span className="pill silver" style={{ fontSize: 10, padding: "4px 7px" }}>{statusTxt}</span>
                                       <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>Payout:</b> {payout}</span>
                                       <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>Inv:</b> {fmtUsd(investedUsd)}</span>
                                       <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>At target:</b> {fmtUsd(atTargetUsd)}</span>
                                       {profitText ? (
-                                        <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: 11 }}>{profitText}</span>
+                                        <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: 12 }}>{profitText}</span>
                                       ) : null}
                                     </div>
                                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", flex: "0 0 auto" }}>
                                       <button
                                         type="button"
                                         className="btn ghost"
-                                        style={{ height: 26, paddingInline: 9, fontSize: 11 }}
+                                        style={{ height: 26, paddingInline: 9, fontSize: 12 }}
                                         disabled={!idOf(o) || !["OPEN","PAUSED"].includes(statusTxt) || gridBusy.stopOrderId === String(idOf(o))}
                                         onClick={() => (statusTxt === "PAUSED" ? resumeGridOrder(idOf(o)) : stopGridOrder(idOf(o)))}
                                         title={statusTxt === "PAUSED" ? "Resume this paused order." : "Pause this order without deleting it."}
@@ -12981,7 +13011,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <button
                                         type="button"
                                         className="btn ghost"
-                                        style={{ height: 26, paddingInline: 9, fontSize: 11 }}
+                                        style={{ height: 26, paddingInline: 9, fontSize: 12 }}
                                         disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
                                         onClick={() => deleteGridOrder(idOf(o))}
                                         title="Delete this order from DB (only if backend supports it)."
@@ -13176,7 +13206,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             justifyContent: "center",
                             width: "100%",
                             opacity: 0.62,
-                            fontSize: 11,
+                            fontSize: 12,
                             fontVariantNumeric: "tabular-nums",
                           }}
                         >
@@ -13403,8 +13433,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         </div>
                         <div className="watchCompactStats" style={{ gap: 10 }}>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>Vol {isCompactWatchNumbers ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</span>
-                          <span className="muted tiny" style={{ fontSize: 11, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? (isCompactWatchNumbers ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap)) : "—"}</span>
+                          <span className="muted tiny" style={{ fontSize: 12, lineHeight: 1.1 }}>Vol {isCompactWatchNumbers ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</span>
+                          <span className="muted tiny" style={{ fontSize: 12, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? (isCompactWatchNumbers ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap)) : "—"}</span>
                         </div>
                       </div>
                       <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center", minWidth: 0 }}>

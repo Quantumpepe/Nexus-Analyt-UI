@@ -11474,35 +11474,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 {Number.isFinite(latestSpreadQuick) ? (
                                   <>
                                     <circle cx={latestXQ} cy={latestYQ} r="4" fill="#35e0a1" />
-                                    {(() => {
-                                      const labelText = `Latest: ${_fmtPctLocal(latestSpreadQuick)}`;
-                                      const labelX = svgWq - padRq - 6;
-                                      const labelY = svgHq - 18;
 
-                                      return (
-                                        <g>
-                                          <rect
-                                            x={labelX - 108}
-                                            y={labelY - 15}
-                                            width="104"
-                                            height="22"
-                                            rx="8"
-                                            fill="rgba(0,0,0,0.58)"
-                                            stroke="rgba(53,224,161,0.35)"
-                                          />
-                                          <text
-                                            x={labelX - 10}
-                                            y={labelY}
-                                            textAnchor="end"
-                                            fill="#b7ffe2"
-                                            fontSize="12"
-                                            fontWeight="800"
-                                          >
-                                            {labelText}
-                                          </text>
-                                        </g>
-                                      );
-                                    })()}
                                   </>
                                 ) : null}
                                 <text x={padLq} y={svgHq - 6} fill="rgba(232,242,240,0.72)" fontSize="10">Start</text>

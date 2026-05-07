@@ -1061,8 +1061,8 @@ function RotationInfoTrigger() {
                   <>
                     <p><b>Nexus Rotation</b> ist ein datenbasiertes System, das Kapital zwischen verschiedenen Assets verschiebt.</p>
                     <p><b>Ziel:</b> Kapital wird dort eingesetzt, wo Score, Momentum, Volumen und Marktstruktur am stärksten sind.</p>
-                    <p><b>Wie es funktioniert:</b></p>
-                    <p>1. Empfehlung auswählen.<br/>2. Budget freigeben.<br/>3. Vault prüfen.<br/>4. Später führt der Vault nur nach User-Signatur aus.</p>
+                    <p><b>Demo Mode:</b> Rotation zeigt echte Marktdaten und simuliert, was passieren würde. Es wird nichts wirklich ausgeführt.</p>
+                    <p><b>Live Mode:</b> Nach Zahlung oder Redeem Code kann der Vault echte Rotation-Aktionen ausführen, aber nur nach User-Bestätigung / Privy-Signatur.</p>
                     <p><b>Wichtig:</b> Nexus Rotation garantiert keinen Gewinn. Es ist ein Risiko- und Rebalancing-System auf Basis von Daten.</p>
                   </>
                 }
@@ -1070,8 +1070,8 @@ function RotationInfoTrigger() {
                   <>
                     <p><b>Nexus Rotation</b> is a data-driven system that shifts capital between different assets.</p>
                     <p><b>Goal:</b> capital is allocated where score, momentum, volume and market structure are strongest.</p>
-                    <p><b>How it works:</b></p>
-                    <p>1. Select a recommendation.<br/>2. Release budget.<br/>3. Check the vault.<br/>4. Later, the vault only executes after user signature.</p>
+                    <p><b>Demo Mode:</b> Rotation shows real market data and simulates what would happen. Nothing is executed for real.</p>
+                    <p><b>Live Mode:</b> After payment or redeem code, the Vault can execute real rotation actions, but only after user confirmation / Privy signature.</p>
                     <p><b>Important:</b> Nexus Rotation does not guarantee profit. It is a risk and rebalancing system based on data.</p>
                   </>
                 }
@@ -10328,9 +10328,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                           <div style={{ opacity: 0.95 }}>
                             <b>Important:</b><br />
-                            • Make sure you are on the correct blockchain (BNB or POL)<br />
+                            • Make sure you are on the correct blockchain (ETH / BNB / POL)<br />
                             • Withdraw and Send are two separate steps<br />
-                            • Gas fees are paid in the native coin (BNB / POL)
+                            • In Demo Mode this is only shown/simulated; real withdrawal needs Live access<br />
+                            • Gas fees are paid in the native coin (ETH / BNB / POL)
                           </div>
 
                           <hr style={{ margin: "12px 0", borderColor: "rgba(40, 255, 160, 0.35)" }} />
@@ -10346,9 +10347,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                           <div style={{ opacity: 0.95 }}>
                             <b>Wichtig:</b><br />
-                            • Du musst auf der richtigen Blockchain sein (BNB oder POL)<br />
+                            • Du musst auf der richtigen Blockchain sein (ETH / BNB / POL)<br />
                             • Withdraw und Send sind zwei getrennte Schritte<br />
-                            • Gas-Gebühren werden in der Native Coin bezahlt (BNB / POL)
+                            • Im Demo Mode wird das nur angezeigt/simuliert; echter Withdraw braucht Live-Zugang<br />
+                            • Gas-Gebühren werden in der Native Coin bezahlt (ETH / BNB / POL)
                           </div>
                         </div>
                       </div>
@@ -10857,29 +10859,40 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <Help showClose dismissable
                   de={
                     <>
-                      <p><b>Was ist das?</b> Vergleich von bis zu 20 Coins aus der Watchlist-Compare-Auswahl.</p>
+                      <p><b>Was ist das?</b> Compare vergleicht bis zu 20 Coins aus deiner Watchlist-Compare-Auswahl.</p>
                       <p><b>Price</b> zeigt die echten Preiswerte. <b>Index 100</b> normalisiert alle Coins auf denselben Startwert 100 und ist besser, wenn viele Coins gleichzeitig verglichen werden.</p>
                       <p><b>Overlay</b> zeigt alle gewählten Coins in einem gemeinsamen Chart. <b>Grid</b> zeigt pro Coin eine kleine Kachel.</p>
                       <p><b>First 10 / Next 10 / All</b> steuert, ob du die ersten 10, die zweiten 10 oder alle Compare-Coins sehen willst.</p>
-                      <p><b>Grid-Detail</b>: Klick auf eine Kachel öffnet den großen Chart. Dort kannst du direkt zwischen <b>Price</b> und <b>Index 100</b> umschalten.</p>
-                      <p><b>Legende</b>: Farbe → Coin. Klick auf einen Eintrag hebt einen Coin hervor.</p>
-                      <p><b>Custom Weighting</b>: Wenn OFF aktiv ist, nutzt Compare die System-Gewichtung. Wenn ON aktiv ist, kannst du die Score-Bestandteile mit Prozent-Reglern selbst verteilen. Die Summe kann nie über 100% gehen.</p>
+                      <p><b>Grid-Detail:</b> Klick auf eine Kachel öffnet den großen Chart. Dort kannst du direkt zwischen Price und Index 100 umschalten.</p>
+                      <p><b>Legende:</b> Farbe → Coin. Klick auf einen Eintrag hebt einen Coin hervor.</p>
+                      <p><b>Custom Weighting:</b> Wenn OFF aktiv ist, nutzt Compare die System-Gewichtung. Wenn ON aktiv ist, kannst du die Score-Bestandteile mit Prozent-Reglern selbst verteilen. Die Summe kann nie über 100% gehen.</p>
+                      <p><b>RSI (Relative Strength Index)</b> zeigt Momentum, nicht echtes Kaufvolumen.</p>
+                      <ul>
+                        <li><b>Overbought (Rot)</b> → stark gestiegen / eventuell überhitzt.</li>
+                        <li><b>Neutral (Gelb)</b> → ausgeglichener Markt.</li>
+                        <li><b>Oversold (Grün)</b> → stark gefallen / möglicher Rebound.</li>
+                      </ul>
+                      <p className="muted tiny">RSI zeigt Extreme, aber keine direkten Buy/Sell-Signale.</p>
                     </>
                   }
                   en={
-  <>
-    <p><b>Custom Weighting</b>: OFF uses system weights. ON shows percentage sliders so the user can manually decide how much each score component should count. The total can never exceed 100%.</p>
-    <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
-    <ul>
-      <li><b>Overbought (Red)</b> → strong recent buying, may be overextended</li>
-      <li><b>Neutral (Yellow)</b> → balanced market</li>
-      <li><b>Oversold (Green)</b> → strong recent selling, possible rebound</li>
-    </ul>
-    <p className="muted tiny">
-      RSI indicates extremes, not direct buy/sell signals.
-    </p>
-  </>
-}
+                    <>
+                      <p><b>What is this?</b> Compare compares up to 20 coins from your Watchlist Compare selection.</p>
+                      <p><b>Price</b> shows real price values. <b>Index 100</b> normalizes all coins to the same starting value of 100 and is better when many coins are compared at the same time.</p>
+                      <p><b>Overlay</b> shows all selected coins in one shared chart. <b>Grid</b> shows a small tile for each coin.</p>
+                      <p><b>First 10 / Next 10 / All</b> controls whether you see the first 10, the next 10, or all selected Compare coins.</p>
+                      <p><b>Grid detail:</b> Click a tile to open the large chart. There you can switch directly between Price and Index 100.</p>
+                      <p><b>Legend:</b> Color → Coin. Click a legend entry to highlight one coin.</p>
+                      <p><b>Custom Weighting:</b> When OFF is active, Compare uses system weighting. When ON is active, you can manually distribute the score components with percentage sliders. The total can never exceed 100%.</p>
+                      <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
+                      <ul>
+                        <li><b>Overbought (Red)</b> → strong recent rise, may be overheated.</li>
+                        <li><b>Neutral (Yellow)</b> → balanced market.</li>
+                        <li><b>Oversold (Green)</b> → strong recent selling, possible rebound.</li>
+                      </ul>
+                      <p className="muted tiny">RSI indicates extremes, not direct buy/sell signals.</p>
+                    </>
+                  }
                 />
               </InfoButton>
             </div>
@@ -11973,6 +11986,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       
                       <p><b>Manual Orders</b> sind einzelne Orders und nicht Teil des eigentlichen Grid-Blocks.</p>
                       <p>BUY kann je nach Eingabe per <b>USD</b> oder per <b>Token-Menge</b> definiert werden.</p>
+                      <p><b>Demo Mode:</b> Grid läuft als Simulation mit echten Marktdaten. <b>Live Mode:</b> echte Ausführung ist zuerst auf ETH, BNB und POL begrenzt.</p>
                     </>
                   }
                   en={
@@ -11984,6 +11998,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       
                       <p><b>Manual orders</b> are single orders and are not part of the main grid block.</p>
                       <p>BUY can be defined either by <b>USD</b> or by <b>token quantity</b>, depending on your input mode.</p>
+                      <p><b>Demo Mode:</b> Grid runs as simulation with real market data. <b>Live Mode:</b> real execution is initially limited to ETH, BNB and POL.</p>
                     </>
                   }
                 />
@@ -13633,8 +13648,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <span className="pill silver">{aiSelected.length}/6 selected</span>
               <InfoButton title="AI Analyst">
                 <Help showClose dismissable
-                  de={<><p>Maximal <b>6 Coins</b> pro Analyse. Die Coins kommen aus deiner Compare-Auswahl.</p><p><b>AI Insight</b> kombiniert Marktstruktur, Rating, Community-Votes und On-Chain-Signale.</p><p><b>Kind</b> bestimmt den Analyse-Typ: Analysis, Risk oder Explain.</p><p><b>Profile</b> steuert den Stil der Antwort, z. B. konservativ, ausgewogen oder volatilitätsfokussiert.</p><p><b>Follow-up</b> hält den Kontext für Rückfragen im selben AI-Dialog.</p></>}
-                  en={<><p>Maximum <b>6 coins</b> per analysis. Coins are taken from your compare selection.</p><p><b>AI Insight</b> combines market structure, rating, community votes, and on-chain signals.</p><p><b>Kind</b> sets the analysis type: Analysis, Risk, or Explain.</p><p><b>Profile</b> controls the answer style, for example conservative, balanced, or volatility-focused.</p><p><b>Follow-up</b> keeps context for follow-up questions inside the same AI dialog.</p></>}
+                  de={<><p>Maximal <b>6 Coins</b> pro Analyse. Die Coins kommen aus deiner Compare-Auswahl.</p><p><b>AI Insight</b> kombiniert Marktstruktur, Rating, Community-Votes und On-Chain-Signale.</p><p><b>Kind</b> bestimmt den Analyse-Typ: Analysis, Risk oder Explain.</p><p><b>Profile</b> steuert den Stil der Antwort, z. B. konservativ, ausgewogen oder volatilitätsfokussiert.</p><p><b>Follow-up</b> hält den Kontext für Rückfragen im selben AI-Dialog.</p><p><b>Demo Mode:</b> beide AI-Funktionen zusammen sind auf 5 Anfragen pro Tag begrenzt. <b>Live/Permanent:</b> kein Demo-Limit.</p></>}
+                  en={<><p>Maximum <b>6 coins</b> per analysis. Coins are taken from your compare selection.</p><p><b>AI Insight</b> combines market structure, rating, community votes, and on-chain signals.</p><p><b>Kind</b> sets the analysis type: Analysis, Risk, or Explain.</p><p><b>Profile</b> controls the answer style, for example conservative, balanced, or volatility-focused.</p><p><b>Follow-up</b> keeps context for follow-up questions inside the same AI dialog.</p><p><b>Demo Mode:</b> both AI functions together are limited to 5 requests per day. <b>Live/Permanent:</b> no demo limit.</p></>}
                 />
               </InfoButton>
             </div>

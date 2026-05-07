@@ -10927,11 +10927,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </button>
                   )}
                   <button
-                    className={customCompareWeightsOn ? "btn tiny" : "ghostBtn tiny"}
+                    className="ghostBtn tiny"
                     onClick={() => setCustomCompareWeightsOn((v) => !v)}
                     title={customCompareWeightsOn ? "Disable custom weighting and use system values" : "Enable custom weighting sliders"}
+                    style={{
+                      background: "rgba(255,255,255,.025)",
+                      border: "1px solid rgba(255,255,255,.10)",
+                      color: "rgba(255,255,255,.72)",
+                      boxShadow: "none"
+                    }}
                   >
-                    Custom Weighting: {customCompareWeightsOn ? "ON" : "OFF"}
+                    Custom Weighting:{" "}
+                    <span
+                      style={{
+                        color: customCompareWeightsOn ? "#22c55e" : "#ef4444",
+                        fontWeight: 800
+                      }}
+                    >
+                      {customCompareWeightsOn ? "ON" : "OFF"}
+                    </span>
                   </button>
                 </div>
               </div>

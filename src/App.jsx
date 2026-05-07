@@ -10857,26 +10857,51 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <Help showClose dismissable
                   de={
                     <>
-                      <p><b>Was ist das?</b> Vergleich von bis zu 20 Coins aus der Watchlist-Compare-Auswahl.</p>
-                      <p><b>Price</b> zeigt die echten Preiswerte. <b>Index 100</b> normalisiert alle Coins auf denselben Startwert 100 und ist besser, wenn viele Coins gleichzeitig verglichen werden.</p>
-                      <p><b>Overlay</b> zeigt alle gewählten Coins in einem gemeinsamen Chart. <b>Grid</b> zeigt pro Coin eine kleine Kachel.</p>
-                      <p><b>First 10 / Next 10 / All</b> steuert, ob du die ersten 10, die zweiten 10 oder alle Compare-Coins sehen willst.</p>
-                      <p><b>Grid-Detail</b>: Klick auf eine Kachel öffnet den großen Chart. Dort kannst du direkt zwischen <b>Price</b> und <b>Index 100</b> umschalten.</p>
-                      <p><b>Legende</b>: Farbe → Coin. Klick auf einen Eintrag hebt einen Coin hervor.</p>
-                      <p><b>Custom Weighting</b>: Wenn OFF aktiv ist, nutzt Compare die System-Gewichtung. Wenn ON aktiv ist, kannst du die Score-Bestandteile mit Prozent-Reglern selbst verteilen. Die Summe kann nie über 100% gehen.</p>
-                    </>
-                  }
-                  en={
-  <>
-    <p><b>Custom Weighting</b>: OFF uses system weights. ON shows percentage sliders so the user can manually decide how much each score component should count. The total can never exceed 100%.</p>
-    <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
-    <ul>
-      <li><b>Overbought (Red)</b> → strong recent buying, may be overextended</li>
-      <li><b>Neutral (Yellow)</b> → balanced market</li>
-      <li><b>Oversold (Green)</b> → strong recent selling, possible rebound</li>
-    </ul>
-    <p className="muted tiny">
-      RSI indicates extremes, not direct buy/sell signals.
+                      <p><b>Was ist das? Vergleich von bis zu 20 Coins aus der Watchlist-Compare-Auswahl.
+
+Price zeigt die echten Preiswerte. Index 100 normalisiert alle Coins auf denselben Startwert 100 und ist besser, wenn viele Coins gleichzeitig verglichen werden.
+
+Overlay zeigt alle gewählten Coins in einem gemeinsamen Chart. Grid zeigt pro Coin eine kleine Kachel.
+
+First 10 / Next 10 / All steuert, ob du die ersten 10, die zweiten 10 oder alle Compare-Coins sehen willst.
+
+Grid-Detail: Klick auf eine Kachel öffnet den großen Chart. Dort kannst du direkt zwischen Price und Index 100 umschalten.
+
+Legende: Farbe → Coin. Klick auf einen Eintrag hebt einen Coin hervor.
+
+Custom Weighting: Wenn OFF aktiv ist, nutzt Compare die System-Gewichtung. Wenn ON aktiv ist, kannst du die Score-Bestandteile mit Prozent-Reglern selbst verteilen. Die Summe kann nie über 100% gehen.
+
+RSI (Relative Strength Index) zeigt Momentum, nicht echtes Kaufvolumen.
+
+• Overbought (Rot) → stark gestiegen / eventuell überhitzt.
+• Neutral (Gelb) → ausgeglichener Markt.
+• Oversold (Grün) → stark gefallen / möglicher Rebound.
+
+RSI zeigt Extreme, aber keine direkten Buy/Sell-Signale.
+
+EN
+
+What is this? Compare up to 20 coins from the Watchlist Compare selection.
+
+Price shows real price values. Index 100 normalizes all coins to the same starting value of 100 and is better when many coins are compared at the same time.
+
+Overlay shows all selected coins in one shared chart. Grid shows a small tile for each coin.
+
+First 10 / Next 10 / All controls whether you see the first 10, the next 10, or all selected Compare coins.
+
+Grid detail: Click a tile to open the large chart. There you can switch directly between Price and Index 100.
+
+Legend: Color → Coin. Click a legend entry to highlight one coin.
+
+Custom Weighting: When OFF is active, Compare uses system weighting. When ON is active, you can manually distribute the score components with percentage sliders. The total can never exceed 100%.
+
+RSI (Relative Strength Index) shows momentum, not actual buy volume.
+
+• Overbought (Red) → strong recent rise, may be overheated.
+• Neutral (Yellow) → balanced market.
+• Oversold (Green) → strong recent selling, possible rebound.
+
+RSI indicates extremes, not direct buy/sell signals.
     </p>
   </>
 }

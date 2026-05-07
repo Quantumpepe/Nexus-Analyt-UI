@@ -11475,30 +11475,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <>
                                     <circle cx={latestXQ} cy={latestYQ} r="4" fill="#35e0a1" />
                                     {(() => {
-                                      const labelText = _fmtPctLocal(latestSpreadQuick);
-                                      const labelX = Math.min(svgWq - padRq - 8, Math.max(padLq + 52, latestXQ - 10));
-                                      const labelY = Math.min(svgHq - 22, Math.max(18, latestYQ - 12));
+                                      const labelText = `Latest: ${_fmtPctLocal(latestSpreadQuick)}`;
+                                      const labelX = svgWq - padRq - 6;
+                                      const labelY = svgHq - 18;
+
                                       return (
                                         <g>
                                           <rect
-                                            x={labelX - 58}
-                                            y={labelY - 14}
-                                            width="64"
-                                            height="20"
-                                            rx="7"
-                                            fill="rgba(0,0,0,0.62)"
-                                            stroke="rgba(53,224,161,0.42)"
+                                            x={labelX - 108}
+                                            y={labelY - 15}
+                                            width="104"
+                                            height="22"
+                                            rx="8"
+                                            fill="rgba(0,0,0,0.58)"
+                                            stroke="rgba(53,224,161,0.35)"
                                           />
                                           <text
-                                            x={labelX}
+                                            x={labelX - 10}
                                             y={labelY}
                                             textAnchor="end"
-                                            fill="#8ff7cd"
+                                            fill="#b7ffe2"
                                             fontSize="12"
                                             fontWeight="800"
-                                            paintOrder="stroke"
-                                            stroke="rgba(0,0,0,0.75)"
-                                            strokeWidth="2"
                                           >
                                             {labelText}
                                           </text>

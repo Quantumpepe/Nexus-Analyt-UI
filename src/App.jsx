@@ -113,6 +113,47 @@ function getGridVaultStatsFromResponse(r, fallback = {}) {
     free: Number(free) || 0,
   };
 }
+
+// -------------------------
+// Nexus Demo / Live Network Support
+// -------------------------
+const DEMO_ALL_EVM_ENABLED = true;
+
+const LIVE_ENABLED_CHAINS = ["ETH", "BNB", "POL"];
+
+const DEMO_MODE_NOTICE =
+  "Demo Mode: All EVM networks can be simulated with real market data. Live execution is currently limited to ETH, BNB and POL.";
+
+function getChainExecutionMode(chainKey, isLiveMode) {
+  const ck = String(chainKey || "").toUpperCase();
+
+  if (!isLiveMode) {
+    return {
+      mode: "demo",
+      allowed: true,
+      note: DEMO_MODE_NOTICE,
+    };
+  }
+
+  if (LIVE_ENABLED_CHAINS.includes(ck)) {
+    return {
+      mode: "live",
+      allowed: true,
+      note: "Live execution enabled.",
+    };
+  }
+
+  return {
+    mode: "simulation_only",
+    allowed: false,
+    note: "Live execution for this chain is not active yet. Simulation only.",
+  };
+}
+
+// -------------------------
+// End Nexus Demo / Live Support
+// -------------------------
+
 import { Buffer } from "buffer";
 
 if (typeof window !== "undefined") {

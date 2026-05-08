@@ -4072,8 +4072,64 @@ const byChain = {};
     return Number.isFinite(n) ? n : null;
   }, []);
 
+  // Watchlist display rows must be derived from watchItems (MASTER), not only from
+  // the async snapshot rows. This keeps desktop/mobile, Compare and AI in sync even
+  // when the snapshot request is delayed or returns only partial rows on mobile.
+  const watchDisplayRows = useMemo(() => {
+    const items = normalizeWatchItems(watchItems || []);
+    const rows = Array.isArray(watchRows) ? watchRows : [];
+    const rowMap = new Map(rows.map((r) => [_watchKeyFromRow(r), r]));
+
+    return items.map((it) => {
+      const mode = String(it?.mode || "market").toLowerCase();
+      const sym = String(it?.symbol || "").toUpperCase();
+      const contract = String(it?.contract || it?.tokenAddress || "").toLowerCase();
+      const cgId = String(it?.coingecko_id || it?.id || "").toLowerCase();
+      const key = _watchKeyFromItem(it);
+      const row = rowMap.get(key) || {};
+
+      const base = {
+        ...it,
+        mode,
+        symbol: sym,
+        name: it?.name || row?.name || sym,
+        source: "pending",
+        price: null,
+        change24h: null,
+        chg_24h: null,
+        volume24h: null,
+        vol: null,
+        marketCap: null,
+        market_cap: null,
+      };
+
+      if (mode === "dex") {
+        base.contract = contract;
+        base.tokenAddress = contract;
+        base.chain = String(it?.chain || row?.chain || "pol").trim();
+      } else {
+        base.id = cgId;
+        base.coingecko_id = cgId;
+      }
+
+      // Snapshot/enriched row wins for market data, but identity stays anchored to watchItems.
+      return {
+        ...base,
+        ...row,
+        mode,
+        symbol: String(row?.symbol || sym).toUpperCase(),
+        name: row?.name || base.name,
+        contract: mode === "dex" ? String(row?.contract || row?.tokenAddress || contract).toLowerCase() : row?.contract,
+        tokenAddress: mode === "dex" ? String(row?.tokenAddress || row?.contract || contract).toLowerCase() : row?.tokenAddress,
+        chain: mode === "dex" ? String(row?.chain || base.chain || "pol").trim() : row?.chain,
+        id: mode !== "dex" ? String(row?.id || row?.coingecko_id || cgId).toLowerCase() : row?.id,
+        coingecko_id: mode !== "dex" ? String(row?.coingecko_id || row?.id || cgId).toLowerCase() : row?.coingecko_id,
+      };
+    });
+  }, [watchItems, watchRows, normalizeWatchItems]);
+
   const sortedWatchRows = useMemo(() => {
-    const rows = Array.isArray(watchRows) ? [...watchRows] : [];
+    const rows = Array.isArray(watchDisplayRows) ? [...watchDisplayRows] : [];
     const mode = String(watchSortMode || "manual").toLowerCase();
     if (mode !== "winner" && mode !== "loser") return rows;
 
@@ -4089,7 +4145,7 @@ const byChain = {};
         return (av - bv) || (a.originalIndex - b.originalIndex);
       })
       .map((x) => x.row);
-  }, [watchRows, watchSortMode, watchSortValue]);
+  }, [watchDisplayRows, watchSortMode, watchSortValue]);
 
   const toggleWatchSort = useCallback((mode) => {
     setWatchSortMode((prev) => (String(prev || "manual") === mode ? "manual" : mode));

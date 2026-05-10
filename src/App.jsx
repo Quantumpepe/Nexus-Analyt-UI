@@ -204,6 +204,93 @@ function _cleanAiInsightSentence(s) {
       .replace(/\b\w/g, (m) => m.toUpperCase());
 
 
+function _cleanAiCardText(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+}
+
+function _pickAiSectionValue(source, keys = []) {
+  if (!source || typeof source !== "object") return "";
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) return _cleanAiCardText(value);
+  }
+  return "";
+}
+
+function _parseAiConclusionSections(aiExplainData = {}) {
+  const structured =
+    aiExplainData.analysis ||
+    aiExplainData.market_intelligence ||
+    aiExplainData.marketIntelligence ||
+    aiExplainData.sections ||
+    aiExplainData.ai_sections ||
+    {};
+
+  const base = {
+    market_structure: _pickAiSectionValue(aiExplainData, ["market_structure", "marketStructure"]) || _pickAiSectionValue(structured, ["market_structure", "marketStructure", "structure"]),
+    liquidity_state: _pickAiSectionValue(aiExplainData, ["liquidity_state", "liquidityState"]) || _pickAiSectionValue(structured, ["liquidity_state", "liquidityState", "liquidity"]),
+    warnings: _pickAiSectionValue(aiExplainData, ["warnings", "liquidity_warnings", "liquidityWarnings"]) || _pickAiSectionValue(structured, ["warnings", "liquidity_warnings", "liquidityWarnings"]),
+    risk_posture: _pickAiSectionValue(aiExplainData, ["risk_posture", "riskPosture"]) || _pickAiSectionValue(structured, ["risk_posture", "riskPosture", "risk"]),
+    pair_relationship: _pickAiSectionValue(aiExplainData, ["pair_relationship", "pairRelationship"]) || _pickAiSectionValue(structured, ["pair_relationship", "pairRelationship", "relationship"]),
+    tactical_read: _pickAiSectionValue(aiExplainData, ["tactical_read", "tacticalRead"]) || _pickAiSectionValue(structured, ["tactical_read", "tacticalRead", "tactical"]),
+    invalidations: _pickAiSectionValue(aiExplainData, ["invalidations", "invalidation"]) || _pickAiSectionValue(structured, ["invalidations", "invalidation"]),
+    edge: _pickAiSectionValue(aiExplainData, ["edge"]) || _pickAiSectionValue(structured, ["edge"]),
+    setup_bias: _pickAiSectionValue(aiExplainData, ["setup_bias", "setupBias"]) || _pickAiSectionValue(structured, ["setup_bias", "setupBias"]),
+    signal_context: _pickAiSectionValue(aiExplainData, ["signal_context", "signalContext"]) || _pickAiSectionValue(structured, ["signal_context", "signalContext"]),
+  };
+
+  const raw = String(aiExplainData.verdictText || aiExplainData.ai_conclusion || aiExplainData.conclusion || "").trim();
+  if (raw) {
+    const labels = [
+      ["market_structure", "Market Structure"],
+      ["liquidity_state", "Liquidity State"],
+      ["warnings", "Warnings"],
+      ["risk_posture", "Risk Posture"],
+      ["pair_relationship", "Pair Relationship"],
+      ["tactical_read", "Tactical Read"],
+      ["invalidations", "Invalidations"],
+      ["edge", "Edge"],
+      ["setup_bias", "Setup bias"],
+      ["signal_context", "Signal context"],
+    ];
+    labels.forEach(([key, label], idx) => {
+      if (base[key]) return;
+      const nextLabels = labels.slice(idx + 1).map(([, l]) => l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+      const re = nextLabels
+        ? new RegExp(`${label}:\\s*([\\s\\S]*?)(?=\\s*(?:${nextLabels}):|$)`, "i")
+        : new RegExp(`${label}:\\s*([\\s\\S]*)$`, "i");
+      const m = raw.match(re);
+      if (m && m[1]) base[key] = _cleanAiCardText(m[1]);
+    });
+  }
+
+  return base;
+}
+
+function AiInsightCard({ title, value, tone = "neutral" }) {
+  if (!value) return null;
+  const tones = {
+    structure: { border: "rgba(64,196,255,0.22)", bg: "rgba(64,196,255,0.055)", color: "#8bdcff" },
+    liquidity: { border: "rgba(0,255,136,0.20)", bg: "rgba(0,255,136,0.050)", color: "#54f0a4" },
+    warning: { border: "rgba(255,193,7,0.30)", bg: "rgba(255,193,7,0.075)", color: "#ffd166" },
+    risk: { border: "rgba(255,107,107,0.26)", bg: "rgba(255,107,107,0.060)", color: "#ff8a8a" },
+    tactical: { border: "rgba(187,134,252,0.24)", bg: "rgba(187,134,252,0.055)", color: "#c9a7ff" },
+    edge: { border: "rgba(0,255,200,0.22)", bg: "rgba(0,255,200,0.050)", color: "#70ffe0" },
+    neutral: { border: "rgba(255,255,255,0.10)", bg: "rgba(255,255,255,0.025)", color: "#d8fff1" },
+  };
+  const t = tones[tone] || tones.neutral;
+  return (
+    <div style={{ border: `1px solid ${t.border}`, borderRadius: 12, padding: "10px 12px", background: t.bg }}>
+      <div className="muted tiny" style={{ color: t.color, fontWeight: 900, letterSpacing: 0.3, textTransform: "uppercase", marginBottom: 5 }}>{title}</div>
+      <div style={{ fontSize: 14, fontWeight: 800, lineHeight: 1.45, color: "rgba(235,255,247,0.96)" }}>{value}</div>
+    </div>
+  );
+}
+
+
 function buildCompactAiInsight({ backendText = "", trendStructure = "", momentumShift = "", insightSummary = "" }) {
   const raw = String(backendText || "").trim();
 
@@ -11992,17 +12079,38 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
 
-                      <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>AI Conclusion</div>
-                        <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.4 }}>
-                          {aiExplainData.verdictText || "No clear AI conclusion available yet."}
-                        </div>
-                        <div className="muted tiny" style={{ lineHeight: 1.5 }}>
-                          {aiExplainData.winner && aiExplainData.loser
-                            ? `Observed relative bias: ${aiExplainData.winner} is currently stronger than ${aiExplainData.loser} in this read.`
-                            : "This conclusion is descriptive only and should not be read as an automatic trade command."}
-                        </div>
-                      </div>
+                      {(() => {
+                        const aiSections = _parseAiConclusionSections(aiExplainData);
+                        const hasSections = Object.values(aiSections).some(Boolean);
+                        return (
+                          <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                            <div className="label" style={{ marginBottom: 0 }}>AI Conclusion</div>
+                            {hasSections ? (
+                              <div style={{ display: "grid", gap: 8 }}>
+                                <AiInsightCard title="Market Structure" value={aiSections.market_structure} tone="structure" />
+                                <AiInsightCard title="Liquidity State" value={aiSections.liquidity_state} tone="liquidity" />
+                                <AiInsightCard title="Warnings" value={aiSections.warnings} tone="warning" />
+                                <AiInsightCard title="Risk Posture" value={aiSections.risk_posture} tone="risk" />
+                                <AiInsightCard title="Pair Relationship" value={aiSections.pair_relationship} tone="neutral" />
+                                <AiInsightCard title="Tactical Read" value={aiSections.tactical_read} tone="tactical" />
+                                <AiInsightCard title="Edge" value={aiSections.edge} tone="edge" />
+                                <AiInsightCard title="Invalidations" value={aiSections.invalidations} tone="risk" />
+                                <AiInsightCard title="Setup Bias" value={aiSections.setup_bias} tone="neutral" />
+                                <AiInsightCard title="Signal Context" value={aiSections.signal_context} tone="warning" />
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.4 }}>
+                                {aiExplainData.verdictText || "No clear AI conclusion available yet."}
+                              </div>
+                            )}
+                            <div className="muted tiny" style={{ lineHeight: 1.5 }}>
+                              {aiExplainData.winner && aiExplainData.loser
+                                ? `Observed relative bias: ${aiExplainData.winner} is currently stronger than ${aiExplainData.loser} in this read.`
+                                : "This conclusion is descriptive only and should not be read as an automatic trade command."}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {aiExplainData.engineV2 ? (() => {
                         const riskTone = aiRiskTone(aiExplainData.engineV2.exit_risk || aiExplainData.risk);

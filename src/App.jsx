@@ -9395,26 +9395,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
             gap: 8px !important;
           }
 
-          /* Best pairs mobile: compact one-line scanner row.
-             On phones the correlation pill at the far right is hidden so the
-             Movement Chance score can stay aligned without pushing the row
-             outside the card. Desktop still shows the full row. */
+          /* Best pairs mobile: keep every pair row on ONE line.
+             The Movement Chance score adds one extra column, so the mobile
+             grid must define 8 columns; otherwise the last value wraps into
+             a second row on phones. */
           .section-compare .pairsScroll{
             overflow-x: auto !important;
             overflow-y: auto !important;
             -webkit-overflow-scrolling: touch;
             padding: 6px !important;
-            max-width: 100% !important;
           }
           .section-compare .pairRow{
             display: flex !important;
             align-items: center !important;
             flex-wrap: nowrap !important;
-            width: 100% !important;
-            min-width: 0 !important;
+            min-width: 724px !important;
             padding: 6px 6px !important;
-            gap: 5px !important;
-            box-sizing: border-box !important;
+            gap: 6px !important;
           }
           .section-compare .pairRow > span:first-child{
             flex: 0 0 24px !important;
@@ -9424,19 +9421,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .section-compare .pairRow > div{
             display: grid !important;
-            grid-template-columns: minmax(82px,1fr) 46px 74px 74px 38px 50px 60px !important;
-            gap: 4px !important;
+            grid-template-columns: 112px 58px 92px 92px 46px 62px 74px 52px !important;
+            gap: 5px !important;
             align-items: center !important;
-            min-width: 0 !important;
-            flex: 1 1 auto !important;
-            width: auto !important;
-          }
-          .section-compare .pairRow > div > span:last-child{
-            display: none !important;
+            min-width: 682px !important;
+            flex: 0 0 682px !important;
           }
           .section-compare .pairName{
             min-width: 0 !important;
-            max-width: 100% !important;
+            max-width: 112px !important;
             white-space: nowrap !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
@@ -9446,8 +9439,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
             width: 100% !important;
             min-width: 0 !important;
             max-width: 100% !important;
-            font-size: 9.5px !important;
-            padding: 3px 4px !important;
+            font-size: 10px !important;
+            padding: 3px 5px !important;
             line-height: 1.05 !important;
             white-space: nowrap !important;
             overflow: hidden !important;

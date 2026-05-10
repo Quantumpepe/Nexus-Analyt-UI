@@ -11466,7 +11466,36 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               alignItems: "center",
                             }}
                           >
-                            <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap" }}>{p.pair}</span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                              <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap" }}>{p.pair}</span>
+                              {Number.isFinite(p?.movement_chance_score || p?.movementChanceScore) ? (
+                                <span
+                                  className="pill"
+                                  title={`AI Movement Chance Score: ${Math.round(p?.movement_chance_score || p?.movementChanceScore)}/100 · Indicates unusual movement potential, not a buy signal.`}
+                                  style={{
+                                    padding: "4px 8px",
+                                    fontSize: 11,
+                                    lineHeight: 1,
+                                    whiteSpace: "nowrap",
+                                    background:
+                                      (p?.movement_chance_score || p?.movementChanceScore) >= 80
+                                        ? "rgba(255,140,0,0.16)"
+                                        : (p?.movement_chance_score || p?.movementChanceScore) >= 60
+                                          ? "rgba(255,184,0,0.14)"
+                                          : "rgba(255,255,255,0.06)",
+                                    color:
+                                      (p?.movement_chance_score || p?.movementChanceScore) >= 80
+                                        ? "#ffb347"
+                                        : (p?.movement_chance_score || p?.movementChanceScore) >= 60
+                                          ? "#ffd166"
+                                          : "#d6d6d6",
+                                    border: "1px solid rgba(255,255,255,0.08)",
+                                  }}
+                                >
+                                  ⚡ {Math.round(p?.movement_chance_score || p?.movementChanceScore)}/100
+                                </span>
+                              ) : null}
+                            </div>
 
                             <span
                               className="pill"

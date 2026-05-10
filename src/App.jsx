@@ -1335,7 +1335,7 @@ function watchFinalRating(row, summary, onchain) {
   return ratingFromScore(Math.max(0, Math.min(100, base + delta)));
 }
 
-function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainBySymbol, marketConditionBySymbol, bestPairsToShow }) {
+function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainBySymbol, marketConditionBySymbol, bestPairsToShow, compareWeights, aiMode }) {
   const selected = Array.isArray(syms) ? syms.map((s) => String(s || "").toUpperCase()).filter(Boolean) : [];
   const rowBySym = new Map();
   for (const r of Array.isArray(watchRows) ? watchRows : []) {
@@ -1378,6 +1378,23 @@ function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainB
   });
 
   const selectedSet = new Set(selected);
+  const normalizePairForAi = (p) => ({
+    pair: p?.pair,
+    score: Number.isFinite(Number(p?.score)) ? Number(p.score) : null,
+    corr: Number.isFinite(Number(p?.corr)) ? Number(p.corr) : null,
+    spread_pct: Number.isFinite(Number(p?.spreadPct)) ? Number(p.spreadPct) : null,
+    rsi_gap: Number.isFinite(Number(p?.rsiGap)) ? Number(p.rsiGap) : null,
+    rsi_a: Number.isFinite(Number(p?.rsiA)) ? Number(p.rsiA) : null,
+    rsi_b: Number.isFinite(Number(p?.rsiB)) ? Number(p.rsiB) : null,
+    momentum_score: Number.isFinite(Number(p?.momentumScore)) ? Number(p.momentumScore) : null,
+    opportunity_score: Number.isFinite(Number(p?.opportunityScore)) ? Number(p.opportunityScore) : null,
+    stability_score: Number.isFinite(Number(p?.stabilityScore)) ? Number(p.stabilityScore) : null,
+  });
+
+  const allComparePairs = (Array.isArray(bestPairsToShow) ? bestPairsToShow : [])
+    .slice(0, 20)
+    .map(normalizePairForAi);
+
   const pairs = (Array.isArray(bestPairsToShow) ? bestPairsToShow : [])
     .filter((p) => {
       const pair = String(p?.pair || "");
@@ -1385,20 +1402,15 @@ function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainB
       return parts.length === 2 && selectedSet.has(parts[0]) && selectedSet.has(parts[1]);
     })
     .slice(0, 8)
-    .map((p) => ({
-      pair: p.pair,
-      score: Number.isFinite(Number(p?.score)) ? Number(p.score) : null,
-      corr: Number.isFinite(Number(p?.corr)) ? Number(p.corr) : null,
-      spread_pct: Number.isFinite(Number(p?.spreadPct)) ? Number(p.spreadPct) : null,
-      rsi_gap: Number.isFinite(Number(p?.rsiGap)) ? Number(p.rsiGap) : null,
-      rsi_a: Number.isFinite(Number(p?.rsiA)) ? Number(p.rsiA) : null,
-      rsi_b: Number.isFinite(Number(p?.rsiB)) ? Number(p.rsiB) : null,
-    }));
+    .map(normalizePairForAi);
 
   return {
-    version: "ai_insight_v1",
+    version: "ai_insight_v2_mode_weight_alerts",
+    ai_mode: String(aiMode || "standard").toLowerCase() === "extreme" ? "extreme" : "standard",
+    compare_weights: sanitizeCompareWeights(compareWeights || DEFAULT_COMPARE_WEIGHTS),
     coins,
     relevant_pairs: pairs,
+    all_compare_pairs: allComparePairs,
     notes: [
       "Rating is one visible rating built from market/system score, user rating average, and small on-chain delta.",
       "On-chain signals are supporting evidence only and capped to a small score impact.",
@@ -1425,7 +1437,10 @@ function formatAiSignalContextForPrompt(ctx) {
     `${p.pair}: score=${p.score ?? "n/a"}, corr=${p.corr ?? "n/a"}, spread=${p.spread_pct ?? "n/a"}%, rsi_gap=${p.rsi_gap ?? "n/a"}`
   );
 
+  const weightLine = ctx?.compare_weights ? `AI mode=${ctx.ai_mode || "standard"}; Compare weights corr=${ctx.compare_weights.corr}, momentum=${ctx.compare_weights.momentum}, opportunity=${ctx.compare_weights.opportunity}, stability=${ctx.compare_weights.stability}` : "";
+
   return [
+    weightLine,
     lines.length ? `AI Signal Context:\n${lines.join("\n")}` : "",
     pairLines.length ? `Relevant pair context:\n${pairLines.join("\n")}` : "",
   ].filter(Boolean).join("\n\n");
@@ -5275,6 +5290,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         onchainBySymbol,
         marketConditionBySymbol,
         bestPairsToShow,
+        compareWeights: activeCompareWeights,
+        aiMode: normalizedAiInsightMode,
       });
       const aiSignalText = formatAiSignalContextForPrompt(aiSignalContext);
       const payload = {
@@ -5286,10 +5303,14 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         series_stats: pairStats,
         insight_windows: pairWindows,
         ai_signal_context: aiSignalContext,
+        ai_mode: normalizedAiInsightMode,
+        compare_weights: activeCompareWeights,
         question:
           `Analyze the current pair structure for ${a} vs ${b}. ` +
           `This is AI Insight Level 2: explain not only what the data says, but how the structure may behave. ` +
-          `Use pair statistics, multi-timeframe context, rating, community votes, on-chain context, and wallet-fit to describe structure, behavior, strategy fit, and risk posture. ` +
+          `AI Insight mode is ${normalizedAiInsightMode}. Extreme mode means higher sensitivity to early momentum, rebound, spread and hidden-opportunity structures, while still explaining invalidation clearly. ` +
+          `Use the active Compare weights as interpretation priorities: correlation ${activeCompareWeights.corr}%, momentum ${activeCompareWeights.momentum}%, opportunity ${activeCompareWeights.opportunity}%, stability ${activeCompareWeights.stability}%. ` +
+          `Use pair statistics, multi-timeframe context, rating, community votes, on-chain context, all_compare_pairs hidden-opportunity scan, and wallet-fit to describe structure, behavior, strategy fit, and risk posture. ` +
           `IMPORTANT: mention rating, market condition (OE/RVOL), and on-chain confirmation explicitly when available. If on-chain is neutral or missing, say it is neutral/no strong signal instead of ignoring it. ` +
           `Include a compact behavior read, for example range-bound, mean-reversion style, trend-bias, unstable/choppy, or low-conviction. ` +
           `Include strategy fit without giving advice: grid-fit, wait/no-clean-setup, rotation-style, or continuation-risk. ` +
@@ -5385,6 +5406,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         windows: pairWindows,
         aiSignalContext,
         engineV2,
+        aiMode: normalizedAiInsightMode,
+        compareWeights: activeCompareWeights,
+        pairAlerts: Array.isArray(engineV2?.pair_alerts) ? engineV2.pair_alerts : [],
       });
     } catch (e) {
       setAiExplainText("");
@@ -5455,6 +5479,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [customCompareWeightsOn, setCustomCompareWeightsOn] = useLocalStorageState("nexus_compare_custom_weights_on", false);
   const [compareWeightPanelOpen, setCompareWeightPanelOpen] = useLocalStorageState("nexus_compare_weight_panel_open", false);
   const [compareWeights, setCompareWeights] = useLocalStorageState("nexus_compare_custom_weights_v1", DEFAULT_COMPARE_WEIGHTS);
+  const [aiInsightMode, setAiInsightMode] = useLocalStorageState("nexus_ai_insight_mode_v1", "standard");
+  const normalizedAiInsightMode = String(aiInsightMode || "standard").toLowerCase() === "extreme" ? "extreme" : "standard";
   const safeCompareWeights = useMemo(() => sanitizeCompareWeights(compareWeights), [compareWeights]);
   const activeCompareWeights = useMemo(() => customCompareWeightsOn ? safeCompareWeights : DEFAULT_COMPARE_WEIGHTS, [customCompareWeightsOn, safeCompareWeights]);
   const compareWeightsTotal = useMemo(() => compareWeightTotal(safeCompareWeights), [safeCompareWeights]);
@@ -11622,6 +11648,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div style={{ display: "grid", gap: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                     <div className="label">AI commentary (optional)</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <button
+                        className={normalizedAiInsightMode === "extreme" ? "btn" : "btnGhost"}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setAiInsightMode(normalizedAiInsightMode === "extreme" ? "standard" : "extreme");
+                        }}
+                        title="Toggle AI Insight between Standard and Extreme mode"
+                      >
+                        {normalizedAiInsightMode === "extreme" ? "Extreme ON" : "Standard AI"}
+                      </button>
                     <button
                       className="btnGhost"
                       type="button"
@@ -11635,6 +11674,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     >
                       {aiExplainLoading ? "Thinking…" : (isPro ? "AI Insight" : "Access required")}
                     </button>
+                    </div>
                   </div>
                   {aiExplainData ? (
                     <div style={{ display: "grid", gap: 10 }}>
@@ -11747,6 +11787,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <span key={tag} style={{ border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)", borderRadius: 999, padding: "4px 8px", fontSize: 12, fontWeight: 800 }}>
                                     {aiTagLabel(tag)}
                                   </span>
+                                ))}
+                              </div>
+                            ) : null}
+
+                            {Array.isArray(aiExplainData.engineV2.pair_alerts) && aiExplainData.engineV2.pair_alerts.length ? (
+                              <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,193,7,0.28)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,193,7,0.06)" }}>
+                                <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Hidden Pair Alerts</div>
+                                {aiExplainData.engineV2.pair_alerts.slice(0, 3).map((al) => (
+                                  <div key={`${al.pair}-${al.type}`} className="muted tiny" style={{ lineHeight: 1.45 }}>
+                                    <b>{al.pair}</b> · {aiTagLabel(al.type)} · {al.strength} · {(al.reasons || []).join(" / ")}
+                                  </div>
                                 ))}
                               </div>
                             ) : null}

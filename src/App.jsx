@@ -11475,41 +11475,43 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               flex: 1,
                               minWidth: 0,
                               display: "grid",
-                              gridTemplateColumns: "minmax(88px, 1.2fr) 120px 120px 56px 72px auto auto",
+                              gridTemplateColumns: "minmax(116px, 1.2fr) 64px 120px 120px 56px 72px auto auto",
                               gap: 8,
                               alignItems: "center",
                             }}
                           >
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                              <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap" }}>{p.pair}</span>
-                              {hasMovementChance && Number.isFinite(movementChanceScore) ? (
-                                <span
-                                  className="pill"
-                                  title={`AI Movement Chance Score: ${Math.round(movementChanceScore)}/100 · Indicates unusual movement potential, not a buy signal.`}
-                                  style={{
-                                    padding: "4px 8px",
-                                    fontSize: 11,
-                                    lineHeight: 1,
-                                    whiteSpace: "nowrap",
-                                    background:
-                                      movementChanceScore >= 80
-                                        ? "rgba(255,140,0,0.16)"
-                                        : movementChanceScore >= 60
-                                          ? "rgba(255,184,0,0.14)"
-                                          : "rgba(255,255,255,0.06)",
-                                    color:
-                                      movementChanceScore >= 80
-                                        ? "#ffb347"
-                                        : movementChanceScore >= 60
-                                          ? "#ffd166"
-                                          : "#d6d6d6",
-                                    border: "1px solid rgba(255,255,255,0.08)",
-                                  }}
-                                >
-                                  ⚡ {Math.round(movementChanceScore)}
-                                </span>
-                              ) : null}
+                            <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                              <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.pair}</span>
                             </div>
+
+                            <span
+                              className="pill"
+                              title={hasMovementChance && Number.isFinite(movementChanceScore) ? `AI Movement Chance Score: ${Math.round(movementChanceScore)}/100 · Indicates unusual movement potential, not a buy signal.` : "No active AI Movement Chance score for this pair."}
+                              style={{
+                                width: 58,
+                                justifyContent: "center",
+                                padding: "4px 6px",
+                                fontSize: 11,
+                                lineHeight: 1,
+                                whiteSpace: "nowrap",
+                                visibility: hasMovementChance && Number.isFinite(movementChanceScore) ? "visible" : "hidden",
+                                background:
+                                  movementChanceScore >= 80
+                                    ? "rgba(255,140,0,0.16)"
+                                    : movementChanceScore >= 60
+                                      ? "rgba(255,184,0,0.14)"
+                                      : "rgba(255,255,255,0.06)",
+                                color:
+                                  movementChanceScore >= 80
+                                    ? "#ffb347"
+                                    : movementChanceScore >= 60
+                                      ? "#ffd166"
+                                      : "#d6d6d6",
+                                border: "1px solid rgba(255,255,255,0.08)",
+                              }}
+                            >
+                              ⚡ {Number.isFinite(movementChanceScore) ? Math.round(movementChanceScore) : 0}
+                            </span>
 
                             <span
                               className="pill"

@@ -1419,6 +1419,80 @@ function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainB
   };
 }
 
+
+function buildLocalPairAlertsForUi(pairs, compareWeights, aiMode) {
+  const rows = Array.isArray(pairs) ? pairs : [];
+  if (!rows.length) return [];
+  const mode = String(aiMode || "standard").toLowerCase() === "extreme" ? "extreme" : "standard";
+  const w = sanitizeCompareWeights(compareWeights || DEFAULT_COMPARE_WEIGHTS);
+  const sens = mode === "extreme" ? 0.82 : 1.0;
+  const alerts = [];
+
+  for (const p of rows.slice(0, 30)) {
+    if (!p || typeof p !== "object") continue;
+    const pair = String(p.pair || "").toUpperCase();
+    if (!pair || !pair.includes("/")) continue;
+
+    const corr = Number(p.corr);
+    const spread = Math.abs(Number(p.spreadPct));
+    const rsiGap = Math.abs(Number(p.rsiGap));
+    const score = Number(p.score);
+    const momentumScore = Number(p.momentumScore);
+    const opportunityScore = Number(p.opportunityScore);
+
+    const reasons = [];
+    let type = "";
+    let base = Number.isFinite(score) ? score : 0;
+
+    if (Number.isFinite(corr) && Number.isFinite(spread) && corr >= 0.72 * sens && spread >= 5.0 * sens) {
+      type = "hidden_opportunity";
+      reasons.push("spread movement");
+      base += Number(w.opportunity || 25) * 0.28;
+    }
+    if (Number.isFinite(rsiGap) && rsiGap >= 14.0 * sens) {
+      type = type || "rsi_divergence";
+      reasons.push("RSI divergence");
+      base += Number(w.momentum || 25) * 0.24;
+    }
+    if (Number.isFinite(momentumScore) && momentumScore >= 72 * sens) {
+      type = type || "momentum_shift";
+      reasons.push("momentum shift");
+      base += Number(w.momentum || 25) * 0.12;
+    }
+    if (Number.isFinite(corr) && Number.isFinite(spread) && corr >= 0.82 * sens && spread >= 2.0 * sens && spread <= 7.5 / sens) {
+      type = type || "rebound_watch";
+      reasons.push("rebound watch");
+      base += Number(w.corr || 35) * 0.14;
+    }
+    if (Number.isFinite(score) && score < 70 && ((Number.isFinite(spread) && spread >= 6.0 * sens) || (Number.isFinite(rsiGap) && rsiGap >= 16.0 * sens))) {
+      type = type || "low_rank_unusual_activity";
+      reasons.push("low-rank unusual activity");
+      base += 8;
+    }
+    if (Number.isFinite(opportunityScore) && opportunityScore >= 78 * sens && !reasons.length) {
+      type = "hidden_opportunity";
+      reasons.push("opportunity score spike");
+      base += Number(w.opportunity || 25) * 0.18;
+    }
+
+    if (!reasons.length) continue;
+    const strengthScore = Math.max(0, Math.min(100, Math.round(base * 10) / 10));
+    const strength = strengthScore >= 82 ? "high" : strengthScore >= 65 ? "medium" : "low";
+    alerts.push({
+      pair,
+      type: type || "pair_alert",
+      strength,
+      score: strengthScore,
+      corr: Number.isFinite(corr) ? corr : null,
+      spread_pct: Number.isFinite(spread) ? spread : null,
+      rsi_gap: Number.isFinite(rsiGap) ? rsiGap : null,
+      reasons: reasons.slice(0, 3),
+    });
+  }
+
+  return alerts.sort((a, b) => Number(b.score || 0) - Number(a.score || 0)).slice(0, 8);
+}
+
 function formatAiSignalContextForPrompt(ctx) {
   const coins = Array.isArray(ctx?.coins) ? ctx.coins : [];
   const lines = coins.map((c) => {
@@ -5562,6 +5636,18 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     });
   }, [bestPairsAll, bestPairsSortMode]);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsSorted.slice(0, 10) : bestPairsSorted), [showTop10Pairs, bestPairsSorted]);
+  const bestPairUiAlerts = useMemo(
+    () => buildLocalPairAlertsForUi(bestPairsToShow, activeCompareWeights, normalizedAiInsightMode),
+    [bestPairsToShow, activeCompareWeights, normalizedAiInsightMode]
+  );
+  const bestPairTopAlert = bestPairUiAlerts?.[0] || null;
+  const bestPairAlertTone = bestPairUiAlerts.some((a) => a?.strength === "high")
+    ? "high"
+    : bestPairUiAlerts.some((a) => a?.strength === "medium")
+      ? "medium"
+      : bestPairUiAlerts.length
+        ? "low"
+        : "none";
   const toggleBestPairsSort = useCallback((mode) => {
     setBestPairsSortMode((prev) => (String(prev || "score") === mode ? "score" : mode));
   }, [setBestPairsSortMode]);
@@ -11203,7 +11289,43 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-                  <div className="muted tiny">Showing {bestPairsToShow.length} / {bestPairsAll.length} pairs</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <div className="muted tiny">Showing {bestPairsToShow.length} / {bestPairsAll.length} pairs</div>
+                    {bestPairUiAlerts.length ? (
+                      <button
+                        type="button"
+                        className="ghostBtn tiny"
+                        title={`${bestPairUiAlerts.length} AI Pair Alert${bestPairUiAlerts.length === 1 ? "" : "s"}${bestPairTopAlert?.pair ? ` · Top: ${bestPairTopAlert.pair}` : ""}${bestPairTopAlert?.reasons?.length ? ` · ${bestPairTopAlert.reasons.join(" / ")}` : ""}. Open AI Insight for the detailed read.`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const topPair = String(bestPairTopAlert?.pair || "");
+                          const match = (bestPairsToShow || []).find((p) => String(p?.pair || "").toUpperCase() === topPair);
+                          if (match) openPairExplain(match);
+                        }}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          borderColor: bestPairAlertTone === "high" ? "rgba(255,184,0,.55)" : bestPairAlertTone === "medium" ? "rgba(255,184,0,.35)" : "rgba(57,217,138,.28)",
+                          background: bestPairAlertTone === "high" ? "rgba(255,184,0,.13)" : bestPairAlertTone === "medium" ? "rgba(255,184,0,.08)" : "rgba(57,217,138,.08)",
+                          color: bestPairAlertTone === "high" || bestPairAlertTone === "medium" ? "#ffd166" : "#8ef0b2",
+                          boxShadow: bestPairAlertTone === "high" ? "0 0 18px rgba(255,184,0,.12)" : "none",
+                        }}
+                      >
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: 999,
+                            background: bestPairAlertTone === "high" || bestPairAlertTone === "medium" ? "#ffd166" : "#39d98a",
+                            boxShadow: bestPairAlertTone === "high" ? "0 0 10px rgba(255,184,0,.8)" : "0 0 8px rgba(57,217,138,.55)",
+                          }}
+                        />
+                        {bestPairUiAlerts.length} AI Pair Alert{bestPairUiAlerts.length === 1 ? "" : "s"}
+                      </button>
+                    ) : null}
+                  </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <button
                       className={String(bestPairsSortMode || "score") === "spread" ? "btn tiny" : "ghostBtn tiny"}

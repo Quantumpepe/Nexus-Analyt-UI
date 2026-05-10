@@ -5648,6 +5648,24 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       : bestPairUiAlerts.length
         ? "low"
         : "none";
+  const bestPairAlertPairSet = useMemo(() => {
+    const set = new Set();
+    for (const a of bestPairUiAlerts || []) {
+      const key = String(a?.pair || "").toUpperCase().trim();
+      if (key) set.add(key);
+    }
+    return set;
+  }, [bestPairUiAlerts]);
+  const bestPairAlertToneByPair = useMemo(() => {
+    const out = {};
+    for (const a of bestPairUiAlerts || []) {
+      const key = String(a?.pair || "").toUpperCase().trim();
+      if (!key) continue;
+      const tone = a?.strength === "high" ? "high" : a?.strength === "medium" ? "medium" : "low";
+      if (!out[key] || tone === "high" || (tone === "medium" && out[key] !== "high")) out[key] = tone;
+    }
+    return out;
+  }, [bestPairUiAlerts]);
   const selectedPairLocalAlerts = useMemo(() => {
     const pairKey = String(selectedPair?.pair || "").toUpperCase();
     if (!pairKey) return [];
@@ -8602,6 +8620,36 @@ const handlePanelActivate = useCallback((name) => (e) => {
     <div className="app nexusApp">
       
       <style>{`
+        @keyframes nexusMovementPulse {
+          0%, 100% {
+            color: rgba(255, 209, 102, 0.62);
+            text-shadow: 0 0 0 rgba(255, 184, 0, 0);
+            transform: scale(1);
+          }
+          50% {
+            color: rgba(255, 209, 102, 1);
+            text-shadow: 0 0 10px rgba(255, 184, 0, 0.55);
+            transform: scale(1.06);
+          }
+        }
+        .movementChanceRankPulse {
+          display: inline-block;
+          font-weight: 900 !important;
+          color: #ffd166 !important;
+          animation: nexusMovementPulse 2.15s ease-in-out infinite;
+          will-change: transform, text-shadow, color;
+        }
+        .movementChanceRankPulse.extreme {
+          animation-duration: 1.45s;
+          text-shadow: 0 0 12px rgba(255, 133, 51, 0.45);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .movementChanceRankPulse,
+          .movementChanceRankPulse.extreme {
+            animation: none !important;
+          }
+        }
+
         /* Mobile Watchlist fix:
            Keep the same desktop columns on phone, only smaller and horizontally scrollable.
            Nothing is hidden: Market Cap, 7D Chart and X remain visible. */
@@ -11381,6 +11429,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             : "rgba(255,255,255,0.06)"
                         : "rgba(255,255,255,0.06)";
                       const quality = _pairQualityMeta(p.score);
+                      const movementPairKey = String(p?.pair || "").toUpperCase().trim();
+                      const hasMovementChance = bestPairAlertPairSet.has(movementPairKey);
+                      const movementTone = bestPairAlertToneByPair[movementPairKey] || "low";
 
                       return (
                         <div
@@ -11394,7 +11445,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           }}
                           onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
                         >
-                          <span className="muted" style={{ width: 34, textAlign: "right", flex: "0 0 34px" }}>#{i + 1}</span>
+                          <span
+                            className={`muted ${hasMovementChance ? `movementChanceRankPulse ${normalizedAiInsightMode === "extreme" ? "extreme" : ""}` : ""}`}
+                            title={hasMovementChance ? `${p.pair} has an AI Movement Chance (${movementTone}). Open the pair to inspect unusual movement pressure.` : undefined}
+                            style={{
+                              width: 34,
+                              textAlign: "right",
+                              flex: "0 0 34px",
+                              color: hasMovementChance ? (movementTone === "high" ? "#ffd166" : movementTone === "medium" ? "#ffe08a" : "#c8f7da") : undefined,
+                            }}
+                          >#{i + 1}</span>
 
                           <div
                             style={{

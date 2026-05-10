@@ -119,6 +119,8 @@ function getGridVaultStatsFromResponse(r, fallback = {}) {
 // -------------------------
 const DEMO_ALL_EVM_ENABLED = true;
 
+const ENABLE_VAULT_SUBSCRIBE = false; // Set true when vault subscription is ready and audited.
+
 const LIVE_ENABLED_CHAINS = ["ETH", "BNB", "POL"];
 
 const DEMO_MODE_NOTICE =
@@ -155,7 +157,6 @@ function getChainExecutionMode(chainKey, isLiveMode) {
 // -------------------------
 
 import { Buffer } from "buffer";
-const ENABLE_VAULT_SUBSCRIBE = false; // switch to true when vault system is ready
 
 if (typeof window !== "undefined") {
   window.Buffer = window.Buffer || Buffer;
@@ -1112,7 +1113,7 @@ function RotationInfoTrigger() {
       <button
         type="button"
         className="btn"
-        onClick={(e) = disabled={!ENABLE_VAULT_SUBSCRIBE} title={!ENABLE_VAULT_SUBSCRIBE ? "Vault infrastructure upgrade in progress. Trading access will activate after security deployment." : ""} className={`${className || ""} ${!ENABLE_VAULT_SUBSCRIBE ? "opacity-50 cursor-not-allowed" : ""}`}> { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
         style={{ marginTop: 14 }}
       >
         Rotation Info
@@ -9906,6 +9907,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <button
                 className="btnGhost"
                 type="button"
+                disabled={!ENABLE_VAULT_SUBSCRIBE}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -9913,12 +9915,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  if (!ENABLE_VAULT_SUBSCRIBE) return;
                   setAccessTab("subscribe");
                   setSubMsg("");
                   setAccessModalOpen(true);
                 }}
-                title="Subscribe (USDC/USDT on ETH)"
-              >Vault System (Coming Soon)</button>
+                title={
+                  ENABLE_VAULT_SUBSCRIBE
+                    ? "Subscribe (USDC/USDT)"
+                    : "Vault infrastructure upgrade in progress. Trading access will activate after security deployment."
+                }
+                style={
+                  !ENABLE_VAULT_SUBSCRIBE
+                    ? { opacity: 0.55, cursor: "not-allowed" }
+                    : undefined
+                }
+              >
+                Vault System (Coming Soon)
+              </button>
 
               <div className="text-xs" style={{ opacity: 0.75, marginLeft: 6 }}>
                 {isPro ? (

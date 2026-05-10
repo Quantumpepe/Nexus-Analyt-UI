@@ -254,7 +254,7 @@ function _parseAiConclusionSections(aiExplainData = {}) {
       ["invalidations", "Invalidations"],
       ["edge", "Edge"],
       ["setup_bias", "Setup bias"],
-      ["signal_context", "Signal context"],
+      
     ];
     labels.forEach(([key, label], idx) => {
       if (base[key]) return;

@@ -5666,6 +5666,17 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     }
     return out;
   }, [bestPairUiAlerts]);
+  const bestPairAlertScoreByPair = useMemo(() => {
+    const out = {};
+    for (const a of bestPairUiAlerts || []) {
+      const key = String(a?.pair || "").toUpperCase().trim();
+      if (!key) continue;
+      const score = Number(a?.movement_chance_score ?? a?.movementChanceScore ?? a?.score);
+      if (!Number.isFinite(score)) continue;
+      if (!Number.isFinite(out[key]) || score > out[key]) out[key] = Math.max(0, Math.min(100, Math.round(score)));
+    }
+    return out;
+  }, [bestPairUiAlerts]);
   const selectedPairLocalAlerts = useMemo(() => {
     const pairKey = String(selectedPair?.pair || "").toUpperCase();
     if (!pairKey) return [];
@@ -11432,6 +11443,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const movementPairKey = String(p?.pair || "").toUpperCase().trim();
                       const hasMovementChance = bestPairAlertPairSet.has(movementPairKey);
                       const movementTone = bestPairAlertToneByPair[movementPairKey] || "low";
+                      const movementChanceScore = Number.isFinite(Number(p?.movement_chance_score ?? p?.movementChanceScore))
+                        ? Number(p?.movement_chance_score ?? p?.movementChanceScore)
+                        : Number(bestPairAlertScoreByPair[movementPairKey]);
 
                       return (
                         <div
@@ -11468,31 +11482,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           >
                             <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                               <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap" }}>{p.pair}</span>
-                              {Number.isFinite(p?.movement_chance_score || p?.movementChanceScore) ? (
+                              {hasMovementChance && Number.isFinite(movementChanceScore) ? (
                                 <span
                                   className="pill"
-                                  title={`AI Movement Chance Score: ${Math.round(p?.movement_chance_score || p?.movementChanceScore)}/100 · Indicates unusual movement potential, not a buy signal.`}
+                                  title={`AI Movement Chance Score: ${Math.round(movementChanceScore)}/100 · Indicates unusual movement potential, not a buy signal.`}
                                   style={{
                                     padding: "4px 8px",
                                     fontSize: 11,
                                     lineHeight: 1,
                                     whiteSpace: "nowrap",
                                     background:
-                                      (p?.movement_chance_score || p?.movementChanceScore) >= 80
+                                      movementChanceScore >= 80
                                         ? "rgba(255,140,0,0.16)"
-                                        : (p?.movement_chance_score || p?.movementChanceScore) >= 60
+                                        : movementChanceScore >= 60
                                           ? "rgba(255,184,0,0.14)"
                                           : "rgba(255,255,255,0.06)",
                                     color:
-                                      (p?.movement_chance_score || p?.movementChanceScore) >= 80
+                                      movementChanceScore >= 80
                                         ? "#ffb347"
-                                        : (p?.movement_chance_score || p?.movementChanceScore) >= 60
+                                        : movementChanceScore >= 60
                                           ? "#ffd166"
                                           : "#d6d6d6",
                                     border: "1px solid rgba(255,255,255,0.08)",
                                   }}
                                 >
-                                  ⚡ {Math.round(p?.movement_chance_score || p?.movementChanceScore)}/100
+                                  ⚡ {Math.round(movementChanceScore)}
                                 </span>
                               ) : null}
                             </div>

@@ -5648,6 +5648,19 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       : bestPairUiAlerts.length
         ? "low"
         : "none";
+  const selectedPairLocalAlerts = useMemo(() => {
+    const pairKey = String(selectedPair?.pair || "").toUpperCase();
+    if (!pairKey) return [];
+    return (bestPairUiAlerts || []).filter((a) => String(a?.pair || "").toUpperCase() === pairKey);
+  }, [bestPairUiAlerts, selectedPair?.pair]);
+  const selectedPairMainAlert = selectedPairLocalAlerts?.[0] || null;
+  const selectedPairAlertTone = selectedPairLocalAlerts.some((a) => a?.strength === "high")
+    ? "high"
+    : selectedPairLocalAlerts.some((a) => a?.strength === "medium")
+      ? "medium"
+      : selectedPairLocalAlerts.length
+        ? "low"
+        : "none";
   const toggleBestPairsSort = useCallback((mode) => {
     setBestPairsSortMode((prev) => (String(prev || "score") === mode ? "score" : mode));
   }, [setBestPairsSortMode]);
@@ -11322,7 +11335,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             boxShadow: bestPairAlertTone === "high" ? "0 0 10px rgba(255,184,0,.8)" : "0 0 8px rgba(57,217,138,.55)",
                           }}
                         />
-                        {bestPairUiAlerts.length} AI Pair Alert{bestPairUiAlerts.length === 1 ? "" : "s"}
+                        {bestPairUiAlerts.length} Hidden Pair Chance{bestPairUiAlerts.length === 1 ? "" : "s"}
                       </button>
                     ) : null}
                   </div>
@@ -11766,6 +11779,50 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </>
                   );
                 })()}
+
+                {selectedPairLocalAlerts.length ? (
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: 8,
+                      border: selectedPairAlertTone === "high" ? "1px solid rgba(255,184,0,0.42)" : "1px solid rgba(255,193,7,0.26)",
+                      borderRadius: 12,
+                      padding: "12px",
+                      background: selectedPairAlertTone === "high" ? "rgba(255,184,0,0.10)" : "rgba(255,193,7,0.06)",
+                      boxShadow: selectedPairAlertTone === "high" ? "0 0 22px rgba(255,184,0,0.08)" : "none",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+                      <div>
+                        <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>AI Pair Alert Preview</div>
+                        <div style={{ fontWeight: 900, marginTop: 4 }}>
+                          Hey — {selectedPairMainAlert?.pair || selectedPair?.pair} shows unusual movement.
+                        </div>
+                      </div>
+                      <span
+                        className="pill"
+                        style={{
+                          background: selectedPairAlertTone === "high" ? "rgba(255,184,0,0.16)" : "rgba(255,255,255,0.05)",
+                          borderColor: selectedPairAlertTone === "high" ? "rgba(255,184,0,0.55)" : "rgba(255,193,7,0.28)",
+                          color: "#ffd166",
+                          fontWeight: 900,
+                        }}
+                      >
+                        {String(selectedPairMainAlert?.strength || "watch").toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="muted" style={{ lineHeight: 1.5 }}>
+                      This pair may have a hidden earning opportunity because the scanner found {selectedPairLocalAlerts.map((a) => (a.reasons || []).join(" / ")).filter(Boolean).join(" · ") || "spread, RSI or momentum anomalies"}.
+                      It can be especially interesting when a pair is not ranked at the top but still shows strong spread movement, RSI divergence or rebound pressure.
+                    </div>
+                    <div className="muted tiny" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      {selectedPairMainAlert?.spread_pct != null ? <span>Spread {Number(selectedPairMainAlert.spread_pct).toFixed(1)}%</span> : null}
+                      {selectedPairMainAlert?.rsi_gap != null ? <span>RSI gap {Number(selectedPairMainAlert.rsi_gap).toFixed(0)}</span> : null}
+                      {selectedPairMainAlert?.corr != null ? <span>Corr {Number(selectedPairMainAlert.corr).toFixed(2)}</span> : null}
+                      <span>Open AI Insight for the full explanation before taking action.</span>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div style={{ display: "grid", gap: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>

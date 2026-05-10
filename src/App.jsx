@@ -11308,7 +11308,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <button
                         type="button"
                         className="ghostBtn tiny"
-                        title={`${bestPairUiAlerts.length} AI Pair Alert${bestPairUiAlerts.length === 1 ? "" : "s"}${bestPairTopAlert?.pair ? ` · Top: ${bestPairTopAlert.pair}` : ""}${bestPairTopAlert?.reasons?.length ? ` · ${bestPairTopAlert.reasons.join(" / ")}` : ""}. Open AI Insight for the detailed read.`}
+                        title={`${bestPairUiAlerts.length} AI Movement Alert${bestPairUiAlerts.length === 1 ? "" : "s"}${bestPairTopAlert?.pair ? ` · Top: ${bestPairTopAlert.pair}` : ""}${bestPairTopAlert?.reasons?.length ? ` · ${bestPairTopAlert.reasons.join(" / ")}` : ""}. Open the pair to inspect the movement chance.`}
                         onClick={(e) => {
                           e.stopPropagation();
                           const topPair = String(bestPairTopAlert?.pair || "");
@@ -11335,7 +11335,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             boxShadow: bestPairAlertTone === "high" ? "0 0 10px rgba(255,184,0,.8)" : "0 0 8px rgba(57,217,138,.55)",
                           }}
                         />
-                        {bestPairUiAlerts.length} Hidden Pair Chance{bestPairUiAlerts.length === 1 ? "" : "s"}
+                        {bestPairUiAlerts.length} Movement Chance{bestPairUiAlerts.length === 1 ? "" : "s"}
                       </button>
                     ) : null}
                   </div>
@@ -11794,9 +11794,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
                       <div>
-                        <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>AI Pair Alert Preview</div>
+                        <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>AI Movement Alert Preview</div>
                         <div style={{ fontWeight: 900, marginTop: 4 }}>
-                          Hey — {selectedPairMainAlert?.pair || selectedPair?.pair} shows unusual movement.
+                          Hey — {selectedPairMainAlert?.pair || selectedPair?.pair} shows unusual movement pressure.
                         </div>
                       </div>
                       <span
@@ -11812,8 +11812,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </span>
                     </div>
                     <div className="muted" style={{ lineHeight: 1.5 }}>
-                      This pair may have a hidden earning opportunity because the scanner found {selectedPairLocalAlerts.map((a) => (a.reasons || []).join(" / ")).filter(Boolean).join(" · ") || "spread, RSI or momentum anomalies"}.
-                      It can be especially interesting when a pair is not ranked at the top but still shows strong spread movement, RSI divergence or rebound pressure.
+                      This pair is not necessarily a clean top setup, but the scanner found {selectedPairLocalAlerts.map((a) => (a.reasons || []).join(" / ")).filter(Boolean).join(" · ") || "spread, RSI or momentum anomalies"}.
+                      Even weak or lower-ranked pairs can create short-term profit chances when volatility, spread movement, RSI divergence or rebound pressure increases. Risk stays elevated, so this should be treated as a movement signal, not a quality recommendation.
                     </div>
                     <div className="muted tiny" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                       {selectedPairMainAlert?.spread_pct != null ? <span>Spread {Number(selectedPairMainAlert.spread_pct).toFixed(1)}%</span> : null}
@@ -11972,7 +11972,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                             {Array.isArray(aiExplainData.engineV2.pair_alerts) && aiExplainData.engineV2.pair_alerts.length ? (
                               <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,193,7,0.28)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,193,7,0.06)" }}>
-                                <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Hidden Pair Alerts</div>
+                                <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Movement Chance Alerts</div>
                                 {aiExplainData.engineV2.pair_alerts.slice(0, 3).map((al) => (
                                   <div key={`${al.pair}-${al.type}`} className="muted tiny" style={{ lineHeight: 1.45 }}>
                                     <b>{al.pair}</b> · {aiTagLabel(al.type)} · {al.strength} · {(al.reasons || []).join(" / ")}

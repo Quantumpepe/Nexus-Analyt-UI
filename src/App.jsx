@@ -5673,7 +5673,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       if (!key) continue;
       const score = Number(a?.movement_chance_score ?? a?.movementChanceScore ?? a?.score);
       if (!Number.isFinite(score)) continue;
-      if (!Number.isFinite(out[key]) || score > out[key]) out[key] = Math.max(0, Math.min(100, Math.round(score)));
+      if (!Number.isFinite(Number(out[key])) || score > Number(out[key])) out[key] = score;
     }
     return out;
   }, [bestPairUiAlerts]);
@@ -9395,10 +9395,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             gap: 8px !important;
           }
 
-          /* Best pairs mobile: keep every pair row on ONE line.
-             The Movement Chance score adds one extra column, so the mobile
-             grid must define 8 columns; otherwise the last value wraps into
-             a second row on phones. */
+          /* Best pairs: same row layout as desktop, just smaller */
           .section-compare .pairsScroll{
             overflow-x: auto !important;
             overflow-y: auto !important;
@@ -9409,7 +9406,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             display: flex !important;
             align-items: center !important;
             flex-wrap: nowrap !important;
-            min-width: 724px !important;
+            min-width: 620px !important;
             padding: 6px 6px !important;
             gap: 6px !important;
           }
@@ -9417,26 +9414,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
             flex: 0 0 24px !important;
             width: 24px !important;
             font-size: 10.5px !important;
-            white-space: nowrap !important;
           }
           .section-compare .pairRow > div{
             display: grid !important;
-            grid-template-columns: 112px 58px 92px 92px 46px 62px 74px 52px !important;
+            grid-template-columns: minmax(86px, 1fr) 86px 86px 42px 60px 76px 52px !important;
             gap: 5px !important;
             align-items: center !important;
-            min-width: 682px !important;
-            flex: 0 0 682px !important;
+            min-width: 560px !important;
+            flex: 1 0 auto !important;
           }
           .section-compare .pairName{
             min-width: 0 !important;
-            max-width: 112px !important;
             white-space: nowrap !important;
             overflow: hidden !important;
             text-overflow: ellipsis !important;
             font-size: 11px !important;
           }
           .section-compare .pairRow .pill{
-            width: 100% !important;
+            width: auto !important;
             min-width: 0 !important;
             max-width: 100% !important;
             font-size: 10px !important;
@@ -11480,42 +11475,43 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               flex: 1,
                               minWidth: 0,
                               display: "grid",
-                              gridTemplateColumns: "minmax(116px, 1.2fr) 64px 120px 120px 56px 72px auto auto",
+                              gridTemplateColumns: "minmax(88px, 1.2fr) 120px 120px 56px 72px auto auto",
                               gap: 8,
                               alignItems: "center",
                             }}
                           >
-                            <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
-                              <span className="pairName" style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.pair}</span>
-                            </div>
-
                             <span
-                              className="pill"
-                              title={hasMovementChance && Number.isFinite(movementChanceScore) ? `AI Movement Chance Score: ${Math.round(movementChanceScore)}/100 · Indicates unusual movement potential, not a buy signal.` : "No active AI Movement Chance score for this pair."}
+                              className="pairName"
                               style={{
-                                width: 58,
-                                justifyContent: "center",
-                                padding: "4px 6px",
-                                fontSize: 11,
-                                lineHeight: 1,
+                                minWidth: 0,
                                 whiteSpace: "nowrap",
-                                visibility: hasMovementChance && Number.isFinite(movementChanceScore) ? "visible" : "hidden",
-                                background:
-                                  movementChanceScore >= 80
-                                    ? "rgba(255,140,0,0.16)"
-                                    : movementChanceScore >= 60
-                                      ? "rgba(255,184,0,0.14)"
-                                      : "rgba(255,255,255,0.06)",
-                                color:
-                                  movementChanceScore >= 80
-                                    ? "#ffb347"
-                                    : movementChanceScore >= 60
-                                      ? "#ffd166"
-                                      : "#d6d6d6",
-                                border: "1px solid rgba(255,255,255,0.08)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                overflow: "hidden",
                               }}
                             >
-                              ⚡ {Number.isFinite(movementChanceScore) ? Math.round(movementChanceScore) : 0}
+                              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{p.pair}</span>
+                              {hasMovementChance && Number.isFinite(movementChanceScore) ? (
+                                <span
+                                  className="pill"
+                                  title={`AI Movement Chance Score: ${Math.round(movementChanceScore)}/100 · Shows unusual movement potential, not a buy signal.`}
+                                  style={{
+                                    flex: "0 0 auto",
+                                    padding: "3px 6px",
+                                    minWidth: 34,
+                                    justifyContent: "center",
+                                    fontSize: 10.5,
+                                    lineHeight: 1,
+                                    whiteSpace: "nowrap",
+                                    background: movementChanceScore >= 80 ? "rgba(255,140,0,0.16)" : movementChanceScore >= 60 ? "rgba(255,184,0,0.14)" : "rgba(255,255,255,0.06)",
+                                    color: movementChanceScore >= 80 ? "#ffb347" : movementChanceScore >= 60 ? "#ffd166" : "#d6d6d6",
+                                    border: "1px solid rgba(255,255,255,0.08)",
+                                  }}
+                                >
+                                  ⚡ {Math.round(movementChanceScore)}
+                                </span>
+                              ) : null}
                             </span>
 
                             <span

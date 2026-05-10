@@ -155,6 +155,7 @@ function getChainExecutionMode(chainKey, isLiveMode) {
 // -------------------------
 
 import { Buffer } from "buffer";
+const ENABLE_VAULT_SUBSCRIBE = false; // switch to true when vault system is ready
 
 if (typeof window !== "undefined") {
   window.Buffer = window.Buffer || Buffer;
@@ -1111,7 +1112,7 @@ function RotationInfoTrigger() {
       <button
         type="button"
         className="btn"
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
+        onClick={(e) = disabled={!ENABLE_VAULT_SUBSCRIBE} title={!ENABLE_VAULT_SUBSCRIBE ? "Vault infrastructure upgrade in progress. Trading access will activate after security deployment." : ""} className={`${className || ""} ${!ENABLE_VAULT_SUBSCRIBE ? "opacity-50 cursor-not-allowed" : ""}`}> { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
         style={{ marginTop: 14 }}
       >
         Rotation Info
@@ -9917,9 +9918,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   setAccessModalOpen(true);
                 }}
                 title="Subscribe (USDC/USDT on ETH)"
-              >
-                Subscribe
-              </button>
+              >Vault System (Coming Soon)</button>
 
               <div className="text-xs" style={{ opacity: 0.75, marginLeft: 6 }}>
                 {isPro ? (

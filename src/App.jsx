@@ -11317,19 +11317,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <>
                               <p>Diese Liste zeigt Coin-Paare mit ähnlichem oder unterschiedlichem Verlauf auf Basis der aktuell berechneten Pair-Daten.</p>
                               <ul>
-                                <li><b>Hoher Score</b> → sehr ähnliche Bewegung</li>
-                                <li><b>Niedriger Score</b> → eher unabhängige Bewegung</li>
+                                <li><b>Pair Score</b> → wie stark die Pair-Struktur / Daten-Fit ist</li>
+                                <li><b>Spread</b> → Abstand zwischen den Bewegungen der beiden Coins</li>
+                                <li><b>Δ</b> → Differenz / Stärke-Abweichung innerhalb des Pairs</li>
                               </ul>
+                              <p><b>⚡ Movement Chance</b> zeigt ungewöhnliches Bewegungspotenzial. Das kann auch bei Pairs auftreten, die kein sauberes Top-Setup sind.</p>
+                              <ul>
+                                <li><b>Hoher Movement Score</b> → starke Bewegung, Spread-Ausweitung, RSI-Divergenz oder Momentum-Verschiebung möglich</li>
+                                <li><b>Niedriger Movement Score</b> → aktuell wenig auffällige Bewegung</li>
+                              </ul>
+                              <p><b>Wichtig:</b> Movement Chance ist kein Buy-Signal und keine Gewinn-Garantie. Es zeigt nur, wo kurzfristig mehr Marktbewegung und damit auch mehr Risiko entstehen kann.</p>
                               <p><b>Klick auf ein Pair</b>, um Details wie Performance, tägliche Moves, Spread und Erklärung zu öffnen.</p>
-                              <p>Das hilft dir, starke vs. schwache Kombinationen für Hedge-, Rebalance- oder Diversifikations-Ideen schneller zu erkennen.</p>
-							  <p><b>RSI (Relative Strength Index)</b> zeigt Momentum, nicht das tatsächliche Kaufvolumen.</p>
+                              <p>Das hilft dir, starke vs. schwache Kombinationen, volatile Chancen und mögliche Rebound-/Momentum-Bereiche schneller zu erkennen.</p>
+                              <p><b>RSI (Relative Strength Index)</b> zeigt Momentum, nicht das tatsächliche Kaufvolumen.</p>
                               <ul>
                                 <li><b>Überkauft (Rot)</b> → starker Kaufdruck, evtl. überdehnt</li>
                                 <li><b>Neutral (Gelb)</b> → ausgeglichener Markt</li>
                                 <li><b>Überverkauft (Grün)</b> → starker Verkaufsdruck, möglicher Rebound</li>
                               </ul>
                               <p className="muted tiny">
-                                RSI zeigt Extremzonen, keine direkten Kauf-/Verkaufssignale.
+                                RSI und Movement Chance zeigen Marktbedingungen, keine direkten Kauf-/Verkaufssignale.
                              </p>
                             </>
                         }
@@ -11338,19 +11345,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <>
                               <p>This list shows coin pairs with similar or different behavior based on the currently calculated pair data.</p>
                               <ul>
-                                <li><b>High score</b> → very similar movement</li>
-                                <li><b>Low score</b> → more independent movement</li>
+                                <li><b>Pair score</b> → strength of the pair structure / data fit</li>
+                                <li><b>Spread</b> → distance between the two coin movements</li>
+                                <li><b>Δ</b> → difference / strength gap inside the pair</li>
                               </ul>
+                              <p><b>⚡ Movement Chance</b> highlights unusual movement potential. This can appear even when a pair is not a clean top setup.</p>
+                              <ul>
+                                <li><b>High movement score</b> → strong movement, spread expansion, RSI divergence, or momentum shift may be present</li>
+                                <li><b>Low movement score</b> → little unusual movement detected right now</li>
+                              </ul>
+                              <p><b>Important:</b> Movement Chance is not a buy signal and not a profit guarantee. It only shows where short-term movement and higher risk may appear.</p>
                                  <p><b>Click a pair</b> to open details such as performance, daily moves, spread, and explanation.</p>
-                                 <p>This helps you spot stronger vs. weaker combinations faster for hedge, rebalance, or diversification ideas.</p>
-							     <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
+                                 <p>This helps you spot stronger vs. weaker combinations, volatile chances, and possible rebound/momentum areas faster.</p>
+                                 <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
                               <ul>
                                  <li><b>Overbought (Red)</b> → strong recent buying, may be overextended</li>
                                  <li><b>Neutral (Yellow)</b> → balanced market</li>
                                  <li><b>Oversold (Green)</b> → strong recent selling, possible rebound</li>
                              </ul>
                              <p className="muted tiny">
-                               RSI indicates extremes, not direct buy/sell signals.
+                               RSI and Movement Chance describe market conditions, not direct buy/sell signals.
                              </p>
                             </>
                         }

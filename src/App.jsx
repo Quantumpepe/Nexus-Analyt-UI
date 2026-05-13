@@ -6374,7 +6374,7 @@ useEffect(() => {
   }, [wallet, resetWalletBoundUi]);
 
   const [aiKind, setAiKind] = useState("research");
-  const [aiProfile, setAiProfile] = useState("balanced");
+  const aiProfile = "balanced";
 const [aiQuestion, setAiQuestion] = useState("");
   
   const [aiFollowUp, setAiFollowUp] = useState(false);
@@ -14087,8 +14087,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="cardActions" style={{ alignItems: "center" }}>
               <InfoButton title="AI Analyst">
                 <Help showClose dismissable
-                  de={<><p><b>AI Analyst</b> ist dein aktiver Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Unterschied zu AI Insight:</b> AI Insight erklaert kompakt den aktuellen Markt. AI Analyst hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten und Trade-Review.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Profile:</b> steuert den Antwortstil, z. B. konservativ, ausgewogen oder volatilitaetsfokussiert.</p><p><b>Hinweis:</b> Der AI Analyst liefert Analyse, Struktur und Lernhilfe. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}
-                  en={<><p><b>AI Analyst</b> is your active workspace inside Nexus Analyt. It no longer works through visible coin chips; it works through your task input.</p><p><b>Difference from AI Insight:</b> AI Insight gives a compact market interpretation. AI Analyst helps actively with research, strategy ideas, backtest review, Pine Script, reports, and trade review.</p><p><b>Research:</b> investigates market questions, rotation, relative strength, volume, watchlist themes, and unusual conditions.</p><p><b>Strategy Builder:</b> turns your idea into clear rules, filters, entry/exit logic, risk logic, and alerts.</p><p><b>Backtest Review:</b> evaluates backtest results, drawdown, win rate, expectancy, overfitting risk, and weak market regimes.</p><p><b>Pine Builder:</b> helps with TradingView/Pine Script: indicators, strategies, alerts, debugging, and improvements.</p><p><b>Daily Report:</b> creates a compact report from your task and available app context.</p><p><b>Trade Review:</b> analyzes execution, behavior, order structure, repeated mistakes, and trading habits.</p><p><b>Input:</b> Always describe what the analyst should do. You can paste coin names, strategy ideas, backtest data, or Pine Script directly.</p><p><b>Profile:</b> controls answer style, for example conservative, balanced, or volatility-focused.</p><p><b>Note:</b> AI Analyst provides analysis, structure, and learning support. It is not financial advice or a direct buy/sell recommendation.</p></>}
+                  de={<><p><b>AI Analyst</b> ist dein aktiver Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Unterschied zu AI Insight:</b> AI Insight erklaert kompakt den aktuellen Markt. AI Analyst hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten und Trade-Review.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Hinweis:</b> Der AI Analyst liefert Analyse, Struktur und Lernhilfe. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}
+                  en={<><p><b>AI Analyst</b> is your active workspace inside Nexus Analyt. It no longer works through visible coin chips; it works through your task input.</p><p><b>Difference from AI Insight:</b> AI Insight gives a compact market interpretation. AI Analyst helps actively with research, strategy ideas, backtest review, Pine Script, reports, and trade review.</p><p><b>Research:</b> investigates market questions, rotation, relative strength, volume, watchlist themes, and unusual conditions.</p><p><b>Strategy Builder:</b> turns your idea into clear rules, filters, entry/exit logic, risk logic, and alerts.</p><p><b>Backtest Review:</b> evaluates backtest results, drawdown, win rate, expectancy, overfitting risk, and weak market regimes.</p><p><b>Pine Builder:</b> helps with TradingView/Pine Script: indicators, strategies, alerts, debugging, and improvements.</p><p><b>Daily Report:</b> creates a compact report from your task and available app context.</p><p><b>Trade Review:</b> analyzes execution, behavior, order structure, repeated mistakes, and trading habits.</p><p><b>Input:</b> Always describe what the analyst should do. You can paste coin names, strategy ideas, backtest data, or Pine Script directly.</p><p><b>Note:</b> AI Analyst provides analysis, structure, and learning support. It is not financial advice or a direct buy/sell recommendation.</p></>}
                 />
               </InfoButton>
             </div>
@@ -14100,6 +14100,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <textarea
                 value={aiQuestion}
                 onChange={(e) => setAiQuestion(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!aiLoading) runAi();
+                  }
+                }}
                 placeholder={aiTaskPlaceholder(aiKind)}
                 rows={6}
                 style={{
@@ -14150,14 +14156,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               </div>
 
-              <div className="formRow">
-                <label>Profile</label>
-                <select value={aiProfile} onChange={(e) => setAiProfile(e.target.value)}>
-                  <option value="conservative">Conservative</option>
-                  <option value="balanced">Balanced</option>
-                  <option value="volatility">Volatility</option>
-                </select>
-              </div>
 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <label className="muted" style={{ display: "inline-flex", gap: 8, alignItems: "center", userSelect: "none" }}>
                   <input

@@ -8391,8 +8391,6 @@ if (data?.cached != null) setWatchCached(Boolean(data.cached));
   // AI
   const aiCompareContextModes = useMemo(() => new Set(["research", "daily_report"]), []);
   const aiUsesCompareContext = aiCompareContextModes.has(aiKind);
-  const aiOptions = useMemo(() => compareSymbols, [compareSymbols]);
-
   
   const normalizeAiOutput = (rawText, tf, q, seriesStats) => {
     const TF = String(tf || "").toUpperCase();
@@ -8432,20 +8430,28 @@ if (data?.cached != null) setWatchCached(Boolean(data.cached));
 
     return `${headTitle}\n${bullets.join("\n")}\n\n${filtered.join("\n")}`.trim();
   };
+function aiTaskPlaceholder(kind) {
+    const k = String(kind || "");
+    if (k === "strategy_builder") return "Example: Build a low-risk ETH breakout strategy using RVOL confirmation, EMA trend filter, clear invalidation rules, and alert logic.";
+    if (k === "backtest_review") return "Example: Paste my backtest summary and explain where this strategy is weak, whether it looks overfitted, and which market regimes hurt performance.";
+    if (k === "pine_tradingview") return "Example: Create a Pine Script indicator that shows overextension from the 50 EMA with alerts when RVOL confirms the move.";
+    if (k === "daily_report") return "Example: Create today's market report for BTC, ETH, SOL and my watchlist. Highlight risk, rotation, strongest/weakest assets, and what to watch next.";
+    if (k === "diagnostics") return "Example: Review my recent trades/orders and identify execution mistakes, overtrading risk, position sizing issues, and behavior patterns.";
+    return "Example: Analyze ETH vs BTC relative strength, rotation signals, unusual volume, whale activity, and whether momentum looks healthy or unstable.";
+  }
+
 async function runAi() {
     setErrorMsg("");
     setAiOutput("");
     if (!requirePro("AI Analyst")) return;
     const q = (aiQuestion || "").trim();
+    if (!q) return setErrorMsg("Please describe what the AI Analyst should do.");
 
+    // Compare/watchlist data may still be useful as hidden context for Research and Daily Report,
+    // but coin chips are no longer shown in the AI Analyst UI.
     const syms = aiUsesCompareContext ? (compareSymbols || []) : [];
-    if (aiUsesCompareContext && !syms.length) return setErrorMsg("Add coins to Compare first for Research or Daily Report.");
 
-    const isFollowUpAsk = !!aiFollowUp && !!q;
-    if (aiFollowUp && !aiOutput && q) {
-      return setErrorMsg("Run the AI Analyst first, then ask a follow-up question.");
-    }
-
+    const isFollowUpAsk = !!aiFollowUp && !!aiOutput;
     const aiKindPrompts = {
       research: `Act as a ${aiProfile} research analyst. Identify rotation, relative strength, watchlist changes, unusual volume/momentum conditions, and market themes. Do not repeat AI Insight; focus on discovery and research conclusions.`,
       strategy_builder: `Act as a ${aiProfile} strategy builder. Convert the user's idea into educational strategy logic: setup idea, filters, entries/exits as rules only, risk logic, invalidation conditions, and alert structure. Do not give direct financial advice or exact price levels.`,
@@ -8455,9 +8461,13 @@ async function runAi() {
       diagnostics: `Act as a ${aiProfile} trading diagnostics analyst. Diagnose behavioral risk, execution fit, volatility tolerance, weak setups, and common mistakes using only the provided context. Keep it coaching-style, not command-style.`,
     };
 
+    const basePrompt = aiKindPrompts[aiKind] || `Provide a ${aiProfile} analyst response based on the current task, timeframe, and available context.`;
     const qFinal = isFollowUpAsk
       ? q
-      : (aiKindPrompts[aiKind] || `Provide a ${aiProfile} analyst response based on the current task, timeframe, and available context.`);
+      : `${basePrompt}
+
+User task:
+${q}`;
 
     setAiLoading(true);
     try {
@@ -14077,8 +14087,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="cardActions" style={{ alignItems: "center" }}>
               <InfoButton title="AI Analyst">
                 <Help showClose dismissable
-                  de={<><p><b>AI Analyst</b> ist der aktive Arbeitsbereich von Nexus Analyt. Er ist ein Research-, Strategie- und Diagnose-Workspace.</p><p><b>Unterschied zu AI Insight:</b> AI Insight bleibt kurz und erklaert den aktuellen Markt. AI Analyst arbeitet aufgabenbezogen: recherchieren, Strategien strukturieren, Backtests beurteilen, Pine Script helfen und Trading-Verhalten analysieren.</p><p><b>Research:</b> nutzt automatisch die Compare-Coins als Marktkontext und sucht nach Rotation, relativer Staerke, Volumenveraenderungen, Whale-Signalen und Markt-Themen.</p><p><b>Daily Report:</b> nutzt automatisch die Compare-Coins und erstellt einen kompakten Markt-/Watchlist-Bericht.</p><p><b>Strategy Builder:</b> ist von Compare entkoppelt. Er verwandelt deine Idee in Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alert-Struktur.</p><p><b>Pine Builder:</b> ist von Compare entkoppelt. Er hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Backtest Review:</b> ist von Compare entkoppelt. Er bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und Marktphasen, in denen eine Strategie schwach werden kann.</p><p><b>Trade Review:</b> ist von Compare entkoppelt. Er analysiert Order-Struktur, Ausfuehrung, Verhalten, haeufige Fehler und Trading-Gewohnheiten.</p><p><b>Scope:</b> Research und Daily Report verwenden Compare als Kontext. Alle anderen Modi arbeiten primaer mit deiner Aufgabe oder deinem eingefuegten Text.</p><p><b>Profile:</b> steuert den Antwortstil, z. B. konservativ, ausgewogen oder volatilitaetsfokussiert.</p><p><b>Follow-up:</b> behaelt den Kontext fuer Rueckfragen im selben AI-Dialog.</p><p><b>Hinweis:</b> Der AI Analyst liefert Analyse, Struktur und Lernhilfe. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}
-                  en={<><p><b>AI Analyst</b> is the active workspace inside Nexus Analyt. It is a research, strategy, and diagnostics workspace.</p><p><b>Difference from AI Insight:</b> AI Insight stays short and explains the current market. AI Analyst is task-based: research, strategy structure, backtest review, Pine Script help, and trading behavior analysis.</p><p><b>Research:</b> automatically uses Compare coins as market context and looks for rotation, relative strength, volume changes, whale signals, and market themes.</p><p><b>Daily Report:</b> automatically uses Compare coins and creates a compact market/watchlist report.</p><p><b>Strategy Builder:</b> is detached from Compare. It turns your idea into rules, filters, entry/exit logic, risk logic, and alert structure.</p><p><b>Pine Builder:</b> is detached from Compare. It helps with TradingView/Pine Script: indicators, strategies, alerts, debugging, and improvements.</p><p><b>Backtest Review:</b> is detached from Compare. It evaluates backtest results, drawdown, win rate, expectancy, overfitting risk, and weak market regimes.</p><p><b>Trade Review:</b> is detached from Compare. It analyzes order structure, execution, behavior, repeated mistakes, and trading habits.</p><p><b>Scope:</b> Research and Daily Report use Compare as context. All other modes primarily use your task or pasted text.</p><p><b>Profile:</b> controls answer style, for example conservative, balanced, or volatility-focused.</p><p><b>Follow-up:</b> keeps context for follow-up questions inside the same AI dialog.</p><p><b>Note:</b> AI Analyst provides analysis, structure, and learning support. It is not financial advice or a direct buy/sell recommendation.</p></>}
+                  de={<><p><b>AI Analyst</b> ist dein aktiver Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Unterschied zu AI Insight:</b> AI Insight erklaert kompakt den aktuellen Markt. AI Analyst hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten und Trade-Review.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Profile:</b> steuert den Antwortstil, z. B. konservativ, ausgewogen oder volatilitaetsfokussiert.</p><p><b>Hinweis:</b> Der AI Analyst liefert Analyse, Struktur und Lernhilfe. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}
+                  en={<><p><b>AI Analyst</b> is your active workspace inside Nexus Analyt. It no longer works through visible coin chips; it works through your task input.</p><p><b>Difference from AI Insight:</b> AI Insight gives a compact market interpretation. AI Analyst helps actively with research, strategy ideas, backtest review, Pine Script, reports, and trade review.</p><p><b>Research:</b> investigates market questions, rotation, relative strength, volume, watchlist themes, and unusual conditions.</p><p><b>Strategy Builder:</b> turns your idea into clear rules, filters, entry/exit logic, risk logic, and alerts.</p><p><b>Backtest Review:</b> evaluates backtest results, drawdown, win rate, expectancy, overfitting risk, and weak market regimes.</p><p><b>Pine Builder:</b> helps with TradingView/Pine Script: indicators, strategies, alerts, debugging, and improvements.</p><p><b>Daily Report:</b> creates a compact report from your task and available app context.</p><p><b>Trade Review:</b> analyzes execution, behavior, order structure, repeated mistakes, and trading habits.</p><p><b>Input:</b> Always describe what the analyst should do. You can paste coin names, strategy ideas, backtest data, or Pine Script directly.</p><p><b>Profile:</b> controls answer style, for example conservative, balanced, or volatility-focused.</p><p><b>Note:</b> AI Analyst provides analysis, structure, and learning support. It is not financial advice or a direct buy/sell recommendation.</p></>}
                 />
               </InfoButton>
             </div>
@@ -14086,22 +14096,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           <div className="panelScroll"><div className="aiWrap">
             <div className="aiSelect">
-              <div className="label">Scope</div>
-              {aiUsesCompareContext ? (
-                <>
-                  <div className="muted tiny" style={{ marginBottom: 8 }}>Compare context is active for this mode.</div>
-                  <div className="aiChips">
-                    {aiOptions.map((s) => (
-                      <span key={s} className="chip active" title="Compare context coin">{s}</span>
-                    ))}
-                    {!aiOptions.length ? <div className="muted">Add coins to Compare first.</div> : null}
-                  </div>
-                </>
-              ) : (
-                <div className="hint" style={{ marginTop: 4 }}>
-                  Task-based mode. Compare coins are not added automatically. Use the prompt/follow-up field for your idea, Pine Script, backtest notes, or trade review question.
-                </div>
-              )}
+              <div className="label">Task</div>
+              <textarea
+                value={aiQuestion}
+                onChange={(e) => setAiQuestion(e.target.value)}
+                placeholder={aiTaskPlaceholder(aiKind)}
+                rows={6}
+                style={{
+                  width: "100%",
+                  minHeight: 130,
+                  resize: "vertical",
+                  borderRadius: 14,
+                  padding: "12px 14px",
+                  background: "rgba(0,0,0,0.28)",
+                  color: "inherit",
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  outline: "none",
+                }}
+                disabled={aiLoading}
+              />
+              <div className="muted tiny" style={{ marginTop: 8 }}>
+                Describe what the analyst should do. You can paste coins, strategy ideas, backtest notes, or Pine Script here.
+              </div>
 
               <div className="divider" />
 
@@ -14177,38 +14193,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : null}
 
               <button className="btn" onClick={runAi} disabled={aiLoading}>
-                {aiLoading ? "Running…" : "Run"}
+                {aiLoading ? "Running…" : (aiFollowUp && aiOutput ? "Ask" : "Run")}
               </button>
             </div>
 
             <div className="aiOut">
               <div className="label">Output</div>
               <div className="aiPanel">{aiOutput ? <div className="aiText" style={{ whiteSpace: "pre-wrap" }}>{aiOutput}</div> : <div className="muted">No output yet.</div>}</div>
-
-              {aiFollowUp ? (
-                <div style={{ marginTop: 12 }}>
-                  <div className="label" style={{ marginBottom: 6 }}>Ask about this analysis</div>
-                  <div className="formRow" style={{ marginBottom: 8 }}>
-                    <input
-                      value={aiQuestion}
-                      onChange={(e) => setAiQuestion(e.target.value)}
-                      placeholder={aiOutput ? "Ask something about this analyst result..." : "Run the AI Analyst first, then ask a follow-up..."}
-                      disabled={!aiOutput || aiLoading}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && aiQuestion.trim() && aiOutput && !aiLoading) {
-                          e.preventDefault();
-                          runAi();
-                        }
-                      }}
-                    />
-                  </div>
-                  {aiQuestion.trim() ? (
-                    <button className="btn" onClick={runAi} disabled={!aiOutput || aiLoading}>
-                      {aiLoading ? "Asking…" : "Ask"}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
           </div></div>
         </section>

@@ -11649,26 +11649,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               }}
                             >
                               <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{p.pair}</span>
-                              {hasMovementChance && Number.isFinite(movementChanceScore) ? (
-                                <span
-                                  className="pill"
-                                  title={`AI Movement Chance · Shows unusual movement potential, not a buy signal.`}
-                                  style={{
-                                    flex: "0 0 auto",
-                                    padding: "3px 6px",
-                                    minWidth: 24,
-                                    justifyContent: "center",
-                                    fontSize: 10.5,
-                                    lineHeight: 1,
-                                    whiteSpace: "nowrap",
-                                    background: movementChanceScore >= 80 ? "rgba(255,140,0,0.16)" : movementChanceScore >= 60 ? "rgba(255,184,0,0.14)" : "rgba(255,255,255,0.06)",
-                                    color: movementChanceScore >= 80 ? "#ffb347" : movementChanceScore >= 60 ? "#ffd166" : "#d6d6d6",
-                                    border: "1px solid rgba(255,255,255,0.08)",
-                                  }}
-                                >
-                                  ⚡
-                                </span>
-                              ) : null}
                             </span>
 
                             <span

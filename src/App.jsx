@@ -11485,7 +11485,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       title="Open Movement Opportunities. This does not change the main pair ranking."
                       onClick={() => setMovementPanelOpen((v) => !v)}
                     >
-                      ⚡ Movement
+                      ⚡ Movement{bestPairUiAlerts.length ? ` (${bestPairUiAlerts.length})` : ""}
                     </button>
                     <button className="ghostBtn tiny" onClick={() => setShowTop10Pairs(v => !v)}>
                       {showTop10Pairs ? "Show all pairs" : "Show top 10"}
@@ -11617,13 +11617,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}
                         >
                           <span
-                            className={`muted ${hasMovementChance ? `movementChanceRankPulse ${normalizedAiInsightMode === "extreme" ? "extreme" : ""}` : ""}`}
-                            title={hasMovementChance ? `${p.pair} has an AI Movement Chance (${movementTone}). Open the pair to inspect unusual movement pressure.` : undefined}
+                            className="muted"
+                            title={hasMovementChance ? `${p.pair} has a Movement Opportunity. Position is unchanged; movement does not affect ranking.` : undefined}
                             style={{
                               width: 34,
                               textAlign: "right",
                               flex: "0 0 34px",
-                              color: hasMovementChance ? (movementTone === "high" ? "#ffd166" : movementTone === "medium" ? "#ffe08a" : "#c8f7da") : undefined,
+                              color: hasMovementChance ? "#ffd166" : undefined,
                             }}
                           >#{i + 1}</span>
 

@@ -6373,7 +6373,7 @@ useEffect(() => {
     prevWalletRef.current = curr;
   }, [wallet, resetWalletBoundUi]);
 
-  const [aiKind, setAiKind] = useState("analysis");
+  const [aiKind, setAiKind] = useState("research");
   const [aiProfile, setAiProfile] = useState("balanced");
 const [aiQuestion, setAiQuestion] = useState("");
   
@@ -8444,7 +8444,7 @@ if (data?.cached != null) setWatchCached(Boolean(data.cached));
 async function runAi() {
     setErrorMsg("");
     setAiOutput("");
-    if (!requirePro("AI analysis")) return;
+    if (!requirePro("AI Analyst")) return;
     const q = (aiQuestion || "").trim();
 
     const syms = (aiSelected && aiSelected.length ? aiSelected : compareSymbols).slice(0, 6);
@@ -8452,14 +8452,21 @@ async function runAi() {
 
     const isFollowUpAsk = !!aiFollowUp && !!q;
     if (aiFollowUp && !aiOutput && q) {
-      return setErrorMsg("Run an AI analysis first, then ask a follow-up question.");
+      return setErrorMsg("Run the AI Analyst first, then ask a follow-up question.");
     }
+
+    const aiKindPrompts = {
+      research: `Act as a ${aiProfile} research analyst. Identify rotation, relative strength, watchlist changes, unusual volume/momentum conditions, and market themes. Do not repeat AI Insight; focus on discovery and research conclusions.`,
+      strategy_builder: `Act as a ${aiProfile} strategy builder. Convert the selected market context into educational strategy logic: setup idea, filters, entries/exits as rules only, risk logic, invalidation conditions, and alert structure. Do not give direct financial advice or exact price levels.`,
+      backtest_review: `Act as a ${aiProfile} backtest reviewer. Evaluate strategy robustness, drawdown behavior, regime dependency, overfitting risk, expectancy quality, and where the strategy may fail.`,
+      pine_tradingview: `Act as a TradingView and Pine Script assistant. Help create, explain, debug, or improve Pine Script indicators/strategies and alert logic based on the selected symbols and timeframe. Keep it educational and non-prescriptive.`,
+      daily_report: `Act as a ${aiProfile} daily trading report analyst. Summarize strongest/weakest selected assets, risk conditions, movement candidates, market themes, and what deserves attention next. Do not repeat AI Insight; produce a practical report.`,
+      diagnostics: `Act as a ${aiProfile} trading diagnostics analyst. Diagnose behavioral risk, execution fit, volatility tolerance, weak setups, and common mistakes using only the provided context. Keep it coaching-style, not command-style.`,
+    };
 
     const qFinal = isFollowUpAsk
       ? q
-      : (aiKind === "Signals"
-          ? `Give ${aiProfile} trading signals and key levels based on the selected timeframe.`
-          : `Provide a ${aiProfile} ${aiKind.toLowerCase()} based on the selected timeframe, and summarize key trends, risks, and actionable takeaways.`);
+      : (aiKindPrompts[aiKind] || `Provide a ${aiProfile} analyst response based on the selected timeframe and context.`);
 
     setAiLoading(true);
     try {
@@ -14080,8 +14087,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <span className="pill silver">{aiSelected.length}/6 selected</span>
               <InfoButton title="AI Analyst">
                 <Help showClose dismissable
-                  de={<><p>Maximal <b>6 Coins</b> pro Analyse. Die Coins kommen aus deiner Compare-Auswahl.</p><p><b>AI Insight</b> kombiniert Marktstruktur, Rating, Community-Votes und On-Chain-Signale.</p><p><b>Kind</b> bestimmt den Analyse-Typ: Analysis, Risk oder Explain.</p><p><b>Profile</b> steuert den Stil der Antwort, z. B. konservativ, ausgewogen oder volatilitätsfokussiert.</p><p><b>Follow-up</b> hält den Kontext für Rückfragen im selben AI-Dialog.</p><p><b>Demo Mode:</b> beide AI-Funktionen zusammen sind auf 5 Anfragen pro Tag begrenzt. <b>Live/Permanent:</b> kein Demo-Limit.</p></>}
-                  en={<><p>Maximum <b>6 coins</b> per analysis. Coins are taken from your compare selection.</p><p><b>AI Insight</b> combines market structure, rating, community votes, and on-chain signals.</p><p><b>Kind</b> sets the analysis type: Analysis, Risk, or Explain.</p><p><b>Profile</b> controls the answer style, for example conservative, balanced, or volatility-focused.</p><p><b>Follow-up</b> keeps context for follow-up questions inside the same AI dialog.</p><p><b>Demo Mode:</b> both AI functions together are limited to 5 requests per day. <b>Live/Permanent:</b> no demo limit.</p></>}
+                  de={<><p>Maximal <b>6 Coins</b> pro Analyse. Die Coins kommen aus deiner Compare-Auswahl.</p><p><b>AI Insight</b> bleibt die kompakte Marktinterpretation: Struktur, Liquidität, Risiko und Tactical Read.</p><p><b>AI Analyst</b> ist der Arbeitsbereich für Research, Strategie-Ideen, Backtest-Auswertung, TradingView/Pine, Reports und Diagnose.</p><p><b>Mode</b> bestimmt, welches Werkzeug der Analyst nutzt. Dadurch wiederholt er nicht einfach AI Insight.</p><p><b>Profile</b> steuert den Antwortstil, z. B. konservativ, ausgewogen oder volatilitätsfokussiert.</p><p><b>Follow-up</b> hält den Kontext für Rückfragen im selben AI-Dialog.</p></>}
+                  en={<><p>Maximum <b>6 coins</b> per analysis. Coins are taken from your compare selection.</p><p><b>AI Insight</b> stays the compact market interpretation layer: structure, liquidity, risk, and tactical read.</p><p><b>AI Analyst</b> is the workspace for research, strategy ideas, backtest review, TradingView/Pine, reports, and diagnostics.</p><p><b>Mode</b> selects the analyst tool so it does not simply repeat AI Insight.</p><p><b>Profile</b> controls the answer style, for example conservative, balanced, or volatility-focused.</p><p><b>Follow-up</b> keeps context for follow-up questions inside the same AI dialog.</p></>}
                 />
               </InfoButton>
             </div>
@@ -14105,12 +14112,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div className="divider" />
 
               <div className="formRow">
-                <label>Kind</label>
-                <select value={aiKind} onChange={(e) => setAiKind(e.target.value)}>
-                  <option value="analysis">Analysis</option>
-                  <option value="risk">Risk</option>
-                  <option value="explain">Explain</option>
-                </select>
+                <label>Mode</label>
+                <div className="aiChips" style={{ gap: 8 }}>
+                  {[
+                    ["research", "Research"],
+                    ["strategy_builder", "Strategy Builder"],
+                    ["backtest_review", "Backtest Review"],
+                    ["pine_tradingview", "TradingView / Pine"],
+                    ["daily_report", "Daily Report"],
+                    ["diagnostics", "Diagnostics"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`chip ${aiKind === value ? "active" : ""}`}
+                      onClick={() => {
+                        setAiKind(value);
+                        setAiOutput("");
+                        setAiHistory([]);
+                        setAiQuestion("");
+                      }}
+                      title={`AI Analyst mode: ${label}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="formRow">
@@ -14171,7 +14198,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <input
                       value={aiQuestion}
                       onChange={(e) => setAiQuestion(e.target.value)}
-                      placeholder={aiOutput ? "Ask something about this analysis..." : "Run the analysis first, then ask a follow-up..."}
+                      placeholder={aiOutput ? "Ask something about this analyst result..." : "Run the AI Analyst first, then ask a follow-up..."}
                       disabled={!aiOutput || aiLoading}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && aiQuestion.trim() && aiOutput && !aiLoading) {

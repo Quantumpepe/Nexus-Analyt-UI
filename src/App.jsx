@@ -1600,7 +1600,7 @@ function formatAiSignalContextForPrompt(ctx) {
     `${p.pair}: score=${p.score ?? "n/a"}, corr=${p.corr ?? "n/a"}, spread=${p.spread_pct ?? "n/a"}%, rsi_gap=${p.rsi_gap ?? "n/a"}`
   );
 
-  const weightLine = ctx?.compare_weights ? `AI mode=${ctx.ai_mode || "standard"}; Compare weights corr=${ctx.compare_weights.corr}, momentum=${ctx.compare_weights.momentum}, opportunity=${ctx.compare_weights.opportunity}, stability=${ctx.compare_weights.stability}` : "";
+  const weightLine = ctx?.compare_weights ? `AI mode=${ctx.ai_mode || "standard"}; Compare weights corr=${ctx.compare_weights.corr}, momentum=${ctx.compare_weights.momentum}, opportunity=${ctx.compare_weights.opportunity}, stability=${ctx.compare_weights.stability}, sentiment=${ctx.compare_weights.sentiment}` : "";
 
   return [
     weightLine,
@@ -2485,19 +2485,21 @@ function buildAlignedDailyLines(seriesBySym, opts = {}) {
   return { dates, lines };
 }
 
-const DEFAULT_COMPARE_WEIGHTS = { corr: 45, momentum: 25, opportunity: 20, stability: 10 };
-const COMPARE_WEIGHT_KEYS = ["corr", "momentum", "opportunity", "stability"];
+const DEFAULT_COMPARE_WEIGHTS = { corr: 40, momentum: 20, opportunity: 20, stability: 10, sentiment: 10 };
+const COMPARE_WEIGHT_KEYS = ["corr", "momentum", "opportunity", "stability", "sentiment"];
 const COMPARE_WEIGHT_LABELS = {
   corr: "Correlation",
   momentum: "Momentum / RSI Gap",
   opportunity: "Spread / Opportunity",
   stability: "Stability / Volatility",
+  sentiment: "Community Sentiment",
 };
 const COMPARE_WEIGHT_HELP = {
-  corr: "How strongly pair correlation affects the pair score.",
-  momentum: "How strongly RSI/momentum difference affects the pair score.",
-  opportunity: "How strongly the 30D spread/opportunity affects the pair score.",
-  stability: "How strongly similar volatility and stability affects the pair score.",
+  corr: "How strongly pair relationship similarity influences ranking.",
+  momentum: "Weights short-term movement pressure and relative momentum imbalance.",
+  opportunity: "Prioritizes larger divergence and higher movement potential.",
+  stability: "Controls preference for stable versus highly volatile setups.",
+  sentiment: "Weights user ratings and community voting context when available.",
 };
 function sanitizeCompareWeights(input) {
   const out = { ...DEFAULT_COMPARE_WEIGHTS };
@@ -2523,7 +2525,7 @@ function compareWeightTotal(weights) {
   return COMPARE_WEIGHT_KEYS.reduce((sum, k) => sum + Number(w[k] || 0), 0);
 }
 
-function computeBestPairsFromSeries(seriesBySym, limit = 30, scoreWeights = DEFAULT_COMPARE_WEIGHTS) {
+function computeBestPairsFromSeries(seriesBySym, limit = 30, scoreWeights = DEFAULT_COMPARE_WEIGHTS, ratingSummaryBySymbol = {}) {
   const { lines } = buildAlignedDailyLines(seriesBySym, { minDays: 20 });
   const syms = Object.keys(lines || {});
   if (syms.length < 2) return [];
@@ -2613,14 +2615,22 @@ function computeBestPairsFromSeries(seriesBySym, limit = 30, scoreWeights = DEFA
       const momentumScore = Math.round(rsiGapScore(rsiGap));
       const opportunityScore = Math.round(Number.isFinite(spreadPct) ? clamp(spreadPct * 3.5, 0, 100) : 50);
       const stabilityScore = Math.round(Number.isFinite(volGap) ? clamp(100 - (volGap * 10), 25, 100) : 60);
+      const sentimentA = userRatingAverageScore(ratingSummaryBySymbol?.[a]);
+      const sentimentB = userRatingAverageScore(ratingSummaryBySymbol?.[b]);
+      const sentimentScore = Math.round(
+        Number.isFinite(sentimentA) && Number.isFinite(sentimentB)
+          ? clamp((sentimentA + sentimentB) / 2, 0, 100)
+          : 50
+      );
 
       // Composite: correlation still matters, but the score now also reflects momentum gap,
-      // real 30D opportunity spread, and whether both assets have roughly comparable volatility.
+      // real 30D opportunity spread, volatility stability, and optional user/community sentiment.
       const score = Math.round(
         (corrScore * (Number(weights.corr || 0) / 100)) +
         (momentumScore * (Number(weights.momentum || 0) / 100)) +
         (opportunityScore * (Number(weights.opportunity || 0) / 100)) +
-        (stabilityScore * (Number(weights.stability || 0) / 100))
+        (stabilityScore * (Number(weights.stability || 0) / 100)) +
+        (sentimentScore * (Number(weights.sentiment || 0) / 100))
       );
 
       res.push({
@@ -2633,6 +2643,7 @@ function computeBestPairsFromSeries(seriesBySym, limit = 30, scoreWeights = DEFA
         momentumScore,
         opportunityScore,
         stabilityScore,
+        sentimentScore,
         rsiA,
         rsiB,
         rsiGap,
@@ -5472,7 +5483,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
           `Analyze the current pair structure for ${a} vs ${b}. ` +
           `This is AI Insight Level 2: explain not only what the data says, but how the structure may behave. ` +
           `AI Insight mode is ${normalizedAiInsightMode}. Extreme mode means higher sensitivity to early momentum, rebound, spread and hidden-opportunity structures, while still explaining invalidation clearly. ` +
-          `Use the active Compare weights as interpretation priorities: correlation ${activeCompareWeights.corr}%, momentum ${activeCompareWeights.momentum}%, opportunity ${activeCompareWeights.opportunity}%, stability ${activeCompareWeights.stability}%. ` +
+          `Use the active Compare weights as interpretation priorities: correlation ${activeCompareWeights.corr}%, momentum ${activeCompareWeights.momentum}%, opportunity ${activeCompareWeights.opportunity}%, stability ${activeCompareWeights.stability}%, community sentiment ${activeCompareWeights.sentiment}%. ` +
           `Use pair statistics, multi-timeframe context, rating, community votes, on-chain context, all_compare_pairs hidden-opportunity scan, and wallet-fit to describe structure, behavior, strategy fit, and risk posture. ` +
           `IMPORTANT: mention rating, market condition (OE/RVOL), and on-chain confirmation explicitly when available. If on-chain is neutral or missing, say it is neutral/no strong signal instead of ignoring it. ` +
           `Include a compact behavior read, for example range-bound, mean-reversion style, trend-bias, unstable/choppy, or low-conviction. ` +
@@ -5639,8 +5650,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [highlightedSyms, setHighlightedSyms] = useState([]);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
   const [bestPairsSortMode, setBestPairsSortMode] = useLocalStorageState("nexus_best_pairs_sort_mode", "score"); // score | spread
+  const [movementPanelOpen, setMovementPanelOpen] = useState(false);
   const [customCompareWeightsOn, setCustomCompareWeightsOn] = useLocalStorageState("nexus_compare_custom_weights_on", false);
-  const [compareWeightPanelOpen, setCompareWeightPanelOpen] = useLocalStorageState("nexus_compare_weight_panel_open", false);
   const [compareWeights, setCompareWeights] = useLocalStorageState("nexus_compare_custom_weights_v1", DEFAULT_COMPARE_WEIGHTS);
   const [aiInsightMode, setAiInsightMode] = useLocalStorageState("nexus_ai_insight_mode_v1", "standard");
   const normalizedAiInsightMode = String(aiInsightMode || "standard").toLowerCase() === "extreme" ? "extreme" : "standard";
@@ -5712,7 +5723,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     const sym = String(gridModalSym || "").toUpperCase().trim();
     return sym ? (watchRows || []).find((r) => String(r?.symbol || "").toUpperCase() === sym) || null : null;
   }, [gridModalSym, watchRows]);
-    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000, activeCompareWeights), [compareSeries, activeCompareWeights]);
+    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000, activeCompareWeights, ratingSummaryBySymbol), [compareSeries, activeCompareWeights, ratingSummaryBySymbol]);
   const bestPairsSorted = useMemo(() => {
     const rows = Array.isArray(bestPairsAll) ? [...bestPairsAll] : [];
     if (String(bestPairsSortMode || "score") !== "spread") return rows;
@@ -5726,8 +5737,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }, [bestPairsAll, bestPairsSortMode]);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsSorted.slice(0, 10) : bestPairsSorted), [showTop10Pairs, bestPairsSorted]);
   const bestPairUiAlerts = useMemo(
-    () => buildLocalPairAlertsForUi(bestPairsToShow, activeCompareWeights, normalizedAiInsightMode),
-    [bestPairsToShow, activeCompareWeights, normalizedAiInsightMode]
+    () => buildLocalPairAlertsForUi(bestPairsAll, activeCompareWeights, normalizedAiInsightMode),
+    [bestPairsAll, activeCompareWeights, normalizedAiInsightMode]
   );
   const bestPairTopAlert = bestPairUiAlerts?.[0] || null;
   const bestPairAlertTone = bestPairUiAlerts.some((a) => a?.strength === "high")
@@ -11256,27 +11267,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <div>
-                  <div className="label">Compare Score Weighting</div>
-                  <div className="muted tiny">
-                    {customCompareWeightsOn
-                      ? `Custom active · Total ${compareWeightsTotal}% · Remaining ${compareWeightsRemaining}%`
-                      : "System weighting active"}
-                  </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div className="label" style={{ marginBottom: 0 }}>Compare Score Weighting</div>
+                  {customCompareWeightsOn ? (
+                    <span className="muted tiny">Total {compareWeightsTotal}% · Remaining {compareWeightsRemaining}%</span>
+                  ) : null}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   {customCompareWeightsOn && (
                     <button className="ghostBtn tiny" onClick={resetCompareWeights} title="Reset to system default weights">
                       Reset
-                    </button>
-                  )}
-                  {customCompareWeightsOn && (
-                    <button
-                      className="ghostBtn tiny"
-                      onClick={() => setCompareWeightPanelOpen((v) => !v)}
-                      title={compareWeightPanelOpen ? "Hide weighting settings" : "Open weighting settings"}
-                    >
-                      Settings {compareWeightPanelOpen ? "▲" : "▼"}
                     </button>
                   )}
                   <button
@@ -11303,7 +11303,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               </div>
 
-              {customCompareWeightsOn && compareWeightPanelOpen && (
+              {customCompareWeightsOn && (
                 <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
                   {COMPARE_WEIGHT_KEYS.map((key) => {
                     const current = Number(safeCompareWeights[key] || 0);
@@ -11312,7 +11312,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     return (
                       <label key={key} style={{ display: "flex", flexDirection: "column", gap: 5 }} title={COMPARE_WEIGHT_HELP[key]}>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                          <span className="muted tiny">{COMPARE_WEIGHT_LABELS[key]}</span>
+                          <span className="muted tiny" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{COMPARE_WEIGHT_LABELS[key]} <span title={COMPARE_WEIGHT_HELP[key]} style={{ opacity: 0.75, cursor: "help" }}>ⓘ</span></span>
                           <b className="tiny">{current}%</b>
                         </div>
                         <input
@@ -11403,12 +11403,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                 <div className="pairsHead">
                   <div className="label">Best pairs (data fit)</div>
-                <div className="rsiLegend">
-                  <span className="pill rsiOverbought" title="RSI above 70: strong recent buying momentum, may be overextended.">Overbought</span>
-                  <span className="pill rsiNeutral" title="RSI between 30 and 70: balanced momentum, no extreme zone.">Neutral</span>
-                  <span className="pill rsiOversold" title="RSI below 30: strong recent selling momentum, possible rebound zone.">Oversold</span>
-                </div>
-
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <div className="muted tiny">Based on correlation (index)</div>
                     <InfoButton title="Best pairs">
@@ -11484,9 +11478,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         title={`${bestPairUiAlerts.length} AI Movement Alert${bestPairUiAlerts.length === 1 ? "" : "s"}${bestPairTopAlert?.pair ? ` · Top: ${bestPairTopAlert.pair}` : ""}${bestPairTopAlert?.reasons?.length ? ` · ${bestPairTopAlert.reasons.join(" / ")}` : ""}. Open the pair to inspect the movement chance.`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          const topPair = String(bestPairTopAlert?.pair || "");
-                          const match = (bestPairsToShow || []).find((p) => String(p?.pair || "").toUpperCase() === topPair);
-                          if (match) openPairExplain(match);
+                          setMovementPanelOpen((v) => !v);
                         }}
                         style={{
                           display: "inline-flex",
@@ -11508,7 +11500,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             boxShadow: bestPairAlertTone === "high" ? "0 0 10px rgba(255,184,0,.8)" : "0 0 8px rgba(57,217,138,.55)",
                           }}
                         />
-                        {bestPairUiAlerts.length} Movement Chance{bestPairUiAlerts.length === 1 ? "" : "s"}
+⚡
                       </button>
                     ) : null}
                   </div>
@@ -11520,11 +11512,58 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     >
                       Spread
                     </button>
+                    <button
+                      className={movementPanelOpen ? "btn tiny" : "ghostBtn tiny"}
+                      title="Open Movement Opportunities. This does not change the main pair ranking."
+                      onClick={() => setMovementPanelOpen((v) => !v)}
+                    >
+                      ⚡ Movement
+                    </button>
                     <button className="ghostBtn tiny" onClick={() => setShowTop10Pairs(v => !v)}>
                       {showTop10Pairs ? "Show all pairs" : "Show top 10"}
                     </button>
                   </div>
                 </div>
+
+                {movementPanelOpen && bestPairUiAlerts.length ? (
+                  <div style={{
+                    border: "1px solid rgba(255,184,0,.18)",
+                    borderRadius: 14,
+                    background: "rgba(255,184,0,.055)",
+                    padding: "10px 12px",
+                    marginBottom: 10,
+                    display: "grid",
+                    gap: 8
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                      <div>
+                        <div className="label" style={{ marginBottom: 0 }}>⚡ Movement Opportunities</div>
+                        <div className="muted tiny">Speculative movement potential. Main pair ranking remains data-fit based.</div>
+                      </div>
+                      <button className="ghostBtn tiny" onClick={() => setMovementPanelOpen(false)}>Close</button>
+                    </div>
+                    <div style={{ display: "grid", gap: 6 }}>
+                      {(bestPairUiAlerts || []).slice(0, 8).map((al) => {
+                        const match = (bestPairsAll || []).find((p) => String(p?.pair || "").toUpperCase() === String(al?.pair || "").toUpperCase());
+                        return (
+                          <button
+                            key={`${al.pair}-${al.type}-${al.strength}`}
+                            type="button"
+                            className="ghostBtn tiny"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (match) openPairExplain(match);
+                            }}
+                            style={{ textAlign: "left", justifyContent: "flex-start", whiteSpace: "normal", lineHeight: 1.4 }}
+                            title="Open this pair. Movement is not a buy signal."
+                          >
+                            <b>{al.pair}</b> · {aiTagLabel(al.type)} · {al.strength}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div
                   className="pairsScroll"
@@ -11609,11 +11648,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               {hasMovementChance && Number.isFinite(movementChanceScore) ? (
                                 <span
                                   className="pill"
-                                  title={`AI Movement Chance Score: ${Math.round(movementChanceScore)}/100 · Shows unusual movement potential, not a buy signal.`}
+                                  title={`AI Movement Chance · Shows unusual movement potential, not a buy signal.`}
                                   style={{
                                     flex: "0 0 auto",
                                     padding: "3px 6px",
-                                    minWidth: 34,
+                                    minWidth: 24,
                                     justifyContent: "center",
                                     fontSize: 10.5,
                                     lineHeight: 1,
@@ -11623,7 +11662,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     border: "1px solid rgba(255,255,255,0.08)",
                                   }}
                                 >
-                                  ⚡ {Math.round(movementChanceScore)}
+                                  ⚡
                                 </span>
                               ) : null}
                             </span>
@@ -12102,14 +12141,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div style={{ display: "grid", gap: 8 }}>
                                 <AiInsightCard title="Market Structure" value={aiSections.market_structure} tone="structure" />
                                 <AiInsightCard title="Liquidity State" value={aiSections.liquidity_state} tone="liquidity" />
-                                <AiInsightCard title="Warnings" value={aiSections.warnings} tone="warning" />
                                 <AiInsightCard title="Risk Posture" value={aiSections.risk_posture} tone="risk" />
-                                <AiInsightCard title="Pair Relationship" value={aiSections.pair_relationship} tone="neutral" />
                                 <AiInsightCard title="Tactical Read" value={aiSections.tactical_read} tone="tactical" />
-                                <AiInsightCard title="Edge" value={aiSections.edge} tone="edge" />
-                                <AiInsightCard title="Invalidations" value={aiSections.invalidations} tone="risk" />
-                                <AiInsightCard title="Setup Bias" value={aiSections.setup_bias} tone="neutral" />
-                                <AiInsightCard title="Signal Context" value={aiSections.signal_context} tone="warning" />
                               </div>
                             ) : (
                               <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.4 }}>
@@ -12124,118 +12157,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         );
                       })()}
-
-                      {aiExplainData.engineV2 ? (() => {
-                        const riskTone = aiRiskTone(aiExplainData.engineV2.exit_risk || aiExplainData.risk);
-                        const confTone = aiConfidenceTone(aiExplainData.engineV2.confidence || aiExplainData.confidence);
-                        const confValue = Math.max(0, Math.min(10, Number(aiExplainData.engineV2.confidence || aiExplainData.confidence || 0)));
-                        const tags = Array.isArray(aiExplainData.engineV2.tags) ? aiExplainData.engineV2.tags.slice(0, 6) : [];
-                        return (
-                          <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.10)", borderRadius: 14, padding: "12px", background: "rgba(255,255,255,0.025)" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                              <div className="label" style={{ marginBottom: 0 }}>AI Engine Level 2{/* UI_UPGRADE_V1_DEPLOY_MARKER */}
-                              <div style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                marginTop: 6,
-                                marginBottom: 6
-                              }}>
-                                <div style={{
-                                  fontWeight: 900,
-                                  fontSize: 14,
-                                  color: riskTone.color
-                                }}>
-                                  {riskTone.label}
-                                </div>
-                                <div style={{
-                                  fontWeight: 800,
-                                  fontSize: 12,
-                                  opacity: 0.8
-                                }}>
-                                  {aiExplainData.engineV2?.setup_bias}
-                                </div>
-                              </div>
-</div>
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                <span style={{ border: `1px solid ${riskTone.border}`, background: riskTone.bg, color: riskTone.color, borderRadius: 999, padding: "4px 8px", fontSize: 12, fontWeight: 900 }}>
-                                  {riskTone.label}
-                                </span>
-                                {aiExplainData.engineV2.pre_exit_warning ? (
-                                  <span style={{ border: "1px solid rgba(255,152,0,0.45)", background: "rgba(255,152,0,0.10)", color: "#ffb74d", borderRadius: 999, padding: "4px 8px", fontSize: 12, fontWeight: 900 }}>
-                                    PRE-EXIT
-                                  </span>
-                                ) : null}
-                                {Array.isArray(aiExplainData.engineV2.contradictions) && aiExplainData.engineV2.contradictions.length ? (
-                                  <span style={{ border: "1px solid rgba(255,82,82,0.45)", background: "rgba(255,82,82,0.10)", color: "#ff6b6b", borderRadius: 999, padding: "4px 8px", fontSize: 12, fontWeight: 900 }}>
-                                    CONTRADICTION
-                                  </span>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-                              <div style={{ border: "1px solid rgba(0,255,136,0.18)", borderRadius: 12, padding: "10px 12px", background: "rgba(0,255,136,0.045)" }}>
-                                <div className="muted tiny">Edge</div>
-                                <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.engineV2.edge || "No clean edge yet"}</div>
-                              </div>
-                              <div style={{ border: `1px solid ${riskTone.border}`, borderRadius: 12, padding: "10px 12px", background: riskTone.bg }}>
-                                <div className="muted tiny">Exit Risk</div>
-                                <div style={{ fontWeight: 900, marginTop: 4, color: riskTone.color, fontSize: 16 }}>{aiExplainData.engineV2.exit_risk || aiExplainData.risk || "Medium"}</div>
-                                {aiExplainData.engineV2.pre_exit_warning ? (
-                                  <div className="muted tiny" style={{ marginTop: 4, color: "#ffb74d", fontWeight: 800 }}>⚠ Pre-exit warning active</div>
-                                ) : null}
-                              </div>
-                              <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
-                                <div className="muted tiny">Setup Bias</div>
-                                <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.engineV2.setup_bias || "No clean setup"}</div>
-                              </div>
-                            </div>
-
-                            <div style={{ display: "grid", gap: 6 }}>
-                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                                <div className="muted tiny">Confidence</div>
-                                <div style={{ color: confTone.color, fontWeight: 900, fontSize: 12 }}>{confTone.label} {confValue ? `(${confValue}/10)` : ""}</div>
-                              </div>
-                              <div style={{ height: 8, borderRadius: 999, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                                <div style={{ height: "100%", width: `${Math.round(confValue * 10)}%`, background: confTone.color, borderRadius: 999, transition: "width 0.6s ease" }} />
-                              </div>
-                            </div>
-
-                            {tags.length ? (
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                {tags.map((tag) => (
-                                  <span key={tag} style={{ border: "1px solid rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.04)", borderRadius: 999, padding: "4px 8px", fontSize: 12, fontWeight: 800 }}>
-                                    {aiTagLabel(tag)}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
-
-                            {Array.isArray(aiExplainData.engineV2.pair_alerts) && aiExplainData.engineV2.pair_alerts.length ? (
-                              <div style={{ display: "grid", gap: 6, border: "1px solid rgba(255,193,7,0.28)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,193,7,0.06)" }}>
-                                <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Movement Chance Alerts</div>
-                                {aiExplainData.engineV2.pair_alerts.slice(0, 3).map((al) => (
-                                  <div key={`${al.pair}-${al.type}`} className="muted tiny" style={{ lineHeight: 1.45 }}>
-                                    <b>{al.pair}</b> · {aiTagLabel(al.type)} · {al.strength} · {(al.reasons || []).join(" / ")}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : null}
-
-                            {Array.isArray(aiExplainData.engineV2.contradictions) && aiExplainData.engineV2.contradictions.length ? (
-                              <div className="muted tiny" style={{ lineHeight: 1.5, color: "#ff6b6b", border: "1px solid rgba(255,82,82,0.30)", borderRadius: 10, padding: "8px 10px", background: "rgba(255,82,82,0.07)", fontWeight: 800 }}>
-                                ⚠ Contradiction: {aiExplainData.engineV2.contradictions[0]}
-                              </div>
-                            ) : null}
-
-                            {Array.isArray(aiExplainData.engineV2.drivers) && aiExplainData.engineV2.drivers.length ? (
-                              <div className="muted tiny" style={{ lineHeight: 1.5 }}>
-                                Drivers: {aiExplainData.engineV2.drivers.join(" · ")}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })() : null}
 
                       {(aiExplainData.trendStructure || aiExplainData.momentumShift || aiExplainData.insightSummary) ? (
                         <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>

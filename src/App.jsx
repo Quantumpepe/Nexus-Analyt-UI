@@ -11471,38 +11471,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <div className="muted tiny">Showing {bestPairsToShow.length} / {bestPairsAll.length} pairs</div>
-                    {bestPairUiAlerts.length ? (
-                      <button
-                        type="button"
-                        className="ghostBtn tiny"
-                        title={`${bestPairUiAlerts.length} AI Movement Alert${bestPairUiAlerts.length === 1 ? "" : "s"}${bestPairTopAlert?.pair ? ` · Top: ${bestPairTopAlert.pair}` : ""}${bestPairTopAlert?.reasons?.length ? ` · ${bestPairTopAlert.reasons.join(" / ")}` : ""}. Open the pair to inspect the movement chance.`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setMovementPanelOpen((v) => !v);
-                        }}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          borderColor: bestPairAlertTone === "high" ? "rgba(255,184,0,.55)" : bestPairAlertTone === "medium" ? "rgba(255,184,0,.35)" : "rgba(57,217,138,.28)",
-                          background: bestPairAlertTone === "high" ? "rgba(255,184,0,.13)" : bestPairAlertTone === "medium" ? "rgba(255,184,0,.08)" : "rgba(57,217,138,.08)",
-                          color: bestPairAlertTone === "high" || bestPairAlertTone === "medium" ? "#ffd166" : "#8ef0b2",
-                          boxShadow: bestPairAlertTone === "high" ? "0 0 18px rgba(255,184,0,.12)" : "none",
-                        }}
-                      >
-                        <span
-                          aria-hidden="true"
-                          style={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: 999,
-                            background: bestPairAlertTone === "high" || bestPairAlertTone === "medium" ? "#ffd166" : "#39d98a",
-                            boxShadow: bestPairAlertTone === "high" ? "0 0 10px rgba(255,184,0,.8)" : "0 0 8px rgba(57,217,138,.55)",
-                          }}
-                        />
-⚡
-                      </button>
-                    ) : null}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <button
@@ -11525,45 +11493,81 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 </div>
 
+                
                 {movementPanelOpen && bestPairUiAlerts.length ? (
                   <div style={{
-                    border: "1px solid rgba(255,184,0,.18)",
-                    borderRadius: 14,
-                    background: "rgba(255,184,0,.055)",
-                    padding: "10px 12px",
-                    marginBottom: 10,
-                    display: "grid",
-                    gap: 8
+                    border: "1px solid rgba(255,184,0,.14)",
+                    borderRadius: 12,
+                    background: "rgba(255,184,0,.04)",
+                    padding: "8px 10px",
+                    marginBottom: 10
                   }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      marginBottom: 8
+                    }}>
                       <div>
-                        <div className="label" style={{ marginBottom: 0 }}>⚡ Movement Opportunities</div>
-                        <div className="muted tiny">Speculative movement potential. Main pair ranking remains data-fit based.</div>
+                        <div className="label" style={{ marginBottom: 2 }}>⚡ Movement Opportunities ({bestPairUiAlerts.length})</div>
+                        <div className="muted tiny">
+                          Discovery-only setups. Main pair ranking stays purely data-fit based.
+                        </div>
                       </div>
-                      <button className="ghostBtn tiny" onClick={() => setMovementPanelOpen(false)}>Close</button>
+
+                      <button
+                        className="ghostBtn tiny"
+                        onClick={() => setMovementPanelOpen(false)}
+                      >
+                        Close
+                      </button>
                     </div>
-                    <div style={{ display: "grid", gap: 6 }}>
-                      {(bestPairUiAlerts || []).slice(0, 8).map((al) => {
-                        const match = (bestPairsAll || []).find((p) => String(p?.pair || "").toUpperCase() === String(al?.pair || "").toUpperCase());
-                        return (
-                          <button
-                            key={`${al.pair}-${al.type}-${al.strength}`}
-                            type="button"
-                            className="ghostBtn tiny"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (match) openPairExplain(match);
-                            }}
-                            style={{ textAlign: "left", justifyContent: "flex-start", whiteSpace: "normal", lineHeight: 1.4 }}
-                            title="Open this pair. Movement is not a buy signal."
-                          >
-                            <b>{al.pair}</b> · {aiTagLabel(al.type)} · {al.strength}
-                          </button>
-                        );
-                      })}
+
+                    <div style={{
+                      display: "grid",
+                      gap: 5
+                    }}>
+                      {(bestPairUiAlerts || [])
+                        .filter((al) => {
+                          const idx = (bestPairsToShow || []).findIndex(
+                            (p) => String(p?.pair || "").toUpperCase() === String(al?.pair || "").toUpperCase()
+                          );
+                          return idx > 2;
+                        })
+                        .slice(0, 6)
+                        .map((al) => {
+                          const match = (bestPairsAll || []).find(
+                            (p) => String(p?.pair || "").toUpperCase() === String(al?.pair || "").toUpperCase()
+                          );
+
+                          return (
+                            <button
+                              key={`${al.pair}-${al.type}`}
+                              type="button"
+                              className="ghostBtn tiny"
+                              onClick={() => {
+                                if (match) openPairExplain(match);
+                              }}
+                              style={{
+                                justifyContent: "flex-start",
+                                textAlign: "left",
+                                padding: "6px 8px",
+                                opacity: 0.9
+                              }}
+                              title="Open movement opportunity"
+                            >
+                              ⚡ <b>{al.pair}</b>
+                              <span className="muted tiny" style={{ marginLeft: 8 }}>
+                                {aiTagLabel(al.type)}
+                              </span>
+                            </button>
+                          );
+                        })}
                     </div>
                   </div>
                 ) : null}
+
 
                 <div
                   className="pairsScroll"

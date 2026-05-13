@@ -8515,7 +8515,7 @@ ${q}`;
         (explicitTf
           ? `The user explicitly asked for ${explicitTf}, so this overrides the current UI timeframe.\n`
           : `No explicit timeframe was found in the user's question, so use the current UI timeframe.\n`) +
-        `Coins: ${syms.join(", ")}\n` +
+        (syms.length ? `Hidden market context symbols: ${syms.join(", ")}\n` : "No visible coin scope selected; this is a task-based AI Analyst request.\n") +
         (statsText ? `Series stats (${tf}):\n${statsText}\n` : "") +
         (insightText ? `\nMulti-timeframe insight context (use this for AI Insight / trend-structure comparison):\n${insightText}\n` : "") +
         (aiSignalText ? `\nRating, community, market-condition and on-chain context (merge this into the AI Insight, do not list it mechanically):\n${aiSignalText}\n` : "");
@@ -8565,7 +8565,9 @@ ${q}`;
         setAiHistory([]);
       }
     } catch (e) {
-      setErrorMsg("");
+      const msg = String(e?.message || e || "AI Analyst request failed.");
+      setErrorMsg(msg);
+      setAiOutput(`AI Analyst could not run.\n\n${msg}`);
     } finally {
       setAiLoading(false);
     }
@@ -14101,9 +14103,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 value={aiQuestion}
                 onChange={(e) => setAiQuestion(e.target.value)}
                 onKeyDown={(e) => {
+                  if (e.nativeEvent?.isComposing) return;
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    if (!aiLoading) runAi();
+                    if (!aiLoading) {
+                      void runAi();
+                    }
                   }
                 }}
                 placeholder={aiTaskPlaceholder(aiKind)}
@@ -14190,7 +14195,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               ) : null}
 
-              <button className="btn" onClick={runAi} disabled={aiLoading}>
+              <button className="btn" type="button" onClick={() => { if (!aiLoading) void runAi(); }} disabled={aiLoading}>
                 {aiLoading ? "Running…" : (aiFollowUp && aiOutput ? "Ask" : "Run")}
               </button>
             </div>

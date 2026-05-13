@@ -8517,8 +8517,8 @@ ${q}`;
           : `No explicit timeframe was found in the user's question, so use the current UI timeframe.\n`) +
         (syms.length ? `Hidden market context symbols: ${syms.join(", ")}\n` : "No visible coin scope selected; this is a task-based AI Analyst request.\n") +
         (statsText ? `Series stats (${tf}):\n${statsText}\n` : "") +
-        (insightText ? `\nMulti-timeframe insight context (use this for AI Insight / trend-structure comparison):\n${insightText}\n` : "") +
-        (aiSignalText ? `\nRating, community, market-condition and on-chain context (merge this into the AI Insight, do not list it mechanically):\n${aiSignalText}\n` : "");
+        (insightText ? `\nMulti-timeframe market context for the AI Analyst:\n${insightText}\n` : "") +
+        (aiSignalText ? `\nRating, community, market-condition and on-chain context for the AI Analyst. Use it only when relevant; do not list it mechanically:\n${aiSignalText}\n` : "");
 
       const questionText =
         isFollowUpAsk && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;

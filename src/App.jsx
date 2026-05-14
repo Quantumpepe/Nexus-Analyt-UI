@@ -8073,28 +8073,11 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       return;
     }
 
-    // Always open Nexus Rotation so the user gets visible feedback.
-    // The guard can block execution preparation, but it should not feel like "nothing happened".
+    // Always open Nexus Rotation and always prefill the non-executing strategy fields.
+    // Guard only blocks execution readiness, not visible preparation.
     setGridMode("rotation");
     openGridPanel();
 
-    const guard = strategistExecutionGuard(sym, "rotation");
-    if (!guard.ok) {
-      setStrategistBridge({
-        type: "blocked",
-        sym,
-        label: "Execution Guard",
-        confidence: "Blocked",
-        note: guard.warning,
-        ts: Date.now(),
-      });
-      setRotationBudgetRelease("");
-      setRotationBudgetReleased(false);
-      setErrorMsg(guard.warning);
-      return;
-    }
-
-    const preparedSym = guard.normalized || sym;
     const preset = deriveStrategistRiskPreset(body);
     setRotationMode("RECOMMENDATION");
     setRotationRiskLimit(preset.riskLimit);
@@ -8102,6 +8085,27 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setRotationMaxSlippage(preset.rotationSlippage);
     setRotationBudgetRelease("");
     setRotationBudgetReleased(false);
+
+    const guard = strategistExecutionGuard(sym, "rotation");
+    const preparedSym = guard.normalized && guard.ok ? guard.normalized : sym;
+
+    // Mark/select the recommendation so the user sees what the Strategist tried to use.
+    // If it is not executable, handleRotationPickToGrid will still show the selected recommendation / not available note.
+    handleRotationPickToGrid({ sym: preparedSym });
+
+    if (!guard.ok) {
+      setStrategistBridge({
+        type: "blocked",
+        sym: preparedSym,
+        label: "Execution Guard",
+        confidence: "Blocked",
+        note: `${guard.warning} Strategy fields were still prepared; add/select the correct EVM asset before budget release.`,
+        ts: Date.now(),
+      });
+      setErrorMsg(guard.warning);
+      return;
+    }
+
     setStrategistBridge({
       type: "rotation",
       sym: preparedSym,
@@ -8110,7 +8114,6 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       note: `Prepared by Nexus Strategist. Risk limit ${preset.riskLimit}% · min advantage ${preset.minAdvantage}% · max slippage ${preset.rotationSlippage}%. Enter budget, review, then sign if you continue.`,
       ts: Date.now(),
     });
-    handleRotationPickToGrid({ sym: preparedSym });
     setErrorMsg(`Prepared ${preparedSym} in Nexus Rotation. Enter budget, review selection, then continue manually.`);
   }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, setGridMode, setRotationMode, setRotationRiskLimit, setRotationMinNetAdvantage, setRotationMaxSlippage, setRotationBudgetRelease, setRotationBudgetReleased, openGridPanel, handleRotationPickToGrid, setErrorMsg]);
 

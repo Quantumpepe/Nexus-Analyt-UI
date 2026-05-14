@@ -13927,36 +13927,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <Help showClose dismissable
                   de={
                     <>
-                      <p><b>Grid Trader</b> verwaltet mehrere BUY- und SELL-Orders für den gewählten Coin.</p>
-                      <p>Du definierst ein <b>maximales Budget in der ausgewählten Payout-/Chain-Währung</b> (z. B. POL / BNB / ETH). Dieses Budget ist ein <b>globales Limit</b> für den gesamten Grid.</p>
-                      <p>Das Budget gilt <b>nicht pro Order</b>, sondern für alle Grid-Orders zusammen.</p>
-                      <p><b>BUY</b>-Orders kaufen Token, <b>SELL</b>-Orders verkaufen bereits vorhandene Token.</p>
-                      
-                      <p><b>Manual Orders</b> sind einzelne Orders und nicht Teil des eigentlichen Grid-Blocks.</p>
-                      <p>BUY kann je nach Eingabe per <b>USD</b> oder per <b>Token-Menge</b> definiert werden.</p>
-                      <p><b>Demo Mode:</b> Grid läuft als Simulation mit echten Marktdaten. <b>Live Mode:</b> echte Ausführung ist zuerst auf ETH, BNB und POL begrenzt.</p>
-                      <p><b>Nexus Trading:</b> kontrollierter Auto-Trading-Bereich. Er darf später nur innerhalb eines vom User signierten Vault-Budgets arbeiten. Der User definiert Budget, Laufzeit, erlaubte Assets/Chains und Risiko-Grenzen. Keine Wallet-weite Freigabe und keine automatische Aktivierung ohne Signatur.</p>
-                      <p><b>Nexus Strategist → Nexus Trading:</b> Der Strategist kann Setups vorbereiten. Nexus Trading übernimmt diese Daten nur als Konfiguration, nicht als direkte Ausführung.</p>
-                      <p><b>Live Flow:</b> Budget signieren = Trading scharf stellen. Danach startet der User die Session manuell. Pause/Stop erscheinen erst bei einer aktiven Session.</p>
+                      <p><b>Grid Trader</b> ist der gemeinsame Order-Bereich fuer <b>Nexus Grid</b>, <b>Nexus Rotation</b> und <b>Nexus Trading</b>.</p>
+                      <p>Alle drei Bereiche erstellen Orders ueber denselben zentralen Order-Core. Sichtbare Orders werden wallet-gebunden in <b>SQLite grid_orders</b> gespeichert. Stop/Delete/Resume nutzen denselben schnellen Flow.</p>
+
+                      <p><b>Nexus Grid:</b> manueller Order-Modus. Du waehlst Network, Coin, Budget, Side, Preis und Payout Asset. <b>Approve Budget</b> reserviert das Grid-Budget lokal; <b>Add Order</b> erstellt die Order. Das Budget gilt fuer alle offenen Grid-Orders zusammen, nicht pro Order.</p>
+
+                      <p><b>Nexus Rotation:</b> Recommendation-basierter Order-Modus. Du waehlst eine Watchlist-/Rotation-Empfehlung, setzt ein Rotation-Budget, waehlst das Payout Asset und erstellst danach eine Rotation-Order. Die Order bleibt technisch dieselbe Order-Struktur, wird aber intern als <b>source = ROTATION</b> markiert.</p>
+
+                      <p><b>Nexus Trading:</b> kontrollierter Trading-Order-Modus. Du definierst Budget, Runtime, Style, erlaubte Assets/Chains, Risk Mode, Drawdown, Profit Lock, Slippage und Max Trades. Orders werden intern als <b>source = TRADING</b> markiert und duerfen spaeter nur innerhalb des freigegebenen Vault-/Session-Budgets laufen.</p>
+
+                      <p><b>Payout Asset:</b> bestimmt, wohin eine ausgefuehrte Order settled, z. B. USDC oder USDT. Wenn zu wenig direktes Asset vorhanden ist, kann Nexus einen Funding-/Swap-Vorschlag anzeigen. Nichts wird automatisch geswapt, bevor der User zustimmt.</p>
+
+                      <p><b>Wichtig:</b> Die UI zeigt nur die notwendigen Kontrollen. Vault Checks, Funding Resolver, Budget-Pruefung, Risiko-Logik und Runtime-Sync laufen im Hintergrund.</p>
                     </>
                   }
                   en={
                     <>
-                      <p><b>Grid Trader</b> manages multiple BUY and SELL orders for the selected coin.</p>
-                      <p>You define a <b>maximum budget in the selected payout/chain asset</b> (for example POL / BNB / ETH). This budget is a <b>global limit</b> for the full grid.</p>
-                      <p>The budget is <b>not per order</b>; it is shared across all grid orders.</p>
-                      <p><b>BUY</b> orders acquire tokens, <b>SELL</b> orders sell tokens you already hold.</p>
-                      
-                      <p><b>Manual orders</b> are single orders and are not part of the main grid block.</p>
-                      <p>BUY can be defined either by <b>USD</b> or by <b>token quantity</b>, depending on your input mode.</p>
-                      <p><b>Demo Mode:</b> Grid runs as simulation with real market data. <b>Live Mode:</b> real execution is initially limited to ETH, BNB and POL.</p>
-                      <p><b>Nexus Trading:</b> controlled autonomous trading area. Later it can only operate inside a user-signed Vault budget. The user defines budget, runtime, allowed assets/chains, and risk limits. No wallet-wide permission and no activation without signature.</p>
-                      <p><b>Nexus Strategist → Nexus Trading:</b> The Strategist can prepare setups. Nexus Trading only imports them as configuration, not as direct execution.</p>
-                      <p><b>Live Flow:</b> Signing the budget arms Nexus Trading. The user starts the session manually afterwards. Pause/Stop only appear during an active session.</p>
+                      <p><b>Grid Trader</b> is the shared order area for <b>Nexus Grid</b>, <b>Nexus Rotation</b>, and <b>Nexus Trading</b>.</p>
+                      <p>All three areas create orders through the same central order core. Visible orders are wallet-bound and stored in <b>SQLite grid_orders</b>. Stop/Delete/Resume use the same fast path.</p>
+
+                      <p><b>Nexus Grid:</b> manual order mode. You choose network, coin, budget, side, price, and payout asset. <b>Approve Budget</b> reserves the Grid budget locally; <b>Add Order</b> creates the order. The budget is shared across all open Grid orders, not per order.</p>
+
+                      <p><b>Nexus Rotation:</b> recommendation-based order mode. You select a Watchlist/Rotation recommendation, set a Rotation budget, choose the payout asset, then create a Rotation order. Technically it uses the same order structure, but is marked internally as <b>source = ROTATION</b>.</p>
+
+                      <p><b>Nexus Trading:</b> controlled trading order mode. You define budget, runtime, style, allowed assets/chains, risk mode, drawdown, profit lock, slippage, and max trades. Orders are marked internally as <b>source = TRADING</b> and later may only run inside the approved Vault/session budget.</p>
+
+                      <p><b>Payout Asset:</b> defines where an executed order settles, for example USDC or USDT. If the direct asset is insufficient, Nexus can show a funding/swap suggestion. Nothing is swapped automatically before user approval.</p>
+
+                      <p><b>Important:</b> The UI only shows the necessary controls. Vault checks, funding resolver, budget validation, risk logic, and runtime sync run in the background.</p>
                     </>
                   }
                 />
-                <RotationInfoTrigger />
               </InfoButton>
             </div>
           </div>

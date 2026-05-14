@@ -5525,6 +5525,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         nexusTradingContext: {
           prepared_setup: tradingPreparedSetup || null,
           learning_count: Array.isArray(tradingLearningSetups) ? tradingLearningSetups.length : 0,
+          latest_learning_event: Array.isArray(tradingLearningSetups) && tradingLearningSetups[0]?.learningEvent ? tradingLearningSetups[0].learningEvent : null,
           configured_budget_usd: tradingBudgetUsd || "",
           risk_mode: tradingRiskMode || "",
         },
@@ -6208,6 +6209,155 @@ useEffect(() => {
   const [tradingPreparedSetup, setTradingPreparedSetup] = useLocalStorageState("nexus_trading_prepared_setup", null);
   const [tradingLearningSetups, setTradingLearningSetups] = useLocalStorageState("nexus_trading_learning_setups", []);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useLocalStorageState("nexus_trading_risk_expanded", false);
+  const [tradingSessionStatus, setTradingSessionStatus] = useLocalStorageState("nexus_trading_session_status", "PREPARED");
+  const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
+
+  const tradingSessionLabel = String(tradingSessionStatus || "PREPARED").toUpperCase();
+
+  const normalizeTradingCsv = useCallback((value) => {
+    return String(value || "")
+      .split(",")
+      .map((x) => String(x || "").trim().toUpperCase())
+      .filter(Boolean);
+  }, []);
+
+  const tradingPreflight = useMemo(() => {
+    const budget = Number(String(tradingBudgetUsd || "").replace(",", "."));
+    const runtime = Number(String(tradingRuntimeHours || "").replace(",", "."));
+    const slippage = Number(String(tradingMaxSlippagePct || "").replace(",", "."));
+    const maxTrades = Number(String(tradingMaxTrades || "").replace(",", "."));
+    const cautionDd = Number(String(tradingCautionDrawdownPct || "").replace(",", "."));
+    const hardStop = Number(String(tradingHardStopPct || "").replace(",", "."));
+    const profitLock = Number(String(tradingProfitLockPct || "").replace(",", "."));
+    const assets = normalizeTradingCsv(tradingAllowedAssets);
+    const chains = normalizeTradingCsv(tradingAllowedChains);
+    const knownChains = new Set([...(gridWalletChains || []), "POL", "BNB", "ETH"].map((x) => String(x || "").toUpperCase()));
+    const unsupportedChains = chains.filter((ck) => !knownChains.has(ck));
+    const issues = [];
+
+    if (!(budget > 0)) issues.push("budget");
+    if (!assets.length) issues.push("asset");
+    if (!chains.length) issues.push("chain");
+    if (unsupportedChains.length) issues.push(`unsupported chain ${unsupportedChains[0]}`);
+    if (!(runtime >= 1 && runtime <= 168)) issues.push("runtime 1-168h");
+    if (!Number.isFinite(slippage) || slippage <= 0 || slippage > 5) issues.push("slippage <=5%");
+    if (!Number.isFinite(maxTrades) || maxTrades < 1 || maxTrades > 50) issues.push("max trades");
+    if (!Number.isFinite(cautionDd) || cautionDd < 0 || cautionDd > 25) issues.push("caution DD");
+    if (!Number.isFinite(hardStop) || hardStop < 1 || hardStop > 50) issues.push("hard stop");
+    if (!Number.isFinite(profitLock) || profitLock < 0 || profitLock > 80) issues.push("profit lock");
+    if (!["DEFENSIVE", "BALANCED", "DYNAMIC"].includes(String(tradingRiskMode || "").toUpperCase())) issues.push("risk mode");
+
+    return {
+      ok: issues.length === 0,
+      issues,
+      budget,
+      runtime,
+      assets,
+      chains,
+      slippage,
+      maxTrades,
+      cautionDd,
+      hardStop,
+      profitLock,
+      title: issues.length ? `Preflight needs: ${issues.join(", ")}` : "Preflight ready. Nexus Trading can be armed.",
+    };
+  }, [
+    tradingBudgetUsd,
+    tradingRuntimeHours,
+    tradingAllowedAssets,
+    tradingAllowedChains,
+    tradingRiskMode,
+    tradingCautionDrawdownPct,
+    tradingHardStopPct,
+    tradingProfitLockPct,
+    tradingMaxSlippagePct,
+    tradingMaxTrades,
+    gridWalletChains,
+    normalizeTradingCsv,
+  ]);
+
+  const tradingCanApprove = !!tradingPreflight.ok;
+  const tradingCanStart = tradingSessionLabel === "ARMED";
+  const tradingCanPause = tradingSessionLabel === "ACTIVE";
+  const tradingCanResume = tradingSessionLabel === "PAUSED";
+  const tradingCanStop = ["ARMED", "ACTIVE", "PAUSED"].includes(tradingSessionLabel);
+
+  const updateTradingPreparedSession = useCallback((patch = {}) => {
+    setTradingPreparedSetup((prev) => {
+      const base = prev && typeof prev === "object" ? prev : {};
+      const previousSession = base.session && typeof base.session === "object" ? base.session : {};
+      const nextSession = { ...previousSession, ...patch, updatedTs: Date.now() };
+      const next = { ...base, session: nextSession };
+
+      if (next.learningEvent && typeof next.learningEvent === "object") {
+        next.learningEvent = {
+          ...next.learningEvent,
+          userAction: {
+            ...(next.learningEvent.userAction || {}),
+            ...(patch.userAction || {}),
+          },
+          session: nextSession,
+        };
+      }
+      return next;
+    });
+  }, [setTradingPreparedSetup]);
+
+  const handleTradingApproveBudget = useCallback(() => {
+    if (!tradingCanApprove) {
+      setErrorMsg(tradingPreflight.title || "Complete Nexus Trading preflight before approving.");
+      return;
+    }
+    const now = Date.now();
+    setTradingSessionStatus("ARMED");
+    setTradingSessionUpdatedTs(now);
+    updateTradingPreparedSession({
+      status: "ARMED",
+      approvedBudgetUsd: tradingBudgetUsd,
+      approvedAt: now,
+      preflight: tradingPreflight,
+      userAction: { approvedBudget: true, armed: true, preflightOk: true },
+      note: "Budget approval simulated until final Vault signature is connected.",
+    });
+    setErrorMsg("");
+  }, [tradingCanApprove, tradingBudgetUsd, tradingPreflight, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setErrorMsg]);
+
+  const handleTradingStartSession = useCallback(() => {
+    if (!tradingCanStart) return;
+    const now = Date.now();
+    setTradingSessionStatus("ACTIVE");
+    setTradingSessionUpdatedTs(now);
+    updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, userAction: { started: true } });
+  }, [tradingCanStart, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+
+  const handleTradingPauseSession = useCallback(() => {
+    if (!tradingCanPause) return;
+    const now = Date.now();
+    setTradingSessionStatus("PAUSED");
+    setTradingSessionUpdatedTs(now);
+    updateTradingPreparedSession({ status: "PAUSED", pausedAt: now, userAction: { paused: true } });
+  }, [tradingCanPause, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+
+  const handleTradingResumeSession = useCallback(() => {
+    if (!tradingCanResume) return;
+    const now = Date.now();
+    setTradingSessionStatus("ACTIVE");
+    setTradingSessionUpdatedTs(now);
+    updateTradingPreparedSession({ status: "ACTIVE", resumedAt: now, userAction: { paused: false } });
+  }, [tradingCanResume, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+
+  const handleTradingStopSession = useCallback(() => {
+    if (!tradingCanStop) return;
+    const now = Date.now();
+    setTradingSessionStatus("STOPPED");
+    setTradingSessionUpdatedTs(now);
+    updateTradingPreparedSession({
+      status: "STOPPED",
+      stoppedAt: now,
+      userAction: { stopped: true },
+      outcome: { status: "manual_stop_pending_outcome" },
+    });
+  }, [tradingCanStop, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const applyTradingRiskPreset = useCallback((mode, confidence = tradingConfidenceMin) => {
     const risk = String(mode || "BALANCED").toUpperCase();
@@ -8099,6 +8249,146 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     return { confidence: "Medium", riskLimit: "2.5", rotationSlippage: "1.2", minAdvantage: "0.6", gridSlippage: "5", preset: "STANDARD" };
   }, []);
 
+
+  const deriveStrategistTraderSetup = useCallback((body, preparedSym = "", preset = {}) => {
+    const raw = String(body || "");
+    const cleanAsset = (value) => String(value || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9:_,-]/g, "")
+      .replace(/,+/g, ",")
+      .replace(/^,|,$/g, "");
+
+    const cleanChains = (value) => {
+      const text = String(value || "").toUpperCase();
+      const found = [];
+      if (/\b(POL|POLYGON|MATIC)\b/.test(text)) found.push("POL");
+      if (/\b(BNB|BSC|BINANCE)\b/.test(text)) found.push("BNB");
+      if (/\b(ETH|ETHEREUM)\b/.test(text)) found.push("ETH");
+      return Array.from(new Set(found)).join(",") || "POL,BNB,ETH";
+    };
+
+    const pickLineValue = (keys) => {
+      const lines = raw.split(/\r?\n/);
+      for (const line of lines) {
+        const s = String(line || "").trim();
+        for (const key of keys) {
+          const rx = new RegExp(`${key}\\s*[:=\\-]\\s*(.+)$`, "i");
+          const m = s.match(rx);
+          if (m && m[1]) return m[1].trim().replace(/^[-•*]\s*/, "");
+        }
+      }
+      return "";
+    };
+
+    const numberFrom = (value, fallback, { min = 0, max = 999, midpoint = false } = {}) => {
+      const s = String(value || "");
+      const range = s.match(/(-?\d+(?:\.\d+)?)\s*(?:-|–|to)\s*(-?\d+(?:\.\d+)?)/i);
+      let n = fallback;
+      if (range && midpoint) n = (Number(range[1]) + Number(range[2])) / 2;
+      else {
+        const single = s.match(/(-?\d+(?:\.\d+)?)/);
+        if (single) n = Number(single[1]);
+      }
+      if (!Number.isFinite(Number(n))) n = fallback;
+      n = Math.max(min, Math.min(max, Number(n)));
+      return `${Number.isInteger(n) ? n : Number(n.toFixed(2))}`;
+    };
+
+    const valueNumber = (keys, fallback, opts = {}) => numberFrom(pickLineValue(keys), fallback, opts);
+
+    // Hidden Nexus Trading suitability engine.
+    // This stays internal: it only shapes the prepared Trading/Risk values and does not add UI noise.
+    const lowered = raw.toLowerCase();
+    let suitabilityScore = 0;
+    const addIf = (rx, delta) => { if (rx.test(lowered)) suitabilityScore += delta; };
+    addIf(/\b(fake move|fake breakout|bull trap|bear trap|trap risk|weak breakout|failed breakout)\b/i, -3);
+    addIf(/\b(weak liquidity|thin liquidity|low liquidity|illiquid|unstable liquidity)\b/i, -2);
+    addIf(/\b(overextended|exhaustion|exhausted|blow[- ]?off|parabolic)\b/i, -2);
+    addIf(/\b(low rvol|weak rvol|volume does not confirm|no volume confirmation|weak volume)\b/i, -2);
+    addIf(/\b(high volatility|volatility spike|unstable momentum|choppy|uncertain|uncertainty)\b/i, -1);
+    addIf(/\b(strong rvol|healthy rvol|volume[- ]?backed|volume confirmation|confirmed breakout)\b/i, 2);
+    addIf(/\b(strong continuation|trend continuation|momentum continuation|stable trend|higher lows|clean structure)\b/i, 2);
+    addIf(/\b(good liquidity|deep liquidity|stable liquidity)\b/i, 1);
+
+    let suitability = "MEDIUM";
+    const suitabilityRaw = pickLineValue(["Trading Suitability", "Nexus Trading Suitability", "Suitability"]);
+    if (/\b(low|not recommended|avoid|poor)\b/i.test(suitabilityRaw)) suitability = "LOW";
+    else if (/\b(high|strong|suitable)\b/i.test(suitabilityRaw)) suitability = "HIGH";
+    else if (suitabilityScore <= -3) suitability = "LOW";
+    else if (suitabilityScore >= 3) suitability = "HIGH";
+
+    let riskMode = "BALANCED";
+    const riskRaw = pickLineValue(["Recommended Risk Mode", "Risk Mode", "Risk"]);
+    if (/\b(defensive|cautious|low risk|weak|fake|unstable|avoid)\b/i.test(riskRaw || raw)) riskMode = "DEFENSIVE";
+    if (/\b(dynamic|aggressive|momentum|breakout|strong continuation|high confidence)\b/i.test(riskRaw || raw)) riskMode = "DYNAMIC";
+    if (/\b(balanced|medium|normal)\b/i.test(riskRaw)) riskMode = "BALANCED";
+    if (suitability === "LOW") riskMode = "DEFENSIVE";
+
+    const styleRaw = pickLineValue(["Tactical Style", "Trading Style", "Style"]);
+    let style = "TACTICAL";
+    if (/\b(momentum|breakout|continuation)\b/i.test(styleRaw || raw)) style = "MOMENTUM";
+    if (/\b(accumulation|accumulate)\b/i.test(styleRaw || raw)) style = "ACCUMULATION";
+    if (/\b(range|grid|cycle)\b/i.test(styleRaw || raw)) style = "RANGE";
+    if (/\b(rotation|relative strength)\b/i.test(styleRaw || raw)) style = "ROTATION";
+    if (/\b(defensive|caution|protect)\b/i.test(styleRaw || raw)) style = "TACTICAL";
+
+    const runtimeRaw = pickLineValue(["Runtime", "Runtime Suggestion", "Trading Runtime"]);
+    let runtimeHours = numberFrom(runtimeRaw, riskMode === "DEFENSIVE" ? 6 : riskMode === "DYNAMIC" ? 24 : 12, { min: 1, max: 72, midpoint: true });
+    if (/\bday|days\b/i.test(runtimeRaw)) runtimeHours = numberFrom(runtimeRaw, 1, { min: 1, max: 3, midpoint: true });
+    if (/\bday|days\b/i.test(runtimeRaw)) runtimeHours = `${Math.min(72, Math.max(1, Number(runtimeHours) * 24))}`;
+
+    let maxTrades = valueNumber(["Max Trades", "Max Trades Suggestion", "Trades"], riskMode === "DEFENSIVE" ? 2 : riskMode === "DYNAMIC" ? 8 : 4, { min: 1, max: 20, midpoint: true });
+    let maxSlippagePct = valueNumber(["Max Slippage", "Max Slippage Suggestion", "Slippage"], riskMode === "DEFENSIVE" ? 0.7 : riskMode === "DYNAMIC" ? 1.5 : 1.0, { min: 0.1, max: 10, midpoint: true });
+
+    const allowedAssetsRaw = pickLineValue(["Allowed Assets", "Assets"]);
+    const allowedChainsRaw = pickLineValue(["Allowed Chains", "Chains"]);
+    const assets = cleanAsset(allowedAssetsRaw) || cleanAsset(preparedSym) || "";
+    const chains = cleanChains(allowedChainsRaw || raw);
+
+    const confidenceRaw = pickLineValue(["AI Confidence", "Confidence"]);
+    let confidence = "MEDIUM";
+    if (/\b(high|medium-high|strong)\b/i.test(confidenceRaw || String(preset?.confidence || ""))) confidence = "HIGH";
+    if (/\b(low|weak)\b/i.test(confidenceRaw || "")) confidence = "LOW";
+
+    let cautionDrawdownPct = valueNumber(["Caution Drawdown", "Caution DD", "Drawdown"], riskMode === "DEFENSIVE" ? 2 : riskMode === "DYNAMIC" ? 4 : 3, { min: 1, max: 20, midpoint: true });
+    let hardStopPct = valueNumber(["Hard Stop", "Stop"], riskMode === "DEFENSIVE" ? 8 : riskMode === "DYNAMIC" ? 15 : 12, { min: 2, max: 40, midpoint: true });
+    let profitLockPct = valueNumber(["Profit Lock", "Lock"], riskMode === "DEFENSIVE" ? 10 : riskMode === "DYNAMIC" ? 25 : 20, { min: 1, max: 80, midpoint: true });
+
+    // Background guardrails: keep UI clean, but make weak setups automatically safer.
+    if (suitability === "LOW") {
+      riskMode = "DEFENSIVE";
+      runtimeHours = `${Math.min(Number(runtimeHours) || 6, 6)}`;
+      maxTrades = `${Math.min(Number(maxTrades) || 2, 2)}`;
+      maxSlippagePct = `${Math.min(Number(maxSlippagePct) || 0.7, 0.7)}`;
+      cautionDrawdownPct = `${Math.min(Number(cautionDrawdownPct) || 2, 2)}`;
+      hardStopPct = `${Math.min(Number(hardStopPct) || 8, 8)}`;
+      profitLockPct = `${Math.min(Number(profitLockPct) || 10, 10)}`;
+    } else if (suitability === "MEDIUM" && riskMode === "DYNAMIC") {
+      riskMode = "BALANCED";
+      maxTrades = `${Math.min(Number(maxTrades) || 4, 6)}`;
+      maxSlippagePct = `${Math.min(Number(maxSlippagePct) || 1.0, 1.2)}`;
+    }
+
+    return {
+      suitability,
+      suitabilityScore,
+      riskMode,
+      style,
+      runtimeHours,
+      maxTrades,
+      maxSlippagePct,
+      cautionDrawdownPct,
+      hardStopPct,
+      profitLockPct,
+      allowedAssets: assets,
+      allowedChains: chains,
+      confidence,
+      schemaVersion: "strategist_trader_setup_v1",
+      reason: pickLineValue(["Tactical Reason", "Reason"]) || "Strategist-derived controlled trading preparation.",
+      invalidation: pickLineValue(["Invalidation", "Invalidation Conditions"]) || "Review market structure before approval.",
+    };
+  }, []);
+
   const applyStrategistToGrid = useCallback((body) => {
     const sym = extractStrategistSymbol(body);
     if (!sym) {
@@ -8219,30 +8509,43 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     const preset = deriveStrategistRiskPreset(body);
     const guard = sym ? strategistExecutionGuard(sym, "rotation") : { ok: false, normalized: "", warning: "No asset symbol found for Nexus Trading." };
     const preparedSym = (guard.ok && guard.normalized) ? guard.normalized : (sym || "");
+    const traderSetup = deriveStrategistTraderSetup(body, preparedSym, preset);
 
-    const riskMode = String(preset.confidence || "").toUpperCase().includes("HIGH") ? "DYNAMIC" : "BALANCED";
     const setup = {
       id: `trading_${Date.now()}`,
       ts: Date.now(),
       source: "Nexus Strategist",
+      schemaVersion: traderSetup.schemaVersion,
       symbol: preparedSym,
       requestedSymbol: sym || "",
       executable: !!guard.ok,
       guardWarning: guard.ok ? "" : guard.warning,
-      confidence: preset.confidence,
-      style: "TACTICAL",
+      suitability: traderSetup.suitability,
+      confidence: traderSetup.confidence || preset.confidence,
+      style: traderSetup.style || "TACTICAL",
       budgetUsd: "",
-      runtimeHours: tradingRuntimeHours || "24",
-      allowedAssets: preparedSym || "",
-      allowedChains: "POL,BNB,ETH",
-      riskMode,
-      cautionDrawdownPct: preset.confidence === "Medium-High" ? "4" : "3",
-      hardStopPct: preset.confidence === "Medium-High" ? "15" : "12",
-      profitLockPct: "20",
-      maxSlippagePct: preset.rotationSlippage || "1.2",
-      maxTrades: "6",
-      confidenceMin: "MEDIUM",
+      runtimeHours: traderSetup.runtimeHours || "24",
+      allowedAssets: traderSetup.allowedAssets || preparedSym || "",
+      allowedChains: traderSetup.allowedChains || "POL,BNB,ETH",
+      riskMode: traderSetup.riskMode || "BALANCED",
+      cautionDrawdownPct: traderSetup.cautionDrawdownPct || "3",
+      hardStopPct: traderSetup.hardStopPct || "12",
+      profitLockPct: traderSetup.profitLockPct || "20",
+      maxSlippagePct: traderSetup.maxSlippagePct || "1.2",
+      maxTrades: traderSetup.maxTrades || "6",
+      confidenceMin: traderSetup.confidence || "MEDIUM",
+      tacticalReason: traderSetup.reason || "",
+      invalidation: traderSetup.invalidation || "",
       notes: String(body || "").slice(0, 900),
+      session: {
+        status: "PREPARED",
+        approvedBudgetUsd: "",
+        approvedAt: null,
+        startedAt: null,
+        pausedAt: null,
+        stoppedAt: null,
+        updatedTs: Date.now(),
+      },
     };
 
     const buildAppliedSetting = (label, value, previous, suffix = "") => ({
@@ -8266,10 +8569,68 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       buildAppliedSetting("Max Trades", setup.maxTrades, tradingMaxTrades),
     ];
 
+    const appliedChangedCount = setup.appliedSettings.filter((item) => item?.changed).length;
+    const appliedUnchangedCount = Math.max(0, setup.appliedSettings.length - appliedChangedCount);
+
+    // Internal learning queue event.
+    // This stays invisible in the UI for now, but preserves the Strategist -> Trading decision
+    // so future Learning Memory / AI Insight can evaluate setup quality and later outcomes.
+    setup.learningEvent = {
+      id: `learn_${setup.id}`,
+      type: "STRATEGIST_TRADING_SETUP_PREPARED",
+      schemaVersion: "trading_learning_event_v1",
+      ts: setup.ts,
+      source: "Nexus Strategist",
+      setupId: setup.id,
+      symbol: setup.symbol,
+      requestedSymbol: setup.requestedSymbol,
+      suitability: setup.suitability,
+      confidence: setup.confidence,
+      riskMode: setup.riskMode,
+      style: setup.style,
+      runtimeHours: setup.runtimeHours,
+      maxTrades: setup.maxTrades,
+      maxSlippagePct: setup.maxSlippagePct,
+      cautionDrawdownPct: setup.cautionDrawdownPct,
+      hardStopPct: setup.hardStopPct,
+      profitLockPct: setup.profitLockPct,
+      allowedAssets: setup.allowedAssets,
+      allowedChains: setup.allowedChains,
+      guard: {
+        executable: setup.executable,
+        warning: setup.guardWarning || "",
+      },
+      applied: {
+        changedCount: appliedChangedCount,
+        unchangedCount: appliedUnchangedCount,
+        settings: setup.appliedSettings,
+      },
+      userAction: {
+        approvedBudget: false,
+        armed: false,
+        started: false,
+        paused: false,
+        stopped: false,
+      },
+      outcome: {
+        status: "pending",
+        pnlUsd: null,
+        drawdownPct: null,
+        durationMinutes: null,
+        notes: "",
+      },
+      context: {
+        tacticalReason: setup.tacticalReason,
+        invalidation: setup.invalidation,
+        rawStrategistNotes: setup.notes,
+      },
+    };
+
     setTradingPreparedSetup(setup);
     setTradingAllowedAssets(setup.allowedAssets);
     setTradingAllowedChains(setup.allowedChains);
     setTradingRiskMode(setup.riskMode);
+    setTradingRuntimeHours(setup.runtimeHours);
     setTradingCautionDrawdownPct(setup.cautionDrawdownPct);
     setTradingHardStopPct(setup.hardStopPct);
     setTradingProfitLockPct(setup.profitLockPct);
@@ -8277,18 +8638,18 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setTradingMaxTrades(setup.maxTrades);
     setTradingConfidenceMin(setup.confidenceMin);
     setTradingStyle(setup.style);
+    setTradingSessionStatus("PREPARED");
+    setTradingSessionUpdatedTs(Date.now());
 
     setTradingLearningSetups((prev) => [setup, ...((Array.isArray(prev) ? prev : []).slice(0, 24))]);
     setStrategistAppliedOpen(false);
 
     setStrategistBridge({
-      type: guard.ok ? "trading" : "blocked",
+      type: setup.executable ? "trading" : "blocked",
       sym: preparedSym || sym || "—",
       label: "Nexus Trading",
-      confidence: guard.ok ? preset.confidence : "Blocked",
-      note: guard.ok
-        ? ``
-        : `${guard.warning} Trading limits were still prepared; fund/add the correct EVM asset before activation.`,
+      confidence: setup.executable ? setup.confidence : "Blocked",
+      note: setup.executable ? `` : `${guard.warning || "Trading setup could not be matched to a supported asset."}`,
       appliedSettings: setup.appliedSettings,
       ts: Date.now(),
     });
@@ -8298,8 +8659,10 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     extractStrategistSymbol,
     strategistExecutionGuard,
     deriveStrategistRiskPreset,
+    deriveStrategistTraderSetup,
     setGridMode,
     openGridPanel,
+    tradingPreparedSetup,
     tradingRuntimeHours,
     tradingRiskMode,
     tradingStyle,
@@ -8314,6 +8677,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setTradingAllowedAssets,
     setTradingAllowedChains,
     setTradingRiskMode,
+    setTradingRuntimeHours,
     setTradingCautionDrawdownPct,
     setTradingHardStopPct,
     setTradingProfitLockPct,
@@ -8321,6 +8685,8 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setTradingMaxTrades,
     setTradingConfidenceMin,
     setTradingStyle,
+    setTradingSessionStatus,
+    setTradingSessionUpdatedTs,
     setTradingLearningSetups,
     setErrorMsg,
   ]);
@@ -9095,6 +9461,19 @@ Rules:
 - Do not give direct buy/sell commands.
 - Explain indirect tactical paths: what may favor Nexus Rotation, what may favor Nexus Grid, what may favor Nexus Trading, what conditions must improve, and what risk can invalidate the idea.
 - Nexus Trading means controlled autonomous execution only after user budget/signature and only inside configured limits.
+- In NEXUS TRADING, include these compact machine-readable lines when relevant:
+  Trading Suitability: LOW | MEDIUM | HIGH
+  Recommended Risk Mode: DEFENSIVE | BALANCED | DYNAMIC
+  Tactical Style: TACTICAL | MOMENTUM | ACCUMULATION | ROTATION | RANGE
+  Runtime: number of hours
+  Max Trades: number
+  Max Slippage: percent
+  Caution Drawdown: percent
+  Hard Stop: percent
+  Profit Lock: percent
+  Allowed Assets: comma-separated symbols
+  Allowed Chains: POL, BNB, ETH as applicable
+  Invalidation: short condition that breaks the setup
 - If a section is not relevant, keep it very short instead of forcing text.`;
 
     const basePrompt = aiKindPrompts[aiKind] || `Provide a ${aiProfile} analyst response based on the current task, timeframe, and available context.`;
@@ -9128,6 +9507,7 @@ ${q}`;
         nexusTradingContext: {
           prepared_setup: tradingPreparedSetup || null,
           learning_count: Array.isArray(tradingLearningSetups) ? tradingLearningSetups.length : 0,
+          latest_learning_event: Array.isArray(tradingLearningSetups) && tradingLearningSetups[0]?.learningEvent ? tradingLearningSetups[0].learningEvent : null,
           configured_budget_usd: tradingBudgetUsd || "",
           risk_mode: tradingRiskMode || "",
         },
@@ -13129,11 +13509,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div className="muted tiny">
                       <b>{strategistBridge.sym}</b> → <b>{strategistBridge.label}</b>{strategistBridge.confidence ? <> · Confidence: <b>{strategistBridge.confidence}</b></> : null}
                     </div>
-                    <div className="muted tiny">
-                      {strategistBridge.note}
-                    </div>
-                    <div className="muted tiny">
+                    {strategistBridge.note ? (
+                      <div className="muted tiny">
+                        {strategistBridge.note}
                       </div>
+                    ) : null}
                     {Array.isArray(strategistBridge.appliedSettings) && strategistBridge.appliedSettings.length ? (() => {
                       const appliedSettings = strategistBridge.appliedSettings;
                       const changedCount = appliedSettings.filter((item) => item?.changed).length;
@@ -13728,8 +14108,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       style={{
                         padding: "7px 10px",
                         borderRadius: 12,
-                        background: "rgba(245,193,108,.07)",
-                        border: "1px solid rgba(245,193,108,.20)",
+                        background: tradingSessionLabel === "ACTIVE" ? "rgba(34,197,94,.08)" : tradingSessionLabel === "PAUSED" ? "rgba(245,193,108,.08)" : "rgba(245,193,108,.07)",
+                        border: tradingSessionLabel === "ACTIVE" ? "1px solid rgba(34,197,94,.22)" : "1px solid rgba(245,193,108,.20)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "space-between",
@@ -13738,12 +14118,30 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 900, color: "#f5c16c", fontSize: 13 }}>Status: Not armed</div>
-                        <div className="muted tiny">Next live step: approve/sign the configured budget. After that Nexus Trading is armed; Start appears only for an armed session.</div>
+                        <div style={{ fontWeight: 900, color: tradingSessionLabel === "ACTIVE" ? "#7cf7a2" : "#f5c16c", fontSize: 13 }}>
+                          Status: {tradingSessionLabel === "PREPARED" ? "Prepared" : tradingSessionLabel === "ARMED" ? "Armed" : tradingSessionLabel === "ACTIVE" ? "Active" : tradingSessionLabel === "PAUSED" ? "Paused" : tradingSessionLabel === "STOPPED" ? "Stopped" : "Prepared"}
+                        </div>
+                        <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget to arm Nexus Trading. Vault signature connects later." : tradingSessionLabel === "ARMED" ? "Armed. User can now start manually." : tradingSessionLabel === "ACTIVE" ? "Session active. Pause or stop remains under user control." : tradingSessionLabel === "PAUSED" ? "Paused. Resume or stop manually." : "Stopped. Load or approve a setup again to continue."}</div>
                       </div>
-                      <button className="btnGhost" type="button" disabled title="Coming with Vault budget signature" style={{ height: 30, paddingInline: 10 }}>
-                        Approve Budget
-                      </button>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {tradingSessionLabel === "PREPARED" || tradingSessionLabel === "STOPPED" ? (
+                          <button className="btnGhost" type="button" onClick={handleTradingApproveBudget} disabled={!tradingCanApprove} title={tradingPreflight.title} style={{ height: 30, paddingInline: 10 }}>
+                            Approve Budget
+                          </button>
+                        ) : null}
+                        {tradingSessionLabel === "ARMED" ? (
+                          <button className="btn" type="button" onClick={handleTradingStartSession} style={{ height: 30, paddingInline: 10 }}>Start</button>
+                        ) : null}
+                        {tradingSessionLabel === "ACTIVE" ? (
+                          <button className="btnGhost" type="button" onClick={handleTradingPauseSession} style={{ height: 30, paddingInline: 10 }}>Pause</button>
+                        ) : null}
+                        {tradingSessionLabel === "PAUSED" ? (
+                          <button className="btn" type="button" onClick={handleTradingResumeSession} style={{ height: 30, paddingInline: 10 }}>Resume</button>
+                        ) : null}
+                        {tradingCanStop ? (
+                          <button className="btnDanger" type="button" onClick={handleTradingStopSession} style={{ height: 30, paddingInline: 10 }}>Stop</button>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="muted tiny">

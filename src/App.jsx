@@ -875,7 +875,10 @@ async function api(
     const ctrl = new AbortController();
     const timeoutMs =
       path?.includes("/api/access/redeem") ? 60000 :
-      path?.includes("/api/grid/") ? 60000 :
+      path?.includes("/api/grid/order/") ? 12000 :
+      path?.includes("/api/grid/manual/add") ? 12000 :
+      path?.includes("/api/grid/add") ? 12000 :
+      path?.includes("/api/grid/") ? 30000 :
       method === "GET" ? 15000 : 60000;
 
     const tm = setTimeout(() => {
@@ -7684,39 +7687,32 @@ body.qty = qty;
       setErrorMsg("Grid not ready yet (connect wallet + select coin).");
       return;
     }
-    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
 
     const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
-
-    // Try several known endpoints/methods (backend revisions differ)
     const addrPayload = walletAddress || undefined;
-    const attempts = [
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/cancel", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
-    ];
 
-    let lastErr = null;
-    for (const a of attempts) {
-      try {
-        const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-        applyGridMetaResponse(r, gridItemId);
-        kickGridRefresh();
-        setGridBusy((s) => ({ ...s, stopOrderId: null }));
-        return;
-      } catch (e) {
-        lastErr = e;
-        const msg = String(e?.message || "");
-        if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) throw e;
-      }
+    // Fast UI: visible truth is SQLite, but the card should react immediately.
+    setGridOrders((prev) => (prev || []).map((o) => {
+      const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
+      return oid === _oid ? { ...o, status: "CANCELLED", cancelled_ts: Math.floor(Date.now() / 1000) } : o;
+    }));
+    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
+
+    try {
+      await api("/api/grid/order/stop", {
+        method: "POST",
+        token,
+        wallet: walletAddress,
+        body: { item: gridItemId, chain: chainKey, addr: addrPayload, wallet: addrPayload, order_id: orderId },
+      });
+      kickGridRefresh();
+    } catch (e) {
+      setErrorMsg(`Stop order: ${e?.message || "failed"}`);
+      kickGridRefresh();
+    } finally {
+      setGridBusy((s) => ({ ...s, stopOrderId: null }));
     }
-
-    setGridBusy((s) => ({ ...s, stopOrderId: null }));
-    setErrorMsg(`Stop order: ${lastErr?.message || "failed"}`);
   }
   async function resumeGridOrder(orderId) {
     setErrorMsg("");
@@ -7729,37 +7725,31 @@ body.qty = qty;
       setErrorMsg("Grid not ready yet (connect wallet + select coin).");
       return;
     }
-    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
 
     const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
     const addrPayload = walletAddress || undefined;
-    const attempts = [
-      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/start", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/restart", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
-      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
-    ];
 
-    let lastErr = null;
-    for (const a of attempts) {
-      try {
-        const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-        applyGridMetaResponse(r, gridItemId);
-        kickGridRefresh();
-        setGridBusy((s) => ({ ...s, stopOrderId: null }));
-        return;
-      } catch (e) {
-        lastErr = e;
-        const msg = String(e?.message || "");
-        if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) break;
-      }
+    setGridOrders((prev) => (prev || []).map((o) => {
+      const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
+      return oid === _oid ? { ...o, status: "OPEN", cancelled_ts: null } : o;
+    }));
+    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
+
+    try {
+      await api("/api/grid/order/resume", {
+        method: "POST",
+        token,
+        wallet: walletAddress,
+        body: { item: gridItemId, chain: chainKey, addr: addrPayload, wallet: addrPayload, order_id: orderId },
+      });
+      kickGridRefresh();
+    } catch (e) {
+      setErrorMsg(`Resume order: ${e?.message || "failed"}`);
+      kickGridRefresh();
+    } finally {
+      setGridBusy((s) => ({ ...s, stopOrderId: null }));
     }
-
-    setGridBusy((s) => ({ ...s, stopOrderId: null }));
-    setErrorMsg(`Resume order: ${lastErr?.message || "failed"}`);
   }
 
   async function deleteGridOrder(orderId) {
@@ -7773,68 +7763,34 @@ body.qty = qty;
       setErrorMsg("Grid not ready yet (connect wallet + select coin).");
       return;
     }
-    setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));
 
     const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
-
-    // Some backends support POST /delete, others require DELETE, others use /remove
     const addrPayload = walletAddress || undefined;
-    const attempts = [
-      { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/remove", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/delete", method: "DELETE", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/remove", method: "DELETE", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
-    ];
 
-    let lastErr = null;
-    for (const a of attempts) {
-      try {
-        if (a.method === "DELETE") {
-          const res = await fetch(`${API_BASE}${a.url}`, {
-            method: "DELETE",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify(a.body),
-          });
-          if (!res.ok) {
-            const t = await res.text();
-            throw new Error(`${res.status} ${res.statusText}: ${t}`);
-          }
-          const r = await res.json().catch(() => ({}));
-          setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-          applyGridMetaResponse(r, gridItemId);
-          kickGridRefresh();
-          setGridBusy((s) => ({ ...s, deleteOrderId: null }));
-          return;
-        } else {
-          const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-          setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-          applyGridMetaResponse(r, gridItemId);
-          kickGridRefresh();
-          setGridBusy((s) => ({ ...s, deleteOrderId: null }));
-          return;
-        }
-      } catch (e) {
-        lastErr = e;
-        const msg = String(e?.message || "");
-        if (
-          msg.includes("405") ||
-          msg.toLowerCase().includes("method not allowed") ||
-          msg.includes("404") ||
-          msg.toLowerCase().includes("not found")
-        ) {
-          continue;
-        }
-        continue;
-      }
+    // Fast UI: remove immediately, then reconcile from SQLite.
+    const previousOrders = gridOrders;
+    setGridOrders((prev) => (prev || []).filter((o) => {
+      const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
+      return oid !== _oid;
+    }));
+    setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));
+
+    try {
+      await api("/api/grid/order/delete", {
+        method: "POST",
+        token,
+        wallet: walletAddress,
+        body: { item: gridItemId, chain: chainKey, addr: addrPayload, wallet: addrPayload, order_id: orderId },
+      });
+      kickGridRefresh();
+    } catch (e) {
+      setGridOrders(previousOrders || []);
+      setErrorMsg(`Delete order: ${e?.message || "failed"}`);
+      kickGridRefresh();
+    } finally {
+      setGridBusy((s) => ({ ...s, deleteOrderId: null }));
     }
-
-    setGridBusy((s) => ({ ...s, deleteOrderId: null }));
-    setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
 // Slow fallback only when Grid is ready but no active order is running.
 useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);

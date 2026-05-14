@@ -13406,7 +13406,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </button>
                 <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start}>{gridBusy.stop ? "Stopping..." : "Stop"}</button>
               </div>
-              {errorMsg ? (
+              {errorMsg && !(
+                String(errorMsg).includes("wallet/Vault") ||
+                String(errorMsg).includes("fund or add") ||
+                String(errorMsg).includes("apply again") ||
+                String(errorMsg).includes("No vault liquidity") ||
+                String(errorMsg).includes("Prepared ") ||
+                String(errorMsg).includes("Review ")
+              ) ? (
                 <div
                   style={{
                     marginTop: "10px",

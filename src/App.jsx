@@ -7852,6 +7852,17 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     return generic.find((sym) => !blocked.has(sym)) || "";
   }, [compareSymbols, watchRows, gridWalletCoins, gridItem]);
 
+  const deriveStrategistRiskPreset = useCallback((body) => {
+    const text = String(body || "").toLowerCase();
+    if (text.includes("high risk") || text.includes("elevated") || text.includes("weak liquidity") || text.includes("overextended")) {
+      return { confidence: "Medium", riskLimit: "3", rotationSlippage: "1.5", minAdvantage: "0.8", gridSlippage: "6", preset: "WIDE" };
+    }
+    if (text.includes("low risk") || text.includes("stable") || text.includes("range") || text.includes("compression")) {
+      return { confidence: "Medium-High", riskLimit: "2", rotationSlippage: "1", minAdvantage: "0.5", gridSlippage: "4", preset: "STANDARD" };
+    }
+    return { confidence: "Medium", riskLimit: "2.5", rotationSlippage: "1.2", minAdvantage: "0.6", gridSlippage: "5", preset: "STANDARD" };
+  }, []);
+
   const applyStrategistToGrid = useCallback((body) => {
     const sym = extractStrategistSymbol(body);
     if (!sym) {
@@ -7859,17 +7870,27 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       return;
     }
 
+    const preset = deriveStrategistRiskPreset(body);
     setGridMode("normal");
+    setManualPricePreset(preset.preset);
+    setManualSlippagePct(String(preset.gridSlippage));
+    setAiGridAssistState({
+      active: true,
+      preset: preset.preset,
+      slippage: preset.gridSlippage,
+      note: `Strategist prepared ${preset.preset.replace("_", " ")} grid / ${preset.gridSlippage}% slippage`,
+    });
     setStrategistBridge({
       type: "grid",
       sym,
       label: "Nexus Grid",
-      note: "Prepared by Nexus Strategist. Review price, amount and risk before adding any order.",
+      confidence: preset.confidence,
+      note: `Prepared by Nexus Strategist. Preset ${preset.preset.replace("_", " ")} · slippage ${preset.gridSlippage}%. Review price, amount and risk before adding any order.`,
       ts: Date.now(),
     });
     applyAiSuggestionToGrid(sym, "BUY");
     setErrorMsg(`Prepared ${sym} in Nexus Grid. Review price, amount and risk before adding any order.`);
-  }, [extractStrategistSymbol, setGridMode, applyAiSuggestionToGrid, setErrorMsg]);
+  }, [extractStrategistSymbol, deriveStrategistRiskPreset, setGridMode, setManualPricePreset, setManualSlippagePct, setAiGridAssistState, applyAiSuggestionToGrid, setErrorMsg]);
 
   const applyStrategistToRotation = useCallback((body) => {
     const sym = extractStrategistSymbol(body);
@@ -7878,18 +7899,26 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       return;
     }
 
+    const preset = deriveStrategistRiskPreset(body);
     setGridMode("rotation");
+    setRotationMode("RECOMMENDATION");
+    setRotationRiskLimit(preset.riskLimit);
+    setRotationMinNetAdvantage(preset.minAdvantage);
+    setRotationMaxSlippage(preset.rotationSlippage);
+    setRotationBudgetRelease("");
+    setRotationBudgetReleased(false);
     setStrategistBridge({
       type: "rotation",
       sym,
       label: "Nexus Rotation",
-      note: "Prepared by Nexus Strategist. Review selection and budget before releasing anything.",
+      confidence: preset.confidence,
+      note: `Prepared by Nexus Strategist. Risk limit ${preset.riskLimit}% · min advantage ${preset.minAdvantage}% · max slippage ${preset.rotationSlippage}%. Enter budget, review, then sign if you continue.`,
       ts: Date.now(),
     });
     openGridPanel();
     handleRotationPickToGrid({ sym });
-    setErrorMsg(`Prepared ${sym} in Nexus Rotation. Review selection and budget before releasing anything.`);
-  }, [extractStrategistSymbol, setGridMode, openGridPanel, handleRotationPickToGrid, setErrorMsg]);
+    setErrorMsg(`Prepared ${sym} in Nexus Rotation. Enter budget, review selection, then continue manually.`);
+  }, [extractStrategistSymbol, deriveStrategistRiskPreset, setGridMode, setRotationMode, setRotationRiskLimit, setRotationMinNetAdvantage, setRotationMaxSlippage, setRotationBudgetRelease, setRotationBudgetReleased, openGridPanel, handleRotationPickToGrid, setErrorMsg]);
 
   // Level 4 Light:
   // While a grid/order is running, AI can softly adapt only UI parameters
@@ -12674,7 +12703,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       Strategist Setup Loaded
                     </div>
                     <div className="muted tiny">
-                      <b>{strategistBridge.sym}</b> → <b>{strategistBridge.label}</b> · {strategistBridge.note}
+                      <b>{strategistBridge.sym}</b> → <b>{strategistBridge.label}</b>{strategistBridge.confidence ? <> · Confidence: <b>{strategistBridge.confidence}</b></> : null}
+                    </div>
+                    <div className="muted tiny">
+                      {strategistBridge.note}
                     </div>
                     <div className="muted tiny">
                       No order, swap, or budget release was executed.

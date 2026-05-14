@@ -13989,33 +13989,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       })()}
                     </div>
 
-                    {rotationSelectedPick && (
-                      <div
-                        style={{
-                          padding: "8px 10px",
-                          borderRadius: 12,
-                          background: rotationSelectedPick.ok ? "rgba(34,197,94,.10)" : "rgba(245,158,11,.10)",
-                          border: rotationSelectedPick.ok ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(245,158,11,.35)",
-                          color: rotationSelectedPick.ok ? "#d9fff0" : "#facc15",
-                        }}
-                      >
-                        <div style={{ fontWeight: 900, marginBottom: 4 }}>Selected recommendation</div>
-                        <div className="muted tiny" style={{ lineHeight: 1.55, display: "grid", gap: 3 }}>
-                          <div>{rotationSelectedPick.note}</div>
-                          {rotationSelectedPick.ok && (
-                            <>
-                              <div><b>Source:</b> {rotationSelectedPick.source} → <b>Execution:</b> {rotationSelectedPick.coin} on {rotationSelectedPick.chain}</div>
-                              <div><b>Score:</b> {Number.isFinite(rotationSelectedPick.score) ? `${rotationSelectedPick.score}/100` : "—"} · <b>Rating:</b> {rotationSelectedPick.rating || "—"} · <b>24h:</b> {Number.isFinite(rotationSelectedPick.change24h) ? `${rotationSelectedPick.change24h >= 0 ? "+" : ""}${rotationSelectedPick.change24h.toFixed(2)}%` : "—"}</div>
-                              <div><b>Whale / On-chain:</b> {rotationSelectedPick.whaleText || "Neutral"} · <b>Market:</b> {rotationSelectedPick.riskText || "Normal"}</div>
-                              <div><b>Rotation Budget:</b> {rotationBudgetRelease ? `$${rotationBudgetRelease}` : "not entered"} · <b>Risk:</b> {rotationRiskLimit || "not set"} · <b>Min advantage:</b> {rotationMinNetAdvantage || "—"}% · <b>Slippage:</b> {rotationMaxSlippage || "—"}%</div>
-                              <div><b>Scope:</b> {rotationNetworkScope === "ALL" ? "All wallet networks" : rotationNetworkScope} · <b>Mode:</b> {rotationMode === "AUTO_AFTER_RELEASE" ? "Auto after release" : rotationMode === "MANUAL_CONFIRM" ? "Manual confirm" : "Recommendation first"}</div>
-                              <div><b>Spread check:</b> DEX {rotationAllowDexSpread ? "ON" : "OFF"} · CEX/DEX {rotationAllowCexDexSpread ? "ON" : "OFF"}</div>
-                              <div><b>Status:</b> {rotationBudgetReleased ? "Budget released for Nexus Rotation" : "Ready for budget release"}</div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )}
+
 
                     <div className="btnRow">
                       <button

@@ -7852,6 +7852,101 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     return generic.find((sym) => !blocked.has(sym)) || "";
   }, [compareSymbols, watchRows, gridWalletCoins, gridItem]);
 
+  const strategistExecutionGuard = useCallback((sym, target = "grid") => {
+    const raw = String(sym || "").toUpperCase().trim();
+    const targetMode = String(target || "grid").toLowerCase();
+    const currentChain = String(activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase();
+
+    const coinsByChain = gridWalletCoinsByChain || {};
+    const listForChain = (chain) => (coinsByChain?.[String(chain || "").toUpperCase()] || []).map((x) => String(x || "").toUpperCase());
+    const currentList = (gridWalletCoins || []).map((x) => String(x || "").toUpperCase());
+    const hasOnCurrentChain = (coin) => currentList.includes(String(coin || "").toUpperCase()) || listForChain(currentChain).includes(String(coin || "").toUpperCase());
+    const findAvailableWrapped = (options) => {
+      for (const opt of options) {
+        if (listForChain(opt.chain).includes(opt.coin)) return opt;
+      }
+      return null;
+    };
+    const findAnyChainAsset = (coin) => {
+      const C = String(coin || "").toUpperCase();
+      for (const chain of Object.keys(coinsByChain || {})) {
+        const ck = String(chain || "").toUpperCase();
+        if (listForChain(ck).includes(C)) return { chain: ck, coin: C };
+      }
+      return hasOnCurrentChain(C) ? { chain: currentChain, coin: C } : null;
+    };
+
+    if (!raw) {
+      return { ok: false, normalized: "", warning: "No asset symbol found for Nexus execution." };
+    }
+
+    const nativeMap = {
+      ETH: { chain: "ETH", coin: "ETH" },
+      BNB: { chain: "BNB", coin: "BNB" },
+      POL: { chain: "POL", coin: "POL" },
+      MATIC: { chain: "POL", coin: "POL" },
+    };
+
+    if (nativeMap[raw]) {
+      return { ok: true, normalized: nativeMap[raw].coin, chain: nativeMap[raw].chain, warning: "" };
+    }
+
+    const wrappedOptions = {
+      BTC: [
+        { chain: "ETH", coin: "WBTC" },
+        { chain: "BNB", coin: "BTCB" },
+        { chain: "BNB", coin: "WBTC" },
+        { chain: "POL", coin: "WBTC" },
+      ],
+      SOL: [
+        { chain: "ETH", coin: "WSOL" },
+        { chain: "BNB", coin: "WSOL" },
+        { chain: "POL", coin: "WSOL" },
+      ],
+    };
+
+    if (wrappedOptions[raw]) {
+      const wrapped = findAvailableWrapped(wrappedOptions[raw]);
+      if (!wrapped) {
+        const needed = raw === "BTC" ? "WBTC / BTCB" : "WSOL";
+        return {
+          ok: false,
+          normalized: needed,
+          warning: `${raw} native is not executable in the current EVM Vault setup. Add ${needed} to the Vault/Grid assets first.`,
+        };
+      }
+
+      if (targetMode === "grid" && wrapped.chain !== currentChain) {
+        return {
+          ok: false,
+          normalized: wrapped.coin,
+          warning: `${raw} is available as ${wrapped.coin} on ${wrapped.chain}, but Grid is currently on ${currentChain}. Switch the Grid network first, then apply again.`,
+        };
+      }
+
+      return { ok: true, normalized: targetMode === "rotation" ? raw : wrapped.coin, chain: wrapped.chain, warning: "" };
+    }
+
+    const available = findAnyChainAsset(raw);
+    if (!available) {
+      return {
+        ok: false,
+        normalized: raw,
+        warning: `${raw} is not available in the current Nexus Vault/Grid assets. Add the EVM token or supported wrapped asset first.`,
+      };
+    }
+
+    if (targetMode === "grid" && available.chain !== currentChain) {
+      return {
+        ok: false,
+        normalized: raw,
+        warning: `${raw} is available on ${available.chain}, but Grid is currently on ${currentChain}. Switch the Grid network first, then apply again.`,
+      };
+    }
+
+    return { ok: true, normalized: raw, chain: available.chain, warning: "" };
+  }, [activeGridChainKey, gridChain, gridWalletCoinsByChain, gridWalletCoins]);
+
   const deriveStrategistRiskPreset = useCallback((body) => {
     const text = String(body || "").toLowerCase();
     if (text.includes("high risk") || text.includes("elevated") || text.includes("weak liquidity") || text.includes("overextended")) {
@@ -7870,6 +7965,21 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       return;
     }
 
+    const guard = strategistExecutionGuard(sym, "grid");
+    if (!guard.ok) {
+      setStrategistBridge({
+        type: "blocked",
+        sym,
+        label: "Execution Guard",
+        confidence: "Blocked",
+        note: guard.warning,
+        ts: Date.now(),
+      });
+      setErrorMsg(guard.warning);
+      return;
+    }
+
+    const preparedSym = guard.normalized || sym;
     const preset = deriveStrategistRiskPreset(body);
     setGridMode("normal");
     setManualPricePreset(preset.preset);
@@ -7882,15 +7992,15 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     });
     setStrategistBridge({
       type: "grid",
-      sym,
+      sym: preparedSym,
       label: "Nexus Grid",
       confidence: preset.confidence,
       note: `Prepared by Nexus Strategist. Preset ${preset.preset.replace("_", " ")} · slippage ${preset.gridSlippage}%. Review price, amount and risk before adding any order.`,
       ts: Date.now(),
     });
-    applyAiSuggestionToGrid(sym, "BUY");
-    setErrorMsg(`Prepared ${sym} in Nexus Grid. Review price, amount and risk before adding any order.`);
-  }, [extractStrategistSymbol, deriveStrategistRiskPreset, setGridMode, setManualPricePreset, setManualSlippagePct, setAiGridAssistState, applyAiSuggestionToGrid, setErrorMsg]);
+    applyAiSuggestionToGrid(preparedSym, "BUY");
+    setErrorMsg(`Prepared ${preparedSym} in Nexus Grid. Review price, amount and risk before adding any order.`);
+  }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, setGridMode, setManualPricePreset, setManualSlippagePct, setAiGridAssistState, applyAiSuggestionToGrid, setErrorMsg]);
 
   const applyStrategistToRotation = useCallback((body) => {
     const sym = extractStrategistSymbol(body);
@@ -7899,6 +8009,21 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       return;
     }
 
+    const guard = strategistExecutionGuard(sym, "rotation");
+    if (!guard.ok) {
+      setStrategistBridge({
+        type: "blocked",
+        sym,
+        label: "Execution Guard",
+        confidence: "Blocked",
+        note: guard.warning,
+        ts: Date.now(),
+      });
+      setErrorMsg(guard.warning);
+      return;
+    }
+
+    const preparedSym = guard.normalized || sym;
     const preset = deriveStrategistRiskPreset(body);
     setGridMode("rotation");
     setRotationMode("RECOMMENDATION");
@@ -7909,16 +8034,16 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setRotationBudgetReleased(false);
     setStrategistBridge({
       type: "rotation",
-      sym,
+      sym: preparedSym,
       label: "Nexus Rotation",
       confidence: preset.confidence,
       note: `Prepared by Nexus Strategist. Risk limit ${preset.riskLimit}% · min advantage ${preset.minAdvantage}% · max slippage ${preset.rotationSlippage}%. Enter budget, review, then sign if you continue.`,
       ts: Date.now(),
     });
     openGridPanel();
-    handleRotationPickToGrid({ sym });
-    setErrorMsg(`Prepared ${sym} in Nexus Rotation. Enter budget, review selection, then continue manually.`);
-  }, [extractStrategistSymbol, deriveStrategistRiskPreset, setGridMode, setRotationMode, setRotationRiskLimit, setRotationMinNetAdvantage, setRotationMaxSlippage, setRotationBudgetRelease, setRotationBudgetReleased, openGridPanel, handleRotationPickToGrid, setErrorMsg]);
+    handleRotationPickToGrid({ sym: preparedSym });
+    setErrorMsg(`Prepared ${preparedSym} in Nexus Rotation. Enter budget, review selection, then continue manually.`);
+  }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, setGridMode, setRotationMode, setRotationRiskLimit, setRotationMinNetAdvantage, setRotationMaxSlippage, setRotationBudgetRelease, setRotationBudgetReleased, openGridPanel, handleRotationPickToGrid, setErrorMsg]);
 
   // Level 4 Light:
   // While a grid/order is running, AI can softly adapt only UI parameters

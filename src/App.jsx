@@ -5652,6 +5652,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [bestPairsSortMode, setBestPairsSortMode] = useLocalStorageState("nexus_best_pairs_sort_mode", "score"); // score | spread
   const [movementPanelOpen, setMovementPanelOpen] = useState(false);
   const [customCompareWeightsOn, setCustomCompareWeightsOn] = useLocalStorageState("nexus_compare_custom_weights_on", false);
+  const [compareWeightsExpanded, setCompareWeightsExpanded] = useLocalStorageState("nexus_compare_weights_expanded", false);
   const [compareWeights, setCompareWeights] = useLocalStorageState("nexus_compare_custom_weights_v1", DEFAULT_COMPARE_WEIGHTS);
   const [aiInsightMode, setAiInsightMode] = useLocalStorageState("nexus_ai_insight_mode_v1", "standard");
   const normalizedAiInsightMode = String(aiInsightMode || "standard").toLowerCase() === "extreme" ? "extreme" : "standard";
@@ -11226,7 +11227,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>First 10 / Next 10 / All</b> steuert, ob du die ersten 10, die zweiten 10 oder alle Compare-Coins sehen willst.</p>
                       <p><b>Grid-Detail:</b> Klick auf eine Kachel öffnet den großen Chart. Dort kannst du direkt zwischen Price und Index 100 umschalten.</p>
                       <p><b>Legende:</b> Farbe → Coin. Klick auf einen Eintrag hebt einen Coin hervor.</p>
-                      <p><b>Custom Weighting:</b> Wenn OFF aktiv ist, nutzt Compare die System-Gewichtung. Wenn ON aktiv ist, kannst du die Score-Bestandteile mit Prozent-Reglern selbst verteilen. Die Summe kann nie über 100% gehen.</p>
+                      <p><b>Custom Weighting:</b> Wenn OFF aktiv ist, nutzt Compare die System-Gewichtung. Wenn ON aktiv ist, bleibt der Bereich trotzdem kompakt; über Settings kannst du die 5 Regler aufklappen. Die Summe kann nie über 100% gehen.</p>
                       <p><b>RSI (Relative Strength Index)</b> zeigt Momentum, nicht echtes Kaufvolumen.</p>
                       <ul>
                         <li><b>Overbought (Rot)</b> → stark gestiegen / eventuell überhitzt.</li>
@@ -11244,7 +11245,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>First 10 / Next 10 / All</b> controls whether you see the first 10, the next 10, or all selected Compare coins.</p>
                       <p><b>Grid detail:</b> Click a tile to open the large chart. There you can switch directly between Price and Index 100.</p>
                       <p><b>Legend:</b> Color → Coin. Click a legend entry to highlight one coin.</p>
-                      <p><b>Custom Weighting:</b> When OFF is active, Compare uses system weighting. When ON is active, you can manually distribute the score components with percentage sliders. The total can never exceed 100%.</p>
+                      <p><b>Custom Weighting:</b> When OFF is active, Compare uses system weighting. When ON is active, the area stays compact; open Settings to adjust the 5 sliders. The total can never exceed 100%.</p>
                       <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
                       <ul>
                         <li><b>Overbought (Red)</b> → strong recent rise, may be overheated.</li>
@@ -11277,22 +11278,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div className="label" style={{ marginBottom: 0 }}>Compare Score Weighting</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <div className="label" style={{ marginBottom: 0 }}>Compare Score Weighting</div>
-                  {customCompareWeightsOn ? (
-                    <span className="muted tiny">Total {compareWeightsTotal}% · Remaining {compareWeightsRemaining}%</span>
-                  ) : null}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  {customCompareWeightsOn && (
-                    <button className="ghostBtn tiny" onClick={resetCompareWeights} title="Reset to system default weights">
-                      Reset
-                    </button>
-                  )}
                   <button
                     className="ghostBtn tiny"
-                    onClick={() => setCustomCompareWeightsOn((v) => !v)}
-                    title={customCompareWeightsOn ? "Disable custom weighting and use system values" : "Enable custom weighting sliders"}
+                    onClick={() => {
+                      setCustomCompareWeightsOn((v) => {
+                        const next = !v;
+                        if (!next) setCompareWeightsExpanded(false);
+                        return next;
+                      });
+                    }}
+                    title={customCompareWeightsOn ? "Disable custom weighting and use system values" : "Enable custom weighting"}
                     style={{
                       background: "rgba(255,255,255,.025)",
                       border: "1px solid rgba(255,255,255,.10)",
@@ -11310,11 +11307,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       {customCompareWeightsOn ? "ON" : "OFF"}
                     </span>
                   </button>
+                  {customCompareWeightsOn && (
+                    <button
+                      className="ghostBtn tiny"
+                      onClick={() => setCompareWeightsExpanded((v) => !v)}
+                      title={compareWeightsExpanded ? "Hide weighting settings" : "Open weighting settings"}
+                      style={{
+                        background: "rgba(255,255,255,.025)",
+                        border: "1px solid rgba(255,255,255,.10)",
+                        color: "rgba(255,255,255,.72)",
+                        boxShadow: "none"
+                      }}
+                    >
+                      Settings {compareWeightsExpanded ? "▲" : "▼"}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {customCompareWeightsOn && (
+              {customCompareWeightsOn && compareWeightsExpanded && (
                 <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+                  <div className="muted tiny" style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span>Total {compareWeightsTotal}% · Remaining {compareWeightsRemaining}%</span>
+                    <button className="ghostBtn tiny" onClick={resetCompareWeights} title="Reset to system default weights">
+                      Reset
+                    </button>
+                  </div>
                   {COMPARE_WEIGHT_KEYS.map((key) => {
                     const current = Number(safeCompareWeights[key] || 0);
                     const otherTotal = COMPARE_WEIGHT_KEYS.filter((k) => k !== key).reduce((sum, k) => sum + Number(safeCompareWeights[k] || 0), 0);

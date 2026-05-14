@@ -6207,6 +6207,7 @@ useEffect(() => {
   const [tradingStyle, setTradingStyle] = useLocalStorageState("nexus_trading_style", "TACTICAL");
   const [tradingPreparedSetup, setTradingPreparedSetup] = useLocalStorageState("nexus_trading_prepared_setup", null);
   const [tradingLearningSetups, setTradingLearningSetups] = useLocalStorageState("nexus_trading_learning_setups", []);
+  const [tradingRiskExpanded, setTradingRiskExpanded] = useLocalStorageState("nexus_trading_risk_expanded", false);
 
 
   // const uiChainKey defined above (useMemo) 
@@ -13453,29 +13454,46 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               ) : String(gridMode || "normal") === "trading" ? (
                 <div className="gridWrap">
-                  <div className="gridControls" style={{ display: "grid", gap: 12 }}>
+                  <div className="gridControls" style={{ display: "grid", gap: 10 }}>
                     <div
                       style={{
-                        padding: "10px 12px",
+                        padding: "9px 11px",
                         borderRadius: 12,
-                        background: "rgba(0,0,0,.18)",
-                        border: "1px solid rgba(34,197,94,.22)",
-                        display: "grid",
-                        gap: 8,
+                        background: "rgba(0,0,0,.14)",
+                        border: "1px solid rgba(34,197,94,.18)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        flexWrap: "wrap",
                       }}
                     >
-                      <div className="label" style={{ marginBottom: 0 }}>Nexus Trading Control</div>
-                      <div className="muted tiny" style={{ lineHeight: 1.45 }}>
-                        Controlled autonomous trading. Nexus Trading can only run after the user defines budget/limits and signs activation. No wallet-wide access and no automatic activation here.
-                      </div>
-                      {tradingPreparedSetup ? (
-                        <div className="muted tiny" style={{ display: "grid", gap: 3, padding: "8px 10px", borderRadius: 10, background: "rgba(34,197,94,.08)", border: "1px solid rgba(34,197,94,.22)" }}>
-                          <div><b>Prepared:</b> {tradingPreparedSetup.symbol || tradingPreparedSetup.requestedSymbol || "—"} · <b>Confidence:</b> {tradingPreparedSetup.confidence || "—"} · <b>Executable:</b> {tradingPreparedSetup.executable ? "Yes" : "Funding / asset needed"}</div>
-                          {tradingPreparedSetup.guardWarning ? <div>{tradingPreparedSetup.guardWarning}</div> : null}
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 900, fontSize: 13 }}>Nexus Trading</div>
+                        <div className="muted tiny">
+                          {tradingPreparedSetup
+                            ? `Strategist setup loaded · ${tradingPreparedSetup.symbol || tradingPreparedSetup.requestedSymbol || "—"} · ${tradingPreparedSetup.confidence || "—"}`
+                            : "Autonomous vault trading · awaiting setup"}
                         </div>
-                      ) : (
-                        <div className="muted tiny">No Strategist setup loaded yet. Use “Use in Trading” from Nexus Strategist or configure manually.</div>
-                      )}
+                      </div>
+                      <InfoButton title="Nexus Trading – Info">
+                        <Help showClose dismissable
+                          de={
+                            <>
+                              <p><b>Nexus Trading</b> ist der kontrollierte Auto-Trading-Bereich von Nexus. Er darf spaeter nur innerhalb eines vom User signierten Vault-Budgets arbeiten.</p>
+                              <p>Der User definiert Budget, Laufzeit, erlaubte Assets/Chains und Risiko-Grenzen. Keine Wallet-weite Freigabe, keine automatische Aktivierung ohne Signatur.</p>
+                              <p><b>Nexus Strategist</b> kann Setups vorbereiten. Nexus Trading uebernimmt diese Daten nur als Konfiguration.</p>
+                            </>
+                          }
+                          en={
+                            <>
+                              <p><b>Nexus Trading</b> is the controlled autonomous trading area of Nexus. Later it can only operate inside a user-signed Vault budget.</p>
+                              <p>The user defines budget, runtime, allowed assets/chains, and risk limits. No wallet-wide permission and no activation without signature.</p>
+                              <p><b>Nexus Strategist</b> can prepare setups. Nexus Trading only imports them as configuration.</p>
+                            </>
+                          }
+                        />
+                      </InfoButton>
                     </div>
 
                     <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10, alignItems: "end" }}>
@@ -13510,62 +13528,121 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     <div
                       style={{
-                        padding: "8px 10px",
                         borderRadius: 12,
-                        background: "rgba(255,255,255,.04)",
-                        border: "1px solid rgba(255,255,255,.07)",
-                        display: "grid",
-                        gap: 8,
+                        background: "rgba(255,255,255,.035)",
+                        border: "1px solid rgba(255,255,255,.065)",
+                        overflow: "hidden",
                       }}
                     >
-                      <div className="label" style={{ marginBottom: 0 }}>Adaptive Risk Engine</div>
-                      <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10 }}>
-                        <div className="formRow">
-                          <label>Risk mode</label>
-                          <select value={tradingRiskMode} onChange={(e) => setTradingRiskMode(e.target.value)}>
-                            <option value="DEFENSIVE">Defensive</option>
-                            <option value="BALANCED">Balanced</option>
-                            <option value="DYNAMIC">Dynamic</option>
-                          </select>
-                        </div>
-                        <div className="formRow">
-                          <label>Caution DD %</label>
-                          <input value={tradingCautionDrawdownPct} onChange={(e) => setTradingCautionDrawdownPct(e.target.value)} placeholder="3" />
-                        </div>
-                        <div className="formRow">
-                          <label>Hard stop %</label>
-                          <input value={tradingHardStopPct} onChange={(e) => setTradingHardStopPct(e.target.value)} placeholder="12" />
-                        </div>
-                        <div className="formRow">
-                          <label>Profit lock %</label>
-                          <input value={tradingProfitLockPct} onChange={(e) => setTradingProfitLockPct(e.target.value)} placeholder="20" />
-                        </div>
-                        <div className="formRow">
-                          <label>Max slippage %</label>
-                          <input value={tradingMaxSlippagePct} onChange={(e) => setTradingMaxSlippagePct(e.target.value)} placeholder="1.2" />
-                        </div>
-                        <div className="formRow">
-                          <label>Max trades</label>
-                          <input value={tradingMaxTrades} onChange={(e) => setTradingMaxTrades(e.target.value)} placeholder="6" />
-                        </div>
+                      <div
+                        style={{
+                          padding: "8px 10px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="btnGhost"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setTradingRiskExpanded((v) => !v);
+                          }}
+                          style={{ height: 30, paddingInline: 10, fontSize: 12 }}
+                        >
+                          {tradingRiskExpanded ? "Advanced Risk Engine ▲" : "Advanced Risk Engine ▼"}
+                        </button>
+                        <InfoButton title="Advanced Risk Engine – Info">
+                          <Help showClose dismissable
+                            de={
+                              <>
+                                <p><b>Caution DD</b>: Warnzone. Nexus soll spaeter nicht sofort stoppen, sondern Aggressivitaet reduzieren.</p>
+                                <p><b>Hard Stop</b>: echter Notfall-Stopp bei zu hohem Risiko oder Regelbruch.</p>
+                                <p><b>Profit Lock</b>: schuetzt Gewinne, indem Risiko nach starkem Profit reduziert wird.</p>
+                                <p><b>Max Trades</b>: begrenzt Aktivitaet und verhindert Overtrading.</p>
+                                <p><b>Minimum Confidence</b>: Mindestqualitaet, die Strategist/Risk Engine brauchen, bevor Automation erlaubt wird.</p>
+                              </>
+                            }
+                            en={
+                              <>
+                                <p><b>Caution DD</b>: warning zone. Nexus should reduce aggression later, not instantly stop.</p>
+                                <p><b>Hard Stop</b>: emergency stop for excessive risk or rule violation.</p>
+                                <p><b>Profit Lock</b>: protects gains by reducing risk after strong profit.</p>
+                                <p><b>Max Trades</b>: limits activity and avoids overtrading.</p>
+                                <p><b>Minimum Confidence</b>: minimum quality required from Strategist/Risk Engine before automation is allowed.</p>
+                              </>
+                            }
+                          />
+                        </InfoButton>
                       </div>
-                      <div className="formRow">
-                        <label>Minimum confidence</label>
-                        <select value={tradingConfidenceMin} onChange={(e) => setTradingConfidenceMin(e.target.value)}>
-                          <option value="LOW">Low</option>
-                          <option value="MEDIUM">Medium</option>
-                          <option value="HIGH">High</option>
-                        </select>
-                      </div>
+
+                      {tradingRiskExpanded ? (
+                        <div style={{ padding: "0 10px 10px 10px", display: "grid", gap: 8 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10 }}>
+                            <div className="formRow">
+                              <label>Risk mode</label>
+                              <select value={tradingRiskMode} onChange={(e) => setTradingRiskMode(e.target.value)}>
+                                <option value="DEFENSIVE">Defensive</option>
+                                <option value="BALANCED">Balanced</option>
+                                <option value="DYNAMIC">Dynamic</option>
+                              </select>
+                            </div>
+                            <div className="formRow">
+                              <label>Caution DD %</label>
+                              <input value={tradingCautionDrawdownPct} onChange={(e) => setTradingCautionDrawdownPct(e.target.value)} placeholder="3" />
+                            </div>
+                            <div className="formRow">
+                              <label>Hard stop %</label>
+                              <input value={tradingHardStopPct} onChange={(e) => setTradingHardStopPct(e.target.value)} placeholder="12" />
+                            </div>
+                            <div className="formRow">
+                              <label>Profit lock %</label>
+                              <input value={tradingProfitLockPct} onChange={(e) => setTradingProfitLockPct(e.target.value)} placeholder="20" />
+                            </div>
+                            <div className="formRow">
+                              <label>Max slippage %</label>
+                              <input value={tradingMaxSlippagePct} onChange={(e) => setTradingMaxSlippagePct(e.target.value)} placeholder="1.2" />
+                            </div>
+                            <div className="formRow">
+                              <label>Max trades</label>
+                              <input value={tradingMaxTrades} onChange={(e) => setTradingMaxTrades(e.target.value)} placeholder="6" />
+                            </div>
+                          </div>
+                          <div className="formRow">
+                            <label>Minimum confidence</label>
+                            <select value={tradingConfidenceMin} onChange={(e) => setTradingConfidenceMin(e.target.value)}>
+                              <option value="LOW">Low</option>
+                              <option value="MEDIUM">Medium</option>
+                              <option value="HIGH">High</option>
+                            </select>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
 
-                    <div style={{ display: "grid", gap: 6, padding: "8px 10px", borderRadius: 12, background: "rgba(245,193,108,.08)", border: "1px solid rgba(245,193,108,.22)" }}>
-                      <div style={{ fontWeight: 900, color: "#f5c16c" }}>Activation locked</div>
-                      <div className="muted tiny">
-                        Auto execution is not enabled in this build. Next step: connect this config to the Vault/Risk Engine, then require user signature to activate the budget.
+                    <div
+                      style={{
+                        padding: "7px 10px",
+                        borderRadius: 12,
+                        background: "rgba(245,193,108,.07)",
+                        border: "1px solid rgba(245,193,108,.20)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 900, color: "#f5c16c", fontSize: 13 }}>Status: Awaiting activation</div>
+                        <div className="muted tiny">Activation needs Vault/Risk Engine connection and user signature.</div>
                       </div>
-                      <button className="btnGhost" type="button" disabled title="Coming after Risk Engine + Vault activation">
-                        Sign & Activate later
+                      <button className="btnGhost" type="button" disabled title="Coming after Risk Engine + Vault activation" style={{ height: 30, paddingInline: 10 }}>
+                        Activate later
                       </button>
                     </div>
 

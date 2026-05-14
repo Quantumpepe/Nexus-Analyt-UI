@@ -875,10 +875,7 @@ async function api(
     const ctrl = new AbortController();
     const timeoutMs =
       path?.includes("/api/access/redeem") ? 60000 :
-      path?.includes("/api/grid/order/") ? 12000 :
-      path?.includes("/api/grid/manual/add") ? 12000 :
-      path?.includes("/api/grid/add") ? 12000 :
-      path?.includes("/api/grid/") ? 30000 :
+      path?.includes("/api/grid/") ? 60000 :
       method === "GET" ? 15000 : 60000;
 
     const tm = setTimeout(() => {
@@ -7364,8 +7361,13 @@ const fetchGridOrders = useCallback(async () => {
     const nextOrders = normalizeGridOrders(nextOrdersRaw);
     setGridOrders(nextOrders);
 
+	try {
+      const sym = String(gridItem || "").toUpperCase().trim();
+      if (["POL", "BNB", "ETH"].includes(sym)) {
+        setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
+      }
+    } catch (_) {}
 
-    // Keep /api/grid/orders lightweight. Vault state refresh is handled separately/background.
     applyGridMetaResponse(r, gridItemId);
   } catch (e) {
     // Browser/timeout aborts are transient. Keep current grid state and do not show a red error box.
@@ -7393,16 +7395,6 @@ const kickGridRefresh = useCallback(() => {
   setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 400);
   setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 1400);
 }, [fetchGridOrders]);
-
-const clearManualExecutionPreview = useCallback(() => {
-  // After a fast stop/delete the visible order list can be empty while the
-  // manual form still contains the deleted order's price/qty. Those form
-  // values feed manualOrderNotionalUsd and can keep Execution Preview red.
-  // Clear all target-size fields so an empty order book always previews neutral.
-  setManualPrice("");
-  setManualQty("");
-  setManualUsd("");
-}, []);
 
 const hasOpenGridOrders = useMemo(
   () => (gridOrders || []).some((o) => String(o?.status || "").toUpperCase() === "OPEN"),
@@ -7440,9 +7432,11 @@ useInterval(
       applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
-      // Visible Grid Orders are SQLite-authoritative.
-      // Do not hydrate UI orders from action/execute responses; reload /api/grid/orders instead.
-      fetchGridOrders();
+      const execOrdersRaw = getGridOrdersFromResponse(r);
+      if (Array.isArray(execOrdersRaw)) {
+        const execOrders = normalizeGridOrders(execOrdersRaw);
+        setGridOrders(execOrders);
+      }
 
       try {
         const sym = String(gridItem || "").toUpperCase().trim();
@@ -7534,6 +7528,11 @@ setGridBusy((s) => ({ ...s, start: true }));
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
       applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+      const startOrdersRaw = getGridOrdersFromResponse(r);
+      if (Array.isArray(startOrdersRaw)) {
+        const startOrders = normalizeGridOrders(startOrdersRaw);
+        setGridOrders(startOrders);
+      }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, start: false }));
@@ -7600,6 +7599,11 @@ setGridBusy((s) => ({ ...s, stop: true }));
       const r = await api("/api/grid/stop", { method: "POST", token, wallet: walletAddress, body: { item: gridItemId, addr: walletAddress || undefined }, });
       applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+      const stopOrdersRaw = getGridOrdersFromResponse(r);
+      if (Array.isArray(stopOrdersRaw)) {
+        const stopOrders = normalizeGridOrders(stopOrdersRaw);
+        setGridOrders(stopOrders);
+      }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
     } catch (e) {
@@ -7607,6 +7611,167 @@ setGridBusy((s) => ({ ...s, stop: true }));
       setGridBusy((s) => ({ ...s, stop: false }));
     }
   }
+
+
+  const getNexusOrderPriceUsd = useCallback((symbol) => {
+    const sym = String(symbol || "").toUpperCase().trim();
+    if (!sym) return 0;
+    try {
+      const rows = Array.isArray(watchRows) ? watchRows : [];
+      const row = rows.find((r) => String(r?.symbol || r?.coin || r?.id || "").toUpperCase() === sym);
+      const candidates = [
+        row?.price,
+        row?.priceUsd,
+        row?.usd,
+        row?.current_price,
+        row?.currentPrice,
+        row?.market_data?.current_price?.usd,
+      ];
+      for (const v of candidates) {
+        const n = Number(v);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    } catch (_) {}
+    const activePx = Number(activeGridNativeUsd || 0);
+    return Number.isFinite(activePx) && activePx > 0 ? activePx : 0;
+  }, [watchRows, activeGridNativeUsd]);
+
+  const addCoreOrderFromModule = useCallback(async ({ source, chain, symbol, side = "BUY", budgetUsd, priceUsd, meta = {} }) => {
+    setErrorMsg("");
+    if (!token) return setErrorMsg("");
+    if (!requirePro("Placing a new order")) return;
+    if (gridBusy.add) return;
+    const src = String(source || "MANUAL").toUpperCase();
+    const ch = String(chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase().trim();
+    const sym = String(symbol || "").toUpperCase().trim();
+    if (!sym) return setErrorMsg(`${src}: select an asset first.`);
+    const usd = Number(String(budgetUsd ?? "").replace(",", "."));
+    if (!Number.isFinite(usd) || usd <= 0) return setErrorMsg(`${src}: set a budget > 0.`);
+    const px = Number(priceUsd || getNexusOrderPriceUsd(sym));
+    if (!Number.isFinite(px) || px <= 0) return setErrorMsg(`${src}: price unavailable for ${sym}.`);
+    const qty = usd / px;
+    if (!Number.isFinite(qty) || qty <= 0) return setErrorMsg(`${src}: invalid quantity.`);
+
+    setGridBusy((st) => ({ ...st, add: true }));
+    try {
+      const itemId = `${ch}:${sym}`;
+      const slippagePct = src === "ROTATION"
+        ? Number(String(rotationMaxSlippage || "1").replace(",", "."))
+        : src === "TRADING"
+          ? Number(String(tradingMaxSlippagePct || "1").replace(",", "."))
+          : Number(manualSlippagePct || 5);
+      const deadlineMin = Number(manualDeadlineMin || 20);
+      const clientOrderId = `${src.toLowerCase()}_${ch}_${sym}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const body = {
+        item: itemId,
+        item_id: itemId,
+        addr: walletAddress || undefined,
+        wallet: walletAddress || undefined,
+        chain: ch,
+        side: String(side || "BUY").toUpperCase(),
+        price: px,
+        qty,
+        source: src,
+        origin_module: src === "ROTATION" ? "nexus_rotation" : src === "TRADING" ? "nexus_trading" : "nexus_grid",
+        client_order_id: clientOrderId,
+        payout_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
+        payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+        settlement_mode: "swap_on_fill_hold_until_withdraw",
+        slippage_bps: Math.round(Math.max(0.1, Math.min(20, Number.isFinite(slippagePct) ? slippagePct : 1)) * 100),
+        deadline_sec: Math.floor(Math.max(5, Math.min(120, Number.isFinite(deadlineMin) ? deadlineMin : 20)) * 60),
+        ...meta,
+      };
+
+      const r = await api("/api/grid/manual/add", { method: "POST", token, wallet: walletAddress, body });
+      const savedOrder = r?.order || null;
+      setGridChain(ch);
+      setGridItem(sym);
+      if (savedOrder) {
+        const normalized = normalizeGridOrders([{ ...savedOrder, item: itemId, item_id: itemId, chain: ch }]);
+        setGridOrders((prev) => {
+          const keep = (prev || []).filter((o) => String(o?.id || o?.order_id || "") !== String(savedOrder.id || savedOrder.order_id || ""));
+          return [...keep, ...normalized];
+        });
+      }
+      applyGridMetaResponse(r, itemId);
+      setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+      setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 0);
+      setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 700);
+      setErrorMsg(`${src} order added: ${String(side || "BUY").toUpperCase()} ${sym} with ${fmtUsd(usd)} budget.`);
+    } catch (e) {
+      setErrorMsg(`${src} add order: ${e?.message || e}`);
+    } finally {
+      setGridBusy((st) => ({ ...st, add: false }));
+    }
+  }, [
+    token,
+    walletAddress,
+    gridBusy.add,
+    activeGridChainKey,
+    getNexusOrderPriceUsd,
+    rotationMaxSlippage,
+    tradingMaxSlippagePct,
+    manualSlippagePct,
+    manualDeadlineMin,
+    manualPayoutAsset,
+    requirePro,
+    api,
+    normalizeGridOrders,
+    applyGridMetaResponse,
+    getGridVaultStatsFromResponse,
+    fetchGridOrders,
+    setGridChain,
+    setGridItem,
+    setGridOrders,
+    setGridVaultStats,
+    setErrorMsg,
+  ]);
+
+  const addRotationOrder = useCallback(async () => {
+    const pick = rotationSelectedPick || {};
+    const chain = String(pick.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+    const symbol = String(pick.coin || pick.source || "").toUpperCase();
+    await addCoreOrderFromModule({
+      source: "ROTATION",
+      chain,
+      symbol,
+      side: "BUY",
+      budgetUsd: rotationBudgetRelease,
+      priceUsd: getNexusOrderPriceUsd(symbol),
+      meta: {
+        strategy_id: `rotation_${chain}_${symbol}`,
+        rotation_score: pick.score,
+        rotation_mode: rotationMode,
+        risk_limit_pct: rotationRiskLimit,
+        min_net_advantage_pct: rotationMinNetAdvantage,
+      },
+    });
+  }, [rotationSelectedPick, activeGridChainKey, rotationBudgetRelease, getNexusOrderPriceUsd, rotationMode, rotationRiskLimit, rotationMinNetAdvantage, addCoreOrderFromModule]);
+
+  const addTradingOrder = useCallback(async () => {
+    const chains = String(tradingAllowedChains || activeGridChainKey || DEFAULT_CHAIN || "POL").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+    const assets = String(tradingAllowedAssets || gridItem || chains[0] || "POL").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+    const chain = chains[0] || String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+    const symbol = assets[0] || chain;
+    await addCoreOrderFromModule({
+      source: "TRADING",
+      chain,
+      symbol,
+      side: "BUY",
+      budgetUsd: tradingBudgetUsd,
+      priceUsd: getNexusOrderPriceUsd(symbol),
+      meta: {
+        strategy_id: `trading_${chain}_${symbol}_${String(tradingStyle || "TACTICAL").toLowerCase()}`,
+        trading_style: tradingStyle,
+        trading_runtime_hours: tradingRuntimeHours,
+        trading_risk_mode: tradingRiskMode,
+        caution_drawdown_pct: tradingCautionDrawdownPct,
+        hard_stop_pct: tradingHardStopPct,
+        profit_lock_pct: tradingProfitLockPct,
+        max_trades: tradingMaxTrades,
+      },
+    });
+  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, addCoreOrderFromModule]);
 
   async function addManualOrder() {
     setErrorMsg("");
@@ -7638,9 +7803,9 @@ try {
         settlement_mode: "swap_on_fill_hold_until_withdraw",
         slippage_bps: Math.round(slp * 100),
         deadline_sec: deadlineSec,
-        client_order_id: (typeof crypto !== "undefined" && crypto.randomUUID)
-          ? crypto.randomUUID()
-          : `client-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        source: "GRID",
+        origin_module: "nexus_grid",
+        client_order_id: `grid_${String(activeGridChainKey || DEFAULT_CHAIN).toLowerCase()}_${String(gridItem || "asset").toLowerCase()}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       };
 
       
@@ -7666,41 +7831,16 @@ body.qty = qty;
 	        }
 	      }
 	      if (lastErr) throw lastErr;
-
-      // Fast local preview update: do not wait for /api/grid/orders or vault refresh.
-      // SQLite remains the source of truth; this optimistic row is reconciled by kickGridRefresh().
-      const nowSec = Math.floor(Date.now() / 1000);
-      const serverOrder = r?.order || r?.data?.order || null;
-      const optimisticOrder = {
-        ...(serverOrder && typeof serverOrder === "object" ? serverOrder : {}),
-        id: serverOrder?.id || serverOrder?.order_id || serverOrder?.orderId || r?.order_id || r?.id || body.client_order_id,
-        order_id: serverOrder?.order_id || serverOrder?.id || serverOrder?.orderId || r?.order_id || r?.id || body.client_order_id,
-        client_order_id: body.client_order_id,
-        item: gridItemId,
-        item_id: gridItemId,
-        chain: String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase(),
-        side: body.side,
-        price: body.price,
-        qty: body.qty,
-        status: "OPEN",
-        created_ts: nowSec,
-        updated_ts: nowSec,
-        payout_asset: body.payout_asset,
-        payoutAsset: body.payoutAsset,
-        source: "MANUAL",
-        optimistic: true,
-      };
-      setGridOrders((prev) => {
-        const rows = Array.isArray(prev) ? prev : [];
-        const key = String(optimisticOrder.order_id || optimisticOrder.id || body.client_order_id);
-        const exists = rows.some((o) => String(o?.order_id || o?.orderId || o?.id || o?.client_order_id || "") === key);
-        return exists ? rows : normalizeGridOrders([...rows, optimisticOrder]);
-      });
-
+      
       applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
-      // Reconcile from SQLite in the background. Visible preview already updated locally.
+      const addOrdersRaw = getGridOrdersFromResponse(r);
+      if (Array.isArray(addOrdersRaw)) {
+        const addOrders = normalizeGridOrders(addOrdersRaw);
+        setGridOrders(addOrders);
+      }
+      // Always reload from backend so the server can commit the order and the UI stays live.
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
@@ -7721,41 +7861,44 @@ body.qty = qty;
       setErrorMsg("Grid not ready yet (connect wallet + select coin).");
       return;
     }
+    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
 
     const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
+
+    // Try several known endpoints/methods (backend revisions differ)
     const addrPayload = walletAddress || undefined;
+    const attempts = [
+      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/cancel", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
+      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
+    ];
 
-    // Fast UI: visible truth is SQLite, but the card should react immediately.
-    // If this is the last open order, clear the manual form BEFORE updating
-    // gridOrders so Execution Preview cannot keep using stale price/qty values.
-    const openBefore = (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) === "OPEN");
-    const targetWasOpen = openBefore.some((o) => String(o?.id ?? o?.order_id ?? o?.orderId ?? "") === _oid);
-    if (targetWasOpen && openBefore.length <= 1) clearManualExecutionPreview();
-
-    setGridOrders((prev) => {
-      const next = (prev || []).map((o) => {
-        const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
-        return oid === _oid ? { ...o, status: "CANCELLED", cancelled_ts: Math.floor(Date.now() / 1000) } : o;
-      });
-      return next;
-    });
-    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
-
-    try {
-      await api("/api/grid/order/stop", {
-        method: "POST",
-        token,
-        wallet: walletAddress,
-        body: { item: gridItemId, chain: chainKey, addr: addrPayload, wallet: addrPayload, order_id: orderId },
-      });
-      kickGridRefresh();
-    } catch (e) {
-      setErrorMsg(`Stop order: ${e?.message || "failed"}`);
-      kickGridRefresh();
-    } finally {
-      setGridBusy((s) => ({ ...s, stopOrderId: null }));
+    let lastErr = null;
+    for (const a of attempts) {
+      try {
+        const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
+        const stopOrdersRaw = getGridOrdersFromResponse(r);
+        if (Array.isArray(stopOrdersRaw)) {
+          const stopOrders = normalizeGridOrders(stopOrdersRaw);
+          setGridOrders(stopOrders);
+        }
+        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+        applyGridMetaResponse(r, gridItemId);
+        fetchGridOrders();
+        setGridBusy((s) => ({ ...s, stopOrderId: null }));
+        return;
+      } catch (e) {
+        lastErr = e;
+        const msg = String(e?.message || "");
+        if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) throw e;
+      }
     }
+
+    setGridBusy((s) => ({ ...s, stopOrderId: null }));
+    setErrorMsg(`Stop order: ${lastErr?.message || "failed"}`);
   }
   async function resumeGridOrder(orderId) {
     setErrorMsg("");
@@ -7768,31 +7911,42 @@ body.qty = qty;
       setErrorMsg("Grid not ready yet (connect wallet + select coin).");
       return;
     }
+    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
 
     const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
     const addrPayload = walletAddress || undefined;
+    const attempts = [
+      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/start", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/restart", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
+      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
+    ];
 
-    setGridOrders((prev) => (prev || []).map((o) => {
-      const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
-      return oid === _oid ? { ...o, status: "OPEN", cancelled_ts: null } : o;
-    }));
-    setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
-
-    try {
-      await api("/api/grid/order/resume", {
-        method: "POST",
-        token,
-        wallet: walletAddress,
-        body: { item: gridItemId, chain: chainKey, addr: addrPayload, wallet: addrPayload, order_id: orderId },
-      });
-      kickGridRefresh();
-    } catch (e) {
-      setErrorMsg(`Resume order: ${e?.message || "failed"}`);
-      kickGridRefresh();
-    } finally {
-      setGridBusy((s) => ({ ...s, stopOrderId: null }));
+    let lastErr = null;
+    for (const a of attempts) {
+      try {
+        const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
+        const resumeOrdersRaw = getGridOrdersFromResponse(r);
+        if (Array.isArray(resumeOrdersRaw)) {
+          const resumeOrders = normalizeGridOrders(resumeOrdersRaw);
+          setGridOrders(resumeOrders);
+        }
+        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+        applyGridMetaResponse(r, gridItemId);
+        fetchGridOrders();
+        setGridBusy((s) => ({ ...s, stopOrderId: null }));
+        return;
+      } catch (e) {
+        lastErr = e;
+        const msg = String(e?.message || "");
+        if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) break;
+      }
     }
+
+    setGridBusy((s) => ({ ...s, stopOrderId: null }));
+    setErrorMsg(`Resume order: ${lastErr?.message || "failed"}`);
   }
 
   async function deleteGridOrder(orderId) {
@@ -7806,41 +7960,78 @@ body.qty = qty;
       setErrorMsg("Grid not ready yet (connect wallet + select coin).");
       return;
     }
+    setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));
 
     const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
+
+    // Some backends support POST /delete, others require DELETE, others use /remove
     const addrPayload = walletAddress || undefined;
+    const attempts = [
+      { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/remove", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/delete", method: "DELETE", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/remove", method: "DELETE", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
+      { url: "/api/grid/order/delete", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
+    ];
 
-    // Fast UI: remove immediately, then reconcile from SQLite.
-    const previousOrders = gridOrders;
-    const openBefore = (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) === "OPEN");
-    const targetWasOpen = openBefore.some((o) => String(o?.id ?? o?.order_id ?? o?.orderId ?? "") === _oid);
-    if (targetWasOpen && openBefore.length <= 1) clearManualExecutionPreview();
-
-    setGridOrders((prev) => {
-      const next = (prev || []).filter((o) => {
-        const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
-        return oid !== _oid;
-      });
-      return next;
-    });
-    setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));
-
-    try {
-      await api("/api/grid/order/delete", {
-        method: "POST",
-        token,
-        wallet: walletAddress,
-        body: { item: gridItemId, chain: chainKey, addr: addrPayload, wallet: addrPayload, order_id: orderId },
-      });
-      kickGridRefresh();
-    } catch (e) {
-      setGridOrders(previousOrders || []);
-      setErrorMsg(`Delete order: ${e?.message || "failed"}`);
-      kickGridRefresh();
-    } finally {
-      setGridBusy((s) => ({ ...s, deleteOrderId: null }));
+    let lastErr = null;
+    for (const a of attempts) {
+      try {
+        if (a.method === "DELETE") {
+          const res = await fetch(`${API_BASE}${a.url}`, {
+            method: "DELETE",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify(a.body),
+          });
+          if (!res.ok) {
+            const t = await res.text();
+            throw new Error(`${res.status} ${res.statusText}: ${t}`);
+          }
+          const r = await res.json().catch(() => ({}));
+          const delOrdersRaw = getGridOrdersFromResponse(r);
+          if (Array.isArray(delOrdersRaw)) {
+            const delOrders = normalizeGridOrders(delOrdersRaw);
+            setGridOrders(delOrders);
+          }
+          setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+          applyGridMetaResponse(r, gridItemId);
+          kickGridRefresh();
+          setGridBusy((s) => ({ ...s, deleteOrderId: null }));
+          return;
+        } else {
+          const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
+          const respOrdersRaw = getGridOrdersFromResponse(r);
+          if (Array.isArray(respOrdersRaw)) {
+            const respOrders = normalizeGridOrders(respOrdersRaw);
+            setGridOrders(respOrders);
+          }
+          setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
+          applyGridMetaResponse(r, gridItemId);
+          kickGridRefresh();
+          setGridBusy((s) => ({ ...s, deleteOrderId: null }));
+          return;
+        }
+      } catch (e) {
+        lastErr = e;
+        const msg = String(e?.message || "");
+        if (
+          msg.includes("405") ||
+          msg.toLowerCase().includes("method not allowed") ||
+          msg.includes("404") ||
+          msg.toLowerCase().includes("not found")
+        ) {
+          continue;
+        }
+        continue;
+      }
     }
+
+    setGridBusy((s) => ({ ...s, deleteOrderId: null }));
+    setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
 // Slow fallback only when Grid is ready but no active order is running.
 useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
@@ -9738,16 +9929,6 @@ const manualRiskState = useMemo(() => {
   }
 
   if (!Number.isFinite(impact) || impact < 0) {
-    const after = Number(manualExposureAfterUsd);
-    if (Number.isFinite(after) && after <= 0) {
-      return {
-        key: "green_idle",
-        label: "🟢 Green · normal execution",
-        tone: "rgba(34, 197, 94, 0.16)",
-        border: "1px solid rgba(34, 197, 94, 0.28)",
-        color: "#86efac",
-      };
-    }
     return {
       key: "input_needed",
       label: "🟡 Enter order amount",
@@ -9802,7 +9983,7 @@ const manualRiskState = useMemo(() => {
     border: "1px solid rgba(239, 68, 68, 0.28)",
     color: "#fca5a5",
   };
-}, [manualPoolLiquidityUsd, manualEstimatedImpactPct, manualExposureAfterUsd]);
+}, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
 
 const isWatchSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "watchlist";
 const isGridSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "vault";
@@ -13987,10 +14168,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd);
                           return vaultTotalUsd > 0 && amount > availableUsd;
                         })()}
-                        onClick={releaseRotationBudget}
-                        title={rotationSelectedPick?.ok ? "Release this budget for Nexus Rotation" : "Select a recommendation first"}
+                        onClick={addRotationOrder}
+                        title={rotationSelectedPick?.ok ? "Create a Rotation order through the shared SQLite order core" : "Select a recommendation first"}
                       >
-                        {rotationBudgetReleased ? "Budget freigegeben" : "Budget freigeben"}
+                        {gridBusy.add ? "Adding..." : "Add Rotation Order"}
                       </button>
                       <button
                         className="btnDanger"
@@ -14153,6 +14334,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget to arm Nexus Trading. Vault signature connects later." : tradingSessionLabel === "ARMED" ? "Armed. User can now start manually." : tradingSessionLabel === "ACTIVE" ? "Session active. Pause or stop remains under user control." : tradingSessionLabel === "PAUSED" ? "Paused. Resume or stop manually." : "Stopped. Load or approve a setup again to continue."}</div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          className="btn"
+                          type="button"
+                          onClick={addTradingOrder}
+                          disabled={gridBusy.add || !(Number(String(tradingBudgetUsd || "").replace(",", ".")) > 0)}
+                          title="Create a Trading order through the shared SQLite order core"
+                          style={{ height: 30, paddingInline: 10 }}
+                        >
+                          {gridBusy.add ? "Adding..." : "Add Trading Order"}
+                        </button>
                         {tradingSessionLabel === "PREPARED" || tradingSessionLabel === "STOPPED" ? (
                           <button className="btnGhost" type="button" onClick={handleTradingApproveBudget} disabled={!tradingCanApprove} title={tradingPreflight.title} style={{ height: 30, paddingInline: 10 }}>
                             Approve Budget

@@ -6076,9 +6076,10 @@ useEffect(() => {
 
   const releaseRotationBudget = useCallback(() => {
     const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
-    if (!rotationSelectedPick?.ok || !Number.isFinite(amount) || amount <= 0) return;
+    if (!Number.isFinite(amount) || amount <= 0) return;
     setRotationBudgetReleased(true);
-  }, [rotationSelectedPick, rotationBudgetRelease]);
+    setRotationBackendMsg("Rotation budget approved ✓");
+  }, [rotationBudgetRelease]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -13903,8 +13904,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <input
                           value={rotationBudgetRelease}
                           onChange={(e) => { setRotationBudgetRelease(e.target.value); setRotationBudgetReleased(false); }}
-                          disabled={!rotationSelectedPick?.ok}
-                          placeholder={rotationSelectedPick?.ok ? "e.g. 500" : "Select a recommendation first"}
+                          placeholder="e.g. 500"
                         />
                       </div>
                       <div className="formRow">
@@ -13952,10 +13952,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <span>
                         <b>Status:</b>{" "}
                         {rotationBudgetReleased
-                          ? "Ready"
-                          : rotationSelectedPick?.ok
-                            ? "Waiting for budget"
-                            : "Idle"}
+                          ? "Budget approved"
+                          : "Waiting for budget approval"}
                       </span>
                       <span style={{ opacity: 0.75 }}>
                         {rotationSelectedPick?.ok
@@ -14162,7 +14160,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         type="button"
                         disabled={(() => {
                           const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
-                          if (!rotationSelectedPick?.ok || !(amount > 0)) return true;
+                          if (!rotationBudgetReleased || !rotationSelectedPick?.ok || !(amount > 0)) return true;
                           const px = Number(activeGridNativeUsd || 0);
                           const vaultTotalUsd = Number.isFinite(px) && px > 0 ? Number(manualVaultTotalQty || 0) * px : 0;
                           const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? Number(manualVaultAllocatedQty || 0) * px : 0;
@@ -14170,18 +14168,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return vaultTotalUsd > 0 && amount > availableUsd;
                         })()}
                         onClick={addRotationOrder}
-                        title={rotationSelectedPick?.ok ? "Create a Rotation order through the shared SQLite order core" : "Select a recommendation first"}
+                        title={rotationBudgetReleased ? (rotationSelectedPick?.ok ? "Create a Rotation order through the shared SQLite order core" : "Select a recommendation first") : "Approve the Rotation budget first"}
                       >
                         {gridBusy.add ? "Adding..." : "Add Rotation Order"}
                       </button>
                       <button
-                        className="btnDanger"
+                        className={rotationBudgetReleased ? "miniBtn" : "btn"}
                         type="button"
-                        disabled={rotationBackendLoading}
-                        onClick={startRotationSafeMode}
-                        title="Runs backend SAFE MODE check only. No trade, no swap, no Vault transaction."
+                        disabled={(() => {
+                          const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+                          return !Number.isFinite(amount) || amount <= 0 || rotationBudgetReleased;
+                        })()}
+                        onClick={releaseRotationBudget}
+                        title="Approve the Rotation budget locally. Vault safety is checked internally when an order is created."
                       >
-                        {rotationBackendLoading ? "Checking…" : "Check Vault"}
+                        {rotationBudgetReleased ? "Budget Approved" : "Approve Budget"}
                       </button>
                       {rotationBudgetReleased && (
                         <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>

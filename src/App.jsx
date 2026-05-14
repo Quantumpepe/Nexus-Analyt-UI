@@ -6433,6 +6433,7 @@ const [aiQuestion, setAiQuestion] = useState("");
   const [aiHistory, setAiHistory] = useState([]); // [{role:"user"|"assistant", content:string}]
 const [aiLoading, setAiLoading] = useState(false);
   const [aiOutput, setAiOutput] = useState("");
+  const [strategistBridge, setStrategistBridge] = useState(null);
 
   // watch snapshot polling
   const inflightWatch = useRef(false);
@@ -7859,6 +7860,13 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     }
 
     setGridMode("normal");
+    setStrategistBridge({
+      type: "grid",
+      sym,
+      label: "Nexus Grid",
+      note: "Prepared by Nexus Strategist. Review price, amount and risk before adding any order.",
+      ts: Date.now(),
+    });
     applyAiSuggestionToGrid(sym, "BUY");
     setErrorMsg(`Prepared ${sym} in Nexus Grid. Review price, amount and risk before adding any order.`);
   }, [extractStrategistSymbol, setGridMode, applyAiSuggestionToGrid, setErrorMsg]);
@@ -7871,6 +7879,13 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     }
 
     setGridMode("rotation");
+    setStrategistBridge({
+      type: "rotation",
+      sym,
+      label: "Nexus Rotation",
+      note: "Prepared by Nexus Strategist. Review selection and budget before releasing anything.",
+      ts: Date.now(),
+    });
     openGridPanel();
     handleRotationPickToGrid({ sym });
     setErrorMsg(`Prepared ${sym} in Nexus Rotation. Review selection and budget before releasing anything.`);
@@ -8608,9 +8623,9 @@ function aiTaskPlaceholder(kind) {
 async function runAi() {
     setErrorMsg("");
     setAiOutput("");
-    if (!requirePro("AI Analyst")) return;
+    if (!requirePro("Nexus Strategist")) return;
     const q = (aiQuestion || "").trim();
-    if (!q) return setErrorMsg("Please describe what the AI Analyst should do.");
+    if (!q) return setErrorMsg("Please describe what the Nexus Strategist should do.");
 
     // Compare/watchlist data may still be useful as hidden context for Research and Daily Report,
     // but coin chips are no longer shown in the AI Analyst UI.
@@ -8750,7 +8765,7 @@ ${q}`;
     } catch (e) {
       const msg = String(e?.message || e || "AI Analyst request failed.");
       setErrorMsg(msg);
-      setAiOutput(`AI Analyst could not run.\n\n${msg}`);
+      setAiOutput(`Nexus Strategist could not run.\n\n${msg}`);
     } finally {
       setAiLoading(false);
     }
@@ -12639,6 +12654,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 })}
               </div>
 
+              {strategistBridge ? (
+                <div
+                  style={{
+                    marginBottom: 10,
+                    padding: "9px 11px",
+                    borderRadius: 12,
+                    border: "1px solid rgba(34,197,94,.34)",
+                    background: "linear-gradient(180deg, rgba(34,197,94,.12), rgba(34,197,94,.055))",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ display: "grid", gap: 3 }}>
+                    <div style={{ fontWeight: 900, fontSize: 12, letterSpacing: ".04em", textTransform: "uppercase", color: "#dfffee" }}>
+                      Strategist Setup Loaded
+                    </div>
+                    <div className="muted tiny">
+                      <b>{strategistBridge.sym}</b> → <b>{strategistBridge.label}</b> · {strategistBridge.note}
+                    </div>
+                    <div className="muted tiny">
+                      No order, swap, or budget release was executed.
+                    </div>
+                  </div>
+                  <button
+                    className="btnGhost"
+                    type="button"
+                    onClick={() => setStrategistBridge(null)}
+                    title="Hide Strategist setup notice"
+                    style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : null}
+
               {String(gridMode || "normal") === "rotation" ? (
                 <div className="gridWrap">
                   <div className="gridControls" style={{ display: "grid", gap: 12 }}>
@@ -14232,12 +14285,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
         {/* AI */}
         <section className={`card section-ai dashboardPanel ${activePanel === "ai" ? "panelActive" : ""}`} onClick={handlePanelActivate("ai")}>
           <div className="cardHead">
-            <div className="cardTitle">AI Analyst</div>
+            <div className="cardTitle">Nexus Strategist</div>
             <div className="cardActions" style={{ alignItems: "center" }}>
-              <InfoButton title="AI Analyst">
+              <InfoButton title="Nexus Strategist">
                 <Help showClose dismissable
-                  de={<><p><b>AI Analyst</b> ist dein aktiver Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Unterschied zu AI Insight:</b> AI Insight erklaert kompakt den aktuellen Markt. AI Analyst hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten und Trade-Review.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Hinweis:</b> Der AI Analyst liefert Analyse, Struktur und Lernhilfe. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}
-                  en={<><p><b>AI Analyst</b> is your active workspace inside Nexus Analyt. It no longer works through visible coin chips; it works through your task input.</p><p><b>Difference from AI Insight:</b> AI Insight gives a compact market interpretation. AI Analyst helps actively with research, strategy ideas, backtest review, Pine Script, reports, and trade review.</p><p><b>Research:</b> investigates market questions, rotation, relative strength, volume, watchlist themes, and unusual conditions.</p><p><b>Strategy Builder:</b> turns your idea into clear rules, filters, entry/exit logic, risk logic, and alerts.</p><p><b>Backtest Review:</b> evaluates backtest results, drawdown, win rate, expectancy, overfitting risk, and weak market regimes.</p><p><b>Pine Builder:</b> helps with TradingView/Pine Script: indicators, strategies, alerts, debugging, and improvements.</p><p><b>Daily Report:</b> creates a compact report from your task and available app context.</p><p><b>Trade Review:</b> analyzes execution, behavior, order structure, repeated mistakes, and trading habits.</p><p><b>Input:</b> Always describe what the analyst should do. You can paste coin names, strategy ideas, backtest data, or Pine Script directly.</p><p><b>Note:</b> AI Analyst provides analysis, structure, and learning support. It is not financial advice or a direct buy/sell recommendation.</p></>}
+                  de={<><p><b>Nexus Strategist</b> ist dein aktiver Strategie-Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Unterschied zu AI Insight:</b> AI Insight erklaert kompakt den aktuellen Markt. Nexus Strategist hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten, Trade-Review und der Einordnung zwischen Nexus Grid und Nexus Rotation.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Hinweis:</b> Nexus Strategist liefert Analyse, Struktur und taktische Orientierung. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}
+                  en={<><p><b>Nexus Strategist</b> is your active strategy workspace inside Nexus Analyt. It no longer works through visible coin chips; it works through your task input.</p><p><b>Difference from AI Insight:</b> AI Insight gives a compact market interpretation. Nexus Strategist helps actively with research, strategy ideas, backtest review, Pine Script, reports, trade review, and choosing between Nexus Grid and Nexus Rotation.</p><p><b>Research:</b> investigates market questions, rotation, relative strength, volume, watchlist themes, and unusual conditions.</p><p><b>Strategy Builder:</b> turns your idea into clear rules, filters, entry/exit logic, risk logic, and alerts.</p><p><b>Backtest Review:</b> evaluates backtest results, drawdown, win rate, expectancy, overfitting risk, and weak market regimes.</p><p><b>Pine Builder:</b> helps with TradingView/Pine Script: indicators, strategies, alerts, debugging, and improvements.</p><p><b>Daily Report:</b> creates a compact report from your task and available app context.</p><p><b>Trade Review:</b> analyzes execution, behavior, order structure, repeated mistakes, and trading habits.</p><p><b>Input:</b> Always describe what the analyst should do. You can paste coin names, strategy ideas, backtest data, or Pine Script directly.</p><p><b>Note:</b> Nexus Strategist provides analysis, structure, and tactical orientation. It is not financial advice or a direct buy/sell recommendation.</p></>}
                 />
               </InfoButton>
             </div>
@@ -14245,7 +14298,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           <div className="panelScroll"><div className="aiWrap">
             <div className="aiSelect">
-              <div className="label">Task</div>
+              <div className="label">Strategy Task</div>
               <textarea
                 value={aiQuestion}
                 onChange={(e) => setAiQuestion(e.target.value)}
@@ -14300,7 +14353,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         setAiHistory([]);
                         setAiQuestion("");
                       }}
-                      title={`AI Analyst mode: ${label}`}
+                      title={`Nexus Strategist mode: ${label}`}
                     >
                       {label}
                     </button>
@@ -14338,7 +14391,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               {!isPro ? (
                 <div className="hint" style={{ marginTop: 10, color: "rgba(255,255,255,0.75)" }}>
-                  AI is available for <b>Nexus Pro</b> only. Subscribe to unlock.
+                  Nexus Strategist is available for <b>Nexus Pro</b> only. Subscribe to unlock.
                 </div>
               ) : null}
 
@@ -14348,7 +14401,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
 
             <div className="aiOut">
-              <div className="label">Output</div>
+              <div className="label">Strategic Output</div>
               <div className="aiPanel">
                 {aiOutput ? (
                   <div style={{ display: "grid", gap: 8 }}>

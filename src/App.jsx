@@ -7613,6 +7613,15 @@ setGridBusy((s) => ({ ...s, stop: true }));
   }
 
 
+  const activeGridChainSymbol = useMemo(() => {
+    return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+  }, [activeGridChainKey]);
+
+  const activeGridNativeUsd = useMemo(() => {
+    const px = Number(walletPx?.native?.[activeGridChainSymbol]);
+    return Number.isFinite(px) && px > 0 ? px : null;
+  }, [walletPx, activeGridChainSymbol]);
+
   const getNexusOrderPriceUsd = useCallback((symbol) => {
     const sym = String(symbol || "").toUpperCase().trim();
     if (!sym) return 0;
@@ -9067,14 +9076,6 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     return `On target hit -> swap immediately into ${payout} -> hold in vault until withdraw.`;
   }, [manualPayoutAsset]);
 
-  const activeGridChainSymbol = useMemo(() => {
-    return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-  }, [activeGridChainKey]);
-
-  const activeGridNativeUsd = useMemo(() => {
-    const px = Number(walletPx?.native?.[activeGridChainSymbol]);
-    return Number.isFinite(px) && px > 0 ? px : null;
-  }, [walletPx, activeGridChainSymbol]);
 
   const persistWatchOrder = useCallback(async (nextItems) => {
     const normalized = normalizeWatchItems(nextItems || []);

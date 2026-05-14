@@ -8287,7 +8287,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       label: "Nexus Trading",
       confidence: guard.ok ? preset.confidence : "Blocked",
       note: guard.ok
-        ? `Prepared controlled autonomous setup. Enter budget, review limits, then sign/activate only if you want Nexus Trading to run.`
+        ? ``
         : `${guard.warning} Trading limits were still prepared; fund/add the correct EVM asset before activation.`,
       appliedSettings: setup.appliedSettings,
       ts: Date.now(),
@@ -13133,8 +13133,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       {strategistBridge.note}
                     </div>
                     <div className="muted tiny">
-                      No order, swap, or budget release was executed.
-                    </div>
+                      </div>
                     {Array.isArray(strategistBridge.appliedSettings) && strategistBridge.appliedSettings.length ? (() => {
                       const appliedSettings = strategistBridge.appliedSettings;
                       const changedCount = appliedSettings.filter((item) => item?.changed).length;

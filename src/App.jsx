@@ -1424,7 +1424,7 @@ function watchFinalRating(row, summary, onchain) {
   return ratingFromScore(Math.max(0, Math.min(100, base + delta)));
 }
 
-function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainBySymbol, marketConditionBySymbol, bestPairsToShow, compareWeights, aiMode }) {
+function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainBySymbol, marketConditionBySymbol, bestPairsToShow, compareWeights, aiMode, nexusTradingContext }) {
   const selected = Array.isArray(syms) ? syms.map((s) => String(s || "").toUpperCase()).filter(Boolean) : [];
   const rowBySym = new Map();
   for (const r of Array.isArray(watchRows) ? watchRows : []) {
@@ -1500,6 +1500,7 @@ function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainB
     coins,
     relevant_pairs: pairs,
     all_compare_pairs: allComparePairs,
+    nexus_trading: nexusTradingContext || null,
     notes: [
       "Rating is one visible rating built from market/system score, user rating average, and small on-chain delta.",
       "On-chain signals are supporting evidence only and capped to a small score impact.",
@@ -1601,9 +1602,13 @@ function formatAiSignalContextForPrompt(ctx) {
   );
 
   const weightLine = ctx?.compare_weights ? `AI mode=${ctx.ai_mode || "standard"}; Compare weights corr=${ctx.compare_weights.corr}, momentum=${ctx.compare_weights.momentum}, opportunity=${ctx.compare_weights.opportunity}, stability=${ctx.compare_weights.stability}, sentiment=${ctx.compare_weights.sentiment}` : "";
+  const tradingLine = ctx?.nexus_trading
+    ? `Nexus Trading context: prepared=${ctx.nexus_trading?.prepared_setup?.symbol || "none"}, executable=${ctx.nexus_trading?.prepared_setup?.executable ?? "n/a"}, learning_setups=${ctx.nexus_trading?.learning_count ?? 0}, budget=${ctx.nexus_trading?.configured_budget_usd || "not set"}, risk_mode=${ctx.nexus_trading?.risk_mode || "n/a"}`
+    : "";
 
   return [
     weightLine,
+    tradingLine,
     lines.length ? `AI Signal Context:\n${lines.join("\n")}` : "",
     pairLines.length ? `Relevant pair context:\n${pairLines.join("\n")}` : "",
   ].filter(Boolean).join("\n\n");
@@ -5517,6 +5522,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         bestPairsToShow,
         compareWeights: activeCompareWeights,
         aiMode: normalizedAiInsightMode,
+        nexusTradingContext: {
+          prepared_setup: tradingPreparedSetup || null,
+          learning_count: Array.isArray(tradingLearningSetups) ? tradingLearningSetups.length : 0,
+          configured_budget_usd: tradingBudgetUsd || "",
+          risk_mode: tradingRiskMode || "",
+        },
       });
       const aiSignalText = formatAiSignalContextForPrompt(aiSignalContext);
       const payload = {
@@ -6181,6 +6192,21 @@ useEffect(() => {
   useEffect(() => {
     try { localStorage.setItem("nexus_grid_mode", gridMode); } catch (_) {}
   }, [gridMode]);
+
+  const [tradingBudgetUsd, setTradingBudgetUsd] = useLocalStorageState("nexus_trading_budget_usd", "");
+  const [tradingRuntimeHours, setTradingRuntimeHours] = useLocalStorageState("nexus_trading_runtime_hours", "24");
+  const [tradingAllowedAssets, setTradingAllowedAssets] = useLocalStorageState("nexus_trading_allowed_assets", "");
+  const [tradingAllowedChains, setTradingAllowedChains] = useLocalStorageState("nexus_trading_allowed_chains", "POL,BNB,ETH");
+  const [tradingRiskMode, setTradingRiskMode] = useLocalStorageState("nexus_trading_risk_mode", "BALANCED");
+  const [tradingCautionDrawdownPct, setTradingCautionDrawdownPct] = useLocalStorageState("nexus_trading_caution_drawdown_pct", "3");
+  const [tradingHardStopPct, setTradingHardStopPct] = useLocalStorageState("nexus_trading_hard_stop_pct", "12");
+  const [tradingProfitLockPct, setTradingProfitLockPct] = useLocalStorageState("nexus_trading_profit_lock_pct", "20");
+  const [tradingMaxSlippagePct, setTradingMaxSlippagePct] = useLocalStorageState("nexus_trading_max_slippage_pct", "1.2");
+  const [tradingMaxTrades, setTradingMaxTrades] = useLocalStorageState("nexus_trading_max_trades", "6");
+  const [tradingConfidenceMin, setTradingConfidenceMin] = useLocalStorageState("nexus_trading_confidence_min", "MEDIUM");
+  const [tradingStyle, setTradingStyle] = useLocalStorageState("nexus_trading_style", "TACTICAL");
+  const [tradingPreparedSetup, setTradingPreparedSetup] = useLocalStorageState("nexus_trading_prepared_setup", null);
+  const [tradingLearningSetups, setTradingLearningSetups] = useLocalStorageState("nexus_trading_learning_setups", []);
 
 
   // const uiChainKey defined above (useMemo) 
@@ -8134,6 +8160,89 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setErrorMsg(`Prepared ${preparedSym} in Nexus Rotation. Enter budget, review selection, then continue manually.`);
   }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, setGridMode, setRotationMode, setRotationRiskLimit, setRotationMinNetAdvantage, setRotationMaxSlippage, setRotationBudgetRelease, setRotationBudgetReleased, openGridPanel, handleRotationPickToGrid, setErrorMsg]);
 
+  const applyStrategistToTrading = useCallback((body) => {
+    const sym = extractStrategistSymbol(body);
+
+    setGridMode("trading");
+    openGridPanel();
+
+    const preset = deriveStrategistRiskPreset(body);
+    const guard = sym ? strategistExecutionGuard(sym, "rotation") : { ok: false, normalized: "", warning: "No asset symbol found for Nexus Trading." };
+    const preparedSym = (guard.ok && guard.normalized) ? guard.normalized : (sym || "");
+
+    const riskMode = String(preset.confidence || "").toUpperCase().includes("HIGH") ? "DYNAMIC" : "BALANCED";
+    const setup = {
+      id: `trading_${Date.now()}`,
+      ts: Date.now(),
+      source: "Nexus Strategist",
+      symbol: preparedSym,
+      requestedSymbol: sym || "",
+      executable: !!guard.ok,
+      guardWarning: guard.ok ? "" : guard.warning,
+      confidence: preset.confidence,
+      style: "TACTICAL",
+      budgetUsd: "",
+      runtimeHours: tradingRuntimeHours || "24",
+      allowedAssets: preparedSym || "",
+      allowedChains: "POL,BNB,ETH",
+      riskMode,
+      cautionDrawdownPct: preset.confidence === "Medium-High" ? "4" : "3",
+      hardStopPct: preset.confidence === "Medium-High" ? "15" : "12",
+      profitLockPct: "20",
+      maxSlippagePct: preset.rotationSlippage || "1.2",
+      maxTrades: "6",
+      confidenceMin: "MEDIUM",
+      notes: String(body || "").slice(0, 900),
+    };
+
+    setTradingPreparedSetup(setup);
+    setTradingAllowedAssets(setup.allowedAssets);
+    setTradingAllowedChains(setup.allowedChains);
+    setTradingRiskMode(setup.riskMode);
+    setTradingCautionDrawdownPct(setup.cautionDrawdownPct);
+    setTradingHardStopPct(setup.hardStopPct);
+    setTradingProfitLockPct(setup.profitLockPct);
+    setTradingMaxSlippagePct(setup.maxSlippagePct);
+    setTradingMaxTrades(setup.maxTrades);
+    setTradingConfidenceMin(setup.confidenceMin);
+    setTradingStyle(setup.style);
+
+    setTradingLearningSetups((prev) => [setup, ...((Array.isArray(prev) ? prev : []).slice(0, 24))]);
+
+    setStrategistBridge({
+      type: guard.ok ? "trading" : "blocked",
+      sym: preparedSym || sym || "—",
+      label: "Nexus Trading",
+      confidence: guard.ok ? preset.confidence : "Blocked",
+      note: guard.ok
+        ? `Prepared controlled autonomous setup. Enter budget, review limits, then sign/activate only if you want Nexus Trading to run.`
+        : `${guard.warning} Trading limits were still prepared; fund/add the correct EVM asset before activation.`,
+      ts: Date.now(),
+    });
+
+    setErrorMsg("");
+  }, [
+    extractStrategistSymbol,
+    strategistExecutionGuard,
+    deriveStrategistRiskPreset,
+    setGridMode,
+    openGridPanel,
+    tradingRuntimeHours,
+    setTradingPreparedSetup,
+    setTradingAllowedAssets,
+    setTradingAllowedChains,
+    setTradingRiskMode,
+    setTradingCautionDrawdownPct,
+    setTradingHardStopPct,
+    setTradingProfitLockPct,
+    setTradingMaxSlippagePct,
+    setTradingMaxTrades,
+    setTradingConfidenceMin,
+    setTradingStyle,
+    setTradingLearningSetups,
+    setErrorMsg,
+  ]);
+
   // Level 4 Light:
   // While a grid/order is running, AI can softly adapt only UI parameters
   // (price preset + slippage). It never edits, creates, cancels or moves orders.
@@ -8803,6 +8912,7 @@ function aiTaskPlaceholder(kind) {
     market_read: { title: "Market Read", sub: "Current structure" },
     nexus_rotation: { title: "Nexus Rotation", sub: "Momentum / relative strength path" },
     nexus_grid: { title: "Nexus Grid", sub: "Range / cycle path" },
+    nexus_trading: { title: "Nexus Trading", sub: "Controlled autonomous execution path" },
     risk_context: { title: "Risk Context", sub: "What can go wrong" },
     tactical_take: { title: "Tactical Take", sub: "Indirect next steps" },
     next_check: { title: "Next Check", sub: "What to monitor" },
@@ -8817,6 +8927,7 @@ function aiTaskPlaceholder(kind) {
       "MARKET READ": "market_read",
       "NEXUS ROTATION": "nexus_rotation",
       "NEXUS GRID": "nexus_grid",
+      "NEXUS TRADING": "nexus_trading",
       "RISK CONTEXT": "risk_context",
       "TACTICAL TAKE": "tactical_take",
       "NEXT CHECK": "next_check",
@@ -8855,7 +8966,7 @@ function aiTaskPlaceholder(kind) {
       return [{ key: "output", body: source }];
     }
 
-    const order = ["market_read", "nexus_rotation", "nexus_grid", "risk_context", "tactical_take", "next_check", "output"];
+    const order = ["market_read", "nexus_rotation", "nexus_grid", "nexus_trading", "risk_context", "tactical_take", "next_check", "output"];
     return sections.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
   }, []);
 
@@ -8891,6 +9002,7 @@ Use these exact section headings when relevant:
 MARKET READ
 NEXUS ROTATION
 NEXUS GRID
+NEXUS TRADING
 RISK CONTEXT
 TACTICAL TAKE
 NEXT CHECK
@@ -8899,7 +9011,8 @@ Rules:
 - Keep it compact: 1-3 bullets per section.
 - Do not write long paragraphs or a disclaimer block.
 - Do not give direct buy/sell commands.
-- Explain indirect tactical paths: what may favor Nexus Rotation, what may favor Nexus Grid, what conditions must improve, and what risk can invalidate the idea.
+- Explain indirect tactical paths: what may favor Nexus Rotation, what may favor Nexus Grid, what may favor Nexus Trading, what conditions must improve, and what risk can invalidate the idea.
+- Nexus Trading means controlled autonomous execution only after user budget/signature and only inside configured limits.
 - If a section is not relevant, keep it very short instead of forcing text.`;
 
     const basePrompt = aiKindPrompts[aiKind] || `Provide a ${aiProfile} analyst response based on the current task, timeframe, and available context.`;
@@ -8928,6 +9041,14 @@ ${q}`;
         onchainBySymbol,
         marketConditionBySymbol,
         bestPairsToShow,
+        compareWeights: activeCompareWeights,
+        aiMode: normalizedAiInsightMode,
+        nexusTradingContext: {
+          prepared_setup: tradingPreparedSetup || null,
+          learning_count: Array.isArray(tradingLearningSetups) ? tradingLearningSetups.length : 0,
+          configured_budget_usd: tradingBudgetUsd || "",
+          risk_mode: tradingRiskMode || "",
+        },
       });
       const aiSignalText = formatAiSignalContextForPrompt(aiSignalContext);
 
@@ -12861,7 +12982,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
+                  gridTemplateColumns: "1fr 1fr 1fr",
                   gap: 8,
                   marginBottom: 10,
                   padding: 4,
@@ -12873,6 +12994,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {[
                   ["normal", "Nexus Grid"],
                   ["rotation", "Nexus Rotation"],
+                  ["trading", "Nexus Trading"],
                 ].map(([mode, label]) => {
                   const active = String(gridMode || "normal") === mode;
                   return (
@@ -13327,6 +13449,129 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {rotationBackendMsg}
                       </div>
                     ) : null}
+                  </div>
+                </div>
+              ) : String(gridMode || "normal") === "trading" ? (
+                <div className="gridWrap">
+                  <div className="gridControls" style={{ display: "grid", gap: 12 }}>
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        background: "rgba(0,0,0,.18)",
+                        border: "1px solid rgba(34,197,94,.22)",
+                        display: "grid",
+                        gap: 8,
+                      }}
+                    >
+                      <div className="label" style={{ marginBottom: 0 }}>Nexus Trading Control</div>
+                      <div className="muted tiny" style={{ lineHeight: 1.45 }}>
+                        Controlled autonomous trading. Nexus Trading can only run after the user defines budget/limits and signs activation. No wallet-wide access and no automatic activation here.
+                      </div>
+                      {tradingPreparedSetup ? (
+                        <div className="muted tiny" style={{ display: "grid", gap: 3, padding: "8px 10px", borderRadius: 10, background: "rgba(34,197,94,.08)", border: "1px solid rgba(34,197,94,.22)" }}>
+                          <div><b>Prepared:</b> {tradingPreparedSetup.symbol || tradingPreparedSetup.requestedSymbol || "—"} · <b>Confidence:</b> {tradingPreparedSetup.confidence || "—"} · <b>Executable:</b> {tradingPreparedSetup.executable ? "Yes" : "Funding / asset needed"}</div>
+                          {tradingPreparedSetup.guardWarning ? <div>{tradingPreparedSetup.guardWarning}</div> : null}
+                        </div>
+                      ) : (
+                        <div className="muted tiny">No Strategist setup loaded yet. Use “Use in Trading” from Nexus Strategist or configure manually.</div>
+                      )}
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10, alignItems: "end" }}>
+                      <div className="formRow">
+                        <label>Budget ($)</label>
+                        <input value={tradingBudgetUsd} onChange={(e) => setTradingBudgetUsd(e.target.value)} placeholder="e.g. 100" />
+                      </div>
+                      <div className="formRow">
+                        <label>Runtime (h)</label>
+                        <input value={tradingRuntimeHours} onChange={(e) => setTradingRuntimeHours(e.target.value)} placeholder="24" />
+                      </div>
+                      <div className="formRow">
+                        <label>Style</label>
+                        <select value={tradingStyle} onChange={(e) => setTradingStyle(e.target.value)}>
+                          <option value="TACTICAL">Tactical</option>
+                          <option value="DEFENSIVE">Defensive</option>
+                          <option value="AGGRESSIVE">Aggressive</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr", gap: isCompactMobile ? 8 : 10 }}>
+                      <div className="formRow">
+                        <label>Allowed assets</label>
+                        <input value={tradingAllowedAssets} onChange={(e) => setTradingAllowedAssets(e.target.value.toUpperCase())} placeholder="ETH, POL, LINK" />
+                      </div>
+                      <div className="formRow">
+                        <label>Allowed chains</label>
+                        <input value={tradingAllowedChains} onChange={(e) => setTradingAllowedChains(e.target.value.toUpperCase())} placeholder="POL,BNB,ETH" />
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        background: "rgba(255,255,255,.04)",
+                        border: "1px solid rgba(255,255,255,.07)",
+                        display: "grid",
+                        gap: 8,
+                      }}
+                    >
+                      <div className="label" style={{ marginBottom: 0 }}>Adaptive Risk Engine</div>
+                      <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10 }}>
+                        <div className="formRow">
+                          <label>Risk mode</label>
+                          <select value={tradingRiskMode} onChange={(e) => setTradingRiskMode(e.target.value)}>
+                            <option value="DEFENSIVE">Defensive</option>
+                            <option value="BALANCED">Balanced</option>
+                            <option value="DYNAMIC">Dynamic</option>
+                          </select>
+                        </div>
+                        <div className="formRow">
+                          <label>Caution DD %</label>
+                          <input value={tradingCautionDrawdownPct} onChange={(e) => setTradingCautionDrawdownPct(e.target.value)} placeholder="3" />
+                        </div>
+                        <div className="formRow">
+                          <label>Hard stop %</label>
+                          <input value={tradingHardStopPct} onChange={(e) => setTradingHardStopPct(e.target.value)} placeholder="12" />
+                        </div>
+                        <div className="formRow">
+                          <label>Profit lock %</label>
+                          <input value={tradingProfitLockPct} onChange={(e) => setTradingProfitLockPct(e.target.value)} placeholder="20" />
+                        </div>
+                        <div className="formRow">
+                          <label>Max slippage %</label>
+                          <input value={tradingMaxSlippagePct} onChange={(e) => setTradingMaxSlippagePct(e.target.value)} placeholder="1.2" />
+                        </div>
+                        <div className="formRow">
+                          <label>Max trades</label>
+                          <input value={tradingMaxTrades} onChange={(e) => setTradingMaxTrades(e.target.value)} placeholder="6" />
+                        </div>
+                      </div>
+                      <div className="formRow">
+                        <label>Minimum confidence</label>
+                        <select value={tradingConfidenceMin} onChange={(e) => setTradingConfidenceMin(e.target.value)}>
+                          <option value="LOW">Low</option>
+                          <option value="MEDIUM">Medium</option>
+                          <option value="HIGH">High</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gap: 6, padding: "8px 10px", borderRadius: 12, background: "rgba(245,193,108,.08)", border: "1px solid rgba(245,193,108,.22)" }}>
+                      <div style={{ fontWeight: 900, color: "#f5c16c" }}>Activation locked</div>
+                      <div className="muted tiny">
+                        Auto execution is not enabled in this build. Next step: connect this config to the Vault/Risk Engine, then require user signature to activate the budget.
+                      </div>
+                      <button className="btnGhost" type="button" disabled title="Coming after Risk Engine + Vault activation">
+                        Sign & Activate later
+                      </button>
+                    </div>
+
+                    <div className="muted tiny">
+                      Learning queue: {Array.isArray(tradingLearningSetups) ? tradingLearningSetups.length : 0} prepared setup(s) stored for future Nexus learning.
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -14690,7 +14935,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.28 }}>
                             {section.body}
                           </div>
-                          {section.key === "nexus_grid" || section.key === "nexus_rotation" ? (
+                          {section.key === "nexus_grid" || section.key === "nexus_rotation" || section.key === "nexus_trading" ? (
                             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
                               <button
                                 className="btn"
@@ -14700,11 +14945,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   e.stopPropagation();
                                   if (section.key === "nexus_grid") applyStrategistToGrid(section.body);
                                   if (section.key === "nexus_rotation") applyStrategistToRotation(section.body);
+                                  if (section.key === "nexus_trading") applyStrategistToTrading(section.body);
                                 }}
-                                title={section.key === "nexus_grid" ? "Prepare this idea in Nexus Grid. This does not create an order." : "Prepare this idea in Nexus Rotation. This does not execute a swap."}
+                                title={section.key === "nexus_grid" ? "Prepare this idea in Nexus Grid. This does not create an order." : section.key === "nexus_trading" ? "Prepare this idea in Nexus Trading. This does not activate automation." : "Prepare this idea in Nexus Rotation. This does not execute a swap."}
                                 style={{ height: 28, paddingInline: 10, fontSize: 12 }}
                               >
-                                {section.key === "nexus_grid" ? "Use in Grid" : "Use in Rotation"}
+                                {section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Rotation"}
                               </button>
                             </div>
                           ) : null}

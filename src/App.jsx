@@ -6209,36 +6209,63 @@ useEffect(() => {
   const [tradingLearningSetups, setTradingLearningSetups] = useLocalStorageState("nexus_trading_learning_setups", []);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useLocalStorageState("nexus_trading_risk_expanded", false);
 
-  const applyTradingRiskPreset = useCallback((mode, confidence = tradingConfidenceMin) => {
-    const risk = String(mode || "BALANCED").toUpperCase();
-    const conf = String(confidence || "MEDIUM").toUpperCase();
+  const applyTradingProfilePreset = useCallback((profile) => {
+    const p = String(profile || "TACTICAL").toUpperCase();
 
     const presets = {
-      DEFENSIVE: { caution: 2, hard: 8, profit: 12, slip: 0.7, trades: 3 },
-      BALANCED: { caution: 3, hard: 12, profit: 20, slip: 1.2, trades: 6 },
-      DYNAMIC: { caution: 5, hard: 18, profit: 28, slip: 1.8, trades: 10 },
+      DEFENSIVE: {
+        style: "DEFENSIVE",
+        riskMode: "DEFENSIVE",
+        confidence: "HIGH",
+        caution: "2",
+        hard: "8",
+        profit: "12",
+        slip: "0.7",
+        trades: "3",
+      },
+      BALANCED: {
+        style: "TACTICAL",
+        riskMode: "BALANCED",
+        confidence: "MEDIUM",
+        caution: "3",
+        hard: "12",
+        profit: "20",
+        slip: "1.2",
+        trades: "6",
+      },
+      TACTICAL: {
+        style: "TACTICAL",
+        riskMode: "DYNAMIC",
+        confidence: "MEDIUM",
+        caution: "4",
+        hard: "15",
+        profit: "24",
+        slip: "1.5",
+        trades: "8",
+      },
+      AGGRESSIVE: {
+        style: "AGGRESSIVE",
+        riskMode: "DYNAMIC",
+        confidence: "LOW",
+        caution: "5",
+        hard: "18",
+        profit: "30",
+        slip: "1.8",
+        trades: "10",
+      },
     };
 
-    const confidenceAdjust = {
-      LOW: { caution: 1, hard: 2, profit: 4, slip: 0.4, trades: 2 },
-      MEDIUM: { caution: 0, hard: 0, profit: 0, slip: 0, trades: 0 },
-      HIGH: { caution: -1, hard: -2, profit: -4, slip: -0.3, trades: -2 },
-    };
-
-    const base = presets[risk] || presets.BALANCED;
-    const adj = confidenceAdjust[conf] || confidenceAdjust.MEDIUM;
-
-    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-
-    setTradingRiskMode(risk);
-    setTradingConfidenceMin(conf);
-    setTradingCautionDrawdownPct(String(clamp(base.caution + adj.caution, 1, 8)));
-    setTradingHardStopPct(String(clamp(base.hard + adj.hard, 5, 25)));
-    setTradingProfitLockPct(String(clamp(base.profit + adj.profit, 8, 40)));
-    setTradingMaxSlippagePct(String(clamp(Number((base.slip + adj.slip).toFixed(1)), 0.3, 3)));
-    setTradingMaxTrades(String(clamp(base.trades + adj.trades, 1, 15)));
+    const preset = presets[p] || presets.TACTICAL;
+    setTradingStyle(p);
+    setTradingRiskMode(preset.riskMode);
+    setTradingConfidenceMin(preset.confidence);
+    setTradingCautionDrawdownPct(preset.caution);
+    setTradingHardStopPct(preset.hard);
+    setTradingProfitLockPct(preset.profit);
+    setTradingMaxSlippagePct(preset.slip);
+    setTradingMaxTrades(preset.trades);
   }, [
-    tradingConfidenceMin,
+    setTradingStyle,
     setTradingRiskMode,
     setTradingConfidenceMin,
     setTradingCautionDrawdownPct,
@@ -6248,13 +6275,9 @@ useEffect(() => {
     setTradingMaxTrades,
   ]);
 
-  const handleTradingRiskModeChange = useCallback((value) => {
-    applyTradingRiskPreset(value, tradingConfidenceMin);
-  }, [applyTradingRiskPreset, tradingConfidenceMin]);
-
-  const handleTradingConfidenceChange = useCallback((value) => {
-    applyTradingRiskPreset(tradingRiskMode, value);
-  }, [applyTradingRiskPreset, tradingRiskMode]);
+  const handleTradingProfileChange = useCallback((value) => {
+    applyTradingProfilePreset(value);
+  }, [applyTradingProfilePreset]);
 
 
 
@@ -8229,7 +8252,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       executable: !!guard.ok,
       guardWarning: guard.ok ? "" : guard.warning,
       confidence: preset.confidence,
-      style: "TACTICAL",
+      style: riskMode === "DYNAMIC" ? "TACTICAL" : "BALANCED",
       budgetUsd: "",
       runtimeHours: tradingRuntimeHours || "24",
       allowedAssets: preparedSym || "",
@@ -13519,10 +13542,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <input value={tradingRuntimeHours} onChange={(e) => setTradingRuntimeHours(e.target.value)} placeholder="24" />
                       </div>
                       <div className="formRow">
-                        <label>Style</label>
-                        <select value={tradingStyle} onChange={(e) => setTradingStyle(e.target.value)}>
-                          <option value="TACTICAL">Tactical</option>
+                        <label>Trading Profile</label>
+                        <select value={tradingStyle} onChange={(e) => handleTradingProfileChange(e.target.value)}>
                           <option value="DEFENSIVE">Defensive</option>
+                          <option value="BALANCED">Balanced</option>
+                          <option value="TACTICAL">Tactical</option>
                           <option value="AGGRESSIVE">Aggressive</option>
                         </select>
                       </div>
@@ -13573,20 +13597,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <Help showClose dismissable
                             de={
                               <>
+                                <p><b>Trading Profile</b>: steuert Risk Mode und Minimum Confidence intern, damit keine widerspruechlichen Regler sichtbar sind.</p>
                                 <p><b>Caution DD</b>: Warnzone. Nexus soll spaeter nicht sofort stoppen, sondern Aggressivitaet reduzieren.</p>
                                 <p><b>Hard Stop</b>: echter Notfall-Stopp bei zu hohem Risiko oder Regelbruch.</p>
                                 <p><b>Profit Lock</b>: schuetzt Gewinne, indem Risiko nach starkem Profit reduziert wird.</p>
                                 <p><b>Max Trades</b>: begrenzt Aktivitaet und verhindert Overtrading.</p>
-                                <p><b>Minimum Confidence</b>: Mindestqualitaet, die Strategist/Risk Engine brauchen, bevor Automation erlaubt wird.</p>
                               </>
                             }
                             en={
                               <>
+                                <p><b>Trading Profile</b>: internally controls Risk Mode and Minimum Confidence so there are no conflicting visible controls.</p>
                                 <p><b>Caution DD</b>: warning zone. Nexus should reduce aggression later, not instantly stop.</p>
                                 <p><b>Hard Stop</b>: emergency stop for excessive risk or rule violation.</p>
                                 <p><b>Profit Lock</b>: protects gains by reducing risk after strong profit.</p>
                                 <p><b>Max Trades</b>: limits activity and avoids overtrading.</p>
-                                <p><b>Minimum Confidence</b>: minimum quality required from Strategist/Risk Engine before automation is allowed.</p>
                               </>
                             }
                           />
@@ -13596,13 +13620,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       {tradingRiskExpanded ? (
                         <div style={{ padding: "0 10px 10px 10px", display: "grid", gap: 8 }}>
                           <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10 }}>
-                            <div className="formRow">
-                              <label>Risk mode</label>
-                              <select value={tradingRiskMode} onChange={(e) => handleTradingRiskModeChange(e.target.value)}>
-                                <option value="DEFENSIVE">Defensive</option>
-                                <option value="BALANCED">Balanced</option>
-                                <option value="DYNAMIC">Dynamic</option>
-                              </select>
+                            <div
+                              style={{
+                                gridColumn: isCompactMobile ? "auto" : "1 / -1",
+                                padding: "8px 10px",
+                                borderRadius: 10,
+                                background: "rgba(34,197,94,.07)",
+                                border: "1px solid rgba(34,197,94,.18)",
+                              }}
+                            >
+                              <div style={{ fontWeight: 900, fontSize: 12 }}>Profile logic</div>
+                              <div className="muted tiny">
+                                {tradingStyle} sets Risk Mode <b>{tradingRiskMode}</b> and Minimum Confidence <b>{tradingConfidenceMin}</b> internally.
+                              </div>
                             </div>
                             <div className="formRow">
                               <label>Caution DD %</label>
@@ -13624,14 +13654,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <label>Max trades</label>
                               <input value={tradingMaxTrades} onChange={(e) => setTradingMaxTrades(e.target.value)} placeholder="6" />
                             </div>
-                          </div>
-                          <div className="formRow">
-                            <label>Minimum confidence</label>
-                            <select value={tradingConfidenceMin} onChange={(e) => handleTradingConfidenceChange(e.target.value)}>
-                              <option value="LOW">Low</option>
-                              <option value="MEDIUM">Medium</option>
-                              <option value="HIGH">High</option>
-                            </select>
                           </div>
                         </div>
                       ) : null}

@@ -2194,7 +2194,21 @@ function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym
   const showAll = () => setHighlightedSyms([]);
 
   return (
-    <div className="chartLegend">
+    <div
+      className="chartLegend"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        flexWrap: "nowrap",
+        overflowX: "auto",
+        overflowY: "hidden",
+        whiteSpace: "nowrap",
+        maxWidth: "100%",
+        paddingBottom: 2,
+        scrollbarWidth: "thin",
+      }}
+    >
       {symbols.map((sym, idx) => {
         const hasHighlights = highlightedSet.size > 0;
         const active = !hasHighlights || highlightedSet.has(String(sym || "").toUpperCase());
@@ -2205,15 +2219,52 @@ function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym
             onClick={() => toggleHighlight(sym)}
             title={active ? "Click to fade this coin" : "Click to highlight this coin"}
             type="button"
+            style={{
+              height: 20,
+              minHeight: 20,
+              minWidth: 0,
+              flex: "0 0 auto",
+              padding: "0 5px",
+              gap: 3,
+              fontSize: 10,
+              lineHeight: 1,
+              borderRadius: 999,
+              whiteSpace: "nowrap",
+            }}
           >
-            <span className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]), opacity: active ? 1 : 0.35 }} />
-            <span className="legendSym" style={{ opacity: active ? 1 : 0.5 }}>{sym}</span>
+            <span
+              className={`legendDot ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`}
+              style={{
+                backgroundColor: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]),
+                opacity: active ? 1 : 0.35,
+                width: 6,
+                height: 6,
+                minWidth: 6,
+              }}
+            />
+            <span className="legendSym" style={{ opacity: active ? 1 : 0.5, fontSize: 10 }}>{sym}</span>
           </button>
         );
       })}
       {symbols.length > 0 ? (
-        <button className="legendItem active" onClick={showAll} title="Show all coins" type="button">
-          <span className="legendSym">all Coin</span>
+        <button
+          className="legendItem active"
+          onClick={showAll}
+          title="Show all coins"
+          type="button"
+          style={{
+            height: 20,
+            minHeight: 20,
+            minWidth: 0,
+            flex: "0 0 auto",
+            padding: "0 6px",
+            fontSize: 10,
+            lineHeight: 1,
+            borderRadius: 999,
+            whiteSpace: "nowrap",
+          }}
+        >
+          <span className="legendSym" style={{ fontSize: 10 }}>All</span>
         </button>
       ) : null}
       {symbols.length === 0 ? <span className="muted">No coins selected.</span> : null}

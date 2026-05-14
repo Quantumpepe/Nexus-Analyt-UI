@@ -13056,7 +13056,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           boxShadow: payoutMenuOpen ? "0 0 12px rgba(34,197,94,.22)" : "none",
                         }}
                       >
-                        <span>{extraPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? String(manualPayoutAsset || "").toUpperCase() : "More payout assets"}</span>
+                        <span>{extraPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? String(manualPayoutAsset || "").toUpperCase() : "More assets"}</span>
                         <span style={{ fontSize: 12 }}>{payoutMenuOpen ? "▲" : "▼"}</span>
                       </button>
                       {payoutMenuOpen && (
@@ -13106,7 +13106,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   )}
                 </div>
                 <div className="muted tiny" style={{ marginTop: 6 }}>
-                  Profit result will be swapped immediately into this asset when the target is hit.
                 </div>
               </div>
 
@@ -13121,7 +13120,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
-                  <div style={{ fontWeight: 800, fontSize: 14 }}>Risk & settlement preview</div>
+                  <div style={{ fontWeight: 800, fontSize: 14 }}>Execution Preview</div>
                   <div
                     style={{
                       padding: "4px 8px",
@@ -13179,12 +13178,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 <div style={{ width: 10 }} />
                 <div className="muted tiny">
-                  Tip: increase slippage for low-liquidity tokens to avoid failed swaps.
                 </div>
               </div>
 
               <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: -2, marginBottom: 7 }}>
-                <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Price preset:</div>
+                <div className="muted" style={{ fontSize: 12, minWidth: 76 }}>Preset:</div>
 
                 <button
                   className="btn"
@@ -13203,7 +13201,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   style={{ ...compactGridChipStyle, opacity: manualPricePreset === "STANDARD" ? 1 : 0.88 }}
                   title="Standard preset (0.5 / 1 / 2)"
                 >
-                  Standard
+                  Std
                 </button>
 
                 <button
@@ -13223,15 +13221,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   style={{ ...compactGridChipStyle, opacity: manualPricePreset === "VERY_WIDE" ? 1 : 0.88 }}
                   title="Very Wide preset (5 / 10 / 15)"
                 >
-                  Very Wide
+                  VWide
                 </button>
               </div>
 
               <div className="row" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 7 }}>
-                <div className="muted" style={{ fontSize: 12, minWidth: 90 }}>Quick price:</div>
+                <div className="muted" style={{ fontSize: 12, minWidth: 76 }}>Quick:</div>
 
                 <button className="btn" type="button" onClick={setManualPriceFromMarket} disabled={!shownGridPrice} title="Set price to current market" style={compactGridChipStyle}>
-                  Market
+                  MKT
                 </button>
 
                 {manualSide === "BUY" ? (
@@ -13280,7 +13278,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   }}
                 >
                   <div className="formRow">
-                    <label>Buy mode</label>
+                    <label>Order mode</label>
                     <select value={manualBuyMode} onChange={(e) => setManualBuyMode(e.target.value)}>                      <option value="QTY">Token qty</option>
                     </select>
                   </div>
@@ -13297,14 +13295,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                   ) : (
                     <div className="formRow">
-                      <label>Qty (token)</label>
+                      <label>Amount</label>
                       <input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="e.g. 0.01" />
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="formRow">
-                  <label>Qty (token)</label>
+                  <label>Amount</label>
                   <input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="e.g. 0.01" />
                 </div>
               )}

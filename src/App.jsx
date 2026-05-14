@@ -11228,6 +11228,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Grid-Detail:</b> Klick auf eine Kachel öffnet den großen Chart. Dort kannst du direkt zwischen Price und Index 100 umschalten.</p>
                       <p><b>Legende:</b> Farbe → Coin. Klick auf einen Eintrag hebt einen Coin hervor.</p>
                       <p><b>Custom Weighting:</b> Wenn OFF aktiv ist, nutzt Compare die System-Gewichtung. Wenn ON aktiv ist, bleibt der Bereich trotzdem kompakt; über Settings kannst du die 5 Regler aufklappen. Die Summe kann nie über 100% gehen.</p>
+                      <p><b>Pair-Liste:</b> zeigt die stärksten Coin-Paare aus den aktuellen Compare-Daten.</p>
+                      <ul>
+                        <li><b>Pair Score</b> → Stärke der Pair-Struktur</li>
+                        <li><b>Spread</b> → Performance-Abstand zwischen zwei Coins</li>
+                        <li><b>Δ</b> → Stärke-Abweichung innerhalb des Pairs</li>
+                        <li><b>⚡ Movement</b> → ungewöhnliche Bewegung / erhöhte Aktivität, kein Buy-Signal</li>
+                      </ul>
+                      <p><b>Klick auf ein Pair</b> öffnet Details wie Performance, tägliche Moves, Spread und Erklärung.</p>
                       <p><b>RSI (Relative Strength Index)</b> zeigt Momentum, nicht echtes Kaufvolumen.</p>
                       <ul>
                         <li><b>Overbought (Rot)</b> → stark gestiegen / eventuell überhitzt.</li>
@@ -11246,6 +11254,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Grid detail:</b> Click a tile to open the large chart. There you can switch directly between Price and Index 100.</p>
                       <p><b>Legend:</b> Color → Coin. Click a legend entry to highlight one coin.</p>
                       <p><b>Custom Weighting:</b> When OFF is active, Compare uses system weighting. When ON is active, the area stays compact; open Settings to adjust the 5 sliders. The total can never exceed 100%.</p>
+                      <p><b>Pair list:</b> shows the strongest coin pairs from the current Compare data.</p>
+                      <ul>
+                        <li><b>Pair Score</b> → strength of the pair structure</li>
+                        <li><b>Spread</b> → performance distance between two coins</li>
+                        <li><b>Δ</b> → strength gap inside the pair</li>
+                        <li><b>⚡ Movement</b> → unusual movement / elevated activity, not a buy signal</li>
+                      </ul>
+                      <p><b>Click a pair</b> to open details such as performance, daily moves, spread and explanation.</p>
                       <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
                       <ul>
                         <li><b>Overbought (Red)</b> → strong recent rise, may be overheated.</li>
@@ -11429,73 +11445,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 minHeight: 0
                               }}
                             >
-                <div className="pairsHead">
-                  <div className="label"></div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <div className="muted tiny"></div>
-                    <InfoButton title="Best pairs">
-                      <Help showClose dismissable
-                        de={
-                            <>
-                              <p>Diese Liste zeigt Coin-Paare mit ähnlichem oder unterschiedlichem Verlauf auf Basis der aktuell berechneten Pair-Daten.</p>
-                              <ul>
-                                <li><b>Pair Score</b> → wie stark die Pair-Struktur / Daten-Fit ist</li>
-                                <li><b>Spread</b> → Abstand zwischen den Bewegungen der beiden Coins</li>
-                                <li><b>Δ</b> → Differenz / Stärke-Abweichung innerhalb des Pairs</li>
-                              </ul>
-                              <p><b>⚡ Movement Chance</b> zeigt ungewöhnliches Bewegungspotenzial. Das kann auch bei Pairs auftreten, die kein sauberes Top-Setup sind.</p>
-                              <ul>
-                                <li><b>Hoher Movement Score</b> → starke Bewegung, Spread-Ausweitung, RSI-Divergenz oder Momentum-Verschiebung möglich</li>
-                                <li><b>Niedriger Movement Score</b> → aktuell wenig auffällige Bewegung</li>
-                              </ul>
-                              <p><b>Wichtig:</b> Movement Chance ist kein Buy-Signal und keine Gewinn-Garantie. Es zeigt nur, wo kurzfristig mehr Marktbewegung und damit auch mehr Risiko entstehen kann.</p>
-                              <p><b>Klick auf ein Pair</b>, um Details wie Performance, tägliche Moves, Spread und Erklärung zu öffnen.</p>
-                              <p>Das hilft dir, starke vs. schwache Kombinationen, volatile Chancen und mögliche Rebound-/Momentum-Bereiche schneller zu erkennen.</p>
-                              <p><b>RSI (Relative Strength Index)</b> zeigt Momentum, nicht das tatsächliche Kaufvolumen.</p>
-                              <ul>
-                                <li><b>Überkauft (Rot)</b> → starker Kaufdruck, evtl. überdehnt</li>
-                                <li><b>Neutral (Gelb)</b> → ausgeglichener Markt</li>
-                                <li><b>Überverkauft (Grün)</b> → starker Verkaufsdruck, möglicher Rebound</li>
-                              </ul>
-                              <p className="muted tiny">
-                                RSI und Movement Chance zeigen Marktbedingungen, keine direkten Kauf-/Verkaufssignale.
-                             </p>
-                            </>
-                        }
-
-                        en={
-                            <>
-                              <p>This list shows coin pairs with similar or different behavior based on the currently calculated pair data.</p>
-                              <ul>
-                                <li><b>Pair score</b> → strength of the pair structure / data fit</li>
-                                <li><b>Spread</b> → distance between the two coin movements</li>
-                                <li><b>Δ</b> → difference / strength gap inside the pair</li>
-                              </ul>
-                              <p><b>⚡ Movement Chance</b> highlights unusual movement potential. This can appear even when a pair is not a clean top setup.</p>
-                              <ul>
-                                <li><b>High movement score</b> → strong movement, spread expansion, RSI divergence, or momentum shift may be present</li>
-                                <li><b>Low movement score</b> → little unusual movement detected right now</li>
-                              </ul>
-                              <p><b>Important:</b> Movement Chance is not a buy signal and not a profit guarantee. It only shows where short-term movement and higher risk may appear.</p>
-                                 <p><b>Click a pair</b> to open details such as performance, daily moves, spread, and explanation.</p>
-                                 <p>This helps you spot stronger vs. weaker combinations, volatile chances, and possible rebound/momentum areas faster.</p>
-                                 <p><b>RSI (Relative Strength Index)</b> shows momentum, not actual buy volume.</p>
-                              <ul>
-                                 <li><b>Overbought (Red)</b> → strong recent buying, may be overextended</li>
-                                 <li><b>Neutral (Yellow)</b> → balanced market</li>
-                                 <li><b>Oversold (Green)</b> → strong recent selling, possible rebound</li>
-                             </ul>
-                             <p className="muted tiny">
-                               RSI and Movement Chance describe market conditions, not direct buy/sell signals.
-                             </p>
-                            </>
-                        }
-
-                      />
-                    </InfoButton>
-                  </div>
-                </div>
-
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     

@@ -7395,10 +7395,13 @@ const kickGridRefresh = useCallback(() => {
 }, [fetchGridOrders]);
 
 const clearManualExecutionPreview = useCallback(() => {
-  // After a fast stop/delete the old form price can keep the Execution Preview red
-  // until a full page refresh. Clear only the order-target fields that create
-  // manualOrderNotionalUsd; keep qty, payout, slippage and deadline as user presets.
+  // After a fast stop/delete the visible order list can be empty while the
+  // manual form still contains the deleted order's price/qty. Those form
+  // values feed manualOrderNotionalUsd and can keep Execution Preview red.
+  // Clear all target-size fields so an empty order book always previews neutral.
   setManualPrice("");
+  setManualQty("");
+  setManualUsd("");
 }, []);
 
 const hasOpenGridOrders = useMemo(
@@ -7724,13 +7727,17 @@ body.qty = qty;
     const addrPayload = walletAddress || undefined;
 
     // Fast UI: visible truth is SQLite, but the card should react immediately.
+    // If this is the last open order, clear the manual form BEFORE updating
+    // gridOrders so Execution Preview cannot keep using stale price/qty values.
+    const openBefore = (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) === "OPEN");
+    const targetWasOpen = openBefore.some((o) => String(o?.id ?? o?.order_id ?? o?.orderId ?? "") === _oid);
+    if (targetWasOpen && openBefore.length <= 1) clearManualExecutionPreview();
+
     setGridOrders((prev) => {
       const next = (prev || []).map((o) => {
         const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
         return oid === _oid ? { ...o, status: "CANCELLED", cancelled_ts: Math.floor(Date.now() / 1000) } : o;
       });
-      const stillOpen = next.some((o) => inferOrderStatus(o) === "OPEN");
-      if (!stillOpen) clearManualExecutionPreview();
       return next;
     });
     setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
@@ -7806,13 +7813,15 @@ body.qty = qty;
 
     // Fast UI: remove immediately, then reconcile from SQLite.
     const previousOrders = gridOrders;
+    const openBefore = (Array.isArray(gridOrders) ? gridOrders : []).filter((o) => inferOrderStatus(o) === "OPEN");
+    const targetWasOpen = openBefore.some((o) => String(o?.id ?? o?.order_id ?? o?.orderId ?? "") === _oid);
+    if (targetWasOpen && openBefore.length <= 1) clearManualExecutionPreview();
+
     setGridOrders((prev) => {
       const next = (prev || []).filter((o) => {
         const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
         return oid !== _oid;
       });
-      const stillOpen = next.some((o) => inferOrderStatus(o) === "OPEN");
-      if (!stillOpen) clearManualExecutionPreview();
       return next;
     });
     setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));

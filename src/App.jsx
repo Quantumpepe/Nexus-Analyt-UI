@@ -8462,15 +8462,64 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     openGridPanel();
 
     const preset = deriveStrategistRiskPreset(body);
-    setRotationMode("RECOMMENDATION");
-    setRotationRiskLimit(preset.riskLimit);
-    setRotationMinNetAdvantage(preset.minAdvantage);
-    setRotationMaxSlippage(preset.rotationSlippage);
-    setRotationBudgetRelease("");
-    setRotationBudgetReleased(false);
-
     const guard = strategistExecutionGuard(sym, "rotation");
     const preparedSym = guard.normalized && guard.ok ? guard.normalized : sym;
+
+    const normalizeRotationScope = (raw) => {
+      const s = String(raw || "").toUpperCase().trim();
+      if (!s) return "";
+      if (/\b(ETH|ETHEREUM)\b/.test(s)) return "ETH";
+      if (/\b(BNB|BSC|BINANCE)\b/.test(s)) return "BNB";
+      if (/\b(POL|POLYGON|MATIC)\b/.test(s)) return "POL";
+      return ["ETH", "BNB", "POL"].includes(s) ? s : "";
+    };
+
+    const pickLineValue = (keys) => {
+      const lines = String(body || "").split(/\r?\n/);
+      for (const line of lines) {
+        const s = String(line || "").trim();
+        for (const key of keys) {
+          const rx = new RegExp(`${key}\\s*[:=\\-]\\s*(.+)$`, "i");
+          const m = s.match(rx);
+          if (m && m[1]) return m[1].trim().replace(/^[-•*]\s*/, "");
+        }
+      }
+      return "";
+    };
+
+    const scopeFromOutput = normalizeRotationScope(pickLineValue(["Allowed Chains", "Network Scope", "Chains"]));
+    const targetScope = normalizeRotationScope(guard.chain) || scopeFromOutput || normalizeRotationScope(preparedSym) || "ALL";
+    const nextNetworkScope = targetScope === "ALL" ? "ALL" : targetScope;
+    const nextMode = "RECOMMENDATION";
+    const nextRiskLimit = preset.riskLimit;
+    const nextMinAdvantage = preset.minAdvantage;
+    const nextMaxSlippage = preset.rotationSlippage;
+
+    const buildAppliedSetting = (label, value, previous, suffix = "") => ({
+      label,
+      value: `${value ?? ""}${suffix}`,
+      previous: previous === undefined || previous === null || previous === "" ? "empty" : `${previous}${suffix}`,
+      changed: String(value ?? "") !== String(previous ?? ""),
+      source: "Strategist",
+    });
+
+    const appliedSettings = [
+      buildAppliedSetting("Network Scope", nextNetworkScope, rotationNetworkScope),
+      buildAppliedSetting("Mode", nextMode, rotationMode),
+      buildAppliedSetting("Selected Asset", preparedSym || "—", rotationSelectedPick?.source || rotationSelectedPick?.coin || ""),
+      buildAppliedSetting("Risk Limit", nextRiskLimit, rotationRiskLimit, "%"),
+      buildAppliedSetting("Min Advantage", nextMinAdvantage, rotationMinNetAdvantage, "%"),
+      buildAppliedSetting("Max Slippage", nextMaxSlippage, rotationMaxSlippage, "%"),
+    ];
+
+    setRotationNetworkScope(nextNetworkScope);
+    setRotationMode(nextMode);
+    setRotationRiskLimit(nextRiskLimit);
+    setRotationMinNetAdvantage(nextMinAdvantage);
+    setRotationMaxSlippage(nextMaxSlippage);
+    setRotationBudgetRelease("");
+    setRotationBudgetReleased(false);
+    setStrategistAppliedOpen(false);
 
     // Mark/select the recommendation so the user sees what the Strategist tried to use.
     // If it is not executable, handleRotationPickToGrid will still show the selected recommendation / not available note.
@@ -8483,6 +8532,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
         label: "Execution Guard",
         confidence: "Blocked",
         note: `${guard.warning} Strategy fields were still prepared; add/select the correct EVM asset before budget release.`,
+        appliedSettings,
         ts: Date.now(),
       });
       setErrorMsg(guard.warning);
@@ -8494,11 +8544,33 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       sym: preparedSym,
       label: "Nexus Rotation",
       confidence: preset.confidence,
-      note: `Prepared by Nexus Strategist. Risk limit ${preset.riskLimit}% · min advantage ${preset.minAdvantage}% · max slippage ${preset.rotationSlippage}%. Enter budget, review, then sign if you continue.`,
+      note: "",
+      appliedSettings,
       ts: Date.now(),
     });
     setErrorMsg(`Prepared ${preparedSym} in Nexus Rotation. Enter budget, review selection, then continue manually.`);
-  }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, setGridMode, setRotationMode, setRotationRiskLimit, setRotationMinNetAdvantage, setRotationMaxSlippage, setRotationBudgetRelease, setRotationBudgetReleased, openGridPanel, handleRotationPickToGrid, setErrorMsg]);
+  }, [
+    extractStrategistSymbol,
+    strategistExecutionGuard,
+    deriveStrategistRiskPreset,
+    setGridMode,
+    setRotationNetworkScope,
+    setRotationMode,
+    setRotationRiskLimit,
+    setRotationMinNetAdvantage,
+    setRotationMaxSlippage,
+    setRotationBudgetRelease,
+    setRotationBudgetReleased,
+    openGridPanel,
+    handleRotationPickToGrid,
+    setErrorMsg,
+    rotationNetworkScope,
+    rotationMode,
+    rotationSelectedPick,
+    rotationRiskLimit,
+    rotationMinNetAdvantage,
+    rotationMaxSlippage,
+  ]);
 
   const applyStrategistToTrading = useCallback((body) => {
     const sym = extractStrategistSymbol(body);

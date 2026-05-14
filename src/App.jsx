@@ -8244,6 +8244,27 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       notes: String(body || "").slice(0, 900),
     };
 
+    const buildAppliedSetting = (label, value, previous, suffix = "") => ({
+      label,
+      value: `${value ?? ""}${suffix}`,
+      previous: previous === undefined || previous === null || previous === "" ? "empty" : `${previous}${suffix}`,
+      changed: String(value ?? "") !== String(previous ?? ""),
+      source: "Strategist",
+    });
+
+    setup.appliedSettings = [
+      buildAppliedSetting("Risk Mode", setup.riskMode, tradingRiskMode),
+      buildAppliedSetting("Runtime", setup.runtimeHours, tradingRuntimeHours, "h"),
+      buildAppliedSetting("Style", setup.style, tradingStyle),
+      buildAppliedSetting("Allowed Assets", setup.allowedAssets || "—", tradingAllowedAssets),
+      buildAppliedSetting("Allowed Chains", setup.allowedChains, tradingAllowedChains),
+      buildAppliedSetting("Caution DD", setup.cautionDrawdownPct, tradingCautionDrawdownPct, "%"),
+      buildAppliedSetting("Hard Stop", setup.hardStopPct, tradingHardStopPct, "%"),
+      buildAppliedSetting("Profit Lock", setup.profitLockPct, tradingProfitLockPct, "%"),
+      buildAppliedSetting("Max Slippage", setup.maxSlippagePct, tradingMaxSlippagePct, "%"),
+      buildAppliedSetting("Max Trades", setup.maxTrades, tradingMaxTrades),
+    ];
+
     setTradingPreparedSetup(setup);
     setTradingAllowedAssets(setup.allowedAssets);
     setTradingAllowedChains(setup.allowedChains);
@@ -8266,6 +8287,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       note: guard.ok
         ? `Prepared controlled autonomous setup. Enter budget, review limits, then sign/activate only if you want Nexus Trading to run.`
         : `${guard.warning} Trading limits were still prepared; fund/add the correct EVM asset before activation.`,
+      appliedSettings: setup.appliedSettings,
       ts: Date.now(),
     });
 
@@ -8277,6 +8299,15 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setGridMode,
     openGridPanel,
     tradingRuntimeHours,
+    tradingRiskMode,
+    tradingStyle,
+    tradingAllowedAssets,
+    tradingAllowedChains,
+    tradingCautionDrawdownPct,
+    tradingHardStopPct,
+    tradingProfitLockPct,
+    tradingMaxSlippagePct,
+    tradingMaxTrades,
     setTradingPreparedSetup,
     setTradingAllowedAssets,
     setTradingAllowedChains,
@@ -13102,6 +13133,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div className="muted tiny">
                       No order, swap, or budget release was executed.
                     </div>
+                    {Array.isArray(strategistBridge.appliedSettings) && strategistBridge.appliedSettings.length ? (
+                      <div
+                        style={{
+                          marginTop: 7,
+                          padding: "8px 9px",
+                          borderRadius: 10,
+                          border: "1px solid rgba(34,197,94,.22)",
+                          background: "rgba(0,0,0,.16)",
+                          display: "grid",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: ".04em", textTransform: "uppercase", color: "#dfffee" }}>
+                          Applied Trading Settings
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr", gap: 6 }}>
+                          {strategistBridge.appliedSettings.map((item) => (
+                            <div key={item.label} className="muted tiny" style={{ lineHeight: 1.35 }}>
+                              <b style={{ color: "#eafff5" }}>{item.label}:</b> {item.value} <span style={{ color: item.changed ? "#86efac" : "#9fb8ad" }}>· {item.changed ? "changed" : "already same"}</span>
+                              <br />
+                              <span style={{ color: "#8fb2a4" }}>Source: Strategist · Before: {item.previous}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                   <button
                     className="btnGhost"

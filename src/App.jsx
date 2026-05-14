@@ -7432,11 +7432,9 @@ useInterval(
       applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
-      const execOrdersRaw = getGridOrdersFromResponse(r);
-      if (Array.isArray(execOrdersRaw)) {
-        const execOrders = normalizeGridOrders(execOrdersRaw);
-        setGridOrders(execOrders);
-      }
+      // Visible Grid Orders are SQLite-authoritative.
+      // Do not hydrate UI orders from action/execute responses; reload /api/grid/orders instead.
+      fetchGridOrders();
 
       try {
         const sym = String(gridItem || "").toUpperCase().trim();
@@ -7528,11 +7526,6 @@ setGridBusy((s) => ({ ...s, start: true }));
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
       applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-      const startOrdersRaw = getGridOrdersFromResponse(r);
-      if (Array.isArray(startOrdersRaw)) {
-        const startOrders = normalizeGridOrders(startOrdersRaw);
-        setGridOrders(startOrders);
-      }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, start: false }));
@@ -7599,11 +7592,6 @@ setGridBusy((s) => ({ ...s, stop: true }));
       const r = await api("/api/grid/stop", { method: "POST", token, wallet: walletAddress, body: { item: gridItemId, addr: walletAddress || undefined }, });
       applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-      const stopOrdersRaw = getGridOrdersFromResponse(r);
-      if (Array.isArray(stopOrdersRaw)) {
-        const stopOrders = normalizeGridOrders(stopOrdersRaw);
-        setGridOrders(stopOrders);
-      }
       setGridBusy((s) => ({ ...s, stop: false }));
       kickGridRefresh();
     } catch (e) {
@@ -7642,6 +7630,9 @@ try {
         settlement_mode: "swap_on_fill_hold_until_withdraw",
         slippage_bps: Math.round(slp * 100),
         deadline_sec: deadlineSec,
+        client_order_id: (typeof crypto !== "undefined" && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `client-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       };
 
       
@@ -7671,12 +7662,8 @@ body.qty = qty;
       applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
-      const addOrdersRaw = getGridOrdersFromResponse(r);
-      if (Array.isArray(addOrdersRaw)) {
-        const addOrders = normalizeGridOrders(addOrdersRaw);
-        setGridOrders(addOrders);
-      }
       // Always reload from backend so the server can commit the order and the UI stays live.
+      // Never set visible orders from the add response; SQLite /api/grid/orders is the only UI source.
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
@@ -7716,14 +7703,9 @@ body.qty = qty;
     for (const a of attempts) {
       try {
         const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-        const stopOrdersRaw = getGridOrdersFromResponse(r);
-        if (Array.isArray(stopOrdersRaw)) {
-          const stopOrders = normalizeGridOrders(stopOrdersRaw);
-          setGridOrders(stopOrders);
-        }
         setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         applyGridMetaResponse(r, gridItemId);
-        fetchGridOrders();
+        kickGridRefresh();
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;
       } catch (e) {
@@ -7764,14 +7746,9 @@ body.qty = qty;
     for (const a of attempts) {
       try {
         const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-        const resumeOrdersRaw = getGridOrdersFromResponse(r);
-        if (Array.isArray(resumeOrdersRaw)) {
-          const resumeOrders = normalizeGridOrders(resumeOrdersRaw);
-          setGridOrders(resumeOrders);
-        }
         setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         applyGridMetaResponse(r, gridItemId);
-        fetchGridOrders();
+        kickGridRefresh();
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;
       } catch (e) {
@@ -7828,11 +7805,6 @@ body.qty = qty;
             throw new Error(`${res.status} ${res.statusText}: ${t}`);
           }
           const r = await res.json().catch(() => ({}));
-          const delOrdersRaw = getGridOrdersFromResponse(r);
-          if (Array.isArray(delOrdersRaw)) {
-            const delOrders = normalizeGridOrders(delOrdersRaw);
-            setGridOrders(delOrders);
-          }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           applyGridMetaResponse(r, gridItemId);
           kickGridRefresh();
@@ -7840,11 +7812,6 @@ body.qty = qty;
           return;
         } else {
           const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-          const respOrdersRaw = getGridOrdersFromResponse(r);
-          if (Array.isArray(respOrdersRaw)) {
-            const respOrders = normalizeGridOrders(respOrdersRaw);
-            setGridOrders(respOrders);
-          }
           setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
           applyGridMetaResponse(r, gridItemId);
           kickGridRefresh();

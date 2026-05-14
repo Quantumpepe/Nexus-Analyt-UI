@@ -6209,6 +6209,54 @@ useEffect(() => {
   const [tradingLearningSetups, setTradingLearningSetups] = useLocalStorageState("nexus_trading_learning_setups", []);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useLocalStorageState("nexus_trading_risk_expanded", false);
 
+  const applyTradingRiskPreset = useCallback((mode, confidence = tradingConfidenceMin) => {
+    const risk = String(mode || "BALANCED").toUpperCase();
+    const conf = String(confidence || "MEDIUM").toUpperCase();
+
+    const presets = {
+      DEFENSIVE: { caution: 2, hard: 8, profit: 12, slip: 0.7, trades: 3 },
+      BALANCED: { caution: 3, hard: 12, profit: 20, slip: 1.2, trades: 6 },
+      DYNAMIC: { caution: 5, hard: 18, profit: 28, slip: 1.8, trades: 10 },
+    };
+
+    const confidenceAdjust = {
+      LOW: { caution: 1, hard: 2, profit: 4, slip: 0.4, trades: 2 },
+      MEDIUM: { caution: 0, hard: 0, profit: 0, slip: 0, trades: 0 },
+      HIGH: { caution: -1, hard: -2, profit: -4, slip: -0.3, trades: -2 },
+    };
+
+    const base = presets[risk] || presets.BALANCED;
+    const adj = confidenceAdjust[conf] || confidenceAdjust.MEDIUM;
+
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+    setTradingRiskMode(risk);
+    setTradingConfidenceMin(conf);
+    setTradingCautionDrawdownPct(String(clamp(base.caution + adj.caution, 1, 8)));
+    setTradingHardStopPct(String(clamp(base.hard + adj.hard, 5, 25)));
+    setTradingProfitLockPct(String(clamp(base.profit + adj.profit, 8, 40)));
+    setTradingMaxSlippagePct(String(clamp(Number((base.slip + adj.slip).toFixed(1)), 0.3, 3)));
+    setTradingMaxTrades(String(clamp(base.trades + adj.trades, 1, 15)));
+  }, [
+    tradingConfidenceMin,
+    setTradingRiskMode,
+    setTradingConfidenceMin,
+    setTradingCautionDrawdownPct,
+    setTradingHardStopPct,
+    setTradingProfitLockPct,
+    setTradingMaxSlippagePct,
+    setTradingMaxTrades,
+  ]);
+
+  const handleTradingRiskModeChange = useCallback((value) => {
+    applyTradingRiskPreset(value, tradingConfidenceMin);
+  }, [applyTradingRiskPreset, tradingConfidenceMin]);
+
+  const handleTradingConfidenceChange = useCallback((value) => {
+    applyTradingRiskPreset(tradingRiskMode, value);
+  }, [applyTradingRiskPreset, tradingRiskMode]);
+
+
 
   // const uiChainKey defined above (useMemo) 
 
@@ -12960,6 +13008,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Demo Mode:</b> Grid läuft als Simulation mit echten Marktdaten. <b>Live Mode:</b> echte Ausführung ist zuerst auf ETH, BNB und POL begrenzt.</p>
                       <p><b>Nexus Trading:</b> kontrollierter Auto-Trading-Bereich. Er darf später nur innerhalb eines vom User signierten Vault-Budgets arbeiten. Der User definiert Budget, Laufzeit, erlaubte Assets/Chains und Risiko-Grenzen. Keine Wallet-weite Freigabe und keine automatische Aktivierung ohne Signatur.</p>
                       <p><b>Nexus Strategist → Nexus Trading:</b> Der Strategist kann Setups vorbereiten. Nexus Trading übernimmt diese Daten nur als Konfiguration, nicht als direkte Ausführung.</p>
+                      <p><b>Live Flow:</b> Budget signieren = Trading scharf stellen. Danach startet der User die Session manuell. Pause/Stop erscheinen erst bei einer aktiven Session.</p>
                     </>
                   }
                   en={
@@ -12974,6 +13023,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Demo Mode:</b> Grid runs as simulation with real market data. <b>Live Mode:</b> real execution is initially limited to ETH, BNB and POL.</p>
                       <p><b>Nexus Trading:</b> controlled autonomous trading area. Later it can only operate inside a user-signed Vault budget. The user defines budget, runtime, allowed assets/chains, and risk limits. No wallet-wide permission and no activation without signature.</p>
                       <p><b>Nexus Strategist → Nexus Trading:</b> The Strategist can prepare setups. Nexus Trading only imports them as configuration, not as direct execution.</p>
+                      <p><b>Live Flow:</b> Signing the budget arms Nexus Trading. The user starts the session manually afterwards. Pause/Stop only appear during an active session.</p>
                     </>
                   }
                 />
@@ -13548,7 +13598,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10 }}>
                             <div className="formRow">
                               <label>Risk mode</label>
-                              <select value={tradingRiskMode} onChange={(e) => setTradingRiskMode(e.target.value)}>
+                              <select value={tradingRiskMode} onChange={(e) => handleTradingRiskModeChange(e.target.value)}>
                                 <option value="DEFENSIVE">Defensive</option>
                                 <option value="BALANCED">Balanced</option>
                                 <option value="DYNAMIC">Dynamic</option>
@@ -13577,7 +13627,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                           <div className="formRow">
                             <label>Minimum confidence</label>
-                            <select value={tradingConfidenceMin} onChange={(e) => setTradingConfidenceMin(e.target.value)}>
+                            <select value={tradingConfidenceMin} onChange={(e) => handleTradingConfidenceChange(e.target.value)}>
                               <option value="LOW">Low</option>
                               <option value="MEDIUM">Medium</option>
                               <option value="HIGH">High</option>
@@ -13601,11 +13651,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 900, color: "#f5c16c", fontSize: 13 }}>Status: Awaiting activation</div>
-                        <div className="muted tiny">Activation needs Vault/Risk Engine connection and user signature.</div>
+                        <div style={{ fontWeight: 900, color: "#f5c16c", fontSize: 13 }}>Status: Not armed</div>
+                        <div className="muted tiny">Next live step: approve/sign the configured budget. After that Nexus Trading is armed; Start appears only for an armed session.</div>
                       </div>
-                      <button className="btnGhost" type="button" disabled title="Coming after Risk Engine + Vault activation" style={{ height: 30, paddingInline: 10 }}>
-                        Activate later
+                      <button className="btnGhost" type="button" disabled title="Coming with Vault budget signature" style={{ height: 30, paddingInline: 10 }}>
+                        Approve Budget
                       </button>
                     </div>
 

@@ -13407,7 +13407,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start}>{gridBusy.stop ? "Stopping..." : "Stop"}</button>
               </div>
               {errorMsg ? (
-                <div style={{ marginTop: "10px", padding: "8px 10px", borderRadius: "8px", background: "rgba(255, 0, 0, 0.10)", border: "1px solid rgba(255, 0, 0, 0.25)", fontSize: "13px", lineHeight: "1.4" }}>
+                <div
+                  style={{
+                    marginTop: "10px",
+                    padding: "8px 10px",
+                    borderRadius: "8px",
+                    background: "rgba(245, 193, 108, 0.14)",
+                    border: "1px solid rgba(245, 193, 108, 0.34)",
+                    color: "#f5c16c",
+                    fontSize: "13px",
+                    lineHeight: "1.4",
+                  }}
+                >
                   {errorMsg}
                 </div>
               ) : null}

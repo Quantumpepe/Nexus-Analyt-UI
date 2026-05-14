@@ -7394,6 +7394,13 @@ const kickGridRefresh = useCallback(() => {
   setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 1400);
 }, [fetchGridOrders]);
 
+const clearManualExecutionPreview = useCallback(() => {
+  // After a fast stop/delete the old form price can keep the Execution Preview red
+  // until a full page refresh. Clear only the order-target fields that create
+  // manualOrderNotionalUsd; keep qty, payout, slippage and deadline as user presets.
+  setManualPrice("");
+}, []);
+
 const hasOpenGridOrders = useMemo(
   () => (gridOrders || []).some((o) => String(o?.status || "").toUpperCase() === "OPEN"),
   [gridOrders]
@@ -7717,10 +7724,15 @@ body.qty = qty;
     const addrPayload = walletAddress || undefined;
 
     // Fast UI: visible truth is SQLite, but the card should react immediately.
-    setGridOrders((prev) => (prev || []).map((o) => {
-      const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
-      return oid === _oid ? { ...o, status: "CANCELLED", cancelled_ts: Math.floor(Date.now() / 1000) } : o;
-    }));
+    setGridOrders((prev) => {
+      const next = (prev || []).map((o) => {
+        const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
+        return oid === _oid ? { ...o, status: "CANCELLED", cancelled_ts: Math.floor(Date.now() / 1000) } : o;
+      });
+      const stillOpen = next.some((o) => inferOrderStatus(o) === "OPEN");
+      if (!stillOpen) clearManualExecutionPreview();
+      return next;
+    });
     setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
 
     try {
@@ -7794,10 +7806,15 @@ body.qty = qty;
 
     // Fast UI: remove immediately, then reconcile from SQLite.
     const previousOrders = gridOrders;
-    setGridOrders((prev) => (prev || []).filter((o) => {
-      const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
-      return oid !== _oid;
-    }));
+    setGridOrders((prev) => {
+      const next = (prev || []).filter((o) => {
+        const oid = String(o?.id ?? o?.order_id ?? o?.orderId ?? "");
+        return oid !== _oid;
+      });
+      const stillOpen = next.some((o) => inferOrderStatus(o) === "OPEN");
+      if (!stillOpen) clearManualExecutionPreview();
+      return next;
+    });
     setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));
 
     try {
@@ -9712,6 +9729,16 @@ const manualRiskState = useMemo(() => {
   }
 
   if (!Number.isFinite(impact) || impact < 0) {
+    const after = Number(manualExposureAfterUsd);
+    if (Number.isFinite(after) && after <= 0) {
+      return {
+        key: "green_idle",
+        label: "🟢 Green · normal execution",
+        tone: "rgba(34, 197, 94, 0.16)",
+        border: "1px solid rgba(34, 197, 94, 0.28)",
+        color: "#86efac",
+      };
+    }
     return {
       key: "input_needed",
       label: "🟡 Enter order amount",
@@ -9766,7 +9793,7 @@ const manualRiskState = useMemo(() => {
     border: "1px solid rgba(239, 68, 68, 0.28)",
     color: "#fca5a5",
   };
-}, [manualPoolLiquidityUsd, manualEstimatedImpactPct]);
+}, [manualPoolLiquidityUsd, manualEstimatedImpactPct, manualExposureAfterUsd]);
 
 const isWatchSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "watchlist";
 const isGridSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "vault";

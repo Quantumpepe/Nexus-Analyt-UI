@@ -8492,6 +8492,64 @@ function aiTaskPlaceholder(kind) {
     return "Example: Analyze ETH vs BTC relative strength, rotation signals, unusual volume, whale activity, and whether momentum looks healthy or unstable.";
   }
 
+  const aiAnalystSectionMeta = {
+    market_read: { title: "Market Read", sub: "Current structure" },
+    nexus_rotation: { title: "Nexus Rotation", sub: "Momentum / relative strength path" },
+    nexus_grid: { title: "Nexus Grid", sub: "Range / cycle path" },
+    risk_context: { title: "Risk Context", sub: "What can go wrong" },
+    tactical_take: { title: "Tactical Take", sub: "Indirect next steps" },
+    next_check: { title: "Next Check", sub: "What to monitor" },
+    output: { title: "Output", sub: "AI Analyst response" },
+  };
+
+  const parseAiAnalystOutput = useCallback((raw) => {
+    const source = String(raw || "").trim();
+    if (!source) return [];
+
+    const headingMap = {
+      "MARKET READ": "market_read",
+      "NEXUS ROTATION": "nexus_rotation",
+      "NEXUS GRID": "nexus_grid",
+      "RISK CONTEXT": "risk_context",
+      "TACTICAL TAKE": "tactical_take",
+      "NEXT CHECK": "next_check",
+    };
+
+    const lines = source.split(/\r?\n/);
+    const sections = [];
+    let current = null;
+
+    const flush = () => {
+      if (!current) return;
+      const body = current.lines.join("\n").trim();
+      if (body) sections.push({ key: current.key, body });
+      current = null;
+    };
+
+    for (const line of lines) {
+      const clean = String(line || "").replace(/^\s*#{1,4}\s*/, "").replace(/^\s*[-*]\s*/, "").trim();
+      const normalized = clean.replace(/[:：]+\s*$/, "").toUpperCase();
+      const key = headingMap[normalized];
+
+      if (key) {
+        flush();
+        current = { key, lines: [] };
+      } else if (current) {
+        current.lines.push(line);
+      }
+    }
+    flush();
+
+    if (!sections.length) {
+      return [{ key: "output", body: source }];
+    }
+
+    const order = ["market_read", "nexus_rotation", "nexus_grid", "risk_context", "tactical_take", "next_check", "output"];
+    return sections.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+  }, []);
+
+  const aiOutputSections = useMemo(() => parseAiAnalystOutput(aiOutput), [aiOutput, parseAiAnalystOutput]);
+
 async function runAi() {
     setErrorMsg("");
     setAiOutput("");
@@ -8513,10 +8571,28 @@ async function runAi() {
       diagnostics: `Act as a ${aiProfile} trading diagnostics analyst. Diagnose behavioral risk, execution fit, volatility tolerance, weak setups, and common mistakes using only the provided context. Keep it coaching-style, not command-style.`,
     };
 
+    const responseFormatPrompt = `
+
+Response format:
+Use these exact section headings when relevant:
+MARKET READ
+NEXUS ROTATION
+NEXUS GRID
+RISK CONTEXT
+TACTICAL TAKE
+NEXT CHECK
+
+Rules:
+- Keep it compact: 1-3 bullets per section.
+- Do not write long paragraphs or a disclaimer block.
+- Do not give direct buy/sell commands.
+- Explain indirect tactical paths: what may favor Nexus Rotation, what may favor Nexus Grid, what conditions must improve, and what risk can invalidate the idea.
+- If a section is not relevant, keep it very short instead of forcing text.`;
+
     const basePrompt = aiKindPrompts[aiKind] || `Provide a ${aiProfile} analyst response based on the current task, timeframe, and available context.`;
     const qFinal = isFollowUpAsk
       ? q
-      : `${basePrompt}
+      : `${basePrompt}${responseFormatPrompt}
 
 User task:
 ${q}`;
@@ -14218,7 +14294,38 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             <div className="aiOut">
               <div className="label">Output</div>
-              <div className="aiPanel">{aiOutput ? <div className="aiText" style={{ whiteSpace: "pre-wrap" }}>{aiOutput}</div> : <div className="muted">No output yet.</div>}</div>
+              <div className="aiPanel">
+                {aiOutput ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {aiOutputSections.map((section, idx) => {
+                      const meta = aiAnalystSectionMeta[section.key] || aiAnalystSectionMeta.output;
+                      return (
+                        <div
+                          key={`${section.key}-${idx}`}
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.10)",
+                            background: "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025))",
+                            borderRadius: 14,
+                            padding: "10px 12px",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                            <div style={{ fontWeight: 900, fontSize: 12, letterSpacing: ".08em", textTransform: "uppercase", color: "#dfffee" }}>
+                              {meta.title}
+                            </div>
+                            <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>{meta.sub}</div>
+                          </div>
+                          <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.35 }}>
+                            {section.body}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="muted">No output yet.</div>
+                )}
+              </div>
             </div>
           </div></div>
         </section>

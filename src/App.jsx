@@ -7958,7 +7958,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
         return {
           ok: false,
           normalized: needed,
-          warning: `${raw} native is not executable in the current EVM Vault setup. Add ${needed} as a supported EVM/wrapped asset first.`,
+          warning: `${raw} native is not executable directly in the current EVM Vault setup. Please add/fund ${needed} first, then apply again.`,
         };
       }
 
@@ -7986,7 +7986,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       return {
         ok: false,
         normalized: raw,
-        warning: `${raw} is not available as a supported EVM/Vault asset. Add the token contract on POL, BNB, or ETH first.`,
+        warning: `${raw} can be used on supported EVM networks, but it is not currently available in your wallet/Vault. Please fund or add ${raw} on POL, BNB, or ETH first, then apply again.`,
       };
     }
 

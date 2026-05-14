@@ -12958,6 +12958,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Manual Orders</b> sind einzelne Orders und nicht Teil des eigentlichen Grid-Blocks.</p>
                       <p>BUY kann je nach Eingabe per <b>USD</b> oder per <b>Token-Menge</b> definiert werden.</p>
                       <p><b>Demo Mode:</b> Grid läuft als Simulation mit echten Marktdaten. <b>Live Mode:</b> echte Ausführung ist zuerst auf ETH, BNB und POL begrenzt.</p>
+                      <p><b>Nexus Trading:</b> kontrollierter Auto-Trading-Bereich. Er darf später nur innerhalb eines vom User signierten Vault-Budgets arbeiten. Der User definiert Budget, Laufzeit, erlaubte Assets/Chains und Risiko-Grenzen. Keine Wallet-weite Freigabe und keine automatische Aktivierung ohne Signatur.</p>
+                      <p><b>Nexus Strategist → Nexus Trading:</b> Der Strategist kann Setups vorbereiten. Nexus Trading übernimmt diese Daten nur als Konfiguration, nicht als direkte Ausführung.</p>
                     </>
                   }
                   en={
@@ -12970,6 +12972,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Manual orders</b> are single orders and are not part of the main grid block.</p>
                       <p>BUY can be defined either by <b>USD</b> or by <b>token quantity</b>, depending on your input mode.</p>
                       <p><b>Demo Mode:</b> Grid runs as simulation with real market data. <b>Live Mode:</b> real execution is initially limited to ETH, BNB and POL.</p>
+                      <p><b>Nexus Trading:</b> controlled autonomous trading area. Later it can only operate inside a user-signed Vault budget. The user defines budget, runtime, allowed assets/chains, and risk limits. No wallet-wide permission and no activation without signature.</p>
+                      <p><b>Nexus Strategist → Nexus Trading:</b> The Strategist can prepare setups. Nexus Trading only imports them as configuration, not as direct execution.</p>
                     </>
                   }
                 />
@@ -13455,47 +13459,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : String(gridMode || "normal") === "trading" ? (
                 <div className="gridWrap">
                   <div className="gridControls" style={{ display: "grid", gap: 10 }}>
-                    <div
-                      style={{
-                        padding: "9px 11px",
-                        borderRadius: 12,
-                        background: "rgba(0,0,0,.14)",
-                        border: "1px solid rgba(34,197,94,.18)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 10,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900, fontSize: 13 }}>Nexus Trading</div>
-                        <div className="muted tiny">
-                          {tradingPreparedSetup
-                            ? `Strategist setup loaded · ${tradingPreparedSetup.symbol || tradingPreparedSetup.requestedSymbol || "—"} · ${tradingPreparedSetup.confidence || "—"}`
-                            : "Autonomous vault trading · awaiting setup"}
-                        </div>
-                      </div>
-                      <InfoButton title="Nexus Trading – Info">
-                        <Help showClose dismissable
-                          de={
-                            <>
-                              <p><b>Nexus Trading</b> ist der kontrollierte Auto-Trading-Bereich von Nexus. Er darf spaeter nur innerhalb eines vom User signierten Vault-Budgets arbeiten.</p>
-                              <p>Der User definiert Budget, Laufzeit, erlaubte Assets/Chains und Risiko-Grenzen. Keine Wallet-weite Freigabe, keine automatische Aktivierung ohne Signatur.</p>
-                              <p><b>Nexus Strategist</b> kann Setups vorbereiten. Nexus Trading uebernimmt diese Daten nur als Konfiguration.</p>
-                            </>
-                          }
-                          en={
-                            <>
-                              <p><b>Nexus Trading</b> is the controlled autonomous trading area of Nexus. Later it can only operate inside a user-signed Vault budget.</p>
-                              <p>The user defines budget, runtime, allowed assets/chains, and risk limits. No wallet-wide permission and no activation without signature.</p>
-                              <p><b>Nexus Strategist</b> can prepare setups. Nexus Trading only imports them as configuration.</p>
-                            </>
-                          }
-                        />
-                      </InfoButton>
-                    </div>
-
                     <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10, alignItems: "end" }}>
                       <div className="formRow">
                         <label>Budget ($)</label>

@@ -5889,6 +5889,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationSwapModalOpen, setRotationSwapModalOpen] = useState(false);
   const [rotationSwapFromAsset, setRotationSwapFromAsset] = useState("AUTO");
   const [rotationSwapAmount, setRotationSwapAmount] = useState("");
+  const [fundingPrompt, setFundingPrompt] = useState(null);
   const [rotationBudgetReleased, setRotationBudgetReleased] = useState(false);
   const [rotationBackendLoading, setRotationBackendLoading] = useState(false);
   const [rotationBackendMsg, setRotationBackendMsg] = useState("");
@@ -7646,7 +7647,88 @@ setGridBusy((s) => ({ ...s, stop: true }));
     return Number.isFinite(activePx) && activePx > 0 ? activePx : 0;
   }, [watchRows, activeGridNativeUsd]);
 
-  const addCoreOrderFromModule = useCallback(async ({ source, chain, symbol, side = "BUY", budgetUsd, priceUsd, meta = {} }) => {
+  const resolveFundingBeforeOrder = useCallback(async ({ source, chain, symbol, side = "BUY", priceUsd, qty, budgetUsd, meta = {}, fundingApproved = false, fundingSourceAsset = "", pendingKind = "CORE" }) => {
+    if (fundingApproved) return true;
+    try {
+      const src = String(source || "GRID").toUpperCase();
+      const ch = String(chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+      const sym = String(symbol || "").toUpperCase();
+      const px = Number(priceUsd || 0);
+      const q = Number(qty || 0);
+      const usd = Number(budgetUsd || (px * q) || 0);
+      if (!walletAddress || !token || !sym || !(usd > 0) || !(px > 0) || !(q > 0)) return true;
+
+      const report = await api("/api/nexus/funding/resolve", {
+        method: "POST",
+        token,
+        wallet: walletAddress,
+        body: {
+          wallet: walletAddress,
+          wallet_address: walletAddress,
+          item: `${ch}:${sym}`,
+          item_id: `${ch}:${sym}`,
+          chain: ch,
+          symbol: sym,
+          side: String(side || "BUY").toUpperCase(),
+          price: px,
+          qty: q,
+          amountUsd: usd,
+          budgetUsd: usd,
+          nativePriceUsd: Number(activeGridNativeUsd || 0),
+          source: src,
+          ...meta,
+        },
+      });
+
+      if (report?.funding_required) {
+        setFundingPrompt({
+          source: src,
+          chain: ch,
+          symbol: sym,
+          side: String(side || "BUY").toUpperCase(),
+          budgetUsd: usd,
+          priceUsd: px,
+          qty: q,
+          message: report?.message || `Not enough ${ch} available.`,
+          shortageUsd: Number(report?.shortageUsd || 0),
+          shortageNative: Number(report?.shortageNative || 0),
+          suggestions: Array.isArray(report?.suggestions) ? report.suggestions : [],
+          pending: { kind: pendingKind, source: src, chain: ch, symbol: sym, side, budgetUsd: usd, priceUsd: px, qty: q, meta },
+          ts: Date.now(),
+        });
+        return false;
+      }
+      return true;
+    } catch (e) {
+      if (e?.status === 409 && e?.data?.funding) {
+        const report = e.data.funding;
+        const src = String(source || "GRID").toUpperCase();
+        const ch = String(chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+        const sym = String(symbol || "").toUpperCase();
+        setFundingPrompt({
+          source: src,
+          chain: ch,
+          symbol: sym,
+          side: String(side || "BUY").toUpperCase(),
+          budgetUsd: Number(budgetUsd || 0),
+          priceUsd: Number(priceUsd || 0),
+          qty: Number(qty || 0),
+          message: report?.message || `Not enough ${ch} available.`,
+          shortageUsd: Number(report?.shortageUsd || 0),
+          shortageNative: Number(report?.shortageNative || 0),
+          suggestions: Array.isArray(report?.suggestions) ? report.suggestions : [],
+          pending: { kind: pendingKind, source: src, chain: ch, symbol: sym, side, budgetUsd, priceUsd, qty, meta },
+          ts: Date.now(),
+        });
+        return false;
+      }
+      // Funding resolver is a safety helper. If it is unavailable, do not hard-freeze the UI;
+      // the backend add endpoint still performs its own funding check.
+      return true;
+    }
+  }, [api, token, walletAddress, activeGridChainKey, activeGridNativeUsd]);
+
+  const addCoreOrderFromModule = useCallback(async ({ source, chain, symbol, side = "BUY", budgetUsd, priceUsd, meta = {}, fundingApproved = false, fundingSourceAsset = "" }) => {
     setErrorMsg("");
     if (!token) return setErrorMsg("");
     if (!requirePro("Placing a new order")) return;
@@ -7661,6 +7743,11 @@ setGridBusy((s) => ({ ...s, stop: true }));
     if (!Number.isFinite(px) || px <= 0) return setErrorMsg(`${src}: price unavailable for ${sym}.`);
     const qty = usd / px;
     if (!Number.isFinite(qty) || qty <= 0) return setErrorMsg(`${src}: invalid quantity.`);
+
+    const fundingOk = await resolveFundingBeforeOrder({
+      source: src, chain: ch, symbol: sym, side, priceUsd: px, qty, budgetUsd: usd, meta, fundingApproved, fundingSourceAsset, pendingKind: "CORE"
+    });
+    if (!fundingOk) return;
 
     setGridBusy((st) => ({ ...st, add: true }));
     try {
@@ -7689,6 +7776,9 @@ setGridBusy((s) => ({ ...s, stop: true }));
         settlement_mode: "swap_on_fill_hold_until_withdraw",
         slippage_bps: Math.round(Math.max(0.1, Math.min(20, Number.isFinite(slippagePct) ? slippagePct : 1)) * 100),
         deadline_sec: Math.floor(Math.max(5, Math.min(120, Number.isFinite(deadlineMin) ? deadlineMin : 20)) * 60),
+        nativePriceUsd: Number(activeGridNativeUsd || 0),
+        funding_approved: !!fundingApproved,
+        funding_source_asset: String(fundingSourceAsset || "").toUpperCase(),
         ...meta,
       };
 
@@ -7718,7 +7808,9 @@ setGridBusy((s) => ({ ...s, stop: true }));
     walletAddress,
     gridBusy.add,
     activeGridChainKey,
+    activeGridNativeUsd,
     getNexusOrderPriceUsd,
+    resolveFundingBeforeOrder,
     rotationMaxSlippage,
     tradingMaxSlippagePct,
     manualSlippagePct,
@@ -7736,6 +7828,71 @@ setGridBusy((s) => ({ ...s, stop: true }));
     setGridVaultStats,
     setErrorMsg,
   ]);
+
+  const continueWithFundingSuggestion = useCallback(async (suggestion) => {
+    const p = fundingPrompt?.pending;
+    if (!p) return;
+    const asset = String(suggestion?.asset || fundingPrompt?.suggestions?.[0]?.asset || "").toUpperCase();
+    setFundingPrompt(null);
+    if (p.kind === "MANUAL") {
+      await addManualOrder({ fundingApproved: true, fundingSourceAsset: asset });
+      return;
+    }
+    await addCoreOrderFromModule({
+      source: p.source,
+      chain: p.chain,
+      symbol: p.symbol,
+      side: p.side,
+      budgetUsd: p.budgetUsd,
+      priceUsd: p.priceUsd,
+      meta: p.meta || {},
+      fundingApproved: true,
+      fundingSourceAsset: asset,
+    });
+  }, [fundingPrompt, addCoreOrderFromModule]);
+
+  const renderFundingPrompt = useCallback((moduleName = "GRID") => {
+    const fp = fundingPrompt;
+    if (!fp) return null;
+    const src = String(fp.source || "").toUpperCase();
+    const mod = String(moduleName || "").toUpperCase();
+    if (src && mod && src !== mod) return null;
+    const suggestions = Array.isArray(fp.suggestions) ? fp.suggestions : [];
+    return (
+      <div
+        style={{
+          padding: "9px 10px",
+          borderRadius: 12,
+          border: "1px solid rgba(245,193,108,.34)",
+          background: "rgba(245,193,108,.08)",
+          display: "grid",
+          gap: 8,
+          marginTop: 8,
+        }}
+      >
+        <div style={{ color: "#f5c16c", fontWeight: 900, fontSize: 13 }}>
+          Funding needed · {fp.symbol} / {fp.chain}
+        </div>
+        <div className="muted tiny">
+          {fp.message || "Not enough direct asset available."} {fp.shortageUsd > 0 ? `Shortage about ${fmtUsd(fp.shortageUsd)}.` : ""}
+        </div>
+        {suggestions.length ? (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {suggestions.map((sug, i) => (
+              <button key={`${sug.asset || "asset"}-${i}`} type="button" className="miniBtn" onClick={() => continueWithFundingSuggestion(sug)}>
+                Use {String(sug.asset || "asset").toUpperCase()}
+              </button>
+            ))}
+            <button type="button" className="miniBtn" onClick={() => setFundingPrompt(null)}>Cancel</button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="miniBtn" onClick={() => setFundingPrompt(null)}>Close</button>
+          </div>
+        )}
+      </div>
+    );
+  }, [fundingPrompt, continueWithFundingSuggestion]);
 
   const addRotationOrder = useCallback(async () => {
     const pick = rotationSelectedPick || {};
@@ -7783,7 +7940,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
     });
   }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, addCoreOrderFromModule]);
 
-  async function addManualOrder() {
+  async function addManualOrder(opts = {}) {
     setErrorMsg("");
     if (!token) return setErrorMsg("");
     if (!requirePro("Placing a new order")) return;
@@ -7823,6 +7980,27 @@ try {
 const qty = manualQty === "" ? undefined : Number(manualQty);
 if (qty === undefined || !Number.isFinite(qty) || qty <= 0) throw new Error("Invalid Qty amount.");
 body.qty = qty;
+body.nativePriceUsd = Number(activeGridNativeUsd || 0);
+body.funding_approved = !!opts.fundingApproved;
+body.funding_source_asset = String(opts.fundingSourceAsset || "").toUpperCase();
+
+const manualFundingOk = await resolveFundingBeforeOrder({
+  source: "GRID",
+  chain: String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase(),
+  symbol: String(gridItem || "").toUpperCase(),
+  side: manualSide,
+  priceUsd: price,
+  qty,
+  budgetUsd: price * qty,
+  meta: { payout_asset: String(manualPayoutAsset || "USDC").toUpperCase() },
+  fundingApproved: !!opts.fundingApproved,
+  fundingSourceAsset: String(opts.fundingSourceAsset || "").toUpperCase(),
+  pendingKind: "MANUAL",
+});
+if (!manualFundingOk) {
+  setGridBusy((s) => ({ ...s, add: false }));
+  return;
+}
 
 	// Canonical endpoint is /api/grid/manual/add.
 	// If the backend is on an older deployed revision, fall back to known aliases.
@@ -13962,6 +14140,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </span>
                     </div>
 
+                    {renderFundingPrompt("ROTATION")}
+
                     <div
                       style={{
                         padding: "8px 10px",
@@ -14316,6 +14496,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       ) : null}
                     </div>
 
+                    {renderFundingPrompt("TRADING")}
+
                     <div
                       style={{
                         padding: "7px 10px",
@@ -14416,7 +14598,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
   {tB("Allocated:")} <b>{manualVaultAllocatedQty.toFixed(6)}</b> {activeGridChainSymbol}
   {" · "}
   {tB("Settled:")} <b>{manualVaultSettledQty.toFixed(6)}</b> {String(manualPayoutAsset || "USDC").toUpperCase()}
-</div>{isEthChain ? (
+</div>
+{renderFundingPrompt("GRID")}
+{isEthChain ? (
 
               <div className="formRow" style={{ marginTop: 6 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8 }}>

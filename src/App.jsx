@@ -9098,10 +9098,10 @@ const manualRiskState = useMemo(() => {
   if (liq <= 0) {
     return {
       key: "no_liquidity",
-      label: "🔴 No vault liquidity",
-      tone: "rgba(239, 68, 68, 0.15)",
-      border: "1px solid rgba(239, 68, 68, 0.28)",
-      color: "#fca5a5",
+      label: "🟡 No vault liquidity",
+      tone: "rgba(245, 193, 108, 0.16)",
+      border: "1px solid rgba(245, 193, 108, 0.30)",
+      color: "#f5c16c",
     };
   }
 

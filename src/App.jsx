@@ -7760,6 +7760,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
 
     setTimeout(() => {
       try {
+        setActivePanel("vault");
         const el = document.querySelector(".section-grid");
         if (el && typeof el.scrollIntoView === "function") {
           el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -14668,7 +14669,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <button
                                 className="btn"
                                 type="button"
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
                                   if (section.key === "nexus_grid") applyStrategistToGrid(section.body);
                                   if (section.key === "nexus_rotation") applyStrategistToRotation(section.body);
                                 }}

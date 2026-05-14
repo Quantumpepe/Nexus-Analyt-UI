@@ -8023,27 +8023,18 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
   const applyStrategistToGrid = useCallback((body) => {
     const sym = extractStrategistSymbol(body);
     if (!sym) {
+      setGridMode("normal");
+      openGridPanel();
       setErrorMsg("No coin symbol found in the Nexus Grid card. Add a coin symbol to the task or card output first.");
       return;
     }
 
-    const guard = strategistExecutionGuard(sym, "grid");
-    if (!guard.ok) {
-      setStrategistBridge({
-        type: "blocked",
-        sym,
-        label: "Execution Guard",
-        confidence: "Blocked",
-        note: guard.warning,
-        ts: Date.now(),
-      });
-      setErrorMsg(guard.warning);
-      return;
-    }
-
-    const preparedSym = guard.normalized || sym;
-    const preset = deriveStrategistRiskPreset(body);
+    // Always open Nexus Grid and prefill non-executing strategy fields.
+    // Guard only blocks execution readiness, not visible preparation.
     setGridMode("normal");
+    openGridPanel();
+
+    const preset = deriveStrategistRiskPreset(body);
     setManualPricePreset(preset.preset);
     setManualSlippagePct(String(preset.gridSlippage));
     setAiGridAssistState({
@@ -8052,6 +8043,23 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       slippage: preset.gridSlippage,
       note: `Strategist prepared ${preset.preset.replace("_", " ")} grid / ${preset.gridSlippage}% slippage`,
     });
+
+    const guard = strategistExecutionGuard(sym, "grid");
+    const preparedSym = guard.normalized && guard.ok ? guard.normalized : sym;
+
+    if (!guard.ok) {
+      setStrategistBridge({
+        type: "blocked",
+        sym: preparedSym,
+        label: "Execution Guard",
+        confidence: "Blocked",
+        note: `${guard.warning} Grid strategy fields were still prepared; switch/add the correct EVM asset before adding any order.`,
+        ts: Date.now(),
+      });
+      setErrorMsg(guard.warning);
+      return;
+    }
+
     setStrategistBridge({
       type: "grid",
       sym: preparedSym,
@@ -8062,7 +8070,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     });
     applyAiSuggestionToGrid(preparedSym, "BUY");
     setErrorMsg(`Prepared ${preparedSym} in Nexus Grid. Review price, amount and risk before adding any order.`);
-  }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, setGridMode, setManualPricePreset, setManualSlippagePct, setAiGridAssistState, applyAiSuggestionToGrid, setErrorMsg]);
+  }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, setGridMode, openGridPanel, setManualPricePreset, setManualSlippagePct, setAiGridAssistState, applyAiSuggestionToGrid, setErrorMsg]);
 
   const applyStrategistToRotation = useCallback((body) => {
     const sym = extractStrategistSymbol(body);

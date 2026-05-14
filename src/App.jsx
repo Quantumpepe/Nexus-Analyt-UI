@@ -11367,7 +11367,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             <div className="compareChart">
               <div className="chartHeader">
-                <div className="label">Diagramm (auto scale)</div>
+                <div className="label"></div>
                 <div className="rowBtn">
                   <button className={`chip ${comparePage === "first10" ? "active" : ""}`} onClick={() => setComparePage("first10")} disabled={compareSymbols.length === 0}>First 10</button>
                   <button className={`chip ${comparePage === "next10" ? "active" : ""}`} onClick={() => setComparePage("next10")} disabled={compareSymbols.length <= 10}>Next 10</button>
@@ -11430,9 +11430,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               }}
                             >
                 <div className="pairsHead">
-                  <div className="label">Best pairs (data fit)</div>
+                  <div className="label"></div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <div className="muted tiny">Based on correlation (index)</div>
+                    <div className="muted tiny"></div>
                     <InfoButton title="Best pairs">
                       <Help showClose dismissable
                         de={
@@ -11498,7 +11498,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <div className="muted tiny">Showing {bestPairsToShow.length} / {bestPairsAll.length} pairs</div>
+                    
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <button

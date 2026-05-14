@@ -7913,10 +7913,10 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     });
   }, [gridWalletCoinsByChain, balByChain, watchItems]);
 
-  const strategistExecutionGuard = useCallback((sym, target = "grid") => {
+  const strategistExecutionGuard = useCallback((sym, target = "grid", targetChainOverride = "") => {
     const raw = String(sym || "").toUpperCase().trim();
     const targetMode = String(target || "grid").toLowerCase();
-    const currentChain = String(activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase();
+    const currentChain = String(targetChainOverride || activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase();
 
     if (!raw) {
       return { ok: false, normalized: "", warning: "No asset symbol found for Nexus execution." };
@@ -8035,6 +8035,10 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setGridMode("normal");
     openGridPanel();
 
+    const intendedGridChain = ["ETH", "BNB", "POL"].includes(sym)
+      ? sym
+      : String(activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase();
+
     const preset = deriveStrategistRiskPreset(body);
     setManualPricePreset(preset.preset);
     setManualSlippagePct(String(preset.gridSlippage));
@@ -8045,7 +8049,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       note: `Strategist prepared ${preset.preset.replace("_", " ")} grid / ${preset.gridSlippage}% slippage`,
     });
 
-    const guard = strategistExecutionGuard(sym, "grid");
+    const guard = strategistExecutionGuard(sym, "grid", intendedGridChain);
     const preparedSym = guard.normalized && guard.ok ? guard.normalized : sym;
 
     if (!guard.ok) {
@@ -8071,7 +8075,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     });
     applyAiSuggestionToGrid(preparedSym, "BUY");
     setErrorMsg(`Prepared ${preparedSym} in Nexus Grid. Review price, amount and risk before adding any order.`);
-  }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, setGridMode, openGridPanel, setManualPricePreset, setManualSlippagePct, setAiGridAssistState, applyAiSuggestionToGrid, setErrorMsg]);
+  }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, activeGridChainKey, gridChain, setGridMode, openGridPanel, setManualPricePreset, setManualSlippagePct, setAiGridAssistState, applyAiSuggestionToGrid, setErrorMsg]);
 
   const applyStrategistToRotation = useCallback((body) => {
     const sym = extractStrategistSymbol(body);

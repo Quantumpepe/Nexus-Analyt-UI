@@ -6509,6 +6509,106 @@ useEffect(() => {
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [payoutMenuOpen]);
+
+
+  const renderPayoutAssetSelector = (label = "Payout asset") => (
+    <div className="formRow">
+      <label>{label}</label>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {visiblePayoutAssets.map((asset) => {
+          const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
+          return (
+            <button
+              key={asset}
+              type="button"
+              onClick={() => setManualPayoutAsset(String(asset).toUpperCase())}
+              style={{
+                ...compactGridChipStyle,
+                minWidth: 66,
+                background: active ? "linear-gradient(90deg, #22c55e, #16a34a)" : "rgba(34,197,94,.16)",
+                color: active ? "#071512" : "#d9fff0",
+                border: active ? "1px solid rgba(34,197,94,.55)" : "1px solid rgba(34,197,94,.32)",
+                boxShadow: active ? "0 0 12px rgba(34,197,94,.28)" : "none",
+                fontWeight: active ? 800 : 700,
+              }}
+              title={`Set payout asset to ${asset}`}
+            >
+              {asset}
+            </button>
+          );
+        })}
+        {extraPayoutAssets.length > 0 && (
+          <div ref={payoutMenuRef} style={{ position: "relative", minWidth: 220 }}>
+            <button
+              type="button"
+              onClick={() => setPayoutMenuOpen((v) => !v)}
+              style={{
+                width: "100%",
+                height: isCompactMobile ? 32 : 36,
+                padding: "0 12px",
+                borderRadius: 10,
+                background: "rgba(34,197,94,.16)",
+                color: "#ffffff",
+                border: "1px solid rgba(34,197,94,.38)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                fontWeight: 800,
+                boxShadow: payoutMenuOpen ? "0 0 12px rgba(34,197,94,.22)" : "none",
+              }}
+            >
+              <span>{extraPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? String(manualPayoutAsset || "").toUpperCase() : "More assets"}</span>
+              <span style={{ fontSize: 12 }}>{payoutMenuOpen ? "▲" : "▼"}</span>
+            </button>
+            {payoutMenuOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  left: 0,
+                  right: 0,
+                  zIndex: 50,
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  background: "linear-gradient(180deg, rgba(74,222,128,.98), rgba(34,197,94,.98))",
+                  border: "1px solid rgba(34,197,94,.55)",
+                  boxShadow: "0 16px 34px rgba(0,0,0,.35)",
+                }}
+              >
+                {extraPayoutAssets.map((asset) => {
+                  const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
+                  return (
+                    <button
+                      key={asset}
+                      type="button"
+                      onClick={() => {
+                        setManualPayoutAsset(String(asset).toUpperCase());
+                        setPayoutMenuOpen(false);
+                      }}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "8px 10px",
+                        background: active ? "linear-gradient(90deg, #86efac, #4ade80)" : "rgba(255,255,255,.10)",
+                        color: "#071512",
+                        border: "none",
+                        borderTop: "1px solid rgba(7,21,18,.10)",
+                        fontWeight: active ? 800 : 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {asset}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
   const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
 
   // AI
@@ -14114,6 +14214,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     </div>
 
+                    {renderPayoutAssetSelector("Payout asset")}
+
                     <div
                       className="muted tiny"
                       style={{
@@ -14408,6 +14510,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     </div>
 
+                    {renderPayoutAssetSelector("Payout asset")}
+
                     <div
                       style={{
                         borderRadius: 12,
@@ -14632,9 +14736,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   disabled={!isGridReady || gridBusy.start || gridBusy.stop}
                   title={!isPro ? "Subscribe to Nexus Pro to start trading" : ""}
                 >
-                  {gridBusy.start ? "Starting..." : "Start"}
+                  {gridBusy.start ? "Approving..." : "Approve Budget"}
                 </button>
-                <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start}>{gridBusy.stop ? "Stopping..." : "Stop"}</button>
+                <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start}>{gridBusy.stop ? "Resetting..." : "Reset Budget"}</button>
               </div>
               {errorMsg && !(
                 String(errorMsg).includes("wallet/Vault") ||
@@ -15138,7 +15242,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="muted tiny" style={{ marginTop: 8 }}>Orders hidden. Tap Orders to open.</div>
                 )
               ) : (
-                <div className="muted">No orders yet. Press Start then Add Order.</div>
+                <div className="muted">No orders yet. Approve Budget then Add Order.</div>
               )}
             </div>
             </div>

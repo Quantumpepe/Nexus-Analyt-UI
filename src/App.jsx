@@ -14513,6 +14513,49 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : String(gridMode || "normal") === "trading" ? (
                 <div className="gridWrap">
                   <div className="gridControls" style={{ display: "grid", gap: 10 }}>
+                    <div
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        background: "rgba(0,0,0,.18)",
+                        border: "1px solid rgba(34,197,94,.22)",
+                        display: "grid",
+                        gap: 8,
+                      }}
+                    >
+                      <div className="label" style={{ marginBottom: 0 }}>Vault overview</div>
+                      <div
+                        className="muted tiny"
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                          gap: 6,
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        {(() => {
+                          const vaultTotalNative = Number(manualVaultTotalQty || 0);
+                          const gridAllocatedNative = Number(manualVaultAllocatedQty || 0);
+                          const px = Number(activeGridNativeUsd || 0);
+                          const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
+                          const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
+                          const tradingApproved = ["ARMED", "ACTIVE", "PAUSED"].includes(String(tradingSessionLabel || "").toUpperCase());
+                          const tradingAllocatedUsd = tradingApproved ? Math.max(0, Number(String(tradingBudgetUsd || "").replace(",", ".")) || 0) : 0;
+                          const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - tradingAllocatedUsd);
+                          const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + tradingAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
+                          return (
+                            <>
+                              <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
+                              <div><b>Grid allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
+                              <div><b>Trading allocated:</b> {tradingAllocatedUsd ? fmtUsd(tradingAllocatedUsd) : "$0.00"}</div>
+                              <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
+                              <div style={{ gridColumn: isCompactMobile ? "auto" : "1 / -1" }}><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+
                     <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10, alignItems: "end" }}>
                       <div className="formRow">
                         <label>Budget ($)</label>

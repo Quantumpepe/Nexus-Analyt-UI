@@ -7782,6 +7782,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
 
     // Native assets require switching the Grid chain first.
     if (nativeChain) {
+      setGridChain(nativeChain);
       setBalActiveChain(nativeChain);
       setWsChainKey(nativeChain);
     } else if (!availableNow) {
@@ -7817,6 +7818,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     parseSuggestedGridPct,
     gridWalletCoins,
     openGridPanel,
+    setGridChain,
     setBalActiveChain,
     setWsChainKey,
     setGridItem,
@@ -8065,6 +8067,8 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       return;
     }
 
+    setGridChain(intendedGridChain);
+
     setStrategistBridge({
       type: "grid",
       sym: preparedSym,
@@ -8075,7 +8079,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     });
     applyAiSuggestionToGrid(preparedSym, "BUY");
     setErrorMsg(`Prepared ${preparedSym} in Nexus Grid. Review price, amount and risk before adding any order.`);
-  }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, activeGridChainKey, gridChain, setGridMode, openGridPanel, setManualPricePreset, setManualSlippagePct, setAiGridAssistState, applyAiSuggestionToGrid, setErrorMsg]);
+  }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, activeGridChainKey, gridChain, setGridMode, setGridChain, openGridPanel, setManualPricePreset, setManualSlippagePct, setAiGridAssistState, applyAiSuggestionToGrid, setErrorMsg]);
 
   const applyStrategistToRotation = useCallback((body) => {
     const sym = extractStrategistSymbol(body);

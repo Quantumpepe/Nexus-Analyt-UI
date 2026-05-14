@@ -7364,13 +7364,8 @@ const fetchGridOrders = useCallback(async () => {
     const nextOrders = normalizeGridOrders(nextOrdersRaw);
     setGridOrders(nextOrders);
 
-	try {
-      const sym = String(gridItem || "").toUpperCase().trim();
-      if (["POL", "BNB", "ETH"].includes(sym)) {
-        setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 500);
-      }
-    } catch (_) {}
 
+    // Keep /api/grid/orders lightweight. Vault state refresh is handled separately/background.
     applyGridMetaResponse(r, gridItemId);
   } catch (e) {
     // Browser/timeout aborts are transient. Keep current grid state and do not show a red error box.
@@ -7661,12 +7656,41 @@ body.qty = qty;
 	        }
 	      }
 	      if (lastErr) throw lastErr;
-      
+
+      // Fast local preview update: do not wait for /api/grid/orders or vault refresh.
+      // SQLite remains the source of truth; this optimistic row is reconciled by kickGridRefresh().
+      const nowSec = Math.floor(Date.now() / 1000);
+      const serverOrder = r?.order || r?.data?.order || null;
+      const optimisticOrder = {
+        ...(serverOrder && typeof serverOrder === "object" ? serverOrder : {}),
+        id: serverOrder?.id || serverOrder?.order_id || serverOrder?.orderId || r?.order_id || r?.id || body.client_order_id,
+        order_id: serverOrder?.order_id || serverOrder?.id || serverOrder?.orderId || r?.order_id || r?.id || body.client_order_id,
+        client_order_id: body.client_order_id,
+        item: gridItemId,
+        item_id: gridItemId,
+        chain: String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase(),
+        side: body.side,
+        price: body.price,
+        qty: body.qty,
+        status: "OPEN",
+        created_ts: nowSec,
+        updated_ts: nowSec,
+        payout_asset: body.payout_asset,
+        payoutAsset: body.payoutAsset,
+        source: "MANUAL",
+        optimistic: true,
+      };
+      setGridOrders((prev) => {
+        const rows = Array.isArray(prev) ? prev : [];
+        const key = String(optimisticOrder.order_id || optimisticOrder.id || body.client_order_id);
+        const exists = rows.some((o) => String(o?.order_id || o?.orderId || o?.id || o?.client_order_id || "") === key);
+        return exists ? rows : normalizeGridOrders([...rows, optimisticOrder]);
+      });
+
       applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
-      // Always reload from backend so the server can commit the order and the UI stays live.
-      // Never set visible orders from the add response; SQLite /api/grid/orders is the only UI source.
+      // Reconcile from SQLite in the background. Visible preview already updated locally.
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {

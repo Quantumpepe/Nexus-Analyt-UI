@@ -7852,33 +7852,78 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     return generic.find((sym) => !blocked.has(sym)) || "";
   }, [compareSymbols, watchRows, gridWalletCoins, gridItem]);
 
+  const strategistAssetRoutes = useMemo(() => {
+    const routes = [];
+    const enabled = Array.isArray(ENABLED_CHAINS) && ENABLED_CHAINS.length ? ENABLED_CHAINS : ["POL", "BNB", "ETH"];
+    const enabledSet = new Set(enabled.map((x) => String(x || "").toUpperCase()));
+
+    const addRoute = ({ symbol, chain, contract = "", source = "vault" }) => {
+      const sym = String(symbol || "").toUpperCase().trim();
+      const ck = String(chain || "").toUpperCase().trim();
+      if (!sym || !ck || !enabledSet.has(ck)) return;
+      routes.push({
+        symbol: sym,
+        chain: ck,
+        contract: String(contract || "").trim(),
+        source,
+        isNative: sym === ck || (sym === "MATIC" && ck === "POL"),
+      });
+    };
+
+    for (const chain of enabledSet) {
+      addRoute({ symbol: chain, chain, contract: "native", source: "native" });
+    }
+
+    const coinsByChain = gridWalletCoinsByChain || {};
+    for (const chain of Object.keys(coinsByChain || {})) {
+      for (const symbol of coinsByChain[chain] || []) {
+        addRoute({ symbol, chain, source: "vault_asset" });
+      }
+    }
+
+    for (const chain of Object.keys(balByChain || {})) {
+      const row = balByChain?.[chain] || {};
+      for (const t of row?.custom || []) {
+        addRoute({
+          symbol: t?.symbol,
+          chain,
+          contract: t?.address || t?.contract || t?.tokenAddress || "",
+          source: "wallet_token",
+        });
+      }
+      for (const stable of Object.keys(row?.stables || {})) {
+        addRoute({ symbol: stable, chain, source: "stable" });
+      }
+    }
+
+    for (const item of watchItems || []) {
+      const symbol = item?.symbol || item?.sym;
+      const chain = item?.chain || item?.chainKey || item?.network;
+      const contract = item?.contract || item?.tokenAddress || item?.address || "";
+      if (contract && chain) addRoute({ symbol, chain, contract, source: "watchlist_contract" });
+    }
+
+    const seen = new Set();
+    return routes.filter((r) => {
+      const key = `${r.symbol}|${r.chain}|${String(r.contract || "").toLowerCase()}|${r.source}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [gridWalletCoinsByChain, balByChain, watchItems]);
+
   const strategistExecutionGuard = useCallback((sym, target = "grid") => {
     const raw = String(sym || "").toUpperCase().trim();
     const targetMode = String(target || "grid").toLowerCase();
     const currentChain = String(activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase();
 
-    const coinsByChain = gridWalletCoinsByChain || {};
-    const listForChain = (chain) => (coinsByChain?.[String(chain || "").toUpperCase()] || []).map((x) => String(x || "").toUpperCase());
-    const currentList = (gridWalletCoins || []).map((x) => String(x || "").toUpperCase());
-    const hasOnCurrentChain = (coin) => currentList.includes(String(coin || "").toUpperCase()) || listForChain(currentChain).includes(String(coin || "").toUpperCase());
-    const findAvailableWrapped = (options) => {
-      for (const opt of options) {
-        if (listForChain(opt.chain).includes(opt.coin)) return opt;
-      }
-      return null;
-    };
-    const findAnyChainAsset = (coin) => {
-      const C = String(coin || "").toUpperCase();
-      for (const chain of Object.keys(coinsByChain || {})) {
-        const ck = String(chain || "").toUpperCase();
-        if (listForChain(ck).includes(C)) return { chain: ck, coin: C };
-      }
-      return hasOnCurrentChain(C) ? { chain: currentChain, coin: C } : null;
-    };
-
     if (!raw) {
       return { ok: false, normalized: "", warning: "No asset symbol found for Nexus execution." };
     }
+
+    const routesFor = (symbol) => (strategistAssetRoutes || []).filter((r) => String(r?.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
+    const currentChainRoute = (routes) => routes.find((r) => String(r.chain || "").toUpperCase() === currentChain);
+    const routeLabel = (routes) => routes.map((r) => `${r.symbol} on ${r.chain}${r.contract && r.contract !== "native" ? " (contract)" : ""}`).join(", ");
 
     const nativeMap = {
       ETH: { chain: "ETH", coin: "ETH" },
@@ -7888,64 +7933,81 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     };
 
     if (nativeMap[raw]) {
-      return { ok: true, normalized: nativeMap[raw].coin, chain: nativeMap[raw].chain, warning: "" };
+      const n = nativeMap[raw];
+      if (targetMode === "grid" && n.chain !== currentChain) {
+        return {
+          ok: false,
+          normalized: n.coin,
+          chain: n.chain,
+          warning: `${raw} is native on ${n.chain}, but Grid is currently on ${currentChain}. Switch the Grid network first, then apply again.`,
+        };
+      }
+      return { ok: true, normalized: n.coin, chain: n.chain, warning: "" };
     }
 
-    const wrappedOptions = {
-      BTC: [
-        { chain: "ETH", coin: "WBTC" },
-        { chain: "BNB", coin: "BTCB" },
-        { chain: "BNB", coin: "WBTC" },
-        { chain: "POL", coin: "WBTC" },
-      ],
-      SOL: [
-        { chain: "ETH", coin: "WSOL" },
-        { chain: "BNB", coin: "WSOL" },
-        { chain: "POL", coin: "WSOL" },
-      ],
+    const wrappedSymbols = {
+      BTC: ["WBTC", "BTCB"],
+      SOL: ["WSOL"],
     };
 
-    if (wrappedOptions[raw]) {
-      const wrapped = findAvailableWrapped(wrappedOptions[raw]);
-      if (!wrapped) {
+    if (wrappedSymbols[raw]) {
+      const wrappedRoutes = wrappedSymbols[raw].flatMap((s) => routesFor(s));
+      if (!wrappedRoutes.length) {
         const needed = raw === "BTC" ? "WBTC / BTCB" : "WSOL";
         return {
           ok: false,
           normalized: needed,
-          warning: `${raw} native is not executable in the current EVM Vault setup. Add ${needed} to the Vault/Grid assets first.`,
+          warning: `${raw} native is not executable in the current EVM Vault setup. Add ${needed} as a supported EVM/wrapped asset first.`,
         };
       }
 
-      if (targetMode === "grid" && wrapped.chain !== currentChain) {
+      const route = targetMode === "grid" ? (currentChainRoute(wrappedRoutes) || wrappedRoutes[0]) : wrappedRoutes[0];
+      if (targetMode === "grid" && route.chain !== currentChain) {
         return {
           ok: false,
-          normalized: wrapped.coin,
-          warning: `${raw} is available as ${wrapped.coin} on ${wrapped.chain}, but Grid is currently on ${currentChain}. Switch the Grid network first, then apply again.`,
+          normalized: route.symbol,
+          chain: route.chain,
+          warning: `${raw} is available as ${route.symbol} on ${route.chain}, but Grid is currently on ${currentChain}. Switch the Grid network first, then apply again.`,
         };
       }
 
-      return { ok: true, normalized: targetMode === "rotation" ? raw : wrapped.coin, chain: wrapped.chain, warning: "" };
-    }
-
-    const available = findAnyChainAsset(raw);
-    if (!available) {
       return {
-        ok: false,
-        normalized: raw,
-        warning: `${raw} is not available in the current Nexus Vault/Grid assets. Add the EVM token or supported wrapped asset first.`,
+        ok: true,
+        normalized: targetMode === "rotation" ? raw : route.symbol,
+        chain: route.chain,
+        route,
+        warning: "",
       };
     }
 
-    if (targetMode === "grid" && available.chain !== currentChain) {
+    const routes = routesFor(raw);
+    if (!routes.length) {
       return {
         ok: false,
         normalized: raw,
-        warning: `${raw} is available on ${available.chain}, but Grid is currently on ${currentChain}. Switch the Grid network first, then apply again.`,
+        warning: `${raw} is not available as a supported EVM/Vault asset. Add the token contract on POL, BNB, or ETH first.`,
       };
     }
 
-    return { ok: true, normalized: raw, chain: available.chain, warning: "" };
-  }, [activeGridChainKey, gridChain, gridWalletCoinsByChain, gridWalletCoins]);
+    const route = targetMode === "grid" ? (currentChainRoute(routes) || routes[0]) : routes[0];
+    if (targetMode === "grid" && route.chain !== currentChain) {
+      return {
+        ok: false,
+        normalized: raw,
+        chain: route.chain,
+        route,
+        warning: `${raw} exists on ${route.chain} (${routeLabel(routes)}), but Grid is currently on ${currentChain}. Switch the Grid network first, then apply again.`,
+      };
+    }
+
+    return {
+      ok: true,
+      normalized: raw,
+      chain: route.chain,
+      route,
+      warning: "",
+    };
+  }, [activeGridChainKey, gridChain, strategistAssetRoutes]);
 
   const deriveStrategistRiskPreset = useCallback((body) => {
     const text = String(body || "").toLowerCase();
@@ -8005,9 +8067,16 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
   const applyStrategistToRotation = useCallback((body) => {
     const sym = extractStrategistSymbol(body);
     if (!sym) {
+      setGridMode("rotation");
+      openGridPanel();
       setErrorMsg("No coin symbol found in the Nexus Rotation card. Add a coin symbol to the task or card output first.");
       return;
     }
+
+    // Always open Nexus Rotation so the user gets visible feedback.
+    // The guard can block execution preparation, but it should not feel like "nothing happened".
+    setGridMode("rotation");
+    openGridPanel();
 
     const guard = strategistExecutionGuard(sym, "rotation");
     if (!guard.ok) {
@@ -8019,13 +8088,14 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
         note: guard.warning,
         ts: Date.now(),
       });
+      setRotationBudgetRelease("");
+      setRotationBudgetReleased(false);
       setErrorMsg(guard.warning);
       return;
     }
 
     const preparedSym = guard.normalized || sym;
     const preset = deriveStrategistRiskPreset(body);
-    setGridMode("rotation");
     setRotationMode("RECOMMENDATION");
     setRotationRiskLimit(preset.riskLimit);
     setRotationMinNetAdvantage(preset.minAdvantage);
@@ -8040,7 +8110,6 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       note: `Prepared by Nexus Strategist. Risk limit ${preset.riskLimit}% · min advantage ${preset.minAdvantage}% · max slippage ${preset.rotationSlippage}%. Enter budget, review, then sign if you continue.`,
       ts: Date.now(),
     });
-    openGridPanel();
     handleRotationPickToGrid({ sym: preparedSym });
     setErrorMsg(`Prepared ${preparedSym} in Nexus Rotation. Enter budget, review selection, then continue manually.`);
   }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, setGridMode, setRotationMode, setRotationRiskLimit, setRotationMinNetAdvantage, setRotationMaxSlippage, setRotationBudgetRelease, setRotationBudgetReleased, openGridPanel, handleRotationPickToGrid, setErrorMsg]);

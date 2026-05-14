@@ -285,7 +285,7 @@ function AiInsightCard({ title, value, tone = "neutral" }) {
   };
   const t = tones[tone] || tones.neutral;
   return (
-    <div style={{ border: `1px solid ${t.border}`, borderRadius: 12, padding: "10px 12px", background: t.bg }}>
+    <div style={{ border: `1px solid ${t.border}`, borderRadius: 12, padding: "8px 10px", background: t.bg }}>
       <div className="muted tiny" style={{ color: t.color, fontWeight: 900, letterSpacing: 0.3, textTransform: "uppercase", marginBottom: 5 }}>{title}</div>
       <div style={{ fontSize: 14, fontWeight: 800, lineHeight: 1.45, color: "rgba(235,255,247,0.96)" }}>{value}</div>
     </div>
@@ -2134,13 +2134,13 @@ const tMin = x[0];
             background: "rgba(7,24,22,0.98)",
             border: "1px solid rgba(255,255,255,0.08)",
             borderRadius: 14,
-            padding: "10px 12px",
+            padding: "8px 10px",
             minWidth: 190,
             boxShadow: "0 18px 50px rgba(0,0,0,.45)",
             pointerEvents: "none",
           }}
         >
-          <div style={{ fontWeight: 900, marginBottom: 6 }}>
+          <div style={{ fontWeight: 900, marginBottom: 4 }}>
             {hoverDate(x[hoverIdx])}
           </div>
 
@@ -7827,6 +7827,55 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setErrorMsg,
   ]);
 
+  const extractStrategistSymbol = useCallback((body) => {
+    const text = String(body || "");
+    const known = Array.from(new Set([
+      ...(compareSymbols || []),
+      ...(watchRows || []).map((r) => r?.symbol || r?.sym),
+      ...(gridWalletCoins || []),
+      gridItem,
+      "BTC",
+      "ETH",
+      "SOL",
+      "BNB",
+      "POL",
+    ].map((x) => String(x || "").toUpperCase().trim()).filter(Boolean)));
+
+    const upper = text.toUpperCase();
+    const escapeRegExp = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const fromKnown = known.find((sym) => sym && new RegExp(`\\b${escapeRegExp(sym)}\\b`).test(upper));
+    if (fromKnown) return fromKnown;
+
+    const generic = upper.match(/\b[A-Z0-9]{2,10}\b/g) || [];
+    const blocked = new Set(["NEXUS", "GRID", "ROTATION", "MARKET", "READ", "RISK", "RVOL", "EMA", "BTCUSD", "USDC", "USDT"]);
+    return generic.find((sym) => !blocked.has(sym)) || "";
+  }, [compareSymbols, watchRows, gridWalletCoins, gridItem]);
+
+  const applyStrategistToGrid = useCallback((body) => {
+    const sym = extractStrategistSymbol(body);
+    if (!sym) {
+      setErrorMsg("No coin symbol found in the Nexus Grid card. Add a coin symbol to the task or card output first.");
+      return;
+    }
+
+    setGridMode("normal");
+    applyAiSuggestionToGrid(sym, "BUY");
+    setErrorMsg(`Prepared ${sym} in Nexus Grid. Review price, amount and risk before adding any order.`);
+  }, [extractStrategistSymbol, setGridMode, applyAiSuggestionToGrid, setErrorMsg]);
+
+  const applyStrategistToRotation = useCallback((body) => {
+    const sym = extractStrategistSymbol(body);
+    if (!sym) {
+      setErrorMsg("No coin symbol found in the Nexus Rotation card. Add a coin symbol to the task or card output first.");
+      return;
+    }
+
+    setGridMode("rotation");
+    openGridPanel();
+    handleRotationPickToGrid({ sym });
+    setErrorMsg(`Prepared ${sym} in Nexus Rotation. Review selection and budget before releasing anything.`);
+  }, [extractStrategistSymbol, setGridMode, openGridPanel, handleRotationPickToGrid, setErrorMsg]);
+
   // Level 4 Light:
   // While a grid/order is running, AI can softly adapt only UI parameters
   // (price preset + slippage). It never edits, creates, cancels or moves orders.
@@ -8521,7 +8570,11 @@ function aiTaskPlaceholder(kind) {
 
     const flush = () => {
       if (!current) return;
-      const body = current.lines.join("\n").trim();
+      const body = current.lines
+        .join("\n")
+        .replace(/^\s*-\s+/gm, "• ")
+        .replace(/^\s*\*\*([^*]+)\*\*/gm, "• $1")
+        .trim();
       if (body) sections.push({ key: current.key, body });
       current = null;
     };
@@ -8549,6 +8602,8 @@ function aiTaskPlaceholder(kind) {
   }, []);
 
   const aiOutputSections = useMemo(() => parseAiAnalystOutput(aiOutput), [aiOutput, parseAiAnalystOutput]);
+  const strategistCompactInput = !!aiOutput && !aiLoading;
+
 
 async function runAi() {
     setErrorMsg("");
@@ -9140,7 +9195,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
         /* --- Compare header chips: wrap on small screens to avoid horizontal scroll --- */
         @media (max-width: 820px) {
-          .cardHead { flex-wrap: wrap; align-items: flex-start; gap: 10px; }
+          .cardHead { flex-wrap: wrap; align-items: flex-start; gap: 8px; }
           .cardTitle { flex: 1 1 180px; }
           .cardActions {
             display: flex;
@@ -9438,7 +9493,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .dashboardGrid.hasFocus .section-ai:not(.panelActive) .cardHead{
             flex-wrap: wrap !important;
             align-items: flex-start !important;
-            gap: 10px !important;
+            gap: 8px !important;
           }
           .dashboardGrid.hasFocus .section-grid:not(.panelActive) .cardActions,
           .dashboardGrid.hasFocus .section-watch:not(.panelActive) .cardActions,
@@ -9453,7 +9508,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridLayout{
             grid-template-columns: 1fr !important;
-            gap: 10px !important;
+            gap: 8px !important;
           }
           .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridRight{
             position: static !important;
@@ -9502,12 +9557,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .watchCompact{
             display: grid;
-            gap: 10px;
+            gap: 8px;
           }
           .watchCompactCard{
             display: grid;
             grid-template-columns: auto 1fr auto;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
             padding: 10px 12px;
             border: 1px solid rgba(255,255,255,.06);
@@ -9555,7 +9610,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchScroll{
             display: grid !important;
-            gap: 10px !important;
+            gap: 8px !important;
             overflow-y: auto !important;
             max-height: clamp(180px, 26vh, 320px) !important;
             padding-right: 6px !important;
@@ -9563,7 +9618,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .dashboardGrid.hasFocus .section-watch:not(.panelActive) .watchRow{
             display: grid !important;
             grid-template-columns: 36px minmax(88px,1fr) 72px auto !important;
-            gap: 10px !important;
+            gap: 8px !important;
             align-items: center !important;
             padding: 10px 12px !important;
             border: 1px solid rgba(255,255,255,.06) !important;
@@ -10134,7 +10189,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <div className="cardTitle" style={{ margin: 0 }}>Access</div>
                   <button
                     className="iconBtn"
@@ -10214,8 +10269,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       Selected: <b>Nexus Pro ${SUB_PRICE_USD}</b> · <b>{subToken}</b>
                     </div>
 
-                    <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.02)", margin: "10px 0" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.02)", margin: "10px 0" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                         <div>
                           <div style={{ fontWeight: 900 }}>Auto Renew</div>
                           <div className="hint" style={{ marginTop: 4, opacity: 0.82 }}>
@@ -10238,7 +10293,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </button>
                       </div>
 
-                      <div className="hint" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8, opacity: 0.9 }}>
+                      <div className="hint" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, opacity: 0.9 }}>
                         <span>Expires: <b>{fmtAccessDate(access?.expires_at)}</b></span>
                         <span>Next billing: <b>{fmtAccessDate(access?.next_billing_ts || access?.expires_at)}</b></span>
                         <span>Token: <b>{access?.preferred_token || subToken}</b></span>
@@ -10274,7 +10329,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {showAccessReminder ? (
                   <div style={{
                     marginTop: 12,
-                    padding: "10px 12px",
+                    padding: "8px 10px",
                     borderRadius: 12,
                     background: "rgba(255,180,0,0.12)",
                     border: "1px solid rgba(255,180,0,0.32)"
@@ -10300,7 +10355,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {showAccessExpiredNotice ? (
                   <div style={{
                     marginTop: 12,
-                    padding: "10px 12px",
+                    padding: "8px 10px",
                     borderRadius: 12,
                     background: "rgba(255,92,92,0.12)",
                     border: "1px solid rgba(255,92,92,0.32)"
@@ -10358,7 +10413,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div className="cardTitle" style={{ margin: 0 }}>Wallet details</div>
                 <button
                   className="iconBtn"
@@ -10377,7 +10432,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div
                 style={{
                   marginTop: 10,
-                  padding: "10px 12px",
+                  padding: "8px 10px",
                   borderRadius: 12,
                   border: "1px solid rgba(202,138,4,0.45)",
                   background: "rgba(133,77,14,0.22)",
@@ -10410,7 +10465,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="hr" style={{ margin: "12px 0" }} />
 
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Balances</div>
                   {/* Active chain for wallet + grid */}
                   <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
@@ -10478,7 +10533,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
 
               {/* Wallet total value (USD) */}
-              <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div className="muted" style={{ fontSize: 12 }}>
                   Total value (USD)
                   {walletUsd?.unpriced ? (
@@ -10568,7 +10623,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       {/* User-added tokens (unlimited) */}
                       {(row.custom && row.custom.length > 0) && (
                         <div style={{ marginTop: 10 }}>
-                          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Added by you</div>
+                          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Added by you</div>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, fontSize: 13 }}>
                             {row.custom.map((t) => (
                               <React.Fragment key={t.address}>
@@ -10637,7 +10692,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   borderRadius: 14,
                   padding: 12
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                     <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Withdraw &amp; Send</div>
                     <div className="pill" style={{ fontSize: 12, padding: "4px 10px" }}>
                       {balActiveChain || DEFAULT_CHAIN}
@@ -10713,7 +10768,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 onMouseDown={(e) => { e.stopPropagation(); }}
                 onClick={(e) => { e.stopPropagation(); }}
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <div className="cardTitle" style={{ margin: 0 }}>Withdraw &amp; Send</div>
                   <button
                     className="iconBtn"
@@ -10853,9 +10908,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
                     <div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Deposit to Vault (native • security gate ready)</div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Deposit to Vault (native • security gate ready)</div>
                       <input
                         className="input"
                         value={depositAmt}
@@ -10879,10 +10934,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div
                       style={{
                         marginTop: 10,
-                        padding: "10px 12px",
+                        padding: "8px 10px",
                         borderRadius: 12,
                         fontWeight: 800,
-                        lineHeight: 1.35,
+                        lineHeight: 1.28,
                         color: "#fff",
                         background:
                           securityState === "loading"
@@ -10950,7 +11005,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     )}
                   </div>
 
-                  <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setVaultOperator(true); }}
@@ -11040,9 +11095,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </button>
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
                     <div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Withdraw amount</div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Withdraw amount</div>
                       <input
                         className="input"
                         value={withdrawAmt}
@@ -11064,7 +11119,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
 
                   <div>
-                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Send to address</div>
+                    <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Send to address</div>
                     <input
                       className="input"
                       value={sendTo}
@@ -11074,9 +11129,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     />
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
                     <div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Amount</div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Amount</div>
                       <input
                         className="input"
                         value={sendAmt}
@@ -11119,7 +11174,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   ) : null}
                 </div>
 
-                <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                   <button
                     type="button"
                     className="btnPill"
@@ -11151,7 +11206,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div className="cardTitle" style={{ margin: 0 }}>Add token</div>
                 <button
                   className="iconBtn"
@@ -11234,7 +11289,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {/* Search results */}
                 {String(addTokenQuery || "").trim() && (
                   <div style={{ marginTop: 6 }}>
-                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>Results (click to add)</div>
+                    <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Results (click to add)</div>
                     <div style={{ maxHeight: 220, overflow: "auto", border: "none", borderRadius: 12 }}>
                       {(() => {
                         const q = String(addTokenQuery || "").trim().toLowerCase();
@@ -11251,7 +11306,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             style={{
                               width: "100%",
                               textAlign: "left",
-                              padding: "10px 12px",
+                              padding: "8px 10px",
                               border: "none",
                               background: "transparent",
                               color: "rgba(255,255,255,0.92)",
@@ -11267,7 +11322,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }}
                             title={t.address}
                           >
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                               <div style={{ fontWeight: 700 }}>{t.symbol}</div>
                               <div className="muted" style={{ fontSize: 12 }}>{t.address.slice(0, 6)}…{t.address.slice(-4)}</div>
                             </div>
@@ -11420,7 +11475,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 background: customCompareWeightsOn ? "rgba(57,217,138,.06)" : "rgba(255,255,255,.025)",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <div className="label" style={{ marginBottom: 0 }}>Compare Score Weighting</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <button
@@ -11469,8 +11524,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
 
               {customCompareWeightsOn && compareWeightsExpanded && (
-                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
-                  <div className="muted tiny" style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
+                  <div className="muted tiny" style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span>Total {compareWeightsTotal}% · Remaining {compareWeightsRemaining}%</span>
                     <button className="ghostBtn tiny" onClick={resetCompareWeights} title="Reset to system default weights">
                       Reset
@@ -11482,7 +11537,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     const maxAllowed = Math.max(0, 100 - otherTotal);
                     return (
                       <label key={key} style={{ display: "flex", flexDirection: "column", gap: 5 }} title={COMPARE_WEIGHT_HELP[key]}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                           <span className="muted tiny" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{COMPARE_WEIGHT_LABELS[key]} <span title={COMPARE_WEIGHT_HELP[key]} style={{ opacity: 0.75, cursor: "help" }}>ⓘ</span></span>
                           <b className="tiny">{current}%</b>
                         </div>
@@ -11610,7 +11665,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "space-between",
-                      gap: 10,
+                      gap: 8,
                       marginBottom: 8
                     }}>
                       <div>
@@ -11713,7 +11768,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           key={p.pair}
                           className="pairRow"
                           style={{
-                            gap: 10,
+                            gap: 8,
                             cursor: "pointer",
                             marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
                             alignItems: "center",
@@ -11874,7 +11929,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div className="cardHead" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
                 <div>
                   <div className="cardTitle">{gridModalSym} chart</div>
-                  <div className="muted tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+                  <div className="muted tiny" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
                     <span>{timeframe}</span>
                     <span>{indexMode ? "Index 100" : "Price (USD)"}</span>
                     {gridModalRow ? <span>{fmtUsd(Number(gridModalRow?.price))}</span> : null}
@@ -11976,10 +12031,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                   return (
                     <>
-                      <div style={{ display: "grid", gap: 10 }}>
+                      <div style={{ display: "grid", gap: 8 }}>
                         <div className="label">Performance (same period)</div>
                         {pairExplainLoading && <div className="muted tiny">Loading pair data…</div>}
-                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <span className="pill silver">{a}: <span style={_pctColorStyle(ra)}>{_fmtPctLocal(ra)}</span></span>
                           <span className="pill silver">{b}: <span style={_pctColorStyle(rb)}>{_fmtPctLocal(rb)}</span></span>
                           <span className="pill">
@@ -12111,7 +12166,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div className="muted">
                                 <b>Now:</b> <b>{winner}</b> &gt; <b>{loser}</b> (short-term momentum / 30D view).
                               </div>
-                              <div className="tiny" style={{ display: "flex", flexWrap: "wrap", gap: 10, color: quality.color }}>
+                              <div className="tiny" style={{ display: "flex", flexWrap: "wrap", gap: 8, color: quality.color }}>
                                 <span>Corr {(selectedPair.corr >= 0 ? "+" : "") + selectedPair.corr.toFixed(2)}</span>
                                 <span>Spread {_fmtPctLocal(spread)}</span>
                                 {Number.isFinite(selectedPair?.momentumScore) && <span>Momentum {selectedPair.momentumScore}</span>}
@@ -12139,7 +12194,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       boxShadow: selectedPairAlertTone === "high" ? "0 0 22px rgba(255,184,0,0.08)" : "none",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start", flexWrap: "wrap" }}>
                       <div>
                         <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>AI Movement Alert Preview</div>
                         <div style={{ fontWeight: 900, marginTop: 4 }}>
@@ -12203,17 +12258,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                   </div>
                   {aiExplainData ? (
-                    <div style={{ display: "grid", gap: 10 }}>
+                    <div style={{ display: "grid", gap: 8 }}>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
-                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
                           <div className="muted tiny">AI Verdict</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.setup}</div>
                         </div>
-                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
                           <div className="muted tiny">Confidence</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.confidenceLabel} ({aiExplainData.confidence}/10)</div>
                         </div>
-                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                        <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
                           <div className="muted tiny">Risk</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.risk}</div>
                         </div>
@@ -12223,7 +12278,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const aiSections = _parseAiConclusionSections(aiExplainData);
                         const hasSections = Object.values(aiSections).some(Boolean);
                         return (
-                          <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                          <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                             <div className="label" style={{ marginBottom: 0 }}>AI Conclusion</div>
                             {hasSections ? (
                               <div style={{ display: "grid", gap: 8 }}>
@@ -12321,22 +12376,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                               <div className="label" style={{ marginBottom: 0 }}>RSI / Pair State</div>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
-                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: rsiAState.tone }}>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: rsiAState.tone }}>
                                   <div className="muted tiny">{a} RSI</div>
                                   <div style={{ fontWeight: 900, marginTop: 4 }}>{Number.isFinite(rsiA) ? rsiA.toFixed(1) : "—"}</div>
                                   <div className="pill" style={{ marginTop: 8, width: "fit-content", background: rsiAState.tone, borderColor: rsiAState.border, color: rsiAState.color }}>{rsiAState.label}</div>
                                 </div>
-                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: rsiBState.tone }}>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: rsiBState.tone }}>
                                   <div className="muted tiny">{b} RSI</div>
                                   <div style={{ fontWeight: 900, marginTop: 4 }}>{Number.isFinite(rsiB) ? rsiB.toFixed(1) : "—"}</div>
                                   <div className="pill" style={{ marginTop: 8, width: "fit-content", background: rsiBState.tone, borderColor: rsiBState.border, color: rsiBState.color }}>{rsiBState.label}</div>
                                 </div>
-                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
                                   <div className="muted tiny">Correlation</div>
                                   <div style={{ fontWeight: 900, marginTop: 4 }}>{corrText}</div>
                                   <div className="muted tiny" style={{ marginTop: 8 }}>{Number.isFinite(corrVal) ? (Math.abs(corrVal) >= 0.8 ? "High pair linkage" : Math.abs(corrVal) >= 0.6 ? "Moderate linkage" : "Low linkage") : "Pair linkage unclear"}</div>
                                 </div>
-                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
                                   <div className="muted tiny">30D Spread</div>
                                   <div style={{ fontWeight: 900, marginTop: 4 }}>{_fmtPctLocal(latestSpread)}</div>
                                   <div className="muted tiny" style={{ marginTop: 8 }}>{reading}</div>
@@ -12348,10 +12403,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                               <div className="label" style={{ marginBottom: 0 }}>Risk / Grid Fit</div>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
-                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Health Score</div><div style={{ fontWeight: 900, marginTop: 4 }}>{healthScore}/100</div></div>
-                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Grid Fit</div><div style={{ fontWeight: 900, marginTop: 4 }}>{gridFit}</div></div>
-                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">{a} Vol / DD</div><div style={{ fontWeight: 900, marginTop: 4 }}>{_fmtPctLocal(st30A?.volPct)} / {_fmtPctLocal(st30A?.maxDDPct)}</div></div>
-                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">{b} Vol / DD</div><div style={{ fontWeight: 900, marginTop: 4 }}>{_fmtPctLocal(st30B?.volPct)} / {_fmtPctLocal(st30B?.maxDDPct)}</div></div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Health Score</div><div style={{ fontWeight: 900, marginTop: 4 }}>{healthScore}/100</div></div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">Grid Fit</div><div style={{ fontWeight: 900, marginTop: 4 }}>{gridFit}</div></div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">{a} Vol / DD</div><div style={{ fontWeight: 900, marginTop: 4 }}>{_fmtPctLocal(st30A?.volPct)} / {_fmtPctLocal(st30A?.maxDDPct)}</div></div>
+                                <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}><div className="muted tiny">{b} Vol / DD</div><div style={{ fontWeight: 900, marginTop: 4 }}>{_fmtPctLocal(st30B?.volPct)} / {_fmtPctLocal(st30B?.maxDDPct)}</div></div>
                               </div>
                               <div className="muted tiny" style={{ lineHeight: 1.45 }}>This panel currently reflects local risk metrics based on volatility and drawdown.</div>
                             </div>
@@ -12361,7 +12416,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         );
                       })()}
 
-                      <div style={{ display: "grid", gap: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
+                      <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
                         <div className="label" style={{ marginBottom: 0 }}>Longer-Term Reversion Idea</div>
 
                         {aiExplainData.winner && aiExplainData.loser ? (
@@ -12410,15 +12465,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
 
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8 }}>
-                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
                             <div className="muted tiny">Suggested Grid</div>
                             <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridRange || aiExplainData.range || "—"}</div>
                           </div>
-                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
                             <div className="muted tiny">Mode</div>
                             <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridMode || aiExplainData.mode || "—"}</div>
                           </div>
-                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px", background: "rgba(255,255,255,0.03)" }}>
+                          <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
                             <div className="muted tiny">Time horizon</div>
                             <div style={{ fontWeight: 900, marginTop: 4 }}>
                               {String(aiExplainData.setup || "").includes("MEAN")
@@ -12432,7 +12487,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <>
-                            <div className="tiny" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            <div className="tiny" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                               <span className="pill silver">Stronger: <b>{aiExplainData.winner}</b></span>
                               <span className="pill silver">Weaker: <b>{aiExplainData.loser}</b></span>
                             </div>
@@ -12589,7 +12644,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="gridControls" style={{ display: "grid", gap: 12 }}>
                     <div
                       style={{
-                        padding: "10px 12px",
+                        padding: "8px 10px",
                         borderRadius: 12,
                         background: "rgba(0,0,0,.18)",
                         border: "1px solid rgba(34,197,94,.22)",
@@ -12697,7 +12752,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "space-between",
-                        gap: 10,
+                        gap: 8,
                         padding: "8px 10px",
                         borderRadius: 10,
                         background: "rgba(0,0,0,.14)",
@@ -12721,12 +12776,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     <div
                       style={{
-                        padding: "10px 12px",
+                        padding: "8px 10px",
                         borderRadius: 12,
                         background: "rgba(255,255,255,.035)",
                         border: "1px solid rgba(255,255,255,.07)",
                         display: "grid",
-                        gap: 10,
+                        gap: 8,
                       }}
                     >
                       <div className="label" style={{ marginBottom: 0 }}>Watchlist recommendations</div>
@@ -12890,7 +12945,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div
                             style={{
                               display: "grid",
-                              gap: 10,
+                              gap: 8,
                               maxHeight: 260,
                               overflowY: "auto",
                               paddingRight: 4,
@@ -12912,14 +12967,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     {rotationSelectedPick && (
                       <div
                         style={{
-                          padding: "10px 12px",
+                          padding: "8px 10px",
                           borderRadius: 12,
                           background: rotationSelectedPick.ok ? "rgba(34,197,94,.10)" : "rgba(245,158,11,.10)",
                           border: rotationSelectedPick.ok ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(245,158,11,.35)",
                           color: rotationSelectedPick.ok ? "#d9fff0" : "#facc15",
                         }}
                       >
-                        <div style={{ fontWeight: 900, marginBottom: 6 }}>Selected recommendation</div>
+                        <div style={{ fontWeight: 900, marginBottom: 4 }}>Selected recommendation</div>
                         <div className="muted tiny" style={{ lineHeight: 1.55, display: "grid", gap: 3 }}>
                           <div>{rotationSelectedPick.note}</div>
                           {rotationSelectedPick.ok && (
@@ -13014,7 +13069,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
                 </div>
               </div>
-<div className="hint" style={{ marginTop: 4, marginBottom: 6, opacity: 0.95 }}>
+<div className="hint" style={{ marginTop: 4, marginBottom: 4, opacity: 0.95 }}>
   {tB("Available:")} <b>{manualVaultAvailableQty.toFixed(6)}</b> {activeGridChainSymbol}
   {" · "}
   {tB("Allocated:")} <b>{manualVaultAllocatedQty.toFixed(6)}</b> {activeGridChainSymbol}
@@ -13023,7 +13078,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 </div>{isEthChain ? (
 
               <div className="formRow" style={{ marginTop: 6 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <input
                     type="checkbox"
                     checked={!!gridAutoPath}
@@ -13057,7 +13112,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start}>{gridBusy.stop ? "Stopping..." : "Stop"}</button>
               </div>
               {errorMsg ? (
-                <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "8px", background: "rgba(255, 0, 0, 0.10)", border: "1px solid rgba(255, 0, 0, 0.25)", fontSize: "13px", lineHeight: "1.4" }}>
+                <div style={{ marginTop: "10px", padding: "8px 10px", borderRadius: "8px", background: "rgba(255, 0, 0, 0.10)", border: "1px solid rgba(255, 0, 0, 0.25)", fontSize: "13px", lineHeight: "1.4" }}>
                   {errorMsg}
                 </div>
               ) : null}
@@ -13127,7 +13182,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "space-between",
-                          gap: 10,
+                          gap: 8,
                           fontWeight: 800,
                           boxShadow: payoutMenuOpen ? "0 0 12px rgba(34,197,94,.22)" : "none",
                         }}
@@ -13163,7 +13218,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 style={{
                                   width: "100%",
                                   textAlign: "left",
-                                  padding: "10px 12px",
+                                  padding: "8px 10px",
                                   background: active ? "linear-gradient(90deg, #86efac, #4ade80)" : "rgba(255,255,255,.10)",
                                   color: "#071512",
                                   border: "none",
@@ -13402,7 +13457,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             <div className="gridRight">
               <div className="gridOrders">
-              <div className="ordersHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+              <div className="ordersHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                 <button
                   type="button"
                   className="btnGhost"
@@ -13417,7 +13472,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               {gridOrders.length ? (
                 gridOrdersOpen ? (
-                  <div className="ordersList" style={{ maxHeight: 320, overflowY: "auto", paddingRight: 4, display: "grid", gap: 10 }}>
+                  <div className="ordersList" style={{ maxHeight: 320, overflowY: "auto", paddingRight: 4, display: "grid", gap: 8 }}>
                     {gridOrdersGroupedByChain.map(([chainKey, chainOrders]) => {
                       const totalExposure = chainOrders.reduce((sum, o) => sum + orderNotionalUsd(o), 0);
                       const isExpanded = !!gridOrderChainOpen[chainKey];
@@ -13430,11 +13485,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           style={{
                             border: "1px solid rgba(255,255,255,.06)",
                             borderRadius: 12,
-                            padding: "10px 12px",
+                            padding: "8px 10px",
                             background: "rgba(255,255,255,.03)",
                           }}
                         >
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                               <span className="pill silver">{chainKey}</span>
                               <span className="muted tiny">{chainOrders.length} open</span>
@@ -13550,7 +13605,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         {/* Watchlist */}
         <section className={`card section-watch dashboardPanel ${activePanel === "watchlist" ? "panelActive" : ""}`} onClick={handlePanelActivate("watchlist")}>
           <div className="cardHead">
-                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
                     <div className="cardTitle">Watchlist</div>
                     <div
                       className="muted tiny"
@@ -13936,7 +13991,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
                           </div>
                         </div>
-                        <div className="watchCompactStats" style={{ gap: 10 }}>
+                        <div className="watchCompactStats" style={{ gap: 8 }}>
                           <span className="muted tiny" style={{ fontSize: 12, lineHeight: 1.1 }}>Vol {isCompactWatchNumbers ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</span>
                           <span className="muted tiny" style={{ fontSize: 12, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? (isCompactWatchNumbers ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap)) : "—"}</span>
                         </div>
@@ -14105,11 +14160,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       gap: 6,
                       border: "1px solid rgba(255,255,255,0.08)",
                       borderRadius: 12,
-                      padding: "10px 12px",
+                      padding: "8px 10px",
                       background: "rgba(255,255,255,0.03)",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <div>
                         <div className="muted tiny">Coin</div>
                         <div style={{ fontWeight: 900 }}>
@@ -14150,7 +14205,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
                     <div className="muted tiny">
                       Community votes: {ratingStatus?.summary?.count ?? 0}
                     </div>
@@ -14253,7 +14308,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               </div>
 
-<div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+<div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <label className="muted" style={{ display: "inline-flex", gap: 8, alignItems: "center", userSelect: "none" }}>
                   <input
                     type="checkbox"
@@ -14296,7 +14351,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div className="label">Output</div>
               <div className="aiPanel">
                 {aiOutput ? (
-                  <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ display: "grid", gap: 8 }}>
                     {aiOutputSections.map((section, idx) => {
                       const meta = aiAnalystSectionMeta[section.key] || aiAnalystSectionMeta.output;
                       return (
@@ -14306,18 +14361,34 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             border: "1px solid rgba(255,255,255,0.10)",
                             background: "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025))",
                             borderRadius: 14,
-                            padding: "10px 12px",
+                            padding: "8px 10px",
                           }}
                         >
-                          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
                             <div style={{ fontWeight: 900, fontSize: 12, letterSpacing: ".08em", textTransform: "uppercase", color: "#dfffee" }}>
                               {meta.title}
                             </div>
                             <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>{meta.sub}</div>
                           </div>
-                          <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.35 }}>
+                          <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.28 }}>
                             {section.body}
                           </div>
+                          {section.key === "nexus_grid" || section.key === "nexus_rotation" ? (
+                            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                              <button
+                                className="btn"
+                                type="button"
+                                onClick={() => {
+                                  if (section.key === "nexus_grid") applyStrategistToGrid(section.body);
+                                  if (section.key === "nexus_rotation") applyStrategistToRotation(section.body);
+                                }}
+                                title={section.key === "nexus_grid" ? "Prepare this idea in Nexus Grid. This does not create an order." : "Prepare this idea in Nexus Rotation. This does not execute a swap."}
+                                style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                              >
+                                {section.key === "nexus_grid" ? "Use in Grid" : "Use in Rotation"}
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })}
@@ -14382,7 +14453,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button
 	          className="btn"
 	          style={{ opacity: addTab === "market" ? 1 : 0.7 }}
@@ -14407,7 +14478,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             Search &mdash; pick the exact coin, so prices & updates are correct.
           </div>
 
-          <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <input
               className="input"
               placeholder="e.g. TON / BNB / Dogecoin"
@@ -14467,7 +14538,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             Add token by contract address (DEX). Backend must support resolving contract metadata.
           </div>
 
-          <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+          <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
             <div className="muted">Chain</div>
             <select value={"polygon"} disabled>
               <option value="polygon">Polygon</option>
@@ -14478,7 +14549,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <input className="input" placeholder="0x..." value={addContract} onChange={(e) => setAddContract(e.target.value)} />
           </div>
 
-          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button className="btn" onClick={addDexToken} disabled={!String(addContract || "").trim()}>
               Add
             </button>

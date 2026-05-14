@@ -11451,7 +11451,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={chartRaw} height={240} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <SvgChart chart={chartRaw} height={300} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     <div style={{ marginTop: 10 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>

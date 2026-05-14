@@ -6211,6 +6211,7 @@ useEffect(() => {
   const [tradingPreparedSetup, setTradingPreparedSetup] = useLocalStorageState("nexus_trading_prepared_setup", null);
   const [tradingLearningSetups, setTradingLearningSetups] = useLocalStorageState("nexus_trading_learning_setups", []);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useLocalStorageState("nexus_trading_risk_expanded", false);
+  const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useLocalStorageState("nexus_rotation_recommendations_expanded", false);
   const [tradingSessionStatus, setTradingSessionStatus] = useLocalStorageState("nexus_trading_session_status", "PREPARED");
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
 
@@ -14171,7 +14172,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </select>
                       </div>
                       <div className="formRow">
-                        <label>Mode</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          Mode
+                          <span
+                            title="Recommendation first uses Nexus ranking before creating Rotation orders. Manual confirm lets you select and confirm targets yourself. Auto after release is more aggressive and should only be used when the budget/risk setup is clear."
+                            style={{ opacity: 0.75, cursor: "help", fontSize: 12 }}
+                          >
+                            ⓘ
+                          </span>
+                        </label>
                         <select value={rotationMode} onChange={(e) => { setRotationMode(e.target.value); setRotationBudgetReleased(false); }}>
                           <option value="RECOMMENDATION">Recommendation first</option>
                           <option value="MANUAL_CONFIRM">Manual confirm</option>
@@ -14196,7 +14205,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         />
                       </div>
                       <div className="formRow">
-                        <label>Min net advantage (%)</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          Min net advantage (%)
+                          <span
+                            title="Minimum estimated edge required before a Rotation order is allowed. Higher values are more selective and reduce noise. Lower values allow more opportunities but behave more aggressively."
+                            style={{ opacity: 0.75, cursor: "help", fontSize: 12 }}
+                          >
+                            ⓘ
+                          </span>
+                        </label>
                         <input
                           value={rotationMinNetAdvantage}
                           onChange={(e) => { setRotationMinNetAdvantage(e.target.value); setRotationBudgetReleased(false); }}
@@ -14255,8 +14272,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         gap: 8,
                       }}
                     >
-                      <div className="label" style={{ marginBottom: 0 }}>Watchlist recommendations</div>
-                      {(() => {
+                      <button
+                        type="button"
+                        className="btnGhost"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setRotationRecommendationsExpanded((v) => !v);
+                        }}
+                        style={{ justifyContent: "space-between", width: "100%", padding: 0, background: "transparent", border: 0 }}
+                        title="Show or hide Watchlist recommendations"
+                      >
+                        <span className="label" style={{ marginBottom: 0 }}>Watchlist recommendations</span>
+                        <span style={{ opacity: 0.75 }}>{rotationRecommendationsExpanded ? "▲" : "▼"}</span>
+                      </button>
+                      {rotationRecommendationsExpanded ? (() => {
                         const rows = Array.isArray(watchRows) ? watchRows : [];
                         const picks = rows
                           .map((r) => {
@@ -14432,7 +14462,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             ))}
                           </div>
                         );
-                      })()}
+                      })() : (
+                        <div className="muted tiny">Recommendations are hidden. Open this section to select a Rotation target.</div>
+                      )}
                     </div>
 
 

@@ -6509,6 +6509,7 @@ const [aiQuestion, setAiQuestion] = useState("");
 const [aiLoading, setAiLoading] = useState(false);
   const [aiOutput, setAiOutput] = useState("");
   const [strategistBridge, setStrategistBridge] = useState(null);
+  const [strategistAppliedOpen, setStrategistAppliedOpen] = useState(false);
 
   // watch snapshot polling
   const inflightWatch = useRef(false);
@@ -8278,6 +8279,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setTradingStyle(setup.style);
 
     setTradingLearningSetups((prev) => [setup, ...((Array.isArray(prev) ? prev : []).slice(0, 24))]);
+    setStrategistAppliedOpen(false);
 
     setStrategistBridge({
       type: guard.ok ? "trading" : "blocked",
@@ -13133,32 +13135,71 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div className="muted tiny">
                       No order, swap, or budget release was executed.
                     </div>
-                    {Array.isArray(strategistBridge.appliedSettings) && strategistBridge.appliedSettings.length ? (
-                      <div
-                        style={{
-                          marginTop: 7,
-                          padding: "8px 9px",
-                          borderRadius: 10,
-                          border: "1px solid rgba(34,197,94,.22)",
-                          background: "rgba(0,0,0,.16)",
-                          display: "grid",
-                          gap: 6,
-                        }}
-                      >
-                        <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: ".04em", textTransform: "uppercase", color: "#dfffee" }}>
-                          Applied Trading Settings
-                        </div>
-                        <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr", gap: 6 }}>
-                          {strategistBridge.appliedSettings.map((item) => (
-                            <div key={item.label} className="muted tiny" style={{ lineHeight: 1.35 }}>
-                              <b style={{ color: "#eafff5" }}>{item.label}:</b> {item.value} <span style={{ color: item.changed ? "#86efac" : "#9fb8ad" }}>· {item.changed ? "changed" : "already same"}</span>
-                              <br />
-                              <span style={{ color: "#8fb2a4" }}>Source: Strategist · Before: {item.previous}</span>
+                    {Array.isArray(strategistBridge.appliedSettings) && strategistBridge.appliedSettings.length ? (() => {
+                      const appliedSettings = strategistBridge.appliedSettings;
+                      const changedCount = appliedSettings.filter((item) => item?.changed).length;
+                      const unchangedCount = Math.max(0, appliedSettings.length - changedCount);
+                      return (
+                        <div
+                          style={{
+                            marginTop: 7,
+                            borderRadius: 10,
+                            border: "1px solid rgba(34,197,94,.22)",
+                            background: "rgba(0,0,0,.16)",
+                            overflow: "hidden",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setStrategistAppliedOpen((v) => !v)}
+                            aria-expanded={strategistAppliedOpen}
+                            title="Show or hide applied Strategist trading settings"
+                            style={{
+                              width: "100%",
+                              border: "none",
+                              background: "transparent",
+                              color: "#dfffee",
+                              padding: "7px 9px",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 8,
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                              <span style={{ fontSize: 12, lineHeight: 1 }}>{strategistAppliedOpen ? "▾" : "▸"}</span>
+                              <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: ".04em", textTransform: "uppercase" }}>
+                                Strategist Applied Settings
+                              </span>
+                            </span>
+                            <span className="muted tiny" style={{ whiteSpace: "nowrap" }}>
+                              {changedCount} updated · {unchangedCount} unchanged
+                            </span>
+                          </button>
+
+                          {strategistAppliedOpen ? (
+                            <div
+                              style={{
+                                padding: "2px 9px 8px",
+                                display: "grid",
+                                gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                                gap: 6,
+                              }}
+                            >
+                              {appliedSettings.map((item) => (
+                                <div key={item.label} className="muted tiny" style={{ lineHeight: 1.35 }}>
+                                  <b style={{ color: "#eafff5" }}>{item.label}:</b> {item.value} <span style={{ color: item.changed ? "#86efac" : "#9fb8ad" }}>· {item.changed ? "changed" : "already same"}</span>
+                                  <br />
+                                  <span style={{ color: "#8fb2a4" }}>Source: Strategist · Before: {item.previous}</span>
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          ) : null}
                         </div>
-                      </div>
-                    ) : null}
+                      );
+                    })() : null}
                   </div>
                   <button
                     className="btnGhost"

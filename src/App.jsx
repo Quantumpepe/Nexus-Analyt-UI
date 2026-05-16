@@ -330,6 +330,7 @@ function buildCompactAiInsight({ backendText = "", trendStructure = "", momentum
   return unique.slice(0, 4).join(" ") || "The current structure is mixed and does not show a fully clear edge yet.";
 }
 
+
 const LS_WATCH_REMOVED = "nexus_watch_removed";
 
 function _watchKeyFromItem(it) {
@@ -6296,14 +6297,12 @@ useEffect(() => {
 
       const condition =
         status === "READY"
-          ? "Ready for autonomous execution immediately after budget approval."
-          : status === "ACTIVE"
-            ? "Active autonomous trading slot within the approved session limits."
-            : status === "BLOCKED"
-              ? "Blocked until confidence, liquidity or risk improves."
-              : idx === 1
-                ? "Wait for confirmation that momentum and liquidity remain stable."
-                : "Wait for follow-up confirmation or a cleaner pullback/edge.";
+          ? "Ready after user approval; execution still requires manual/session control."
+          : status === "BLOCKED"
+            ? "Blocked until confidence, liquidity or risk improves."
+            : idx === 1
+              ? "Wait for confirmation that momentum and liquidity remain stable."
+              : "Wait for follow-up confirmation or a cleaner pullback/edge.";
 
       return {
         id: `slot_${idx + 1}_${Date.now()}`,
@@ -14494,15 +14493,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Grid Trader</b> ist der gemeinsame Order-Bereich fuer <b>Nexus Grid</b>, <b>Nexus Rotation</b> und <b>Nexus Trading</b>.</p>
                       <p>Alle drei Bereiche erstellen Orders ueber denselben zentralen Order-Core. Sichtbare Orders werden wallet-gebunden in <b>SQLite grid_orders</b> gespeichert. Stop/Delete/Resume nutzen denselben schnellen Flow.</p>
 
+                      <p><b>Budget-System:</b> Das Budget ist der maximale Betrag, den der jeweilige Modus verwenden darf. Nexus Trading darf nach der Freigabe nicht mehr Kapital einsetzen als vom User genehmigt wurde.</p>
+                      <p><b>Slot-System:</b> Das Budget wird in einzelne Slots aufgeteilt. Jeder Slot ist ein eigenes taktisches Setup mit eigener Prioritaet. Ein Slot kann warten, aktiv werden oder blockiert bleiben, je nach Confidence, Liquiditaet, Risiko und Marktstruktur.</p>
+
+                      <p><b>Slot-Farben:</b></p>
+                      <p><b style={{ color: '#21d07a' }}>Gruen / ACTIVE:</b> Bedingungen sind stark genug. Der Slot ist bereit oder aktiv.</p>
+                      <p><b style={{ color: '#ffc107' }}>Gelb / WAIT:</b> Die Richtung ist interessant, aber es fehlt noch Bestaetigung. Die AI beobachtet weiter und wartet auf bessere Bedingungen.</p>
+                      <p><b style={{ color: '#ff6b6b' }}>Rot / BLOCKED:</b> Risiko, Confidence oder Liquiditaet sind aktuell nicht gut genug. Die AI blockiert den Slot bewusst, statt einen schlechten Entry zu nehmen.</p>
+
                       <p><b>Nexus Grid:</b> manueller Order-Modus. Du waehlst Network, Coin, Budget, Side, Preis und Payout Asset. <b>Approve Budget</b> reserviert das Grid-Budget lokal; <b>Add Order</b> erstellt die Order. Das Budget gilt fuer alle offenen Grid-Orders zusammen, nicht pro Order.</p>
 
                       <p><b>Nexus Rotation:</b> Recommendation-basierter Order-Modus. Du waehlst eine Watchlist-/Rotation-Empfehlung, setzt ein Rotation-Budget, waehlst das Payout Asset und erstellst danach eine Rotation-Order. Die Order bleibt technisch dieselbe Order-Struktur, wird aber intern als <b>source = ROTATION</b> markiert.</p>
 
-                      <p><b>Nexus Trading:</b> kontrollierter Trading-Order-Modus. Du definierst Budget, Runtime, Style, erlaubte Assets/Chains, Risk Mode, Drawdown, Profit Lock, Slippage und Max Trades. Orders werden intern als <b>source = TRADING</b> markiert und duerfen spaeter nur innerhalb des freigegebenen Vault-/Session-Budgets laufen.</p>
+                      <p><b>Nexus Trading:</b> autonomer Trading-Modus nach Budget-Freigabe. Du definierst Budget, Slots, Runtime, Style, erlaubte Assets/Chains, Risk Mode, Drawdown, Profit Lock, Slippage und Max Trades. Danach arbeitet Nexus Trading innerhalb dieser Grenzen selbststaendig.</p>
+                      <p><b>Wichtig:</b> WAIT oder BLOCKED ist kein Fehler. Es bedeutet, dass das System lieber wartet oder blockiert, wenn Qualitaet und Risiko noch nicht passen. Lieber kein Trade als ein schlechter Trade.</p>
 
                       <p><b>Payout Asset:</b> bestimmt, wohin eine ausgefuehrte Order settled, z. B. USDC oder USDT. Wenn zu wenig direktes Asset vorhanden ist, kann Nexus einen Funding-/Swap-Vorschlag anzeigen. Nichts wird automatisch geswapt, bevor der User zustimmt.</p>
 
-                      <p><b>Wichtig:</b> Die UI zeigt nur die notwendigen Kontrollen. Vault Checks, Funding Resolver, Budget-Pruefung, Risiko-Logik und Runtime-Sync laufen im Hintergrund.</p>
+                      <p><b>Hinweis:</b> Der finale Vault wird spaeter integriert. Bis dahin bleibt die UI-/Backend-Logik sauber getrennt und vorbereitet.</p>
                     </>
                   }
                   en={
@@ -14510,15 +14518,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Grid Trader</b> is the shared order area for <b>Nexus Grid</b>, <b>Nexus Rotation</b>, and <b>Nexus Trading</b>.</p>
                       <p>All three areas create orders through the same central order core. Visible orders are wallet-bound and stored in <b>SQLite grid_orders</b>. Stop/Delete/Resume use the same fast path.</p>
 
+                      <p><b>Budget System:</b> The budget is the maximum amount the selected mode may use. Nexus Trading may not use more capital than the user has approved.</p>
+                      <p><b>Slot System:</b> The budget is divided into tactical slots. Each slot is its own setup with its own priority. A slot can wait, activate or stay blocked depending on confidence, liquidity, risk and market structure.</p>
+
+                      <p><b>Slot Colors:</b></p>
+                      <p><b style={{ color: '#21d07a' }}>Green / ACTIVE:</b> Conditions are strong enough. The slot is ready or active.</p>
+                      <p><b style={{ color: '#ffc107' }}>Yellow / WAIT:</b> The direction is interesting, but confirmation is still missing. The AI keeps monitoring and waits for better conditions.</p>
+                      <p><b style={{ color: '#ff6b6b' }}>Red / BLOCKED:</b> Risk, confidence or liquidity are not good enough yet. The AI intentionally blocks the slot instead of taking a weak entry.</p>
+
                       <p><b>Nexus Grid:</b> manual order mode. You choose network, coin, budget, side, price, and payout asset. <b>Approve Budget</b> reserves the Grid budget locally; <b>Add Order</b> creates the order. The budget is shared across all open Grid orders, not per order.</p>
 
                       <p><b>Nexus Rotation:</b> recommendation-based order mode. You select a Watchlist/Rotation recommendation, set a Rotation budget, choose the payout asset, then create a Rotation order. Technically it uses the same order structure, but is marked internally as <b>source = ROTATION</b>.</p>
 
-                      <p><b>Nexus Trading:</b> controlled trading order mode. You define budget, runtime, style, allowed assets/chains, risk mode, drawdown, profit lock, slippage, and max trades. Orders are marked internally as <b>source = TRADING</b> and later may only run inside the approved Vault/session budget.</p>
+                      <p><b>Nexus Trading:</b> autonomous trading mode after budget approval. The user defines budget, slots, runtime, style, allowed assets/chains, risk mode, drawdown, profit lock, slippage and max trades. After that, Nexus Trading works independently inside those limits.</p>
+                      <p><b>Important:</b> WAIT or BLOCKED is not an error. It means the system prefers to wait or block if quality and risk are not good enough. No trade is better than a bad trade.</p>
 
                       <p><b>Payout Asset:</b> defines where an executed order settles, for example USDC or USDT. If the direct asset is insufficient, Nexus can show a funding/swap suggestion. Nothing is swapped automatically before user approval.</p>
 
-                      <p><b>Important:</b> The UI only shows the necessary controls. Vault checks, funding resolver, budget validation, risk logic, and runtime sync run in the background.</p>
+                      <p><b>Note:</b> The final Vault will be integrated later. Until then, UI and backend logic stay cleanly separated and prepared.</p>
                     </>
                   }
                 />
@@ -15299,17 +15316,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       ) : null}
                     </div>
 
-                    {tradingQueueSummary.queue.length ? (
-                      <div
-                        style={{
-                          padding: "8px 10px",
-                          borderRadius: 12,
-                          background: "rgba(0,0,0,.18)",
-                          border: "1px solid rgba(34,197,94,.20)",
-                          display: "grid",
-                          gap: 8,
-                        }}
-                      >
+                    <div
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        background: "rgba(0,0,0,.18)",
+                        border: "1px solid rgba(34,197,94,.20)",
+                        display: "grid",
+                        gap: 8,
+                      }}
+                    >
+                      
+                      
+                      {tradingQueueSummary.queue.length ? (
                         <div style={{ display: "grid", gap: 6 }}>
                           {tradingQueueSummary.queue.map((slot) => (
                             <div
@@ -15331,8 +15350,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                           ))}
                         </div>
-                      </div>
-                    ) : null}
+                      ) : null}
+                    </div>
 
                     {renderFundingPrompt("TRADING")}
 

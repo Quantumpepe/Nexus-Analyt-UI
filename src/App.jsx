@@ -16366,7 +16366,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.28 }}>
                             {section.body}
                           </div>
-                          {nexusStrategistCanShowAction(section, userIntent) ? (
+                          {nexusStrategistCanShowAction(section, detectNexusUserIntent(aiQuestion || "")) ? (
                             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
                               <button
                                 className="btn"

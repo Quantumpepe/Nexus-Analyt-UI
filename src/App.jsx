@@ -15314,8 +15314,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         </div>
                       ) : null}
-                      </div>
-                    ) : null}
+                    </div>
 
                     {tradingQueueSummary.queue.length ? (
                       <div
@@ -15349,8 +15348,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                           ))}
                         </div>
-                      ) : null}
-                    </div>
+                      </div>
+                    ) : null}
 
                     {renderFundingPrompt("TRADING")}
 

@@ -14369,6 +14369,52 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {strategistBridge.note}
                       </div>
                     ) : null}
+                    {String(gridMode || "normal") === "rotation" && Array.isArray(strategistRotationCandidates) && strategistRotationCandidates.length > 1 ? (
+                      <div
+                        style={{
+                          marginTop: 7,
+                          padding: "7px 8px",
+                          borderRadius: 10,
+                          border: "1px solid rgba(34,197,94,.24)",
+                          background: "rgba(34,197,94,.08)",
+                          display: "grid",
+                          gap: 6,
+                        }}
+                      >
+                        <div className="muted tiny" style={{ fontWeight: 900, color: "#dfffee" }}>
+                          Strategist candidates · direkt wählen
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {strategistRotationCandidates.map((c, idx) => {
+                            const active = String(rotationSelectedPick?.source || "").toUpperCase() === String(c?.sym || "").toUpperCase();
+                            return (
+                              <button
+                                key={`setup-${c.sym}-${idx}`}
+                                type="button"
+                                className="btnGhost"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleRotationPickToGrid(c);
+                                  setErrorMsg(`Prepared ${c.sym} from Strategist candidates in Nexus Rotation.`);
+                                }}
+                                title={c.sourceLine || "Select Strategist candidate for Nexus Rotation"}
+                                style={{
+                                  height: 26,
+                                  paddingInline: 9,
+                                  fontSize: 12,
+                                  borderColor: active ? "rgba(34,197,94,.75)" : undefined,
+                                  background: active ? "rgba(34,197,94,.18)" : undefined,
+                                  color: active ? "#dfffee" : undefined,
+                                }}
+                              >
+                                {c.sym}{Number.isFinite(Number(c.spreadPct)) ? ` · ${Number(c.spreadPct).toFixed(2)}%` : ""}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
                     {Array.isArray(strategistBridge.appliedSettings) && strategistBridge.appliedSettings.length ? (() => {
                       const appliedSettings = strategistBridge.appliedSettings;
                       const changedCount = appliedSettings.filter((item) => item?.changed).length;
@@ -14621,7 +14667,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             marginBottom: 8,
                           }}
                         >
-                          <div className="label" style={{ marginBottom: 0 }}>Strategist candidates</div>
+                          <div className="label" style={{ marginBottom: 0 }}>Strategist candidates (also available above)</div>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                             {strategistRotationCandidates.map((c, idx) => (
                               <button

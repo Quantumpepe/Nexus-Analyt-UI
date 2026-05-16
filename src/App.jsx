@@ -6276,7 +6276,16 @@ useEffect(() => {
   }, [tradingBudgetUsd]);
 
   const buildTradingQueue = useCallback((setup = tradingPreparedSetup, splitsArg = null) => {
-    const splits = Array.isArray(splitsArg) ? splitsArg : parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
+    const budgetTotal = Number(String(tradingBudgetUsd || "").replace(",", "."));
+    const splitsRaw = Array.isArray(splitsArg) ? splitsArg : parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
+    const splits = (Array.isArray(splitsRaw) ? splitsRaw : [])
+      .map((n) => Number(n))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    // If the user clears the trading budget or all slot values, the prepared slot cards
+    // must disappear immediately instead of showing the last queue from localStorage.
+    if (!(budgetTotal > 0) || !splits.length) return [];
+
     const base = setup && typeof setup === "object" ? setup : {};
     const confidence = String(base.confidence || tradingConfidenceMin || "MEDIUM").toUpperCase();
     const suitability = String(base.suitability || "MEDIUM").toUpperCase();
@@ -6348,9 +6357,16 @@ useEffect(() => {
   useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;
     const budget = Number(String(tradingBudgetUsd || "").replace(",", "."));
+    const splits = parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
+    const hasPositiveSlots = Array.isArray(splits) && splits.some((n) => Number(n) > 0);
     const hasSetup = tradingPreparedSetup && typeof tradingPreparedSetup === "object";
     const hasAssets = String(tradingAllowedAssets || "").trim();
-    if (!(budget > 0) || (!hasSetup && !hasAssets)) return;
+
+    if (!(budget > 0) || !hasPositiveSlots || (!hasSetup && !hasAssets)) {
+      setTradingExecutionQueue([]);
+      return;
+    }
+
     const t = setTimeout(() => {
       refreshTradingQueue(hasSetup ? tradingPreparedSetup : null);
     }, 200);
@@ -6366,6 +6382,8 @@ useEffect(() => {
     tradingStyle,
     tradingPreparedSetup,
     refreshTradingQueue,
+    parseTradingBudgetSplits,
+    setTradingExecutionQueue,
   ]);
 
   const tradingPreflight = useMemo(() => {
@@ -15333,8 +15351,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               key={slot.id || `${slot.slot}-${slot.amountUsd}`}
                               style={{
                                 borderRadius: 10,
-                                border: slot.status === "ACTIVE" ? "1px solid rgba(34,197,94,.45)" : slot.status === "READY" ? "1px solid rgba(34,197,94,.32)" : slot.status === "BLOCKED" ? "1px solid rgba(239,68,68,.25)" : "1px solid rgba(255,255,255,.08)",
-                                background: slot.status === "ACTIVE" ? "rgba(34,197,94,.12)" : slot.status === "READY" ? "rgba(34,197,94,.08)" : slot.status === "BLOCKED" ? "rgba(239,68,68,.07)" : "rgba(255,255,255,.035)",
+                                border: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.status || "").toUpperCase()) ? "1px solid rgba(34,197,94,.45)" : String(slot.status || "").toUpperCase() === "WAIT" ? "1px solid rgba(255,193,7,.34)" : String(slot.status || "").toUpperCase() === "BLOCKED" ? "1px solid rgba(239,68,68,.28)" : "1px solid rgba(255,255,255,.08)",
+                                background: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.status || "").toUpperCase()) ? "rgba(34,197,94,.11)" : String(slot.status || "").toUpperCase() === "WAIT" ? "rgba(255,193,7,.085)" : String(slot.status || "").toUpperCase() === "BLOCKED" ? "rgba(239,68,68,.075)" : "rgba(255,255,255,.035)",
                                 padding: "7px 8px",
                                 display: "grid",
                                 gap: 3,
@@ -15342,7 +15360,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                                 <b style={{ color: "#eafff5" }}>Slot {slot.slot} · {fmtUsd(Number(slot.amountUsd || 0))}</b>
-                                <span className="muted tiny">{slot.status} · priority {Math.round(Number(slot.priority || 0))}</span>
+                                <span
+                                  className="tiny"
+                                  style={{
+                                    color: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.status || "").toUpperCase()) ? "#7cf7a2" : String(slot.status || "").toUpperCase() === "WAIT" ? "#ffc107" : String(slot.status || "").toUpperCase() === "BLOCKED" ? "#ff6b6b" : "rgba(235,255,247,.72)",
+                                    fontWeight: 900,
+                                  }}
+                                >{String(slot.status || "WAIT").toUpperCase()} · priority {Math.round(Number(slot.priority || 0))}</span>
                               </div>
                               <div className="muted tiny">{slot.symbol || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition}</div>
                             </div>

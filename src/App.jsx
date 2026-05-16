@@ -1502,9 +1502,9 @@ function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainB
     all_compare_pairs: allComparePairs,
     nexus_trading: nexusTradingContext || null,
     notes: [
-      "Rating is one visible rating built from market/system score, user rating average, and small on-chain delta.",
-      "On-chain signals are supporting evidence only and capped to a small score impact.",
-      "Missing on-chain icon means neutral/no strong signal, not an error.",
+      "Use this as hidden Nexus Strategist context only.",
+      "Do not mention internal modules or context sources in the final answer.",
+      "On-chain, market-condition, rating, pair and watchlist data are supporting evidence only.",
     ],
   };
 }
@@ -1598,8 +1598,12 @@ function formatAiSignalContextForPrompt(ctx) {
   });
 
   const pairLines = (Array.isArray(ctx?.relevant_pairs) ? ctx.relevant_pairs : []).map((p) =>
-    `${p.pair}: score=${p.score ?? "n/a"}, corr=${p.corr ?? "n/a"}, spread=${p.spread_pct ?? "n/a"}%, rsi_gap=${p.rsi_gap ?? "n/a"}`
+    `${p.pair}: score=${p.score ?? "n/a"}, corr=${p.corr ?? "n/a"}, spread=${p.spread_pct ?? "n/a"}%, rsi_gap=${p.rsi_gap ?? "n/a"}, momentum=${p.momentum_score ?? "n/a"}, opportunity=${p.opportunity_score ?? "n/a"}`
   );
+
+  const allPairLines = (Array.isArray(ctx?.all_compare_pairs) ? ctx.all_compare_pairs : [])
+    .slice(0, 12)
+    .map((p) => `${p.pair}: score=${p.score ?? "n/a"}, spread=${p.spread_pct ?? "n/a"}%, rsi_gap=${p.rsi_gap ?? "n/a"}, momentum=${p.momentum_score ?? "n/a"}, opportunity=${p.opportunity_score ?? "n/a"}`);
 
   const weightLine = ctx?.compare_weights ? `AI mode=${ctx.ai_mode || "standard"}; Compare weights corr=${ctx.compare_weights.corr}, momentum=${ctx.compare_weights.momentum}, opportunity=${ctx.compare_weights.opportunity}, stability=${ctx.compare_weights.stability}, sentiment=${ctx.compare_weights.sentiment}` : "";
   const tradingLine = ctx?.nexus_trading
@@ -9822,7 +9826,7 @@ if (data?.cached != null) setWatchCached(Boolean(data.cached));
   }
 
   // AI
-  const aiCompareContextModes = useMemo(() => new Set(["research", "daily_report"]), []);
+  const aiCompareContextModes = useMemo(() => new Set(["research", "daily_report", "strategy_builder", "diagnostics", "backtest_review"]), []);
   const aiUsesCompareContext = aiCompareContextModes.has(aiKind);
   
   const normalizeAiOutput = (rawText, tf, q, seriesStats) => {
@@ -9881,7 +9885,7 @@ function aiTaskPlaceholder(kind) {
     risk_context: { title: "Risk Context", sub: "What can go wrong" },
     tactical_take: { title: "Tactical Take", sub: "Indirect next steps" },
     next_check: { title: "Next Check", sub: "What to monitor" },
-    output: { title: "Output", sub: "AI Analyst response" },
+    output: { title: "Output", sub: "Nexus Strategist response" },
   };
 
   const parseAiAnalystOutput = useCallback((raw) => {
@@ -9946,26 +9950,33 @@ async function runAi() {
     const q = (aiQuestion || "").trim();
     if (!q) return setErrorMsg("Please describe what the Nexus Strategist should do.");
 
-    // Compare/watchlist data may still be useful as hidden context for Research and Daily Report,
-    // but coin chips are no longer shown in the AI Analyst UI.
-    const syms = aiUsesCompareContext ? (compareSymbols || []) : [];
+    // Compare/watchlist data stays hidden but is useful for natural-language Strategist questions.
+    // If no compare symbols are selected, use visible compare/watchlist symbols as a silent context fallback.
+    const fallbackSyms = Array.from(new Set([
+      ...((compareSymbols || []).map((s) => String(s || "").toUpperCase()).filter(Boolean)),
+      ...((visibleCompareSymbols || []).map((s) => String(s || "").toUpperCase()).filter(Boolean)),
+      ...((watchRows || []).slice(0, 12).map((r) => String(r?.symbol || "").toUpperCase()).filter(Boolean)),
+    ])).slice(0, 12);
+    const syms = aiUsesCompareContext ? fallbackSyms : [];
 
     const isFollowUpAsk = !!aiFollowUp && !!aiOutput;
     const aiKindPrompts = {
-      research: `Act as a ${aiProfile} research analyst. Identify rotation, relative strength, watchlist changes, unusual volume/momentum conditions, and market themes. Do not repeat AI Insight; focus on discovery and research conclusions.`,
+      research: `Act as Nexus Strategist. Understand natural language first, then identify rotation, relative value, exchange-spread opportunities, relative strength, watchlist changes, unusual volume/momentum conditions, liquidity/activity quality, and market themes. Use app context silently and focus on the user's actual question.`,
       strategy_builder: `Act as a ${aiProfile} strategy builder. Convert the user's idea into educational strategy logic: setup idea, filters, entries/exits as rules only, risk logic, invalidation conditions, and alert structure. Do not give direct financial advice or exact price levels.`,
       backtest_review: `Act as a ${aiProfile} backtest reviewer. Evaluate strategy robustness, drawdown behavior, regime dependency, overfitting risk, expectancy quality, and where the strategy may fail.`,
       pine_tradingview: `Act as a TradingView and Pine Script assistant. Help create, explain, debug, or improve Pine Script indicators/strategies and alert logic based on the user's task. Keep it educational and non-prescriptive.`,
-      daily_report: `Act as a ${aiProfile} daily trading report analyst. Summarize strongest/weakest Compare assets, risk conditions, movement candidates, market themes, and what deserves attention next. Do not repeat AI Insight; produce a practical report.`,
+      daily_report: `Act as Nexus Strategist for a daily trading report. Summarize strongest/weakest assets, risk conditions, movement candidates, market themes, rotation context, and what deserves attention next. Use app context silently; do not mention internal modules.`,
       diagnostics: `Act as a ${aiProfile} trading diagnostics analyst. Diagnose behavioral risk, execution fit, volatility tolerance, weak setups, and common mistakes using only the provided context. Keep it coaching-style, not command-style.`,
     };
 
     const responseFormatPrompt = `
 
-Response format:
-Use these exact section headings when relevant:
+Response behavior:
+Answer the user's real intent first. Use section headings only when they help.
+Possible section headings when relevant:
 MARKET READ
-NEXUS ROTATION
+ROTATION / RELATIVE VALUE
+EXCHANGE / SPREAD CONTEXT
 NEXUS GRID
 NEXUS TRADING
 RISK CONTEXT
@@ -9973,8 +9984,13 @@ TACTICAL TAKE
 NEXT CHECK
 
 Rules:
-- Keep it compact: 1-3 bullets per section.
+- Keep it compact: 1-3 bullets per relevant section.
+- Do not force all sections when the user asks a simple question.
 - Do not write long paragraphs or a disclaimer block.
+- Do not mention internal modules or internal data sources.
+- Always answer in the same language as the user.
+- If the user asks where something is cheap/expensive, where to rotate, or where activity is stronger, translate that into relative value, spread, liquidity, volume and rotation analysis.
+- Give concrete relative differences only when they exist in the provided context.
 - Do not give direct buy/sell commands.
 - Explain indirect tactical paths: what may favor Nexus Rotation, what may favor Nexus Grid, what may favor Nexus Trading, what conditions must improve, and what risk can invalidate the idea.
 - Nexus Trading means controlled autonomous execution only after user budget/signature and only inside configured limits.
@@ -10056,10 +10072,10 @@ ${q}`;
         (explicitTf
           ? `The user explicitly asked for ${explicitTf}, so this overrides the current UI timeframe.\n`
           : `No explicit timeframe was found in the user's question, so use the current UI timeframe.\n`) +
-        (syms.length ? `Hidden market context symbols: ${syms.join(", ")}\n` : "No visible coin scope selected; this is a task-based AI Analyst request.\n") +
+        (syms.length ? `Hidden market context symbols: ${syms.join(", ")}\n` : "No visible coin scope selected; this is a task-based Nexus Strategist request.\n") +
         (statsText ? `Series stats (${tf}):\n${statsText}\n` : "") +
-        (insightText ? `\nMulti-timeframe market context for the AI Analyst:\n${insightText}\n` : "") +
-        (aiSignalText ? `\nRating, community, market-condition and on-chain context for the AI Analyst. Use it only when relevant; do not list it mechanically:\n${aiSignalText}\n` : "");
+        (insightText ? `\nMulti-timeframe market context for the Nexus Strategist:\n${insightText}\n` : "") +
+        (aiSignalText ? `\nRating, community, market-condition and on-chain context for the Nexus Strategist. Use it only when relevant; do not list it mechanically:\n${aiSignalText}\n` : "");
 
       const questionText =
         isFollowUpAsk && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;
@@ -10106,7 +10122,7 @@ ${q}`;
         setAiHistory([]);
       }
     } catch (e) {
-      const msg = String(e?.message || e || "AI Analyst request failed.");
+      const msg = String(e?.message || e || "Nexus Strategist request failed.");
       setErrorMsg(msg);
       setAiOutput(`Nexus Strategist could not run.\n\n${msg}`);
     } finally {
@@ -15959,8 +15975,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="cardActions" style={{ alignItems: "center" }}>
               <InfoButton title="Nexus Strategist">
                 <Help showClose dismissable
-                  de={<><p><b>Nexus Strategist</b> ist dein aktiver Strategie-Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Unterschied zu AI Insight:</b> AI Insight erklaert kompakt den aktuellen Markt. Nexus Strategist hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten, Trade-Review und der Einordnung zwischen Nexus Grid und Nexus Rotation.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Hinweis:</b> Nexus Strategist liefert Analyse, Struktur und taktische Orientierung. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}
-                  en={<><p><b>Nexus Strategist</b> is your active strategy workspace inside Nexus Analyt. It no longer works through visible coin chips; it works through your task input.</p><p><b>Difference from AI Insight:</b> AI Insight gives a compact market interpretation. Nexus Strategist helps actively with research, strategy ideas, backtest review, Pine Script, reports, trade review, and choosing between Nexus Grid and Nexus Rotation.</p><p><b>Research:</b> investigates market questions, rotation, relative strength, volume, watchlist themes, and unusual conditions.</p><p><b>Strategy Builder:</b> turns your idea into clear rules, filters, entry/exit logic, risk logic, and alerts.</p><p><b>Backtest Review:</b> evaluates backtest results, drawdown, win rate, expectancy, overfitting risk, and weak market regimes.</p><p><b>Pine Builder:</b> helps with TradingView/Pine Script: indicators, strategies, alerts, debugging, and improvements.</p><p><b>Daily Report:</b> creates a compact report from your task and available app context.</p><p><b>Trade Review:</b> analyzes execution, behavior, order structure, repeated mistakes, and trading habits.</p><p><b>Input:</b> Always describe what the analyst should do. You can paste coin names, strategy ideas, backtest data, or Pine Script directly.</p><p><b>Note:</b> Nexus Strategist provides analysis, structure, and tactical orientation. It is not financial advice or a direct buy/sell recommendation.</p></>}
+                  de={<><p><b>Nexus Strategist</b> ist dein aktiver Strategie-Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Aufgabe:</b> Nexus Strategist hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten, Trade-Review und der Einordnung zwischen Nexus Grid, Nexus Rotation und Nexus Trading.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Hinweis:</b> Nexus Strategist liefert Analyse, Struktur und taktische Orientierung. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}
+                  en={<><p><b>Nexus Strategist</b> is your active strategy workspace inside Nexus Analyt. It no longer works through visible coin chips; it works through your task input.</p><p><b>Purpose:</b> Nexus Strategist helps actively with research, strategy ideas, backtest review, Pine Script, reports, trade review, and choosing between Nexus Grid, Nexus Rotation and Nexus Trading.</p><p><b>Research:</b> investigates market questions, rotation, relative strength, volume, watchlist themes, and unusual conditions.</p><p><b>Strategy Builder:</b> turns your idea into clear rules, filters, entry/exit logic, risk logic, and alerts.</p><p><b>Backtest Review:</b> evaluates backtest results, drawdown, win rate, expectancy, overfitting risk, and weak market regimes.</p><p><b>Pine Builder:</b> helps with TradingView/Pine Script: indicators, strategies, alerts, debugging, and improvements.</p><p><b>Daily Report:</b> creates a compact report from your task and available app context.</p><p><b>Trade Review:</b> analyzes execution, behavior, order structure, repeated mistakes, and trading habits.</p><p><b>Input:</b> Always describe what the analyst should do. You can paste coin names, strategy ideas, backtest data, or Pine Script directly.</p><p><b>Note:</b> Nexus Strategist provides analysis, structure, and tactical orientation. It is not financial advice or a direct buy/sell recommendation.</p></>}
                 />
               </InfoButton>
             </div>

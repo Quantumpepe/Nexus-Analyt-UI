@@ -9928,18 +9928,112 @@ function aiTaskPlaceholder(kind) {
     return "Example: Analyze ETH vs BTC relative strength, rotation signals, unusual volume, whale activity, and whether momentum looks healthy or unstable.";
   }
 
-  const aiAnalystSectionMeta = {
-    direct_view: { title: "Direkte Einschätzung", sub: "Nexus Strategist" },
-    exchange_spread: { title: "Exchange / Spread", sub: "Preisunterschiede" },
-    market_read: { title: "Marktlage", sub: "Aktuelle Struktur" },
-    nexus_rotation: { title: "Nexus Rotation", sub: "Relative Stärke / Rotation" },
-    nexus_grid: { title: "Nexus Grid", sub: "Range / Zyklus" },
-    nexus_trading: { title: "Nexus Trading", sub: "Kontrollierte autonome Ausführung" },
-    risk_context: { title: "Risikokontext", sub: "Was kippen kann" },
-    tactical_take: { title: "Taktische Einordnung", sub: "Indirekte nächste Schritte" },
-    next_check: { title: "Nächste Prüfung", sub: "Was zu beobachten ist" },
-    output: { title: "Antwort", sub: "Nexus Strategist" },
+  const AI_ANALYST_SECTION_META_BY_LANG = {
+    de: {
+      direct_view: { title: "Direkte Einschätzung", sub: "Nexus Strategist" },
+      exchange_spread: { title: "Exchange / Spread", sub: "Preisunterschiede" },
+      market_read: { title: "Marktlage", sub: "Aktuelle Struktur" },
+      nexus_rotation: { title: "Nexus Rotation", sub: "Relative Stärke / Rotation" },
+      nexus_grid: { title: "Nexus Grid", sub: "Range / Zyklus" },
+      nexus_trading: { title: "Nexus Trading", sub: "Kontrollierte autonome Ausführung" },
+      risk_context: { title: "Risikokontext", sub: "Was kippen kann" },
+      tactical_take: { title: "Taktische Einordnung", sub: "Indirekte nächste Schritte" },
+      next_check: { title: "Nächste Prüfung", sub: "Was zu beobachten ist" },
+      output: { title: "Antwort", sub: "Nexus Strategist" },
+    },
+    en: {
+      direct_view: { title: "Direct Assessment", sub: "Nexus Strategist" },
+      exchange_spread: { title: "Exchange / Spread", sub: "Price differences" },
+      market_read: { title: "Market Read", sub: "Current structure" },
+      nexus_rotation: { title: "Nexus Rotation", sub: "Relative strength / rotation" },
+      nexus_grid: { title: "Nexus Grid", sub: "Range / cycle" },
+      nexus_trading: { title: "Nexus Trading", sub: "Controlled autonomous execution" },
+      risk_context: { title: "Risk Context", sub: "What can go wrong" },
+      tactical_take: { title: "Tactical Take", sub: "Indirect next steps" },
+      next_check: { title: "Next Check", sub: "What to monitor" },
+      output: { title: "Answer", sub: "Nexus Strategist" },
+    },
+    fr: {
+      direct_view: { title: "Évaluation directe", sub: "Nexus Strategist" },
+      exchange_spread: { title: "Exchange / Spread", sub: "Différences de prix" },
+      market_read: { title: "Lecture du marché", sub: "Structure actuelle" },
+      nexus_rotation: { title: "Nexus Rotation", sub: "Force relative / rotation" },
+      nexus_grid: { title: "Nexus Grid", sub: "Range / cycle" },
+      nexus_trading: { title: "Nexus Trading", sub: "Exécution autonome contrôlée" },
+      risk_context: { title: "Contexte de risque", sub: "Ce qui peut mal tourner" },
+      tactical_take: { title: "Lecture tactique", sub: "Prochaines étapes indirectes" },
+      next_check: { title: "Prochaine vérification", sub: "À surveiller" },
+      output: { title: "Réponse", sub: "Nexus Strategist" },
+    },
+    es: {
+      direct_view: { title: "Evaluación directa", sub: "Nexus Strategist" },
+      exchange_spread: { title: "Exchange / Spread", sub: "Diferencias de precio" },
+      market_read: { title: "Lectura del mercado", sub: "Estructura actual" },
+      nexus_rotation: { title: "Nexus Rotation", sub: "Fuerza relativa / rotación" },
+      nexus_grid: { title: "Nexus Grid", sub: "Rango / ciclo" },
+      nexus_trading: { title: "Nexus Trading", sub: "Ejecución autónoma controlada" },
+      risk_context: { title: "Contexto de riesgo", sub: "Qué puede fallar" },
+      tactical_take: { title: "Lectura táctica", sub: "Próximos pasos indirectos" },
+      next_check: { title: "Próxima revisión", sub: "Qué vigilar" },
+      output: { title: "Respuesta", sub: "Nexus Strategist" },
+    },
+    it: {
+      direct_view: { title: "Valutazione diretta", sub: "Nexus Strategist" },
+      exchange_spread: { title: "Exchange / Spread", sub: "Differenze di prezzo" },
+      market_read: { title: "Lettura del mercato", sub: "Struttura attuale" },
+      nexus_rotation: { title: "Nexus Rotation", sub: "Forza relativa / rotazione" },
+      nexus_grid: { title: "Nexus Grid", sub: "Range / ciclo" },
+      nexus_trading: { title: "Nexus Trading", sub: "Esecuzione autonoma controllata" },
+      risk_context: { title: "Contesto di rischio", sub: "Cosa può andare storto" },
+      tactical_take: { title: "Lettura tattica", sub: "Prossimi passi indiretti" },
+      next_check: { title: "Prossimo controllo", sub: "Cosa monitorare" },
+      output: { title: "Risposta", sub: "Nexus Strategist" },
+    },
+    pt: {
+      direct_view: { title: "Avaliação direta", sub: "Nexus Strategist" },
+      exchange_spread: { title: "Exchange / Spread", sub: "Diferenças de preço" },
+      market_read: { title: "Leitura do mercado", sub: "Estrutura atual" },
+      nexus_rotation: { title: "Nexus Rotation", sub: "Força relativa / rotação" },
+      nexus_grid: { title: "Nexus Grid", sub: "Range / ciclo" },
+      nexus_trading: { title: "Nexus Trading", sub: "Execução autônoma controlada" },
+      risk_context: { title: "Contexto de risco", sub: "O que pode dar errado" },
+      tactical_take: { title: "Leitura tática", sub: "Próximos passos indiretos" },
+      next_check: { title: "Próxima verificação", sub: "O que monitorar" },
+      output: { title: "Resposta", sub: "Nexus Strategist" },
+    },
+    tr: {
+      direct_view: { title: "Doğrudan değerlendirme", sub: "Nexus Strategist" },
+      exchange_spread: { title: "Exchange / Spread", sub: "Fiyat farkları" },
+      market_read: { title: "Piyasa okuması", sub: "Mevcut yapı" },
+      nexus_rotation: { title: "Nexus Rotation", sub: "Göreceli güç / rotasyon" },
+      nexus_grid: { title: "Nexus Grid", sub: "Aralık / döngü" },
+      nexus_trading: { title: "Nexus Trading", sub: "Kontrollü otonom yürütme" },
+      risk_context: { title: "Risk bağlamı", sub: "Ne ters gidebilir" },
+      tactical_take: { title: "Taktik değerlendirme", sub: "Dolaylı sonraki adımlar" },
+      next_check: { title: "Sonraki kontrol", sub: "Ne izlenmeli" },
+      output: { title: "Yanıt", sub: "Nexus Strategist" },
+    },
+    nl: {
+      direct_view: { title: "Directe beoordeling", sub: "Nexus Strategist" },
+      exchange_spread: { title: "Exchange / Spread", sub: "Prijsverschillen" },
+      market_read: { title: "Marktlezing", sub: "Huidige structuur" },
+      nexus_rotation: { title: "Nexus Rotation", sub: "Relatieve sterkte / rotatie" },
+      nexus_grid: { title: "Nexus Grid", sub: "Range / cyclus" },
+      nexus_trading: { title: "Nexus Trading", sub: "Gecontroleerde autonome uitvoering" },
+      risk_context: { title: "Risicocontext", sub: "Wat mis kan gaan" },
+      tactical_take: { title: "Tactische inschatting", sub: "Indirecte volgende stappen" },
+      next_check: { title: "Volgende controle", sub: "Wat te volgen" },
+      output: { title: "Antwoord", sub: "Nexus Strategist" },
+    },
   };
+
+  const aiOutputLanguage = useMemo(() => {
+    return detectNexusUserLanguage(aiQuestion || aiOutput || "");
+  }, [aiQuestion, aiOutput]);
+
+  const aiAnalystSectionMeta = useMemo(() => {
+    return AI_ANALYST_SECTION_META_BY_LANG[aiOutputLanguage] || AI_ANALYST_SECTION_META_BY_LANG.en;
+  }, [aiOutputLanguage]);
 
   const parseAiAnalystOutput = useCallback((raw) => {
     const source = String(raw || "").trim();
@@ -16240,10 +16334,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   if (section.key === "nexus_rotation") applyStrategistToRotation(section.body);
                                   if (section.key === "nexus_trading") applyStrategistToTrading(section.body);
                                 }}
-                                title={section.key === "nexus_grid" ? "Prepare this idea in Nexus Grid. This does not create an order." : section.key === "nexus_trading" ? "Prepare this idea in Nexus Trading. This does not activate automation." : "Prepare this idea in Nexus Rotation. This does not execute a swap."}
+                                title={
+                                  aiOutputLanguage === "de"
+                                    ? (section.key === "nexus_grid"
+                                      ? "Diese Idee in Nexus Grid vorbereiten. Es wird keine Order erstellt."
+                                      : section.key === "nexus_trading"
+                                        ? "Diese Idee in Nexus Trading vorbereiten. Die Automation wird nicht aktiviert."
+                                        : "Diese Idee in Nexus Rotation vorbereiten. Es wird kein Swap ausgeführt.")
+                                    : (section.key === "nexus_grid"
+                                      ? "Prepare this idea in Nexus Grid. This does not create an order."
+                                      : section.key === "nexus_trading"
+                                        ? "Prepare this idea in Nexus Trading. This does not activate automation."
+                                        : "Prepare this idea in Nexus Rotation. This does not execute a swap.")
+                                }
                                 style={{ height: 28, paddingInline: 10, fontSize: 12 }}
                               >
-                                {section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Rotation"}
+                                {aiOutputLanguage === "de"
+                                  ? (section.key === "nexus_grid" ? "In Grid nutzen" : section.key === "nexus_trading" ? "In Trading nutzen" : "In Rotation nutzen")
+                                  : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Rotation")}
                               </button>
                             </div>
                           ) : null}
@@ -16252,7 +16360,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     })}
                   </div>
                 ) : (
-                  <div className="muted">No output yet.</div>
+                  <div className="muted">{aiOutputLanguage === "de" ? "Noch keine Ausgabe." : "No output yet."}</div>
                 )}
               </div>
             </div>

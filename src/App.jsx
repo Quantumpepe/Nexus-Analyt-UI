@@ -6780,6 +6780,7 @@ const [aiQuestion, setAiQuestion] = useState("");
 const [aiLoading, setAiLoading] = useState(false);
   const [aiOutput, setAiOutput] = useState("");
   const [strategistBridge, setStrategistBridge] = useState(null);
+  const [strategistRotationCandidates, setStrategistRotationCandidates] = useState([]);
   const [strategistAppliedOpen, setStrategistAppliedOpen] = useState(false);
 
   // watch snapshot polling
@@ -8918,14 +8919,59 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setErrorMsg(`Prepared ${preparedSym} in Nexus Grid. Review price, amount and risk before adding any order.`);
   }, [extractStrategistSymbol, strategistExecutionGuard, deriveStrategistRiskPreset, activeGridChainKey, gridChain, setGridMode, setGridChain, openGridPanel, setManualPricePreset, setManualSlippagePct, setAiGridAssistState, applyAiSuggestionToGrid, setErrorMsg]);
 
+  const extractStrategistRotationCandidates = useCallback((body) => {
+    const raw = String(body || "");
+    const out = [];
+    const seen = new Set();
+
+    const add = (sym, meta = {}) => {
+      const s = String(sym || "").toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
+      if (!s || s.length < 2 || s.length > 12) return;
+      if (["USD", "USDT", "USDC", "EUR", "BTCB", "WBTC", "PRICE", "SPREAD", "EXCHANGE", "BUY", "SELL"].includes(s)) return;
+      if (seen.has(s)) return;
+      seen.add(s);
+      out.push({ sym: s, ...meta });
+    };
+
+    // Prefer bullet/list lines like "- LINK: cheaper buy..." or "- ETH: günstig..."
+    raw.split(/\r?\n/).forEach((line) => {
+      const s = String(line || "").trim();
+      const m = s.match(/^[\-•*]\s*\*\*?([A-Z0-9]{2,12})\*\*?\s*:/i)
+        || s.match(/^[\-•*]\s*([A-Z0-9]{2,12})\s*:/i);
+      if (m) {
+        const spread = s.match(/(?:Differenz|difference|Spread|Premium)\s*(?:ca\.?|about|~)?\s*([+-]?\d+(?:[.,]\d+)?)\s*%/i);
+        add(m[1], { sourceLine: s, spreadPct: spread ? Number(String(spread[1]).replace(",", ".")) : undefined });
+      }
+    });
+
+    // Fallback: extract bold symbols.
+    if (!out.length) {
+      const rx = /\*\*([A-Z0-9]{2,12})\*\*/g;
+      let m;
+      while ((m = rx.exec(raw))) add(m[1]);
+    }
+
+    // Last fallback: old single-symbol extractor.
+    if (!out.length) {
+      const one = extractStrategistSymbol(raw);
+      if (one) add(one);
+    }
+
+    return out.slice(0, 8);
+  }, [extractStrategistSymbol]);
+
   const applyStrategistToRotation = useCallback((body) => {
-    const sym = extractStrategistSymbol(body);
+    const candidates = extractStrategistRotationCandidates(body);
+    const sym = candidates[0]?.sym || "";
     if (!sym) {
       setGridMode("rotation");
       openGridPanel();
+      setStrategistRotationCandidates([]);
       setErrorMsg("No coin symbol found in the Nexus Rotation card. Add a coin symbol to the task or card output first.");
       return;
     }
+
+    setStrategistRotationCandidates(candidates);
 
     // Always open Nexus Rotation and always prefill the non-executing strategy fields.
     // Guard only blocks execution readiness, not visible preparation.
@@ -9015,13 +9061,21 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       sym: preparedSym,
       label: "Nexus Rotation",
       confidence: preset.confidence,
-      note: "",
+      note: candidates.length > 1
+        ? `Prepared ${preparedSym} first. ${candidates.length} Strategist candidates were detected: ${candidates.map((c) => c.sym).join(", ")}. Select another candidate in the Strategist candidates list if needed.`
+        : "",
+      candidates,
       appliedSettings,
       ts: Date.now(),
     });
-    setErrorMsg(`Prepared ${preparedSym} in Nexus Rotation. Enter budget, review selection, then continue manually.`);
+    setErrorMsg(
+      candidates.length > 1
+        ? `Prepared ${preparedSym} first. ${candidates.length} Strategist candidates available: ${candidates.map((c) => c.sym).join(", ")}.`
+        : `Prepared ${preparedSym} in Nexus Rotation. Enter budget, review selection, then continue manually.`
+    );
   }, [
     extractStrategistSymbol,
+    extractStrategistRotationCandidates,
     strategistExecutionGuard,
     deriveStrategistRiskPreset,
     setGridMode,
@@ -14555,6 +14609,41 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         gap: 8,
                       }}
                     >
+                      {Array.isArray(strategistRotationCandidates) && strategistRotationCandidates.length > 1 ? (
+                        <div
+                          style={{
+                            display: "grid",
+                            gap: 6,
+                            padding: "8px 9px",
+                            borderRadius: 12,
+                            border: "1px solid rgba(34,197,94,.24)",
+                            background: "rgba(34,197,94,.07)",
+                            marginBottom: 8,
+                          }}
+                        >
+                          <div className="label" style={{ marginBottom: 0 }}>Strategist candidates</div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {strategistRotationCandidates.map((c, idx) => (
+                              <button
+                                key={`${c.sym}-${idx}`}
+                                type="button"
+                                className="btnGhost"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleRotationPickToGrid(c);
+                                  setErrorMsg(`Prepared ${c.sym} from Strategist candidates in Nexus Rotation.`);
+                                }}
+                                title={c.sourceLine || "Select Strategist candidate for Nexus Rotation"}
+                                style={{ height: 26, paddingInline: 9, fontSize: 12 }}
+                              >
+                                {c.sym}{Number.isFinite(Number(c.spreadPct)) ? ` · ${Number(c.spreadPct).toFixed(2)}%` : ""}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
                       <button
                         type="button"
                         className="btnGhost"

@@ -6216,6 +6216,8 @@ useEffect(() => {
   }, [gridMode]);
 
   const [tradingBudgetUsd, setTradingBudgetUsd] = useLocalStorageState("nexus_trading_budget_usd", "");
+  const [tradingBudgetSplitInput, setTradingBudgetSplitInput] = useLocalStorageState("nexus_trading_budget_splits", "");
+  const [tradingExecutionQueue, setTradingExecutionQueue] = useLocalStorageState("nexus_trading_execution_queue", []);
   const [tradingRuntimeHours, setTradingRuntimeHours] = useLocalStorageState("nexus_trading_runtime_hours", "24");
   const [tradingAllowedAssets, setTradingAllowedAssets] = useLocalStorageState("nexus_trading_allowed_assets", "");
   const [tradingAllowedChains, setTradingAllowedChains] = useLocalStorageState("nexus_trading_allowed_chains", "POL,BNB,ETH");
@@ -6243,6 +6245,108 @@ useEffect(() => {
       .filter(Boolean);
   }, []);
 
+  const parseTradingBudgetSplits = useCallback((value, totalBudget = tradingBudgetUsd) => {
+    const total = Number(String(totalBudget || "").replace(",", "."));
+    const raw = String(value || "").trim();
+    const nums = raw
+      ? raw.split(/[,+;\s]+/)
+          .map((x) => Number(String(x || "").replace(",", ".")))
+          .filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+
+    if (nums.length) return nums.slice(0, 12);
+
+    if (!(total > 0)) return [];
+    if (total <= 100) return [Number(total.toFixed(2))];
+    if (total <= 250) return [Number((total * 0.5).toFixed(2)), Number((total * 0.25).toFixed(2)), Number((total * 0.25).toFixed(2))];
+
+    const first = Math.min(100, Math.round(total * 0.34));
+    const remaining = Math.max(0, total - first);
+    const slot = Math.max(25, Math.round(remaining / 4));
+    const out = [first];
+    let used = first;
+    while (used + slot < total && out.length < 6) {
+      out.push(slot);
+      used += slot;
+    }
+    const last = Number((total - used).toFixed(2));
+    if (last > 0) out.push(last);
+    return out;
+  }, [tradingBudgetUsd]);
+
+  const buildTradingQueue = useCallback((setup = tradingPreparedSetup, splitsArg = null) => {
+    const splits = Array.isArray(splitsArg) ? splitsArg : parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
+    const base = setup && typeof setup === "object" ? setup : {};
+    const confidence = String(base.confidence || tradingConfidenceMin || "MEDIUM").toUpperCase();
+    const suitability = String(base.suitability || "MEDIUM").toUpperCase();
+    const riskMode = String(base.riskMode || tradingRiskMode || "BALANCED").toUpperCase();
+    const style = String(base.style || tradingStyle || "TACTICAL").toUpperCase();
+    const symbol = String(base.symbol || (String(tradingAllowedAssets || "").split(",")[0] || "")).toUpperCase();
+
+    const priorityBase =
+      confidence === "HIGH" ? 80 :
+      confidence === "LOW" ? 35 :
+      55;
+
+    return splits.map((amount, idx) => {
+      let status = "WAIT";
+      if (suitability === "LOW" || confidence === "LOW") status = idx === 0 ? "BLOCKED" : "WAIT";
+      else if (idx === 0 && ["HIGH", "MEDIUM-HIGH", "MEDIUM"].includes(confidence)) status = "READY";
+      else if (idx === 1 && confidence === "HIGH" && riskMode !== "DEFENSIVE") status = "READY";
+
+      const condition =
+        status === "READY"
+          ? "Ready after user approval; execution still requires manual/session control."
+          : status === "BLOCKED"
+            ? "Blocked until confidence, liquidity or risk improves."
+            : idx === 1
+              ? "Wait for confirmation that momentum and liquidity remain stable."
+              : "Wait for follow-up confirmation or a cleaner pullback/edge.";
+
+      return {
+        id: `slot_${idx + 1}_${Date.now()}`,
+        slot: idx + 1,
+        amountUsd: Number(Number(amount).toFixed(2)),
+        symbol,
+        status,
+        priority: Math.max(0, Math.min(100, priorityBase - idx * 8)),
+        condition,
+        confidence,
+        suitability,
+        riskMode,
+        style,
+      };
+    });
+  }, [
+    parseTradingBudgetSplits,
+    tradingBudgetSplitInput,
+    tradingBudgetUsd,
+    tradingPreparedSetup,
+    tradingBudgetUsd,
+    tradingBudgetSplitInput,
+    parseTradingBudgetSplits,
+    buildTradingQueue,
+    tradingConfidenceMin,
+    tradingRiskMode,
+    tradingStyle,
+    tradingAllowedAssets,
+  ]);
+
+  const tradingQueueSummary = useMemo(() => {
+    const queue = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [];
+    const ready = queue.filter((s) => s.status === "READY");
+    const blocked = queue.filter((s) => s.status === "BLOCKED");
+    const wait = queue.filter((s) => s.status === "WAIT");
+    const total = queue.reduce((sum, s) => sum + (Number(s.amountUsd) || 0), 0);
+    return { queue, ready, blocked, wait, total };
+  }, [tradingExecutionQueue]);
+
+  const refreshTradingQueue = useCallback((setup = tradingPreparedSetup) => {
+    const next = buildTradingQueue(setup);
+    setTradingExecutionQueue(next);
+    return next;
+  }, [buildTradingQueue, setTradingExecutionQueue, tradingPreparedSetup]);
+
   const tradingPreflight = useMemo(() => {
     const budget = Number(String(tradingBudgetUsd || "").replace(",", "."));
     const runtime = Number(String(tradingRuntimeHours || "").replace(",", "."));
@@ -6253,11 +6357,14 @@ useEffect(() => {
     const profitLock = Number(String(tradingProfitLockPct || "").replace(",", "."));
     const assets = normalizeTradingCsv(tradingAllowedAssets);
     const chains = normalizeTradingCsv(tradingAllowedChains);
+    const budgetSplits = parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
+    const splitTotal = budgetSplits.reduce((sum, n) => sum + (Number(n) || 0), 0);
     const knownChains = new Set([...(gridWalletChains || []), "POL", "BNB", "ETH"].map((x) => String(x || "").toUpperCase()));
     const unsupportedChains = chains.filter((ck) => !knownChains.has(ck));
     const issues = [];
 
     if (!(budget > 0)) issues.push("budget");
+    if (budgetSplits.length && budget > 0 && Math.abs(splitTotal - budget) > Math.max(1, budget * 0.03)) issues.push("split total");
     if (!assets.length) issues.push("asset");
     if (!chains.length) issues.push("chain");
     if (unsupportedChains.length) issues.push(`unsupported chain ${unsupportedChains[0]}`);
@@ -6278,6 +6385,8 @@ useEffect(() => {
       chains,
       slippage,
       maxTrades,
+      budgetSplits,
+      splitTotal,
       cautionDd,
       hardStop,
       profitLock,
@@ -6294,6 +6403,8 @@ useEffect(() => {
     tradingProfitLockPct,
     tradingMaxSlippagePct,
     tradingMaxTrades,
+    tradingBudgetSplitInput,
+    parseTradingBudgetSplits,
     gridWalletChains,
     normalizeTradingCsv,
   ]);
@@ -6331,6 +6442,7 @@ useEffect(() => {
       return;
     }
     const now = Date.now();
+    const queue = refreshTradingQueue();
     setTradingSessionStatus("ARMED");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({
@@ -6338,39 +6450,44 @@ useEffect(() => {
       approvedBudgetUsd: tradingBudgetUsd,
       approvedAt: now,
       preflight: tradingPreflight,
+      executionQueue: queue,
       userAction: { approvedBudget: true, armed: true, preflightOk: true },
       note: "Budget approval simulated until final Vault signature is connected.",
     });
     setErrorMsg("");
-  }, [tradingCanApprove, tradingBudgetUsd, tradingPreflight, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setErrorMsg]);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingPreflight, refreshTradingQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setErrorMsg]);
 
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;
     const now = Date.now();
+    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => s.status === "READY" ? { ...s, status: "EXECUTED", executedAt: now } : s));
     setTradingSessionStatus("ACTIVE");
     setTradingSessionUpdatedTs(now);
-    updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, userAction: { started: true } });
-  }, [tradingCanStart, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+    updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, executionQueue: tradingExecutionQueue, userAction: { started: true } });
+  }, [tradingCanStart, tradingExecutionQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const handleTradingPauseSession = useCallback(() => {
     if (!tradingCanPause) return;
     const now = Date.now();
+    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => s.status === "READY" ? { ...s, status: "WAIT", pausedAt: now } : s));
     setTradingSessionStatus("PAUSED");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({ status: "PAUSED", pausedAt: now, userAction: { paused: true } });
-  }, [tradingCanPause, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+  }, [tradingCanPause, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const handleTradingResumeSession = useCallback(() => {
     if (!tradingCanResume) return;
     const now = Date.now();
+    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s, idx) => (idx === 0 || s.status === "WAIT") ? { ...s, status: idx === 0 ? "READY" : s.status, resumedAt: now } : s));
     setTradingSessionStatus("ACTIVE");
     setTradingSessionUpdatedTs(now);
-    updateTradingPreparedSession({ status: "ACTIVE", resumedAt: now, userAction: { paused: false } });
-  }, [tradingCanResume, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+    updateTradingPreparedSession({ status: "ACTIVE", resumedAt: now, executionQueue: tradingExecutionQueue, userAction: { paused: false } });
+  }, [tradingCanResume, tradingExecutionQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const handleTradingStopSession = useCallback(() => {
     if (!tradingCanStop) return;
     const now = Date.now();
+    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => ["READY", "WAIT"].includes(s.status) ? { ...s, status: "BLOCKED", stoppedAt: now } : s));
     setTradingSessionStatus("STOPPED");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({
@@ -6379,7 +6496,7 @@ useEffect(() => {
       userAction: { stopped: true },
       outcome: { status: "manual_stop_pending_outcome" },
     });
-  }, [tradingCanStop, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+  }, [tradingCanStop, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const applyTradingRiskPreset = useCallback((mode, confidence = tradingConfidenceMin) => {
     const risk = String(mode || "BALANCED").toUpperCase();
@@ -8057,9 +8174,11 @@ setGridBusy((s) => ({ ...s, stop: true }));
         hard_stop_pct: tradingHardStopPct,
         profit_lock_pct: tradingProfitLockPct,
         max_trades: tradingMaxTrades,
+        budget_splits: parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd),
+        execution_queue: tradingExecutionQueue,
       },
     });
-  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, addCoreOrderFromModule]);
+  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, addCoreOrderFromModule]);
 
   async function addManualOrder(opts = {}) {
     setErrorMsg("");
@@ -9165,7 +9284,8 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       suitability: traderSetup.suitability,
       confidence: traderSetup.confidence || preset.confidence,
       style: traderSetup.style || "TACTICAL",
-      budgetUsd: "",
+      budgetUsd: tradingBudgetUsd || "",
+      budgetSplits: parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd),
       runtimeHours: traderSetup.runtimeHours || "24",
       allowedAssets: traderSetup.allowedAssets || preparedSym || "",
       allowedChains: traderSetup.allowedChains || "POL,BNB,ETH",
@@ -9179,6 +9299,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       tacticalReason: traderSetup.reason || "",
       invalidation: traderSetup.invalidation || "",
       notes: String(body || "").slice(0, 900),
+      executionQueue: [],
       session: {
         status: "PREPARED",
         approvedBudgetUsd: "",
@@ -9200,6 +9321,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
 
     setup.appliedSettings = [
       buildAppliedSetting("Risk Mode", setup.riskMode, tradingRiskMode),
+      buildAppliedSetting("Budget Slots", setup.budgetSplits?.length ? setup.budgetSplits.join(" / ") : "auto", tradingBudgetSplitInput || "auto"),
       buildAppliedSetting("Runtime", setup.runtimeHours, tradingRuntimeHours, "h"),
       buildAppliedSetting("Style", setup.style, tradingStyle),
       buildAppliedSetting("Allowed Assets", setup.allowedAssets || "—", tradingAllowedAssets),
@@ -9217,6 +9339,8 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     // Internal learning queue event.
     // This stays invisible in the UI for now, but preserves the Strategist -> Trading decision
     // so future Learning Memory / AI Insight can evaluate setup quality and later outcomes.
+    setup.executionQueue = buildTradingQueue(setup, setup.budgetSplits);
+
     setup.learningEvent = {
       id: `learn_${setup.id}`,
       type: "STRATEGIST_TRADING_SETUP_PREPARED",
@@ -9233,6 +9357,8 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       runtimeHours: setup.runtimeHours,
       maxTrades: setup.maxTrades,
       maxSlippagePct: setup.maxSlippagePct,
+      budgetSplits: setup.budgetSplits,
+      executionQueue: setup.executionQueue,
       cautionDrawdownPct: setup.cautionDrawdownPct,
       hardStopPct: setup.hardStopPct,
       profitLockPct: setup.profitLockPct,
@@ -9265,10 +9391,12 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
         tacticalReason: setup.tacticalReason,
         invalidation: setup.invalidation,
         rawStrategistNotes: setup.notes,
+        executionQueue: setup.executionQueue,
       },
     };
 
     setTradingPreparedSetup(setup);
+    setTradingExecutionQueue(setup.executionQueue || []);
     setTradingAllowedAssets(setup.allowedAssets);
     setTradingAllowedChains(setup.allowedChains);
     setTradingRiskMode(setup.riskMode);
@@ -9293,6 +9421,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       confidence: setup.executable ? setup.confidence : "Blocked",
       note: setup.executable ? `` : `${guard.warning || "Trading setup could not be matched to a supported asset."}`,
       appliedSettings: setup.appliedSettings,
+      executionQueue: setup.executionQueue,
       ts: Date.now(),
     });
 
@@ -9305,6 +9434,10 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     setGridMode,
     openGridPanel,
     tradingPreparedSetup,
+    tradingBudgetUsd,
+    tradingBudgetSplitInput,
+    parseTradingBudgetSplits,
+    buildTradingQueue,
     tradingRuntimeHours,
     tradingRiskMode,
     tradingStyle,
@@ -9316,6 +9449,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     tradingMaxSlippagePct,
     tradingMaxTrades,
     setTradingPreparedSetup,
+    setTradingExecutionQueue,
     setTradingAllowedAssets,
     setTradingAllowedChains,
     setTradingRiskMode,
@@ -14989,7 +15123,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10, alignItems: "end" }}>
                       <div className="formRow">
                         <label>Budget ($)</label>
-                        <input value={tradingBudgetUsd} onChange={(e) => setTradingBudgetUsd(e.target.value)} placeholder="e.g. 100" />
+                        <input value={tradingBudgetUsd} onChange={(e) => setTradingBudgetUsd(e.target.value)} placeholder="e.g. 300" />
+                      </div>
+                      <div className="formRow">
+                        <label>Budget slots</label>
+                        <input
+                          value={tradingBudgetSplitInput}
+                          onChange={(e) => {
+                            setTradingBudgetSplitInput(e.target.value);
+                            setTradingExecutionQueue([]);
+                          }}
+                          placeholder="100,50,50,50,50"
+                          title="Optional: split approved budget into controlled slots"
+                        />
                       </div>
                       <div className="formRow">
                         <label>Runtime (h)</label>
@@ -15102,6 +15248,61 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <input value={tradingMaxTrades} onChange={(e) => setTradingMaxTrades(e.target.value)} placeholder="6" />
                             </div>
                           </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        background: "rgba(0,0,0,.18)",
+                        border: "1px solid rgba(34,197,94,.20)",
+                        display: "grid",
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                        <div className="label" style={{ marginBottom: 0 }}>Trader Queue</div>
+                        <button
+                          type="button"
+                          className="btnGhost"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            refreshTradingQueue();
+                          }}
+                          style={{ height: 26, paddingInline: 9, fontSize: 12 }}
+                        >
+                          Rebuild Queue
+                        </button>
+                      </div>
+                      <div className="muted tiny">
+                        {tradingQueueSummary.queue.length
+                          ? `${tradingQueueSummary.ready.length} ready · ${tradingQueueSummary.wait.length} waiting · ${tradingQueueSummary.blocked.length} blocked · ${fmtUsd(tradingQueueSummary.total)} total`
+                          : "Set budget slots or load a Strategist setup to build the queue."}
+                      </div>
+                      {tradingQueueSummary.queue.length ? (
+                        <div style={{ display: "grid", gap: 6 }}>
+                          {tradingQueueSummary.queue.map((slot) => (
+                            <div
+                              key={slot.id || `${slot.slot}-${slot.amountUsd}`}
+                              style={{
+                                borderRadius: 10,
+                                border: slot.status === "READY" ? "1px solid rgba(34,197,94,.32)" : slot.status === "BLOCKED" ? "1px solid rgba(239,68,68,.25)" : "1px solid rgba(255,255,255,.08)",
+                                background: slot.status === "READY" ? "rgba(34,197,94,.08)" : slot.status === "BLOCKED" ? "rgba(239,68,68,.07)" : "rgba(255,255,255,.035)",
+                                padding: "7px 8px",
+                                display: "grid",
+                                gap: 3,
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                <b style={{ color: "#eafff5" }}>Slot {slot.slot} · {fmtUsd(Number(slot.amountUsd || 0))}</b>
+                                <span className="muted tiny">{slot.status} · priority {Math.round(Number(slot.priority || 0))}</span>
+                              </div>
+                              <div className="muted tiny">{slot.symbol || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition}</div>
+                            </div>
+                          ))}
                         </div>
                       ) : null}
                     </div>

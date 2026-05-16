@@ -9910,12 +9910,25 @@ function detectNexusUserLanguage(text = "") {
 
 function detectNexusUserIntent(text = "") {
   const q = String(text || "").toLowerCase();
-  if (/(günstig|guenstig|billig|teurer|verkaufen|arbitrage|spread|exchange|börse|boerse|wo.*kaufen|wo.*verkaufen)/i.test(q)) return "rotation_spread";
-  if (/(rotation|rotieren|relative|stärke|staerke|weakness|strength)/i.test(q)) return "rotation";
-  if (/(grid|range|seitwärts|seitwaerts)/i.test(q)) return "grid";
-  if (/(trading|autonom|runtime|slot|allocation|budget)/i.test(q)) return "trading";
-  if (/(risiko|risk|fake|manipul|gefährlich|gefaehrlich|überhitzt|ueberhitzt)/i.test(q)) return "risk";
+  // Strict query router: latest user wording decides the Strategist mode.
+  if (/(günstig|guenstig|billig|teurer|verkaufen|arbitrage|spread|exchange|börse|boerse|preisunterschied|premium|discount|wo.*kaufen|wo.*verkaufen|cheaper|buy cheaper|sell higher|where.*buy|where.*sell|higher price)/i.test(q)) return "rotation_spread";
+  if (/(rotation|rotieren|relative|stärke|staerke|weakness|strength|kapitalfluss|capital flow|outperform|underperform)/i.test(q)) return "rotation";
+  if (/(grid|range|seitwärts|seitwaerts|sideways|levels|raster)/i.test(q)) return "grid";
+  if (/(trading|autonom|runtime|slot|allocation|budget|position|vault|execute|execution)/i.test(q)) return "trading";
+  if (/(risiko|risk|fake|manipul|gefährlich|gefaehrlich|danger|überhitzt|ueberhitzt|overheat|trap|liquidität|liquidity)/i.test(q)) return "risk";
+  if (/(report|daily|täglich|taeglich|markt|market|overview|überblick|ueberblick)/i.test(q)) return "market";
   return "general";
+}
+
+function nexusStrategistResponseProfile(intent = "general") {
+  const i = String(intent || "general").toLowerCase();
+  if (i === "rotation_spread") return "ROTATION_SPREAD_ANALYSIS";
+  if (i === "rotation") return "ROTATION_ANALYSIS";
+  if (i === "grid") return "GRID_ANALYSIS";
+  if (i === "trading") return "TRADING_ALLOCATION_ANALYSIS";
+  if (i === "risk") return "RISK_ANALYSIS";
+  if (i === "market") return "MARKET_ANALYSIS";
+  return "GENERAL_MARKET_ANALYSIS";
 }
 
 function aiTaskPlaceholder(kind) {
@@ -10180,6 +10193,9 @@ NEXT CHECK
       ? q
       : `${basePrompt}${responseFormatPrompt}
 
+User intent profile:
+${nexusStrategistResponseProfile(userIntent)}
+
 User task:
 ${q}`;
 
@@ -10303,6 +10319,8 @@ ${aiSignalText}
         user_language: userLang,
         raw_user_question: q,
         user_intent: userIntent,
+        response_profile: nexusStrategistResponseProfile(userIntent),
+        strategist_phase: "phase1_intelligence",
       };
 
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");

@@ -330,6 +330,34 @@ function buildCompactAiInsight({ backendText = "", trendStructure = "", momentum
   return unique.slice(0, 4).join(" ") || "The current structure is mixed and does not show a fully clear edge yet.";
 }
 
+
+const NEXUS_TRADING_INFO = {
+  title: "Nexus Trading Intelligence System",
+  sections: [
+    {
+      title: "Budget System",
+      text: "The trading budget defines the maximum capital the autonomous trader may use. Nexus Trading never exceeds the approved budget."
+    },
+    {
+      title: "Slot System",
+      text: "Slots divide the approved budget into tactical execution units. Each slot can wait, activate or block independently depending on market structure, liquidity and confidence."
+    },
+    {
+      title: "WAIT Status",
+      text: "WAIT means the AI is monitoring the setup and waiting for better confirmation before execution."
+    },
+    {
+      title: "BLOCKED Status",
+      text: "BLOCKED means the current setup quality is not strong enough. The AI intentionally avoids weak or risky entries until conditions improve."
+    },
+    {
+      title: "Autonomous Trading",
+      text: "After budget approval, Nexus Trading works autonomously within the user limits. The system continuously evaluates confidence, liquidity, volatility and tactical risk."
+    },
+  ],
+};
+
+
 const LS_WATCH_REMOVED = "nexus_watch_removed";
 
 function _watchKeyFromItem(it) {
@@ -6296,14 +6324,12 @@ useEffect(() => {
 
       const condition =
         status === "READY"
-          ? "Ready for autonomous execution immediately after budget approval."
-          : status === "ACTIVE"
-            ? "Active autonomous trading slot within the approved session limits."
-            : status === "BLOCKED"
-              ? "Blocked until confidence, liquidity or risk improves."
-              : idx === 1
-                ? "Wait for confirmation that momentum and liquidity remain stable."
-                : "Wait for follow-up confirmation or a cleaner pullback/edge.";
+          ? "Ready after user approval; execution still requires manual/session control."
+          : status === "BLOCKED"
+            ? "Blocked until confidence, liquidity or risk improves."
+            : idx === 1
+              ? "Wait for confirmation that momentum and liquidity remain stable."
+              : "Wait for follow-up confirmation or a cleaner pullback/edge.";
 
       return {
         id: `slot_${idx + 1}_${Date.now()}`,
@@ -15299,17 +15325,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       ) : null}
                     </div>
 
-                    {tradingQueueSummary.queue.length ? (
-                      <div
-                        style={{
-                          padding: "8px 10px",
-                          borderRadius: 12,
-                          background: "rgba(0,0,0,.18)",
-                          border: "1px solid rgba(34,197,94,.20)",
-                          display: "grid",
-                          gap: 8,
-                        }}
-                      >
+                    <div
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        background: "rgba(0,0,0,.18)",
+                        border: "1px solid rgba(34,197,94,.20)",
+                        display: "grid",
+                        gap: 8,
+                      }}
+                    >
+                      
+                      
+                      {tradingQueueSummary.queue.length ? (
                         <div style={{ display: "grid", gap: 6 }}>
                           {tradingQueueSummary.queue.map((slot) => (
                             <div
@@ -15331,8 +15359,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                           ))}
                         </div>
-                      </div>
-                    ) : null}
+                      ) : null}
+                    </div>
 
                     {renderFundingPrompt("TRADING")}
 

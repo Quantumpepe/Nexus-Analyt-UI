@@ -9891,16 +9891,28 @@ function aiTaskPlaceholder(kind) {
     return "Example: Analyze ETH vs BTC relative strength, rotation signals, unusual volume, whale activity, and whether momentum looks healthy or unstable.";
   }
 
-  const aiAnalystSectionMeta = {
-    market_read: { title: "Market Read", sub: "Current structure" },
-    nexus_rotation: { title: "Nexus Rotation", sub: "Momentum / relative strength path" },
-    nexus_grid: { title: "Nexus Grid", sub: "Range / cycle path" },
-    nexus_trading: { title: "Nexus Trading", sub: "Controlled autonomous execution path" },
-    exchange_spread: { title: "Exchange / Spread", sub: "Price difference context" },
-    risk_context: { title: "Risk Context", sub: "What can go wrong" },
-    tactical_take: { title: "Tactical Take", sub: "Indirect next steps" },
-    next_check: { title: "Next Check", sub: "What to monitor" },
-    output: { title: "Antwort", sub: "Nexus Strategist" },
+  const detectStrategistLanguageText = (value = "") => {
+    const s = String(value || "").toLowerCase();
+    const deHits = (s.match(/\b(der|die|das|und|oder|welche|welcher|welches|günstig|guenstig|teuer|teurer|kaufen|verkaufen|börse|boerse|risiko|markt|rotation|nächste|naechste|prüfung|pruefung|einschätzung|einschaetzung)\b/g) || []).length;
+    const enHits = (s.match(/\b(which|what|where|cheap|cheaper|expensive|buy|sell|exchange|spread|risk|market|next|check|direct|read)\b/g) || []).length;
+    return deHits >= Math.max(2, enHits) ? "de" : "en";
+  };
+
+  const getAiAnalystSectionMeta = (key, lang = "en") => {
+    const de = lang === "de";
+    const meta = {
+      direct_read: de ? { title: "Direkte Einschätzung", sub: "Kurzfazit" } : { title: "Direct Read", sub: "Quick conclusion" },
+      market_read: de ? { title: "Marktlage", sub: "Aktuelle Struktur" } : { title: "Market Read", sub: "Current structure" },
+      nexus_rotation: de ? { title: "Rotation / relativer Wert", sub: "Stärke- und Spread-Kontext" } : { title: "Rotation / Relative Value", sub: "Strength and spread context" },
+      nexus_grid: de ? { title: "Nexus Grid", sub: "Range / Zyklus" } : { title: "Nexus Grid", sub: "Range / cycle path" },
+      nexus_trading: de ? { title: "Nexus Trading", sub: "Kontrollierte autonome Ausführung" } : { title: "Nexus Trading", sub: "Controlled autonomous execution" },
+      exchange_spread: de ? { title: "Börsen / Spread", sub: "Preisunterschiede" } : { title: "Exchange / Spread", sub: "Price difference context" },
+      risk_context: de ? { title: "Risikokontext", sub: "Was kippen kann" } : { title: "Risk Context", sub: "What can go wrong" },
+      tactical_take: de ? { title: "Taktische Einordnung", sub: "Indirekte nächste Schritte" } : { title: "Tactical Take", sub: "Indirect next steps" },
+      next_check: de ? { title: "Nächste Prüfung", sub: "Was zu beobachten ist" } : { title: "Next Check", sub: "What to monitor" },
+      output: de ? { title: "Antwort", sub: "Nexus Strategist" } : { title: "Answer", sub: "Nexus Strategist" },
+    };
+    return meta[key] || meta.output;
   };
 
   const strategistActionReady = useCallback((section) => {
@@ -9910,8 +9922,10 @@ function aiTaskPlaceholder(kind) {
 
     // Buttons are shown only when the Strategist explicitly prepared an actionable setup.
     // This prevents generic research/rotation questions from showing misleading "Use in Trading" buttons.
-    if (/(?:Action Ready|Aktion bereit|Vorbereitet|Prepare Action|Prepared Action)\s*[:：]\s*(?:YES|JA|TRUE|1)/i.test(body)) return true;
-    if (/(?:Use in Grid|Use in Rotation|Use in Trading|In Grid nutzen|In Rotation nutzen|In Trading nutzen)/i.test(body)) return true;
+    const readyRe = new RegExp("\\b(?:Action Ready|Aktion bereit|Vorbereitet|Prepare Action|Prepared Action)\\s*[:：]\\s*(?:YES|JA|TRUE|1)\\b", "i");
+    const explicitUseRe = new RegExp("\\b(?:Use in Grid|Use in Rotation|Use in Trading|In Grid nutzen|In Rotation nutzen|In Trading nutzen)\\b", "i");
+    if (readyRe.test(body)) return true;
+    if (explicitUseRe.test(body)) return true;
     return false;
   }, []);
 
@@ -9920,6 +9934,11 @@ function aiTaskPlaceholder(kind) {
     if (!source) return [];
 
     const headingMap = {
+      "DIREKTE EINSCHÄTZUNG": "direct_read",
+      "DIREKTE EINSCHAETZUNG": "direct_read",
+      "DIRECT READ": "direct_read",
+      "KURZFAZIT": "direct_read",
+      "QUICK CONCLUSION": "direct_read",
       "MARKET READ": "market_read",
       "MARKTLAGE": "market_read",
       "MARKTLESUNG": "market_read",
@@ -9978,11 +9997,12 @@ function aiTaskPlaceholder(kind) {
       return [{ key: "output", body: source }];
     }
 
-    const order = ["market_read", "nexus_rotation", "nexus_grid", "nexus_trading", "risk_context", "tactical_take", "next_check", "output"];
+    const order = ["direct_read", "market_read", "nexus_rotation", "exchange_spread", "nexus_grid", "nexus_trading", "risk_context", "tactical_take", "next_check", "output"];
     return sections.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
   }, []);
 
   const aiOutputSections = useMemo(() => parseAiAnalystOutput(aiOutput), [aiOutput, parseAiAnalystOutput]);
+  const strategistOutputLang = useMemo(() => detectStrategistLanguageText(aiOutput || aiQuestion || ""), [aiOutput, aiQuestion]);
   const strategistCompactInput = !!aiOutput && !aiLoading;
 
 
@@ -10018,7 +10038,7 @@ Dynamic Nexus Strategist response rules:
 - Only when the data is strong enough to prepare a Grid, Rotation, or Trading setup, include the matching card and this exact marker inside that card: Action Ready: YES. German is allowed: Aktion bereit: JA.
 - If Action Ready is not present, the UI will not show a button.
 - Keep it compact: usually one direct answer plus 1-3 short sections/cards.
-- Use the same language as the user for all headings and text.
+- Use the same language as the user for ALL headings, card titles, subtitles, body text, and labels. Never mix German titles with English content or English titles with German content.
 - No direct financial advice and no direct buy/sell commands.
 - If Nexus Trading is genuinely relevant, include the compact machine-readable lines for setup preparation:
   Trading Suitability: LOW | MEDIUM | HIGH
@@ -16117,7 +16137,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {aiOutput ? (
                   <div style={{ display: "grid", gap: 8 }}>
                     {aiOutputSections.map((section, idx) => {
-                      const meta = aiAnalystSectionMeta[section.key] || aiAnalystSectionMeta.output;
+                      const meta = getAiAnalystSectionMeta(section.key, strategistOutputLang);
                       return (
                         <div
                           key={`${section.key}-${idx}`}
@@ -16149,10 +16169,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   if (section.key === "nexus_rotation") applyStrategistToRotation(section.body);
                                   if (section.key === "nexus_trading") applyStrategistToTrading(section.body);
                                 }}
-                                title={section.key === "nexus_grid" ? "Prepare this idea in Nexus Grid. This does not create an order." : section.key === "nexus_trading" ? "Prepare this idea in Nexus Trading. This does not activate automation." : "Prepare this idea in Nexus Rotation. This does not execute a swap."}
+                                title={
+                                  strategistOutputLang === "de"
+                                    ? (section.key === "nexus_grid" ? "Diese Idee in Nexus Grid vorbereiten. Es wird keine Order erstellt." : section.key === "nexus_trading" ? "Diese Idee in Nexus Trading vorbereiten. Automation wird nicht aktiviert." : "Diese Idee in Nexus Rotation vorbereiten. Es wird kein Swap ausgeführt.")
+                                    : (section.key === "nexus_grid" ? "Prepare this idea in Nexus Grid. This does not create an order." : section.key === "nexus_trading" ? "Prepare this idea in Nexus Trading. This does not activate automation." : "Prepare this idea in Nexus Rotation. This does not execute a swap.")
+                                }
                                 style={{ height: 28, paddingInline: 10, fontSize: 12 }}
                               >
-                                {section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Rotation"}
+                                {strategistOutputLang === "de"
+                                  ? (section.key === "nexus_grid" ? "In Grid nutzen" : section.key === "nexus_trading" ? "In Trading nutzen" : "In Rotation nutzen")
+                                  : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Rotation")}
                               </button>
                             </div>
                           ) : null}

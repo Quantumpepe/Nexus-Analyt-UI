@@ -9881,43 +9881,6 @@ if (data?.cached != null) setWatchCached(Boolean(data.cached));
 
     return `${headTitle}\n${bullets.join("\n")}\n\n${filtered.join("\n")}`.trim();
   };
-
-function detectNexusUserLanguage(text = "") {
-  const raw = String(text || "");
-  const q = ` ${raw.toLowerCase()} `;
-  if (/[А-Яа-яЁё]/.test(raw)) return "ru";
-  if (/[أ-ي]/.test(raw)) return "ar";
-  if (/[ぁ-んァ-ン一-龯]/.test(raw)) return "ja";
-  if (/[가-힣]/.test(raw)) return "ko";
-  const lexicons = {
-    de: [" der ", " die ", " das ", " und ", " oder ", " welche", " welcher", " welches", "wieso", "warum", "kaufen", "verkaufen", "teurer", "günstig", "guenstig", "börse", "boerse", "bitte", "mache", "zeige", "suche", " wo ", " wie ", " ist ", " sind "],
-    en: [" the ", " and ", " or ", " which", " what", " why", " buy", " sell", " cheaper", " expensive", " show", " find", " where ", " how ", " is ", " are "],
-    fr: [" le ", " la ", " les ", " et ", " ou ", " quel", " quelle", " acheter", " vendre", " moins cher", " plus cher", " pourquoi", " comment"],
-    es: [" el ", " la ", " los ", " las ", " y ", " o ", " cuál", " cual", " comprar", " vender", " barato", " caro", " donde", " dónde"],
-    it: [" il ", " la ", " gli ", " le ", " e ", " o ", " quale", " comprare", " vendere", " economico", " caro", " dove"],
-    pt: [" o ", " a ", " os ", " as ", " e ", " ou ", " qual", " comprar", " vender", " barato", " caro", " onde"],
-    tr: [" ve ", " veya ", " hangi", " nerede", " almak", " satmak", " ucuz", " pahalı", " pahali"],
-    nl: [" de ", " het ", " en ", " of ", " welke", " kopen", " verkopen", " goedkoper", " duurder", " waar"],
-  };
-  let best = "en";
-  let bestScore = 0;
-  Object.entries(lexicons).forEach(([lang, words]) => {
-    const score = words.reduce((n, w) => n + (q.includes(w) ? 1 : 0), 0);
-    if (score > bestScore) { best = lang; bestScore = score; }
-  });
-  return bestScore > 0 ? best : "en";
-}
-
-function detectNexusUserIntent(text = "") {
-  const q = String(text || "").toLowerCase();
-  if (/(günstig|guenstig|billig|teurer|verkaufen|arbitrage|spread|exchange|börse|boerse|wo.*kaufen|wo.*verkaufen)/i.test(q)) return "rotation_spread";
-  if (/(rotation|rotieren|relative|stärke|staerke|weakness|strength)/i.test(q)) return "rotation";
-  if (/(grid|range|seitwärts|seitwaerts)/i.test(q)) return "grid";
-  if (/(trading|autonom|runtime|slot|allocation|budget)/i.test(q)) return "trading";
-  if (/(risiko|risk|fake|manipul|gefährlich|gefaehrlich|überhitzt|ueberhitzt)/i.test(q)) return "risk";
-  return "general";
-}
-
 function aiTaskPlaceholder(kind) {
     const k = String(kind || "");
     if (k === "strategy_builder") return "Example: Build a low-risk ETH breakout strategy using RVOL confirmation, EMA trend filter, clear invalidation rules, and alert logic.";
@@ -9928,45 +9891,77 @@ function aiTaskPlaceholder(kind) {
     return "Example: Analyze ETH vs BTC relative strength, rotation signals, unusual volume, whale activity, and whether momentum looks healthy or unstable.";
   }
 
-  const aiAnalystSectionMeta = {
-    direct_view: { title: "Direkte Einschätzung", sub: "Nexus Strategist" },
-    exchange_spread: { title: "Exchange / Spread", sub: "Preisunterschiede" },
-    market_read: { title: "Marktlage", sub: "Aktuelle Struktur" },
-    nexus_rotation: { title: "Nexus Rotation", sub: "Relative Stärke / Rotation" },
-    nexus_grid: { title: "Nexus Grid", sub: "Range / Zyklus" },
-    nexus_trading: { title: "Nexus Trading", sub: "Kontrollierte autonome Ausführung" },
-    risk_context: { title: "Risikokontext", sub: "Was kippen kann" },
-    tactical_take: { title: "Taktische Einordnung", sub: "Indirekte nächste Schritte" },
-    next_check: { title: "Nächste Prüfung", sub: "Was zu beobachten ist" },
-    output: { title: "Antwort", sub: "Nexus Strategist" },
+  const detectStrategistLanguageText = (value = "") => {
+    const s = String(value || "").toLowerCase();
+    const deHits = (s.match(/\b(der|die|das|und|oder|welche|welcher|welches|günstig|guenstig|teuer|teurer|kaufen|verkaufen|börse|boerse|risiko|markt|rotation|nächste|naechste|prüfung|pruefung|einschätzung|einschaetzung)\b/g) || []).length;
+    const enHits = (s.match(/\b(which|what|where|cheap|cheaper|expensive|buy|sell|exchange|spread|risk|market|next|check|direct|read)\b/g) || []).length;
+    return deHits >= Math.max(2, enHits) ? "de" : "en";
   };
+
+  const getAiAnalystSectionMeta = (key, lang = "en") => {
+    const de = lang === "de";
+    const meta = {
+      direct_read: de ? { title: "Direkte Einschätzung", sub: "Kurzfazit" } : { title: "Direct Read", sub: "Quick conclusion" },
+      market_read: de ? { title: "Marktlage", sub: "Aktuelle Struktur" } : { title: "Market Read", sub: "Current structure" },
+      nexus_rotation: de ? { title: "Rotation / relativer Wert", sub: "Stärke- und Spread-Kontext" } : { title: "Rotation / Relative Value", sub: "Strength and spread context" },
+      nexus_grid: de ? { title: "Nexus Grid", sub: "Range / Zyklus" } : { title: "Nexus Grid", sub: "Range / cycle path" },
+      nexus_trading: de ? { title: "Nexus Trading", sub: "Kontrollierte autonome Ausführung" } : { title: "Nexus Trading", sub: "Controlled autonomous execution" },
+      exchange_spread: de ? { title: "Börsen / Spread", sub: "Preisunterschiede" } : { title: "Exchange / Spread", sub: "Price difference context" },
+      risk_context: de ? { title: "Risikokontext", sub: "Was kippen kann" } : { title: "Risk Context", sub: "What can go wrong" },
+      tactical_take: de ? { title: "Taktische Einordnung", sub: "Indirekte nächste Schritte" } : { title: "Tactical Take", sub: "Indirect next steps" },
+      next_check: de ? { title: "Nächste Prüfung", sub: "Was zu beobachten ist" } : { title: "Next Check", sub: "What to monitor" },
+      output: de ? { title: "Antwort", sub: "Nexus Strategist" } : { title: "Answer", sub: "Nexus Strategist" },
+    };
+    return meta[key] || meta.output;
+  };
+
+  const strategistActionReady = useCallback((section) => {
+    const key = String(section?.key || "");
+    const body = String(section?.body || "");
+    if (!["nexus_grid", "nexus_rotation", "nexus_trading"].includes(key)) return false;
+
+    // Buttons are shown only when the Strategist explicitly prepared an actionable setup.
+    // This prevents generic research/rotation questions from showing misleading "Use in Trading" buttons.
+    const readyRe = new RegExp("\\b(?:Action Ready|Aktion bereit|Vorbereitet|Prepare Action|Prepared Action)\\s*[:：]\\s*(?:YES|JA|TRUE|1)\\b", "i");
+    const explicitUseRe = new RegExp("\\b(?:Use in Grid|Use in Rotation|Use in Trading|In Grid nutzen|In Rotation nutzen|In Trading nutzen)\\b", "i");
+    if (readyRe.test(body)) return true;
+    if (explicitUseRe.test(body)) return true;
+    return false;
+  }, []);
 
   const parseAiAnalystOutput = useCallback((raw) => {
     const source = String(raw || "").trim();
     if (!source) return [];
 
     const headingMap = {
-      "DIRECT VIEW": "direct_view",
-      "DIREKTE EINSCHÄTZUNG": "direct_view",
-      "DIREKTE EINSCHAETZUNG": "direct_view",
-      "ANSWER": "output",
-      "ANTWORT": "output",
-      "EXCHANGE / SPREAD": "exchange_spread",
-      "BÖRSE / SPREAD": "exchange_spread",
-      "BOERSE / SPREAD": "exchange_spread",
+      "DIREKTE EINSCHÄTZUNG": "direct_read",
+      "DIREKTE EINSCHAETZUNG": "direct_read",
+      "DIRECT READ": "direct_read",
+      "KURZFAZIT": "direct_read",
+      "QUICK CONCLUSION": "direct_read",
       "MARKET READ": "market_read",
       "MARKTLAGE": "market_read",
+      "MARKTLESUNG": "market_read",
       "NEXUS ROTATION": "nexus_rotation",
+      "ROTATION": "nexus_rotation",
       "ROTATION / RELATIVER WERT": "nexus_rotation",
+      "RELATIVER WERT": "nexus_rotation",
       "NEXUS GRID": "nexus_grid",
+      "GRID": "nexus_grid",
       "NEXUS TRADING": "nexus_trading",
-      "RISK CONTEXT": "risk_context",
+      "TRADING": "nexus_trading",
+      "EXCHANGE / SPREAD": "exchange_spread",
+      "BÖRSEN / SPREAD": "exchange_spread",
+      "BOERSEN / SPREAD": "exchange_spread",
+      "BÖRSENVERGLEICH": "exchange_spread",
+      "BOERSENVERGLEICH": "exchange_spread",
       "RISIKOKONTEXT": "risk_context",
-      "TACTICAL TAKE": "tactical_take",
+      "RISK CONTEXT": "risk_context",
       "TAKTISCHE EINORDNUNG": "tactical_take",
-      "NEXT CHECK": "next_check",
+      "TACTICAL TAKE": "tactical_take",
       "NÄCHSTE PRÜFUNG": "next_check",
       "NAECHSTE PRUEFUNG": "next_check",
+      "NEXT CHECK": "next_check",
     };
 
     const lines = source.split(/\r?\n/);
@@ -10002,11 +9997,12 @@ function aiTaskPlaceholder(kind) {
       return [{ key: "output", body: source }];
     }
 
-    const order = ["direct_view", "exchange_spread", "market_read", "nexus_rotation", "nexus_grid", "nexus_trading", "risk_context", "tactical_take", "next_check", "output"];
+    const order = ["direct_read", "market_read", "nexus_rotation", "exchange_spread", "nexus_grid", "nexus_trading", "risk_context", "tactical_take", "next_check", "output"];
     return sections.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
   }, []);
 
   const aiOutputSections = useMemo(() => parseAiAnalystOutput(aiOutput), [aiOutput, parseAiAnalystOutput]);
+  const strategistOutputLang = useMemo(() => detectStrategistLanguageText(aiOutput || aiQuestion || ""), [aiOutput, aiQuestion]);
   const strategistCompactInput = !!aiOutput && !aiLoading;
 
 
@@ -10016,70 +10012,47 @@ async function runAi() {
     if (!requirePro("Nexus Strategist")) return;
     const q = (aiQuestion || "").trim();
     if (!q) return setErrorMsg("Please describe what the Nexus Strategist should do.");
-    const userLang = detectNexusUserLanguage(q);
-    const isGermanAsk = userLang === "de";
-    const isEnglishAsk = userLang === "en";
-    const userIntent = detectNexusUserIntent(q);
 
     // Compare/watchlist data may still be useful as hidden context for Research and Daily Report,
     // but coin chips are no longer shown in the AI Analyst UI.
     const syms = aiUsesCompareContext ? (compareSymbols || []) : [];
 
     const isFollowUpAsk = !!aiFollowUp && !!aiOutput;
-    const aiKindPrompts = isGermanAsk ? {
-      research: `Arbeite als Nexus Strategist. Verstehe die Nutzerfrage zuerst, erkenne den passenden Marktmodus und antworte direkt. Nutze Rotation, relative Stärke, Spread, Volumen, Marktstruktur und Exchange-Kontext nur wenn relevant. Keine internen Module erwähnen.`,
-      strategy_builder: `Arbeite als Nexus Strategist und Strategy Builder. Übersetze die Idee in eine verständliche, nicht-anweisende Strategie-Logik. Wenn der Nutzer nach günstig kaufen / teurer verkaufen / Rotation fragt, behandle es als Rotation-/Spread-Analyse und nicht als allgemeinen Trading-Report.`,
-      backtest_review: `Arbeite als Backtest-Prüfer. Bewerte Robustheit, Drawdown, Marktphasen und Schwachstellen.`,
-      pine_tradingview: `Arbeite als TradingView/Pine-Assistent. Hilf mit Pine Script, Logik und Alerts.`,
-      daily_report: `Erstelle einen kompakten Tagesbericht mit stärksten/schwächsten Assets, Risiko, Rotation und Beobachtungspunkten.`,
-      diagnostics: `Arbeite als Trading-Diagnostiker. Erkläre Risiko, Ausführungsqualität und Schwachstellen ruhig und nicht-befehlend.`,
-    } : {
-      research: `Act as Nexus Strategist. Understand the user's intent first, choose the correct market mode, and answer directly. Use rotation, relative strength, spread, volume, market structure, and exchange context only when relevant. Never mention internal modules.`,
-      strategy_builder: `Act as Nexus Strategist and strategy builder. Translate the idea into clear non-prescriptive strategy logic. If the user asks about buying cheaper / selling higher / rotation, treat it as rotation/spread analysis, not as a generic trading report.`,
-      backtest_review: `Act as a backtest reviewer. Evaluate robustness, drawdown, regimes and weak points.`,
-      pine_tradingview: `Act as a TradingView/Pine assistant. Help with Pine Script, logic and alerts.`,
-      daily_report: `Create a compact daily report with strongest/weakest assets, risk, rotation and watch points.`,
-      diagnostics: `Act as a trading diagnostics analyst. Explain risk, execution quality and weak points calmly and non-prescriptively.`,
+    const aiKindPrompts = {
+      research: `Act as a ${aiProfile} research analyst. Identify rotation, relative strength, watchlist changes, unusual volume/momentum conditions, and market themes. Do not repeat AI Insight; focus on discovery and research conclusions.`,
+      strategy_builder: `Act as a ${aiProfile} strategy builder. Convert the user's idea into educational strategy logic: setup idea, filters, entries/exits as rules only, risk logic, invalidation conditions, and alert structure. Do not give direct financial advice or exact price levels.`,
+      backtest_review: `Act as a ${aiProfile} backtest reviewer. Evaluate strategy robustness, drawdown behavior, regime dependency, overfitting risk, expectancy quality, and where the strategy may fail.`,
+      pine_tradingview: `Act as a TradingView and Pine Script assistant. Help create, explain, debug, or improve Pine Script indicators/strategies and alert logic based on the user's task. Keep it educational and non-prescriptive.`,
+      daily_report: `Act as a ${aiProfile} daily trading report analyst. Summarize strongest/weakest Compare assets, risk conditions, movement candidates, market themes, and what deserves attention next. Do not repeat AI Insight; produce a practical report.`,
+      diagnostics: `Act as a ${aiProfile} trading diagnostics analyst. Diagnose behavioral risk, execution fit, volatility tolerance, weak setups, and common mistakes using only the provided context. Keep it coaching-style, not command-style.`,
     };
 
-    const responseFormatPrompt = isGermanAsk ? `
+    const responseFormatPrompt = `
 
-SPRACHE:
-- Antworte vollständig auf Deutsch.
-- Keine englischen Überschriften, keine englischen Bulletpoints, keine englischen Begriffe außer etablierten Produktnamen wie Nexus Trading oder Exchange.
-- Wenn die Nutzereingabe deutsch ist, muss die komplette Ausgabe deutsch sein.
-
-Antwortprofil:
-- Nutze nur die Blöcke, die zur Frage passen.
-- Wenn die Frage nach Rotation, günstig kaufen, teurer verkaufen, Spread, Börsen oder Arbitrage klingt, nutze bevorzugt:
-DIREKTE EINSCHÄTZUNG
-ROTATION / RELATIVER WERT
-EXCHANGE / SPREAD
-RISIKOKONTEXT
-NÄCHSTE PRÜFUNG
-- Bei dieser Frage KEIN Nexus Trading, KEIN Grid und KEIN kompletter Multi-Report, außer der Nutzer fragt ausdrücklich danach.
-- Beginne mit einer klaren Antwort: Vorteil vorhanden / kein sauberer Vorteil / nur beobachten.
-- Nutze konkrete Prozentwerte nur, wenn sie im Kontext vorhanden sind.
-- Erfinde keine Börsen, Preise oder Spreads.
-- Keine direkten Kauf-/Verkaufsbefehle.` : `
-
-LANGUAGE:
-- Answer fully in English.
-- Do not use German headings or German bullet text.
-
-Response profile:
-- Use only the blocks that match the question.
-- If the question is about rotation, buying cheaper, selling higher, spread, exchanges, or arbitrage, prefer:
-DIRECT VIEW
-ROTATION / RELATIVE VALUE
-EXCHANGE / SPREAD
-RISK CONTEXT
-NEXT CHECK
-- For this question do NOT output Nexus Trading, Grid, or a full multi-report unless the user explicitly asks for it.
-- Start with a clear answer: edge present / no clean edge / watch only.
-- Use concrete percentages only when they exist in context.
-- Do not invent exchanges, prices, or spreads.
-- No direct buy/sell commands.`;
+Dynamic Nexus Strategist response rules:
+- First detect the user's real intent. Do not treat every task as Nexus Trading.
+- If the user asks where a coin is cheaper/more expensive, where to buy cheaper/sell higher, exchange differences, spread, arbitrage, or rotation value, answer primarily as Relative Value / Exchange-Spread / Rotation analysis.
+- For relative value / exchange questions, start with the direct conclusion. Use only relevant cards such as Rotation or Exchange / Spread. Do NOT output Nexus Trading unless the user explicitly asks for autonomous trading, Trader, budget, runtime, or execution setup.
+- For general research, answer naturally and only use headings that help. Do not force MARKET READ / NEXUS ROTATION / NEXUS GRID / NEXUS TRADING.
+- If the answer is only explanation or research, do not create action cards and do not include Action Ready.
+- Only when the data is strong enough to prepare a Grid, Rotation, or Trading setup, include the matching card and this exact marker inside that card: Action Ready: YES. German is allowed: Aktion bereit: JA.
+- If Action Ready is not present, the UI will not show a button.
+- Keep it compact: usually one direct answer plus 1-3 short sections/cards.
+- Use the same language as the user for ALL headings, card titles, subtitles, body text, and labels. Never mix German titles with English content or English titles with German content.
+- No direct financial advice and no direct buy/sell commands.
+- If Nexus Trading is genuinely relevant, include the compact machine-readable lines for setup preparation:
+  Trading Suitability: LOW | MEDIUM | HIGH
+  Recommended Risk Mode: DEFENSIVE | BALANCED | DYNAMIC
+  Tactical Style: TACTICAL | MOMENTUM | ACCUMULATION | ROTATION | RANGE
+  Runtime: number of hours
+  Max Trades: number
+  Max Slippage: percent
+  Caution Drawdown: percent
+  Hard Stop: percent
+  Profit Lock: percent
+  Allowed Assets: comma-separated symbols
+  Allowed Chains: POL, BNB, ETH as applicable
+  Invalidation: short condition that breaks the setup`;
 
     const basePrompt = aiKindPrompts[aiKind] || `Provide a ${aiProfile} analyst response based on the current task, timeframe, and available context.`;
     const qFinal = isFollowUpAsk
@@ -10138,59 +10111,16 @@ ${q}`;
         .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
         .join("\n");
 
-      const header = isGermanAsk
-        ? (`USER_LANGUAGE: de
-USER_INTENT: ${userIntent}
-` +
-          `UI-Zeitraum: ${uiTf}.
-` +
-          `Aktiver Analysezeitraum: ${tf}.
-` +
-          (explicitTf
-            ? `Der Nutzer hat ausdrücklich ${explicitTf} gefragt; das überschreibt den UI-Zeitraum.
-`
-            : `Kein expliziter Zeitraum in der Nutzerfrage; nutze den aktuellen UI-Zeitraum.
-`) +
-          (syms.length ? `Verdeckter Markt-Kontext Symbole: ${syms.join(", ")}
-` : "Keine sichtbaren Coins gewählt; nutze den verdeckten Watchlist-/Compare-Kontext.
-") +
-          (statsText ? `Serienstatistik (${tf}):
-${statsText}
-` : "") +
-          (insightText ? `
-Multi-Zeitraum-Marktkontext für Nexus Strategist:
-${insightText}
-` : "") +
-          (aiSignalText ? `
-Verdeckter Markt-, Rating-, Community-, Marktphasen-, On-chain-, Rotation- und Pair-Kontext. Nutze ihn still, liste ihn nicht mechanisch und erwähne keine internen Module:
-${aiSignalText}
-` : ""))
-        : (`USER_LANGUAGE: en
-USER_INTENT: ${userIntent}
-` +
-          `UI timeframe: ${uiTf}.
-` +
-          `Active analysis timeframe: ${tf}.
-` +
-          (explicitTf
-            ? `The user explicitly asked for ${explicitTf}, so this overrides the current UI timeframe.
-`
-            : `No explicit timeframe was found in the user's question, so use the current UI timeframe.
-`) +
-          (syms.length ? `Hidden market context symbols: ${syms.join(", ")}
-` : "No visible coin scope selected; use hidden watchlist/compare context.
-") +
-          (statsText ? `Series stats (${tf}):
-${statsText}
-` : "") +
-          (insightText ? `
-Multi-timeframe market context for Nexus Strategist:
-${insightText}
-` : "") +
-          (aiSignalText ? `
-Hidden market, rating, community, market-condition, on-chain, rotation and pair context for Nexus Strategist. Use it silently when relevant; do not list it mechanically and do not mention internal modules:
-${aiSignalText}
-` : ""));
+      const header =
+        `UI timeframe: ${uiTf}.\n` +
+        `Active analysis timeframe: ${tf}.\n` +
+        (explicitTf
+          ? `The user explicitly asked for ${explicitTf}, so this overrides the current UI timeframe.\n`
+          : `No explicit timeframe was found in the user's question, so use the current UI timeframe.\n`) +
+        (syms.length ? `Hidden market context symbols: ${syms.join(", ")}\n` : "No visible coin scope selected; this is a task-based AI Analyst request.\n") +
+        (statsText ? `Series stats (${tf}):\n${statsText}\n` : "") +
+        (insightText ? `\nMulti-timeframe market context for Nexus Strategist:\n${insightText}\n` : "") +
+        (aiSignalText ? `\nHidden market, rating, community, market-condition, on-chain, rotation and pair context for Nexus Strategist. Use it silently when relevant; do not list it mechanically and do not mention internal modules:\n${aiSignalText}\n` : "");
 
       const questionText =
         isFollowUpAsk && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;
@@ -10208,9 +10138,6 @@ ${aiSignalText}
         series_stats: seriesStats,
         insight_windows: insightWindows,
         ai_signal_context: aiSignalContext,
-        user_language: userLang,
-        raw_user_question: q,
-        user_intent: userIntent,
       };
 
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
@@ -16210,7 +16137,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {aiOutput ? (
                   <div style={{ display: "grid", gap: 8 }}>
                     {aiOutputSections.map((section, idx) => {
-                      const meta = aiAnalystSectionMeta[section.key] || aiAnalystSectionMeta.output;
+                      const meta = getAiAnalystSectionMeta(section.key, strategistOutputLang);
                       return (
                         <div
                           key={`${section.key}-${idx}`}
@@ -16230,7 +16157,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.28 }}>
                             {section.body}
                           </div>
-                          {section.key === "nexus_grid" || section.key === "nexus_rotation" || section.key === "nexus_trading" ? (
+                          {strategistActionReady(section) ? (
                             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
                               <button
                                 className="btn"
@@ -16242,10 +16169,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   if (section.key === "nexus_rotation") applyStrategistToRotation(section.body);
                                   if (section.key === "nexus_trading") applyStrategistToTrading(section.body);
                                 }}
-                                title={section.key === "nexus_grid" ? "Prepare this idea in Nexus Grid. This does not create an order." : section.key === "nexus_trading" ? "Prepare this idea in Nexus Trading. This does not activate automation." : "Prepare this idea in Nexus Rotation. This does not execute a swap."}
+                                title={
+                                  strategistOutputLang === "de"
+                                    ? (section.key === "nexus_grid" ? "Diese Idee in Nexus Grid vorbereiten. Es wird keine Order erstellt." : section.key === "nexus_trading" ? "Diese Idee in Nexus Trading vorbereiten. Automation wird nicht aktiviert." : "Diese Idee in Nexus Rotation vorbereiten. Es wird kein Swap ausgeführt.")
+                                    : (section.key === "nexus_grid" ? "Prepare this idea in Nexus Grid. This does not create an order." : section.key === "nexus_trading" ? "Prepare this idea in Nexus Trading. This does not activate automation." : "Prepare this idea in Nexus Rotation. This does not execute a swap.")
+                                }
                                 style={{ height: 28, paddingInline: 10, fontSize: 12 }}
                               >
-                                {section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Rotation"}
+                                {strategistOutputLang === "de"
+                                  ? (section.key === "nexus_grid" ? "In Grid nutzen" : section.key === "nexus_trading" ? "In Trading nutzen" : "In Rotation nutzen")
+                                  : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Rotation")}
                               </button>
                             </div>
                           ) : null}

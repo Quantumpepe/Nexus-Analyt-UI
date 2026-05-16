@@ -9934,9 +9934,18 @@ function nexusStrategistResponseProfile(intent = "general") {
 function nexusStrategistCanShowAction(section, userIntent = "general") {
   const key = String(section?.key || "");
   const body = String(section?.body || "").toLowerCase();
-  if (!["nexus_grid", "nexus_rotation", "nexus_trading"].includes(key)) return false;
-  if (/(watch only|nur beobachten|kein sauberer vorteil|no clean edge|nicht bestätigt|not confirmed|risk only|zu riskant)/i.test(body)) return false;
+  const allowedKeys = ["nexus_grid", "nexus_rotation", "nexus_trading", "exchange_spread"];
+  if (!allowedKeys.includes(key)) return false;
+  if (/(watch only|nur beobachten|kein sauberer vorteil|no clean edge|nicht bestätigt|not confirmed|risk only|zu riskant|not cleanly confirmed|nicht sauber bestätigt)/i.test(body)) return false;
+
   const intent = String(userIntent || "general").toLowerCase();
+
+  // Exchange/Spread is an input source for Rotation, but only for spread/buy-sell questions.
+  if (key === "exchange_spread") {
+    if (!["rotation_spread", "rotation"].includes(intent)) return false;
+    return /(kaufen\s*\/\s*verkaufen|buy\s*\/\s*sell|günstiger kaufen|teurer verkaufen|cheaper buy|higher sell|cheapest|highest|spread|premium|differenz|difference|exchange|börse|boerse)/i.test(body);
+  }
+
   if (intent === "rotation_spread" && key !== "nexus_rotation") return false;
   if (intent === "grid" && key !== "nexus_grid") return false;
   if (intent === "trading" && key !== "nexus_trading") return false;
@@ -10072,6 +10081,8 @@ function aiTaskPlaceholder(kind) {
       "ANSWER": "output",
       "ANTWORT": "output",
       "EXCHANGE / SPREAD": "exchange_spread",
+      "BUY / SELL": "exchange_spread",
+      "KAUFEN / VERKAUFEN": "exchange_spread",
       "BÖRSE / SPREAD": "exchange_spread",
       "BOERSE / SPREAD": "exchange_spread",
       "MARKET READ": "market_read",
@@ -10182,7 +10193,8 @@ NÄCHSTE PRÜFUNG
 - Nutze konkrete Prozentwerte nur, wenn sie im Kontext vorhanden sind.
 - Erfinde keine Börsen, Preise oder Spreads.
 - Keine direkten Kauf-/Verkaufsbefehle.
-- Verstehe normale Sprache: "wo besser", "lohnt sich das", "ist das echt", "wo mehr gehandelt" und übersetze es intern in Spread/Rotation/Liquidität/Risiko.` : `
+- Verstehe normale Sprache: "wo besser", "lohnt sich das", "ist das echt", "wo mehr gehandelt" und übersetze es intern in Spread/Rotation/Liquidität/Risiko.
+- Bei "wo kaufen/wo verkaufen" zuerst Coin + günstige Börse + teurere Börse nennen. Paare nur als Zusatz verwenden.` : `
 
 LANGUAGE:
 - Answer fully in English.
@@ -10201,7 +10213,8 @@ NEXT CHECK
 - Use concrete percentages only when they exist in context.
 - Do not invent exchanges, prices, or spreads.
 - No direct buy/sell commands.
-- Understand casual wording: "where is better", "is it worth it", "is this real", "where is it traded more" and map it internally to spread/rotation/liquidity/risk.`;
+- Understand casual wording: "where is better", "is it worth it", "is this real", "where is it traded more" and map it internally to spread/rotation/liquidity/risk.
+- For "where to buy/where to sell" questions, name coin + cheaper exchange + higher exchange first. Use pairs only as support.`;
 
     const basePrompt = aiKindPrompts[aiKind] || `Provide a ${aiProfile} analyst response based on the current task, timeframe, and available context.`;
     const qFinal = isFollowUpAsk
@@ -16375,7 +16388,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
                                   if (section.key === "nexus_grid") applyStrategistToGrid(section.body);
-                                  if (section.key === "nexus_rotation") applyStrategistToRotation(section.body);
+                                  if (section.key === "nexus_rotation" || section.key === "exchange_spread") applyStrategistToRotation(section.body);
                                   if (section.key === "nexus_trading") applyStrategistToTrading(section.body);
                                 }}
                                 title={
@@ -16384,12 +16397,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       ? "Diese Idee in Nexus Grid vorbereiten. Es wird keine Order erstellt."
                                       : section.key === "nexus_trading"
                                         ? "Diese Idee in Nexus Trading vorbereiten. Die Automation wird nicht aktiviert."
-                                        : "Diese Idee in Nexus Rotation vorbereiten. Es wird kein Swap ausgeführt.")
+                                        : "Diese Spread-/Rotation-Idee in Nexus Rotation vorbereiten. Es wird kein Swap ausgeführt.")
                                     : (section.key === "nexus_grid"
                                       ? "Prepare this idea in Nexus Grid. This does not create an order."
                                       : section.key === "nexus_trading"
                                         ? "Prepare this idea in Nexus Trading. This does not activate automation."
-                                        : "Prepare this idea in Nexus Rotation. This does not execute a swap.")
+                                        : "Prepare this spread/rotation idea in Nexus Rotation. This does not execute a swap.")
                                 }
                                 style={{ height: 28, paddingInline: 10, fontSize: 12 }}
                               >

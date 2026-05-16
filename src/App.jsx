@@ -9911,8 +9911,8 @@ function detectNexusUserLanguage(text = "") {
 function detectNexusUserIntent(text = "") {
   const q = String(text || "").toLowerCase();
   // Strict query router: latest user wording decides the Strategist mode.
-  if (/(günstig|guenstig|billig|teurer|verkaufen|arbitrage|spread|exchange|börse|boerse|preisunterschied|premium|discount|wo.*kaufen|wo.*verkaufen|cheaper|buy cheaper|sell higher|where.*buy|where.*sell|higher price)/i.test(q)) return "rotation_spread";
-  if (/(rotation|rotieren|relative|stärke|staerke|weakness|strength|kapitalfluss|capital flow|outperform|underperform)/i.test(q)) return "rotation";
+  if (/(günstig|guenstig|billig|teurer|verkaufen|arbitrage|spread|exchange|börse|boerse|preisunterschied|premium|discount|wo.*kaufen|wo.*verkaufen|wo.*besser|wo.*mehr wert|anderer preis|lohnt|different price|cheaper|buy cheaper|sell higher|where.*buy|where.*sell|where.*better|higher price|more expensive there|worth it)/i.test(q)) return "rotation_spread";
+  if (/(rotation|rotieren|relative|stärke|staerke|weakness|strength|kapitalfluss|capital flow|outperform|underperform|welcher.*stärker|welcher.*staerker|which.*stronger|besserer coin|better coin|stärker als|staerker als|stronger than)/i.test(q)) return "rotation";
   if (/(grid|range|seitwärts|seitwaerts|sideways|levels|raster)/i.test(q)) return "grid";
   if (/(trading|autonom|runtime|slot|allocation|budget|position|vault|execute|execution)/i.test(q)) return "trading";
   if (/(risiko|risk|fake|manipul|gefährlich|gefaehrlich|danger|überhitzt|ueberhitzt|overheat|trap|liquidität|liquidity)/i.test(q)) return "risk";
@@ -10181,7 +10181,8 @@ NÄCHSTE PRÜFUNG
 - Beginne mit einer klaren Antwort: Vorteil vorhanden / kein sauberer Vorteil / nur beobachten.
 - Nutze konkrete Prozentwerte nur, wenn sie im Kontext vorhanden sind.
 - Erfinde keine Börsen, Preise oder Spreads.
-- Keine direkten Kauf-/Verkaufsbefehle.` : `
+- Keine direkten Kauf-/Verkaufsbefehle.
+- Verstehe normale Sprache: "wo besser", "lohnt sich das", "ist das echt", "wo mehr gehandelt" und übersetze es intern in Spread/Rotation/Liquidität/Risiko.` : `
 
 LANGUAGE:
 - Answer fully in English.
@@ -10199,7 +10200,8 @@ NEXT CHECK
 - Start with a clear answer: edge present / no clean edge / watch only.
 - Use concrete percentages only when they exist in context.
 - Do not invent exchanges, prices, or spreads.
-- No direct buy/sell commands.`;
+- No direct buy/sell commands.
+- Understand casual wording: "where is better", "is it worth it", "is this real", "where is it traded more" and map it internally to spread/rotation/liquidity/risk.`;
 
     const basePrompt = aiKindPrompts[aiKind] || `Provide a ${aiProfile} analyst response based on the current task, timeframe, and available context.`;
     const qFinal = isFollowUpAsk

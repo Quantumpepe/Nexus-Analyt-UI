@@ -6374,12 +6374,13 @@ useEffect(() => {
 
   const tradingQueueSummary = useMemo(() => {
     const queue = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [];
+    const active = queue.filter((s) => s.status === "ACTIVE");
     const ready = queue.filter((s) => s.status === "READY");
     const blocked = queue.filter((s) => s.status === "BLOCKED");
     const wait = queue.filter((s) => s.status === "WAIT");
     const executed = queue.filter((s) => s.status === "EXECUTED");
     const total = queue.reduce((sum, s) => sum + (Number(s.amountUsd) || 0), 0);
-    return { queue, ready, blocked, wait, executed, total };
+    return { queue, active, ready, blocked, wait, executed, total };
   }, [tradingExecutionQueue]);
 
   const refreshTradingQueue = useCallback((setup = tradingPreparedSetup) => {
@@ -6387,6 +6388,29 @@ useEffect(() => {
     setTradingExecutionQueue(next);
     return next;
   }, [buildTradingQueue, setTradingExecutionQueue, tradingPreparedSetup]);
+
+  useEffect(() => {
+    if (String(gridMode || "").toLowerCase() !== "trading") return;
+    const budget = Number(String(tradingBudgetUsd || "").replace(",", "."));
+    const hasSetup = tradingPreparedSetup && typeof tradingPreparedSetup === "object";
+    const hasAssets = String(tradingAllowedAssets || "").trim();
+    if (!(budget > 0) || (!hasSetup && !hasAssets)) return;
+    const t = setTimeout(() => {
+      refreshTradingQueue(hasSetup ? tradingPreparedSetup : null);
+    }, 180);
+    return () => clearTimeout(t);
+  }, [
+    gridMode,
+    tradingBudgetUsd,
+    tradingBudgetSplitInput,
+    tradingAllowedAssets,
+    tradingAllowedChains,
+    tradingRiskMode,
+    tradingConfidenceMin,
+    tradingStyle,
+    tradingPreparedSetup,
+    refreshTradingQueue,
+  ]);
 
   const tradingPreflight = useMemo(() => {
     const budget = Number(String(tradingBudgetUsd || "").replace(",", "."));
@@ -6451,7 +6475,7 @@ useEffect(() => {
   ]);
 
   const tradingCanApprove = !!tradingPreflight.ok;
-  const tradingCanStart = tradingSessionLabel === "ARMED";
+  const tradingCanStart = false;
   const tradingCanPause = tradingSessionLabel === "ACTIVE";
   const tradingCanResume = tradingSessionLabel === "PAUSED";
   const tradingCanStop = ["ARMED", "ACTIVE", "PAUSED"].includes(tradingSessionLabel);
@@ -6484,16 +6508,23 @@ useEffect(() => {
     }
     const now = Date.now();
     const queue = refreshTradingQueue();
-    setTradingSessionStatus("ARMED");
+    const activeQueue = (Array.isArray(queue) ? queue : []).map((slot, idx) => {
+      if (slot.status === "READY") return { ...slot, status: "ACTIVE", activatedAt: now };
+      if (idx === 0 && slot.status === "WAIT" && Number(slot.priority || 0) >= 50) return { ...slot, status: "ACTIVE", activatedAt: now };
+      return slot;
+    });
+    setTradingExecutionQueue(activeQueue);
+    setTradingSessionStatus("ACTIVE");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({
-      status: "ARMED",
+      status: "ACTIVE",
       approvedBudgetUsd: tradingBudgetUsd,
       approvedAt: now,
+      startedAt: now,
       preflight: tradingPreflight,
-      executionQueue: queue,
-      userAction: { approvedBudget: true, armed: true, preflightOk: true },
-      note: "Budget approval simulated until final Vault signature is connected.",
+      executionQueue: activeQueue,
+      userAction: { approvedBudget: true, armed: true, started: true, preflightOk: true },
+      note: "Budget approved. Nexus Trading is autonomous within the approved limits. Pause/Stop remain user-controlled.",
     });
     setErrorMsg("");
   }, [tradingCanApprove, tradingBudgetUsd, tradingPreflight, refreshTradingQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setErrorMsg]);
@@ -6525,7 +6556,7 @@ useEffect(() => {
   const handleTradingPauseSession = useCallback(() => {
     if (!tradingCanPause) return;
     const now = Date.now();
-    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => s.status === "READY" ? { ...s, status: "WAIT", pausedAt: now } : s));
+    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => ["ACTIVE", "READY"].includes(s.status) ? { ...s, status: "WAIT", pausedAt: now } : s));
     setTradingSessionStatus("PAUSED");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({ status: "PAUSED", pausedAt: now, userAction: { paused: true } });
@@ -6543,7 +6574,7 @@ useEffect(() => {
   const handleTradingStopSession = useCallback(() => {
     if (!tradingCanStop) return;
     const now = Date.now();
-    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => ["READY", "WAIT"].includes(s.status) ? { ...s, status: "BLOCKED", stoppedAt: now } : s));
+    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => ["ACTIVE", "READY", "WAIT"].includes(s.status) ? { ...s, status: "BLOCKED", stoppedAt: now } : s));
     setTradingSessionStatus("STOPPED");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({
@@ -15224,7 +15255,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           value={tradingBudgetSplitInput}
                           onChange={(e) => {
                             setTradingBudgetSplitInput(e.target.value);
-                            setTradingExecutionQueue([]);
                           }}
                           placeholder="100,50,50,50,50"
                           title="Optional: split approved budget into controlled slots"
@@ -15356,24 +15386,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                        <div className="label" style={{ marginBottom: 0 }}>Trader Queue</div>
-                        <button
-                          type="button"
-                          className="btnGhost"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            refreshTradingQueue();
-                          }}
-                          style={{ height: 26, paddingInline: 9, fontSize: 12 }}
-                        >
-                          Rebuild Queue
-                        </button>
+                        <div className="label" style={{ marginBottom: 0 }}>Autonomous Trader Monitor</div>
+                        <span className="muted tiny">Auto-managed by Strategist + Risk Engine</span>
                       </div>
                       <div className="muted tiny">
                         {tradingQueueSummary.queue.length
-                          ? `${tradingQueueSummary.ready.length} ready · ${tradingQueueSummary.wait.length} waiting · ${tradingQueueSummary.blocked.length} blocked · ${tradingQueueSummary.executed.length} executed · ${fmtUsd(tradingQueueSummary.total)} total`
-                          : "Set budget slots or load a Strategist setup to build the queue."}
+                          ? `${tradingQueueSummary.active.length} active · ${tradingQueueSummary.ready.length} ready · ${tradingQueueSummary.wait.length} waiting · ${tradingQueueSummary.blocked.length} blocked · ${fmtUsd(tradingQueueSummary.total)} total`
+                          : "Approve a budget or load a Strategist setup. Nexus Trading builds the queue automatically."}
                       </div>
                       {tradingQueueSummary.queue.length ? (
                         <div style={{ display: "grid", gap: 6 }}>
@@ -15382,8 +15401,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               key={slot.id || `${slot.slot}-${slot.amountUsd}`}
                               style={{
                                 borderRadius: 10,
-                                border: slot.status === "READY" ? "1px solid rgba(34,197,94,.32)" : slot.status === "BLOCKED" ? "1px solid rgba(239,68,68,.25)" : "1px solid rgba(255,255,255,.08)",
-                                background: slot.status === "READY" ? "rgba(34,197,94,.08)" : slot.status === "BLOCKED" ? "rgba(239,68,68,.07)" : "rgba(255,255,255,.035)",
+                                border: slot.status === "ACTIVE" ? "1px solid rgba(34,197,94,.45)" : slot.status === "READY" ? "1px solid rgba(34,197,94,.32)" : slot.status === "BLOCKED" ? "1px solid rgba(239,68,68,.25)" : "1px solid rgba(255,255,255,.08)",
+                                background: slot.status === "ACTIVE" ? "rgba(34,197,94,.12)" : slot.status === "READY" ? "rgba(34,197,94,.08)" : slot.status === "BLOCKED" ? "rgba(239,68,68,.07)" : "rgba(255,255,255,.035)",
                                 padding: "7px 8px",
                                 display: "grid",
                                 gap: 3,
@@ -15405,7 +15424,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   style={{
                                     height: "100%",
                                     width: `${Math.max(4, Math.min(100, Number(slot.priority || 0)))}%`,
-                                    background: slot.status === "BLOCKED" ? "rgba(239,68,68,.70)" : slot.status === "READY" ? "rgba(34,197,94,.85)" : slot.status === "EXECUTED" ? "rgba(96,165,250,.80)" : "rgba(245,193,108,.75)",
+                                    background: slot.status === "BLOCKED" ? "rgba(239,68,68,.70)" : slot.status === "ACTIVE" ? "rgba(34,197,94,.95)" : slot.status === "READY" ? "rgba(34,197,94,.85)" : slot.status === "EXECUTED" ? "rgba(96,165,250,.80)" : "rgba(245,193,108,.75)",
                                   }}
                                 />
                               </div>
@@ -15436,26 +15455,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ fontWeight: 900, color: tradingSessionLabel === "ACTIVE" ? "#7cf7a2" : "#f5c16c", fontSize: 13 }}>
                           Status: {tradingSessionLabel === "PREPARED" ? "Prepared" : tradingSessionLabel === "ARMED" ? "Armed" : tradingSessionLabel === "ACTIVE" ? "Active" : tradingSessionLabel === "PAUSED" ? "Paused" : tradingSessionLabel === "STOPPED" ? "Stopped" : "Prepared"}
                         </div>
-                        <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget to arm Nexus Trading. Vault signature connects later." : tradingSessionLabel === "ARMED" ? "Armed. User can now start manually." : tradingSessionLabel === "ACTIVE" ? "Session active. Pause or stop remains under user control." : tradingSessionLabel === "PAUSED" ? "Paused. Resume or stop manually." : "Stopped. Load or approve a setup again to continue."}</div>
+                        <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget once. After approval, Nexus Trading works autonomously inside your limits." : tradingSessionLabel === "ARMED" ? "Armed. Nexus Trading will activate automatically." : tradingSessionLabel === "ACTIVE" ? "Autonomous trading active. User controls Pause and Stop only." : tradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : "Stopped. Load or approve a setup again to continue."}</div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button
-                          className="btn"
-                          type="button"
-                          onClick={addTradingOrder}
-                          disabled={gridBusy.add || !(Number(String(tradingBudgetUsd || "").replace(",", ".")) > 0)}
-                          title="Create a Trading order through the shared SQLite order core"
-                          style={{ height: 30, paddingInline: 10 }}
-                        >
-                          {gridBusy.add ? "Adding..." : "Add Trading Order"}
-                        </button>
+                        
                         {tradingSessionLabel === "PREPARED" || tradingSessionLabel === "STOPPED" ? (
                           <button className="btnGhost" type="button" onClick={handleTradingApproveBudget} disabled={!tradingCanApprove} title={tradingPreflight.title} style={{ height: 30, paddingInline: 10 }}>
                             Approve Budget
                           </button>
-                        ) : null}
-                        {tradingSessionLabel === "ARMED" ? (
-                          <button className="btn" type="button" onClick={handleTradingStartSession} style={{ height: 30, paddingInline: 10 }}>Start</button>
                         ) : null}
                         {tradingSessionLabel === "ACTIVE" ? (
                           <button className="btnGhost" type="button" onClick={handleTradingPauseSession} style={{ height: 30, paddingInline: 10 }}>Pause</button>

@@ -9931,6 +9931,19 @@ function nexusStrategistResponseProfile(intent = "general") {
   return "GENERAL_MARKET_ANALYSIS";
 }
 
+function nexusStrategistCanShowAction(section, userIntent = "general") {
+  const key = String(section?.key || "");
+  const body = String(section?.body || "").toLowerCase();
+  if (!["nexus_grid", "nexus_rotation", "nexus_trading"].includes(key)) return false;
+  if (/(watch only|nur beobachten|kein sauberer vorteil|no clean edge|nicht bestätigt|not confirmed|risk only|zu riskant)/i.test(body)) return false;
+  const intent = String(userIntent || "general").toLowerCase();
+  if (intent === "rotation_spread" && key !== "nexus_rotation") return false;
+  if (intent === "grid" && key !== "nexus_grid") return false;
+  if (intent === "trading" && key !== "nexus_trading") return false;
+  return /(action ready|aktion bereit|prepared|vorbereitet|setup|rotation|grid|allocation)/i.test(body);
+}
+
+
 function aiTaskPlaceholder(kind) {
     const k = String(kind || "");
     if (k === "strategy_builder") return "Example: Build a low-risk ETH breakout strategy using RVOL confirmation, EMA trend filter, clear invalidation rules, and alert logic.";
@@ -16340,7 +16353,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.28 }}>
                             {section.body}
                           </div>
-                          {section.key === "nexus_grid" || section.key === "nexus_rotation" || section.key === "nexus_trading" ? (
+                          {nexusStrategistCanShowAction(section, userIntent) ? (
                             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
                               <button
                                 className="btn"

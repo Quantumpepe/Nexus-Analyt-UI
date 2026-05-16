@@ -6083,7 +6083,8 @@ useEffect(() => {
       coin: resolved?.coin || "",
       ok: Boolean(resolved),
       note,
-      score: Number(pick?.score),
+      score: Number(pick?.score ?? pick?.strategistScore),
+      rank: pick?.rank || "",
       rating: pick?.rating || "",
       change24h: Number(pick?.ch),
       whaleText: pick?.whaleText || "Neutral",
@@ -8924,13 +8925,49 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     const out = [];
     const seen = new Set();
 
+    const parseNum = (value) => {
+      const n = Number(String(value ?? "").replace(",", "."));
+      return Number.isFinite(n) ? n : undefined;
+    };
+
+    const classifyCandidate = (spreadPct, line = "") => {
+      const s = Number(spreadPct);
+      const txt = String(line || "").toLowerCase();
+      const saysHigh = /(confidence:\s*high|saubere rotation|clean rotation|best choice|beste wahl|strong edge)/i.test(txt);
+      const saysMedium = /(confidence:\s*medium|secondary|zweite wahl|good secondary|schwache edge|weak edge)/i.test(txt);
+      const saysAvoid = /(avoid|meiden|zu kleiner|too small|fake|spike|low confidence|confidence:\s*low|nicht sauber|not confirmed)/i.test(txt);
+
+      if (saysAvoid || (Number.isFinite(s) && s < 0.5)) return "AVOID";
+      if (saysHigh || (Number.isFinite(s) && s >= 2.0)) return "BEST";
+      if (saysMedium || (Number.isFinite(s) && s >= 0.8)) return "SECONDARY";
+      return "SECONDARY";
+    };
+
+    const rankWeight = (rank) => {
+      if (rank === "BEST") return 300;
+      if (rank === "SECONDARY") return 200;
+      if (rank === "AVOID") return 50;
+      return 100;
+    };
+
     const add = (sym, meta = {}) => {
       const s = String(sym || "").toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
       if (!s || s.length < 2 || s.length > 12) return;
       if (["USD", "USDT", "USDC", "EUR", "BTCB", "WBTC", "PRICE", "SPREAD", "EXCHANGE", "BUY", "SELL"].includes(s)) return;
-      if (seen.has(s)) return;
+
+      const spreadPct = parseNum(meta.spreadPct);
+      const sourceLine = meta.sourceLine || "";
+      const rank = meta.rank || classifyCandidate(spreadPct, sourceLine);
+      const score = rankWeight(rank) + (Number.isFinite(spreadPct) ? Math.min(80, Math.max(0, spreadPct * 4)) : 0);
+
+      const item = { sym: s, ...meta, spreadPct, rank, strategistScore: score };
+      if (seen.has(s)) {
+        const i = out.findIndex((x) => x.sym === s);
+        if (i >= 0 && Number(out[i].strategistScore || 0) < score) out[i] = item;
+        return;
+      }
       seen.add(s);
-      out.push({ sym: s, ...meta });
+      out.push(item);
     };
 
     // Prefer bullet/list lines like "- LINK: cheaper buy..." or "- ETH: günstig..."
@@ -8939,8 +8976,12 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       const m = s.match(/^[\-•*]\s*\*\*?([A-Z0-9]{2,12})\*\*?\s*:/i)
         || s.match(/^[\-•*]\s*([A-Z0-9]{2,12})\s*:/i);
       if (m) {
-        const spread = s.match(/(?:Differenz|difference|Spread|Premium)\s*(?:ca\.?|about|~)?\s*([+-]?\d+(?:[.,]\d+)?)\s*%/i);
-        add(m[1], { sourceLine: s, spreadPct: spread ? Number(String(spread[1]).replace(",", ".")) : undefined });
+        const spread = s.match(/(?:Netto-Edge|Net edge|Differenz|difference|Spread|Premium)\s*(?:ca\.?|about|~)?\s*([+-]?\d+(?:[.,]\d+)?)\s*%/i);
+        let rank = "";
+        if (/(best choice|beste wahl|saubere rotation|clean rotation|confidence:\s*high)/i.test(s)) rank = "BEST";
+        else if (/(avoid|meiden|zu kleiner|too small|fake|spike|confidence:\s*low)/i.test(s)) rank = "AVOID";
+        else if (/(secondary|zweite wahl|weak edge|schwache edge|confidence:\s*medium)/i.test(s)) rank = "SECONDARY";
+        add(m[1], { sourceLine: s, spreadPct: spread ? spread[1] : undefined, rank });
       }
     });
 
@@ -8954,11 +8995,14 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     // Last fallback: old single-symbol extractor.
     if (!out.length) {
       const one = extractStrategistSymbol(raw);
-      if (one) add(one);
+      if (one) add(one, { rank: "SECONDARY" });
     }
 
-    return out.slice(0, 8);
+    return out
+      .sort((a, b) => Number(b.strategistScore || 0) - Number(a.strategistScore || 0))
+      .slice(0, 8);
   }, [extractStrategistSymbol]);
+
 
   const applyStrategistToRotation = useCallback((body) => {
     const candidates = extractStrategistRotationCandidates(body);
@@ -9024,6 +9068,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       buildAppliedSetting("Network Scope", nextNetworkScope, rotationNetworkScope),
       buildAppliedSetting("Mode", nextMode, rotationMode),
       buildAppliedSetting("Selected Asset", preparedSym || "—", rotationSelectedPick?.source || rotationSelectedPick?.coin || ""),
+      buildAppliedSetting("Strategist Rank", candidates[0]?.rank || "SECONDARY", rotationSelectedPick?.rank || ""),
       buildAppliedSetting("Risk Limit", nextRiskLimit, rotationRiskLimit, "%"),
       buildAppliedSetting("Min Advantage", nextMinAdvantage, rotationMinNetAdvantage, "%"),
       buildAppliedSetting("Max Slippage", nextMaxSlippage, rotationMaxSlippage, "%"),
@@ -9062,7 +9107,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       label: "Nexus Rotation",
       confidence: preset.confidence,
       note: candidates.length > 1
-        ? `Prepared ${preparedSym} first. ${candidates.length} Strategist candidates were detected: ${candidates.map((c) => c.sym).join(", ")}. Select another candidate in the Strategist candidates list if needed.`
+        ? `Prepared ${preparedSym} first. ${candidates.length} Strategist candidates were detected: ${candidates.map((c) => c.sym).join(", ")}. Candidates are ranked by Strategist quality. Select another candidate in the Strategist candidates list if needed.`
         : "",
       candidates,
       appliedSettings,
@@ -14403,12 +14448,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   height: 26,
                                   paddingInline: 9,
                                   fontSize: 12,
-                                  borderColor: active ? "rgba(34,197,94,.75)" : undefined,
-                                  background: active ? "rgba(34,197,94,.18)" : undefined,
-                                  color: active ? "#dfffee" : undefined,
+                                  borderColor: active ? "rgba(34,197,94,.75)" : c.rank === "AVOID" ? "rgba(239,68,68,.35)" : undefined,
+                                  background: active ? "rgba(34,197,94,.18)" : c.rank === "AVOID" ? "rgba(239,68,68,.08)" : undefined,
+                                  color: active ? "#dfffee" : c.rank === "AVOID" ? "#fecaca" : undefined,
                                 }}
                               >
-                                {c.sym}{Number.isFinite(Number(c.spreadPct)) ? ` · ${Number(c.spreadPct).toFixed(2)}%` : ""}
+                                {c.rank === "BEST" ? "BEST · " : c.rank === "AVOID" ? "AVOID · " : c.rank === "SECONDARY" ? "ALT · " : ""}{c.sym}{Number.isFinite(Number(c.spreadPct)) ? ` · ${Number(c.spreadPct).toFixed(2)}%` : ""}
                               </button>
                             );
                           })}

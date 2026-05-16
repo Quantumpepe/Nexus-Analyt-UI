@@ -14528,7 +14528,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                       <p><b>Payout Asset:</b> bestimmt, wohin eine ausgefuehrte Order settled, z. B. USDC oder USDT. Wenn zu wenig direktes Asset vorhanden ist, kann Nexus einen Funding-/Swap-Vorschlag anzeigen. Nichts wird automatisch geswapt, bevor der User zustimmt.</p>
 
-                      <p><b>Hinweis:</b> Der finale Vault wird spaeter integriert. Bis dahin bleibt die UI-/Backend-Logik sauber getrennt und vorbereitet.</p>
+                      
                     </>
                   }
                   en={
@@ -14553,7 +14553,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                       <p><b>Payout Asset:</b> defines where an executed order settles, for example USDC or USDT. If the direct asset is insufficient, Nexus can show a funding/swap suggestion. Nothing is swapped automatically before user approval.</p>
 
-                      <p><b>Note:</b> The final Vault will be integrated later. Until then, UI and backend logic stay cleanly separated and prepared.</p>
+                      
                     </>
                   }
                 />

@@ -6281,40 +6281,83 @@ useEffect(() => {
     const suitability = String(base.suitability || "MEDIUM").toUpperCase();
     const riskMode = String(base.riskMode || tradingRiskMode || "BALANCED").toUpperCase();
     const style = String(base.style || tradingStyle || "TACTICAL").toUpperCase();
-    const symbol = String(base.symbol || (String(tradingAllowedAssets || "").split(",")[0] || "")).toUpperCase();
+    const rawAssets = String(base.allowedAssets || tradingAllowedAssets || base.symbol || "").split(",").map((x) => String(x || "").trim().toUpperCase()).filter(Boolean);
+    const candidates = Array.isArray(base.traderCandidates) && base.traderCandidates.length
+      ? base.traderCandidates
+      : rawAssets.map((sym, idx) => ({
+          sym,
+          rank: idx === 0 ? "BEST" : "SECONDARY",
+          confidence,
+          suitability,
+          reason: idx === 0 ? "Primary allowed asset" : "Secondary allowed asset",
+        }));
 
-    const priorityBase =
-      confidence === "HIGH" ? 80 :
-      confidence === "LOW" ? 35 :
-      55;
+    const safeCandidates = candidates.length ? candidates : [{ sym: String(base.symbol || "").toUpperCase(), rank: "SECONDARY", confidence, suitability }];
+    const rankWeight = (rank) => {
+      const r = String(rank || "").toUpperCase();
+      if (r.includes("BEST")) return 35;
+      if (r.includes("AVOID")) return -40;
+      return 10;
+    };
+    const confidenceWeight = (conf) => {
+      const c = String(conf || confidence || "").toUpperCase();
+      if (c.includes("HIGH")) return 30;
+      if (c.includes("LOW")) return -25;
+      return 10;
+    };
+    const suitabilityWeight = (suit) => {
+      const s = String(suit || suitability || "").toUpperCase();
+      if (s.includes("HIGH")) return 20;
+      if (s.includes("LOW")) return -30;
+      return 8;
+    };
+    const riskWeight = riskMode === "DEFENSIVE" ? -8 : riskMode === "DYNAMIC" ? 10 : 0;
 
     return splits.map((amount, idx) => {
+      const cand = safeCandidates[idx % safeCandidates.length] || {};
+      const candRank = String(cand.rank || (idx === 0 ? "BEST" : "SECONDARY")).toUpperCase();
+      const candConf = String(cand.confidence || confidence).toUpperCase();
+      const candSuit = String(cand.suitability || suitability).toUpperCase();
+      const priority = Math.max(0, Math.min(100, 40 + rankWeight(candRank) + confidenceWeight(candConf) + suitabilityWeight(candSuit) + riskWeight - idx * 6));
+
       let status = "WAIT";
-      if (suitability === "LOW" || confidence === "LOW") status = idx === 0 ? "BLOCKED" : "WAIT";
-      else if (idx === 0 && ["HIGH", "MEDIUM-HIGH", "MEDIUM"].includes(confidence)) status = "READY";
-      else if (idx === 1 && confidence === "HIGH" && riskMode !== "DEFENSIVE") status = "READY";
+      if (candRank.includes("AVOID") || candSuit.includes("LOW") || candConf.includes("LOW")) status = "BLOCKED";
+      else if (idx === 0 && priority >= 55) status = "READY";
+      else if (idx === 1 && priority >= 75 && riskMode !== "DEFENSIVE") status = "READY";
 
       const condition =
         status === "READY"
-          ? "Ready after user approval; execution still requires manual/session control."
+          ? "Ready after user approval; execute only inside approved budget and session limits."
           : status === "BLOCKED"
-            ? "Blocked until confidence, liquidity or risk improves."
+            ? "Blocked until confidence, liquidity or fake-move risk improves."
             : idx === 1
-              ? "Wait for confirmation that momentum and liquidity remain stable."
-              : "Wait for follow-up confirmation or a cleaner pullback/edge.";
+              ? "Wait for second confirmation: momentum, liquidity and spread must stay stable."
+              : "Wait for cleaner edge, pullback or higher confidence before using this slot.";
+
+      const safety =
+        status === "BLOCKED"
+          ? "Safety block active"
+          : riskMode === "DEFENSIVE"
+            ? "Defensive sizing"
+            : candRank.includes("BEST")
+              ? "Priority candidate"
+              : "Controlled secondary slot";
 
       return {
         id: `slot_${idx + 1}_${Date.now()}`,
         slot: idx + 1,
         amountUsd: Number(Number(amount).toFixed(2)),
-        symbol,
+        symbol: String(cand.sym || cand.symbol || base.symbol || "").toUpperCase(),
+        candidateRank: candRank,
         status,
-        priority: Math.max(0, Math.min(100, priorityBase - idx * 8)),
+        priority,
         condition,
-        confidence,
-        suitability,
+        safety,
+        confidence: candConf,
+        suitability: candSuit,
         riskMode,
         style,
+        reason: cand.reason || base.tacticalReason || "Trader queue generated from Strategist setup.",
       };
     });
   }, [
@@ -6328,13 +6371,15 @@ useEffect(() => {
     tradingAllowedAssets,
   ]);
 
+
   const tradingQueueSummary = useMemo(() => {
     const queue = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [];
     const ready = queue.filter((s) => s.status === "READY");
     const blocked = queue.filter((s) => s.status === "BLOCKED");
     const wait = queue.filter((s) => s.status === "WAIT");
+    const executed = queue.filter((s) => s.status === "EXECUTED");
     const total = queue.reduce((sum, s) => sum + (Number(s.amountUsd) || 0), 0);
-    return { queue, ready, blocked, wait, total };
+    return { queue, ready, blocked, wait, executed, total };
   }, [tradingExecutionQueue]);
 
   const refreshTradingQueue = useCallback((setup = tradingPreparedSetup) => {
@@ -6456,7 +6501,22 @@ useEffect(() => {
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;
     const now = Date.now();
-    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => s.status === "READY" ? { ...s, status: "EXECUTED", executedAt: now } : s));
+    setTradingExecutionQueue((prev) => {
+      const arr = Array.isArray(prev) ? prev : [];
+      let executedOne = false;
+      let promotedOne = false;
+      return arr.map((s) => {
+        if (!executedOne && s.status === "READY") {
+          executedOne = true;
+          return { ...s, status: "EXECUTED", executedAt: now };
+        }
+        if (executedOne && !promotedOne && s.status === "WAIT" && Number(s.priority || 0) >= 60) {
+          promotedOne = true;
+          return { ...s, status: "READY", promotedAt: now, condition: "Promoted after first slot execution; waiting for user/session confirmation." };
+        }
+        return s;
+      });
+    });
     setTradingSessionStatus("ACTIVE");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, executionQueue: tradingExecutionQueue, userAction: { started: true } });
@@ -9259,6 +9319,36 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     rotationMaxSlippage,
   ]);
 
+  const extractStrategistTradingCandidates = useCallback((body, preparedSym = "") => {
+    const raw = String(body || "");
+    const out = [];
+    const seen = new Set();
+
+    const add = (sym, meta = {}) => {
+      const s = String(sym || "").toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
+      if (!s || s.length < 2 || s.length > 12) return;
+      if (["USD", "USDT", "USDC", "BUY", "SELL", "SPREAD", "PRICE", "RISK", "HIGH", "LOW", "MEDIUM"].includes(s)) return;
+      if (seen.has(s)) return;
+      seen.add(s);
+      const line = String(meta.sourceLine || "");
+      const rank = meta.rank || (/best choice|best|saubere|clean/i.test(line) ? "BEST" : /avoid|weak|block|fake|spike/i.test(line) ? "AVOID" : "SECONDARY");
+      const confidence = /confidence:\s*high|high confidence/i.test(line) ? "HIGH" : /confidence:\s*low|low confidence/i.test(line) ? "LOW" : "MEDIUM";
+      const suitability = /avoid|not suitable|low suitability|fake|spike/i.test(line) ? "LOW" : /suitable|clean|best|strong/i.test(line) ? "HIGH" : "MEDIUM";
+      out.push({ sym: s, rank, confidence, suitability, reason: line || "Detected from Strategist trading setup." });
+    };
+
+    raw.split(/\r?\n/).forEach((line) => {
+      const s = String(line || "").trim();
+      const m = s.match(/^[\-•*]\s*\*\*?([A-Z0-9]{2,12})\*\*?\s*:/i)
+        || s.match(/^[\-•*]\s*([A-Z0-9]{2,12})\s*:/i);
+      if (m) add(m[1], { sourceLine: s });
+    });
+
+    if (preparedSym) add(preparedSym, { rank: "BEST", confidence: "MEDIUM", suitability: "MEDIUM", sourceLine: "Primary prepared symbol." });
+
+    return out.slice(0, 8);
+  }, []);
+
   const applyStrategistToTrading = useCallback((body) => {
     const sym = extractStrategistSymbol(body);
 
@@ -9268,6 +9358,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     const preset = deriveStrategistRiskPreset(body);
     const guard = sym ? strategistExecutionGuard(sym, "rotation") : { ok: false, normalized: "", warning: "No asset symbol found for Nexus Trading." };
     const preparedSym = (guard.ok && guard.normalized) ? guard.normalized : (sym || "");
+    const traderCandidates = extractStrategistTradingCandidates(body, preparedSym);
     const traderSetup = deriveStrategistTraderSetup(body, preparedSym, preset);
 
     const setup = {
@@ -9294,6 +9385,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       maxSlippagePct: traderSetup.maxSlippagePct || "1.2",
       maxTrades: traderSetup.maxTrades || "6",
       confidenceMin: traderSetup.confidence || "MEDIUM",
+      traderCandidates,
       tacticalReason: traderSetup.reason || "",
       invalidation: traderSetup.invalidation || "",
       notes: String(body || "").slice(0, 900),
@@ -9356,6 +9448,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       maxTrades: setup.maxTrades,
       maxSlippagePct: setup.maxSlippagePct,
       budgetSplits: setup.budgetSplits,
+      traderCandidates: setup.traderCandidates,
       executionQueue: setup.executionQueue,
       cautionDrawdownPct: setup.cautionDrawdownPct,
       hardStopPct: setup.hardStopPct,
@@ -9389,6 +9482,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
         tacticalReason: setup.tacticalReason,
         invalidation: setup.invalidation,
         rawStrategistNotes: setup.notes,
+        traderCandidates: setup.traderCandidates,
         executionQueue: setup.executionQueue,
       },
     };
@@ -9429,6 +9523,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
     strategistExecutionGuard,
     deriveStrategistRiskPreset,
     deriveStrategistTraderSetup,
+    extractStrategistTradingCandidates,
     setGridMode,
     openGridPanel,
     tradingPreparedSetup,
@@ -15277,7 +15372,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                       <div className="muted tiny">
                         {tradingQueueSummary.queue.length
-                          ? `${tradingQueueSummary.ready.length} ready · ${tradingQueueSummary.wait.length} waiting · ${tradingQueueSummary.blocked.length} blocked · ${fmtUsd(tradingQueueSummary.total)} total`
+                          ? `${tradingQueueSummary.ready.length} ready · ${tradingQueueSummary.wait.length} waiting · ${tradingQueueSummary.blocked.length} blocked · ${tradingQueueSummary.executed.length} executed · ${fmtUsd(tradingQueueSummary.total)} total`
                           : "Set budget slots or load a Strategist setup to build the queue."}
                       </div>
                       {tradingQueueSummary.queue.length ? (
@@ -15295,10 +15390,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               }}
                             >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                <b style={{ color: "#eafff5" }}>Slot {slot.slot} · {fmtUsd(Number(slot.amountUsd || 0))}</b>
+                                <b style={{ color: "#eafff5" }}>Slot {slot.slot} · {fmtUsd(Number(slot.amountUsd || 0))} · {slot.symbol || "asset pending"}</b>
                                 <span className="muted tiny">{slot.status} · priority {Math.round(Number(slot.priority || 0))}</span>
                               </div>
-                              <div className="muted tiny">{slot.symbol || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition}</div>
+                              <div
+                                style={{
+                                  height: 5,
+                                  borderRadius: 999,
+                                  background: "rgba(255,255,255,.08)",
+                                  overflow: "hidden",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    height: "100%",
+                                    width: `${Math.max(4, Math.min(100, Number(slot.priority || 0)))}%`,
+                                    background: slot.status === "BLOCKED" ? "rgba(239,68,68,.70)" : slot.status === "READY" ? "rgba(34,197,94,.85)" : slot.status === "EXECUTED" ? "rgba(96,165,250,.80)" : "rgba(245,193,108,.75)",
+                                  }}
+                                />
+                              </div>
+                              <div className="muted tiny">{slot.candidateRank || "SECONDARY"} · {slot.riskMode} · {slot.confidence} · {slot.safety}</div>
+                              <div className="muted tiny">{slot.condition}</div>
                             </div>
                           ))}
                         </div>

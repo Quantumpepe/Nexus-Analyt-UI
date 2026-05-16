@@ -6245,6 +6245,108 @@ useEffect(() => {
       .filter(Boolean);
   }, []);
 
+  const parseTradingBudgetSplits = useCallback((value, totalBudget = tradingBudgetUsd) => {
+    const total = Number(String(totalBudget || "").replace(",", "."));
+    const raw = String(value || "").trim();
+    const nums = raw
+      ? raw.split(/[,+;\s]+/)
+          .map((x) => Number(String(x || "").replace(",", ".")))
+          .filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+
+    if (nums.length) return nums.slice(0, 12);
+
+    if (!(total > 0)) return [];
+    if (total <= 100) return [Number(total.toFixed(2))];
+    if (total <= 250) return [Number((total * 0.5).toFixed(2)), Number((total * 0.25).toFixed(2)), Number((total * 0.25).toFixed(2))];
+
+    const first = Math.min(100, Math.round(total * 0.34));
+    const remaining = Math.max(0, total - first);
+    const slot = Math.max(25, Math.round(remaining / 4));
+    const out = [first];
+    let used = first;
+    while (used + slot < total && out.length < 6) {
+      out.push(slot);
+      used += slot;
+    }
+    const last = Number((total - used).toFixed(2));
+    if (last > 0) out.push(last);
+    return out;
+  }, [tradingBudgetUsd]);
+
+  const buildTradingQueue = useCallback((setup = tradingPreparedSetup, splitsArg = null) => {
+    const splits = Array.isArray(splitsArg) ? splitsArg : parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
+    const base = setup && typeof setup === "object" ? setup : {};
+    const confidence = String(base.confidence || tradingConfidenceMin || "MEDIUM").toUpperCase();
+    const suitability = String(base.suitability || "MEDIUM").toUpperCase();
+    const riskMode = String(base.riskMode || tradingRiskMode || "BALANCED").toUpperCase();
+    const style = String(base.style || tradingStyle || "TACTICAL").toUpperCase();
+    const symbol = String(base.symbol || (String(tradingAllowedAssets || "").split(",")[0] || "")).toUpperCase();
+
+    const priorityBase =
+      confidence === "HIGH" ? 80 :
+      confidence === "LOW" ? 35 :
+      55;
+
+    return splits.map((amount, idx) => {
+      let status = "WAIT";
+      if (suitability === "LOW" || confidence === "LOW") status = idx === 0 ? "BLOCKED" : "WAIT";
+      else if (idx === 0 && ["HIGH", "MEDIUM-HIGH", "MEDIUM"].includes(confidence)) status = "READY";
+      else if (idx === 1 && confidence === "HIGH" && riskMode !== "DEFENSIVE") status = "READY";
+
+      const condition =
+        status === "READY"
+          ? "Ready after user approval; execution still requires manual/session control."
+          : status === "BLOCKED"
+            ? "Blocked until confidence, liquidity or risk improves."
+            : idx === 1
+              ? "Wait for confirmation that momentum and liquidity remain stable."
+              : "Wait for follow-up confirmation or a cleaner pullback/edge.";
+
+      return {
+        id: `slot_${idx + 1}_${Date.now()}`,
+        slot: idx + 1,
+        amountUsd: Number(Number(amount).toFixed(2)),
+        symbol,
+        status,
+        priority: Math.max(0, Math.min(100, priorityBase - idx * 8)),
+        condition,
+        confidence,
+        suitability,
+        riskMode,
+        style,
+      };
+    });
+  }, [
+    parseTradingBudgetSplits,
+    tradingBudgetSplitInput,
+    tradingBudgetUsd,
+    tradingPreparedSetup,
+    tradingBudgetUsd,
+    tradingBudgetSplitInput,
+    parseTradingBudgetSplits,
+    buildTradingQueue,
+    tradingConfidenceMin,
+    tradingRiskMode,
+    tradingStyle,
+    tradingAllowedAssets,
+  ]);
+
+  const tradingQueueSummary = useMemo(() => {
+    const queue = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [];
+    const ready = queue.filter((s) => s.status === "READY");
+    const blocked = queue.filter((s) => s.status === "BLOCKED");
+    const wait = queue.filter((s) => s.status === "WAIT");
+    const total = queue.reduce((sum, s) => sum + (Number(s.amountUsd) || 0), 0);
+    return { queue, ready, blocked, wait, total };
+  }, [tradingExecutionQueue]);
+
+  const refreshTradingQueue = useCallback((setup = tradingPreparedSetup) => {
+    const next = buildTradingQueue(setup);
+    setTradingExecutionQueue(next);
+    return next;
+  }, [buildTradingQueue, setTradingExecutionQueue, tradingPreparedSetup]);
+
   const tradingPreflight = useMemo(() => {
     const budget = Number(String(tradingBudgetUsd || "").replace(",", "."));
     const runtime = Number(String(tradingRuntimeHours || "").replace(",", "."));
@@ -6443,108 +6545,6 @@ useEffect(() => {
     applyTradingRiskPreset(tradingRiskMode, value);
   }, [applyTradingRiskPreset, tradingRiskMode]);
 
-
-  const parseTradingBudgetSplits = useCallback((value, totalBudget = tradingBudgetUsd) => {
-    const total = Number(String(totalBudget || "").replace(",", "."));
-    const raw = String(value || "").trim();
-    const nums = raw
-      ? raw.split(/[,+;\s]+/)
-          .map((x) => Number(String(x || "").replace(",", ".")))
-          .filter((n) => Number.isFinite(n) && n > 0)
-      : [];
-
-    if (nums.length) return nums.slice(0, 12);
-
-    if (!(total > 0)) return [];
-    if (total <= 100) return [Number(total.toFixed(2))];
-    if (total <= 250) return [Number((total * 0.5).toFixed(2)), Number((total * 0.25).toFixed(2)), Number((total * 0.25).toFixed(2))];
-
-    const first = Math.min(100, Math.round(total * 0.34));
-    const remaining = Math.max(0, total - first);
-    const slot = Math.max(25, Math.round(remaining / 4));
-    const out = [first];
-    let used = first;
-    while (used + slot < total && out.length < 6) {
-      out.push(slot);
-      used += slot;
-    }
-    const last = Number((total - used).toFixed(2));
-    if (last > 0) out.push(last);
-    return out;
-  }, [tradingBudgetUsd]);
-
-  const buildTradingQueue = useCallback((setup = tradingPreparedSetup, splitsArg = null) => {
-    const splits = Array.isArray(splitsArg) ? splitsArg : parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
-    const base = setup && typeof setup === "object" ? setup : {};
-    const confidence = String(base.confidence || tradingConfidenceMin || "MEDIUM").toUpperCase();
-    const suitability = String(base.suitability || "MEDIUM").toUpperCase();
-    const riskMode = String(base.riskMode || tradingRiskMode || "BALANCED").toUpperCase();
-    const style = String(base.style || tradingStyle || "TACTICAL").toUpperCase();
-    const symbol = String(base.symbol || (String(tradingAllowedAssets || "").split(",")[0] || "")).toUpperCase();
-
-    const priorityBase =
-      confidence === "HIGH" ? 80 :
-      confidence === "LOW" ? 35 :
-      55;
-
-    return splits.map((amount, idx) => {
-      let status = "WAIT";
-      if (suitability === "LOW" || confidence === "LOW") status = idx === 0 ? "BLOCKED" : "WAIT";
-      else if (idx === 0 && ["HIGH", "MEDIUM-HIGH", "MEDIUM"].includes(confidence)) status = "READY";
-      else if (idx === 1 && confidence === "HIGH" && riskMode !== "DEFENSIVE") status = "READY";
-
-      const condition =
-        status === "READY"
-          ? "Ready after user approval; execution still requires manual/session control."
-          : status === "BLOCKED"
-            ? "Blocked until confidence, liquidity or risk improves."
-            : idx === 1
-              ? "Wait for confirmation that momentum and liquidity remain stable."
-              : "Wait for follow-up confirmation or a cleaner pullback/edge.";
-
-      return {
-        id: `slot_${idx + 1}_${Date.now()}`,
-        slot: idx + 1,
-        amountUsd: Number(Number(amount).toFixed(2)),
-        symbol,
-        status,
-        priority: Math.max(0, Math.min(100, priorityBase - idx * 8)),
-        condition,
-        confidence,
-        suitability,
-        riskMode,
-        style,
-      };
-    });
-  }, [
-    parseTradingBudgetSplits,
-    tradingBudgetSplitInput,
-    tradingBudgetUsd,
-    tradingPreparedSetup,
-    tradingBudgetUsd,
-    tradingBudgetSplitInput,
-    parseTradingBudgetSplits,
-    buildTradingQueue,
-    tradingConfidenceMin,
-    tradingRiskMode,
-    tradingStyle,
-    tradingAllowedAssets,
-  ]);
-
-  const tradingQueueSummary = useMemo(() => {
-    const queue = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [];
-    const ready = queue.filter((s) => s.status === "READY");
-    const blocked = queue.filter((s) => s.status === "BLOCKED");
-    const wait = queue.filter((s) => s.status === "WAIT");
-    const total = queue.reduce((sum, s) => sum + (Number(s.amountUsd) || 0), 0);
-    return { queue, ready, blocked, wait, total };
-  }, [tradingExecutionQueue]);
-
-  const refreshTradingQueue = useCallback((setup = tradingPreparedSetup) => {
-    const next = buildTradingQueue(setup);
-    setTradingExecutionQueue(next);
-    return next;
-  }, [buildTradingQueue, setTradingExecutionQueue, tradingPreparedSetup]);
 
 
 

@@ -6296,12 +6296,14 @@ useEffect(() => {
 
       const condition =
         status === "READY"
-          ? "Ready after user approval; execution still requires manual/session control."
-          : status === "BLOCKED"
-            ? "Blocked until confidence, liquidity or risk improves."
-            : idx === 1
-              ? "Wait for confirmation that momentum and liquidity remain stable."
-              : "Wait for follow-up confirmation or a cleaner pullback/edge.";
+          ? "Ready for autonomous execution immediately after budget approval."
+          : status === "ACTIVE"
+            ? "Active autonomous trading slot within the approved session limits."
+            : status === "BLOCKED"
+              ? "Blocked until confidence, liquidity or risk improves."
+              : idx === 1
+                ? "Wait for confirmation that momentum and liquidity remain stable."
+                : "Wait for follow-up confirmation or a cleaner pullback/edge.";
 
       return {
         id: `slot_${idx + 1}_${Date.now()}`,
@@ -15297,19 +15299,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       ) : null}
                     </div>
 
-                    <div
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        background: "rgba(0,0,0,.18)",
-                        border: "1px solid rgba(34,197,94,.20)",
-                        display: "grid",
-                        gap: 8,
-                      }}
-                    >
-                      
-                      
-                      {tradingQueueSummary.queue.length ? (
+                    {tradingQueueSummary.queue.length ? (
+                      <div
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 12,
+                          background: "rgba(0,0,0,.18)",
+                          border: "1px solid rgba(34,197,94,.20)",
+                          display: "grid",
+                          gap: 8,
+                        }}
+                      >
                         <div style={{ display: "grid", gap: 6 }}>
                           {tradingQueueSummary.queue.map((slot) => (
                             <div
@@ -15331,8 +15331,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                           ))}
                         </div>
-                      ) : null}
-                    </div>
+                      </div>
+                    ) : null}
 
                     {renderFundingPrompt("TRADING")}
 

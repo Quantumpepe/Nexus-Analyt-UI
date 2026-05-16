@@ -10152,8 +10152,8 @@ USER_INTENT: ${userIntent}
             : `Kein expliziter Zeitraum in der Nutzerfrage; nutze den aktuellen UI-Zeitraum.
 `) +
           (syms.length ? `Verdeckter Markt-Kontext Symbole: ${syms.join(", ")}
-` : "Keine sichtbaren Coins gewählt; nutze den verdeckten Watchlist-/Compare-Kontext.`
-
+` : "Keine sichtbaren Coins gewählt; nutze den verdeckten Watchlist-/Compare-Kontext.
+") +
           (statsText ? `Serienstatistik (${tf}):
 ${statsText}
 ` : "") +

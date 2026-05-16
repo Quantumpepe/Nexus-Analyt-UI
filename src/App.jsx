@@ -14655,40 +14655,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         gap: 8,
                       }}
                     >
-                      {Array.isArray(strategistRotationCandidates) && strategistRotationCandidates.length > 1 ? (
-                        <div
-                          style={{
-                            display: "grid",
-                            gap: 6,
-                            padding: "8px 9px",
-                            borderRadius: 12,
-                            border: "1px solid rgba(34,197,94,.24)",
-                            background: "rgba(34,197,94,.07)",
-                            marginBottom: 8,
-                          }}
-                        >
-                          <div className="label" style={{ marginBottom: 0 }}>Strategist candidates (also available above)</div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                            {strategistRotationCandidates.map((c, idx) => (
-                              <button
-                                key={`${c.sym}-${idx}`}
-                                type="button"
-                                className="btnGhost"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  handleRotationPickToGrid(c);
-                                  setErrorMsg(`Prepared ${c.sym} from Strategist candidates in Nexus Rotation.`);
-                                }}
-                                title={c.sourceLine || "Select Strategist candidate for Nexus Rotation"}
-                                style={{ height: 26, paddingInline: 9, fontSize: 12 }}
-                              >
-                                {c.sym}{Number.isFinite(Number(c.spreadPct)) ? ` · ${Number(c.spreadPct).toFixed(2)}%` : ""}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
+                      
 
                       <button
                         type="button"

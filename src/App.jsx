@@ -15307,15 +15307,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         gap: 8,
                       }}
                     >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-    
-                        <span className="muted tiny">Auto-managed by Strategist + Risk Engine</span>
-                      </div>
-                      <div className="muted tiny">
-                        {tradingQueueSummary.queue.length
-                          ? `${tradingQueueSummary.active.length} active · ${tradingQueueSummary.ready.length} ready · ${tradingQueueSummary.wait.length} waiting · ${tradingQueueSummary.blocked.length} blocked · ${fmtUsd(tradingQueueSummary.total)} total`
-                          : "Approve budget or load a Strategist setup. Nexus Trading builds the queue automatically."}
-                      </div>
+                      
+                      
                       {tradingQueueSummary.queue.length ? (
                         <div style={{ display: "grid", gap: 6 }}>
                           {tradingQueueSummary.queue.map((slot) => (
@@ -15382,9 +15375,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     </div>
 
-                    <div className="muted tiny">
-                      Learning queue: {Array.isArray(tradingLearningSetups) ? tradingLearningSetups.length : 0} prepared setup(s) stored for future Nexus learning.
-                    </div>
+                    
                   </div>
                 </div>
               ) : (

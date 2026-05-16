@@ -10203,7 +10203,16 @@ NEXT CHECK
 
     const basePrompt = aiKindPrompts[aiKind] || `Provide a ${aiProfile} analyst response based on the current task, timeframe, and available context.`;
     const qFinal = isFollowUpAsk
-      ? q
+      ? `${basePrompt}${responseFormatPrompt}
+
+Follow-up mode:
+Answer only the user's follow-up. Keep the previous Strategist context.
+
+Previous Strategist output:
+${String(aiOutput || "").slice(0, 1200)}
+
+User follow-up:
+${q}`
       : `${basePrompt}${responseFormatPrompt}
 
 User intent profile:
@@ -10334,6 +10343,8 @@ ${aiSignalText}
         user_intent: userIntent,
         response_profile: nexusStrategistResponseProfile(userIntent),
         strategist_phase: "phase1_intelligence",
+        strategist_followup: !!isFollowUpAsk,
+        previous_response_summary: isFollowUpAsk ? String(aiOutput || "").slice(0, 1200) : "",
       };
 
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");

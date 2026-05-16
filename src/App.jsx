@@ -15314,21 +15314,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         </div>
                       ) : null}
-                    </div>
+                      </div>
+                    ) : null}
 
-                    <div
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        background: "rgba(0,0,0,.18)",
-                        border: "1px solid rgba(34,197,94,.20)",
-                        display: "grid",
-                        gap: 8,
-                      }}
-                    >
-                      
-                      
-                      {tradingQueueSummary.queue.length ? (
+                    {tradingQueueSummary.queue.length ? (
+                      <div
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 12,
+                          background: "rgba(0,0,0,.18)",
+                          border: "1px solid rgba(34,197,94,.20)",
+                          display: "grid",
+                          gap: 8,
+                        }}
+                      >
                         <div style={{ display: "grid", gap: 6 }}>
                           {tradingQueueSummary.queue.map((slot) => (
                             <div

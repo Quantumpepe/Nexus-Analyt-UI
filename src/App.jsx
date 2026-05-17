@@ -17377,7 +17377,61 @@ const handlePanelActivate = useCallback((name) => (e) => {
             border-radius: 999px;
           }
         }
-      `}</style>
+        @media (min-width: 981px) {
+          /* Desktop layout v91: reserve left workspace, widen active panel, compact right rail. */
+          .dashboardGrid.hasFocus{
+            grid-template-columns: minmax(210px, 0.55fr) minmax(0, 2.45fr) minmax(150px, 0.40fr) !important;
+            column-gap: 18px !important;
+          }
+          .dashboardGrid.hasFocus .dashboardPanel.panelActive{
+            grid-column: 2 !important;
+            grid-row: 1 / span 3 !important;
+            min-width: 0 !important;
+          }
+          .dashboardGrid.hasFocus.focus-compare .section-grid,
+          .dashboardGrid.hasFocus.focus-watchlist .section-compare,
+          .dashboardGrid.hasFocus.focus-ai .section-compare,
+          .dashboardGrid.hasFocus.focus-vault .section-compare{
+            grid-column: 3 !important;
+            grid-row: 1 !important;
+          }
+          .dashboardGrid.hasFocus.focus-compare .section-watch,
+          .dashboardGrid.hasFocus.focus-vault .section-watch,
+          .dashboardGrid.hasFocus.focus-watchlist .section-grid,
+          .dashboardGrid.hasFocus.focus-ai .section-grid{
+            grid-column: 3 !important;
+            grid-row: 2 !important;
+          }
+          .dashboardGrid.hasFocus.focus-compare .section-ai,
+          .dashboardGrid.hasFocus.focus-vault .section-ai,
+          .dashboardGrid.hasFocus.focus-watchlist .section-ai,
+          .dashboardGrid.hasFocus.focus-ai .section-watch{
+            grid-column: 3 !important;
+            grid-row: 3 !important;
+          }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive){
+            min-width: 0 !important;
+            padding: 12px !important;
+            border-radius: 18px !important;
+          }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardTitle{
+            font-size: 15px !important;
+            line-height: 1.1 !important;
+          }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .chip,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .btn,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .btnGhost,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .btnPill{
+            font-size: 10px !important;
+            padding: 6px 8px !important;
+          }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardActions{
+            gap: 5px !important;
+          }
+        }
+
+      `}
+</style>
 </>
       )}
 

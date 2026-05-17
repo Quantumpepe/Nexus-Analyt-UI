@@ -17377,56 +17377,133 @@ const handlePanelActivate = useCallback((name) => (e) => {
             border-radius: 999px;
           }
         }
+
         @media (min-width: 981px) {
-          /* Desktop layout v91: reserve left workspace, widen active panel, compact right rail. */
+          /* Desktop layout v92:
+             - column 1 stays empty as reserved future workspace
+             - active panel uses the wider center workspace
+             - inactive panels are compressed into a narrow right rail
+          */
           .dashboardGrid.hasFocus{
-            grid-template-columns: minmax(210px, 0.55fr) minmax(0, 2.45fr) minmax(150px, 0.40fr) !important;
-            column-gap: 18px !important;
+            grid-template-columns: minmax(220px, 0.58fr) minmax(0, 2.95fr) minmax(118px, 0.32fr) !important;
+            grid-template-rows: repeat(3, minmax(0, 1fr)) !important;
+            column-gap: 16px !important;
+            row-gap: 12px !important;
+            align-items: stretch !important;
           }
+
           .dashboardGrid.hasFocus .dashboardPanel.panelActive{
             grid-column: 2 !important;
             grid-row: 1 / span 3 !important;
+            width: 100% !important;
             min-width: 0 !important;
+            max-width: none !important;
+            height: 100% !important;
+            opacity: 1 !important;
+            transform: none !important;
           }
-          .dashboardGrid.hasFocus.focus-compare .section-grid,
-          .dashboardGrid.hasFocus.focus-watchlist .section-compare,
-          .dashboardGrid.hasFocus.focus-ai .section-compare,
-          .dashboardGrid.hasFocus.focus-vault .section-compare{
-            grid-column: 3 !important;
-            grid-row: 1 !important;
-          }
-          .dashboardGrid.hasFocus.focus-compare .section-watch,
-          .dashboardGrid.hasFocus.focus-vault .section-watch,
-          .dashboardGrid.hasFocus.focus-watchlist .section-grid,
-          .dashboardGrid.hasFocus.focus-ai .section-grid{
-            grid-column: 3 !important;
-            grid-row: 2 !important;
-          }
-          .dashboardGrid.hasFocus.focus-compare .section-ai,
-          .dashboardGrid.hasFocus.focus-vault .section-ai,
-          .dashboardGrid.hasFocus.focus-watchlist .section-ai,
-          .dashboardGrid.hasFocus.focus-ai .section-watch{
-            grid-column: 3 !important;
-            grid-row: 3 !important;
-          }
+
+          /* Place the three inactive modules in the far-right rail, independent of which panel is active. */
           .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive){
+            grid-column: 3 !important;
+            width: 100% !important;
             min-width: 0 !important;
-            padding: 12px !important;
-            border-radius: 18px !important;
+            max-width: 132px !important;
+            justify-self: end !important;
+            align-self: stretch !important;
+            padding: 8px 7px !important;
+            border-radius: 14px !important;
+            opacity: .86 !important;
+            transform: none !important;
+          }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive):nth-of-type(1){ grid-row: 1 !important; }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive):nth-of-type(2){ grid-row: 2 !important; }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive):nth-of-type(3){ grid-row: 3 !important; }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive):nth-of-type(4){ grid-row: 3 !important; }
+
+          .dashboardGrid.hasFocus.focus-compare .section-grid{ grid-column: 3 !important; grid-row: 1 !important; }
+          .dashboardGrid.hasFocus.focus-compare .section-watch{ grid-column: 3 !important; grid-row: 2 !important; }
+          .dashboardGrid.hasFocus.focus-compare .section-ai{ grid-column: 3 !important; grid-row: 3 !important; }
+
+          .dashboardGrid.hasFocus.focus-vault .section-compare{ grid-column: 3 !important; grid-row: 1 !important; }
+          .dashboardGrid.hasFocus.focus-vault .section-watch{ grid-column: 3 !important; grid-row: 2 !important; }
+          .dashboardGrid.hasFocus.focus-vault .section-ai{ grid-column: 3 !important; grid-row: 3 !important; }
+
+          .dashboardGrid.hasFocus.focus-watchlist .section-compare{ grid-column: 3 !important; grid-row: 1 !important; }
+          .dashboardGrid.hasFocus.focus-watchlist .section-grid{ grid-column: 3 !important; grid-row: 2 !important; }
+          .dashboardGrid.hasFocus.focus-watchlist .section-ai{ grid-column: 3 !important; grid-row: 3 !important; }
+
+          .dashboardGrid.hasFocus.focus-ai .section-compare{ grid-column: 3 !important; grid-row: 1 !important; }
+          .dashboardGrid.hasFocus.focus-ai .section-grid{ grid-column: 3 !important; grid-row: 2 !important; }
+          .dashboardGrid.hasFocus.focus-ai .section-watch{ grid-column: 3 !important; grid-row: 3 !important; }
+
+          /* Make the inactive cards visually about 50% more compact. */
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardHead{
+            gap: 4px !important;
+            margin-bottom: 5px !important;
+            align-items: flex-start !important;
           }
           .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardTitle{
-            font-size: 15px !important;
-            line-height: 1.1 !important;
+            font-size: 11px !important;
+            line-height: 1.05 !important;
+            letter-spacing: 0 !important;
+            max-width: 86px !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+          }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardActions{
+            gap: 3px !important;
+            transform: scale(.82) !important;
+            transform-origin: top right !important;
+          }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardBody{
+            gap: 5px !important;
+            overflow: hidden !important;
           }
           .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .chip,
           .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .btn,
           .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .btnGhost,
-          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .btnPill{
-            font-size: 10px !important;
-            padding: 6px 8px !important;
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .btnPill,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .pill,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .legendItem{
+            min-height: 22px !important;
+            height: 22px !important;
+            padding: 2px 5px !important;
+            border-radius: 8px !important;
+            font-size: 8px !important;
+            line-height: 1 !important;
           }
-          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardActions{
-            gap: 5px !important;
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .muted,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .tiny,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .text-xs,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .hint{
+            font-size: 8px !important;
+            line-height: 1.15 !important;
+          }
+
+          /* Collapse dense inactive content so the right rail acts like navigation/monitoring tiles. */
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .compareGrid,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridLayout,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridWrap,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .aiWrap{
+            display: block !important;
+          }
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .compareLive,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .compareChart,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridLeft,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridRight,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridControls,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridOrders,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .aiSelect,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .aiOut,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .watchTable,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .watchScroll,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .ordersList,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .liveListBox,
+          .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .pairsScroll{
+            max-height: 72px !important;
+            overflow: hidden !important;
           }
         }
 

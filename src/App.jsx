@@ -1533,7 +1533,7 @@ function buildLocalPairAlertsForUi(pairs, compareWeights, aiMode) {
   const sens = mode === "extreme" ? 0.82 : 1.0;
   const alerts = [];
 
-  for (const p of rows.slice(0, 30)) {
+  rows.forEach((p, sourceIndex) => {
     if (!p || typeof p !== "object") continue;
     const pair = String(p.pair || "").toUpperCase();
     if (!pair || !pair.includes("/")) continue;
@@ -1592,10 +1592,27 @@ function buildLocalPairAlertsForUi(pairs, compareWeights, aiMode) {
       spread_pct: Number.isFinite(spread) ? spread : null,
       rsi_gap: Number.isFinite(rsiGap) ? rsiGap : null,
       reasons: reasons.slice(0, 3),
+      source_rank: Number.isFinite(sourceIndex) ? sourceIndex + 1 : null,
     });
+  });
+
+  const byPair = new Map();
+  for (const alert of alerts) {
+    const key = String(alert?.pair || "").toUpperCase().trim();
+    if (!key) continue;
+    const prev = byPair.get(key);
+    if (!prev || Number(alert.score || 0) > Number(prev.score || 0)) {
+      byPair.set(key, alert);
+    }
   }
 
-  return alerts.sort((a, b) => Number(b.score || 0) - Number(a.score || 0)).slice(0, 8);
+  return Array.from(byPair.values()).sort((a, b) => {
+    const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
+    if (scoreDiff) return scoreDiff;
+    const spreadDiff = Number(b.spread_pct || 0) - Number(a.spread_pct || 0);
+    if (spreadDiff) return spreadDiff;
+    return Number(a.source_rank || 9999) - Number(b.source_rank || 9999);
+  });
 }
 
 function formatAiSignalContextForPrompt(ctx) {
@@ -14197,16 +14214,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     <div style={{
                       display: "grid",
-                      gap: 5
+                      gap: 5,
+                      maxHeight: "clamp(150px, 24vh, 320px)",
+                      overflowY: "auto",
+                      paddingRight: 4
                     }}>
                       {(bestPairUiAlerts || [])
-                        .filter((al) => {
-                          const idx = (bestPairsToShow || []).findIndex(
-                            (p) => String(p?.pair || "").toUpperCase() === String(al?.pair || "").toUpperCase()
-                          );
-                          return idx > 2;
-                        })
-                        .slice(0, 6)
                         .map((al) => {
                           const match = (bestPairsAll || []).find(
                             (p) => String(p?.pair || "").toUpperCase() === String(al?.pair || "").toUpperCase()
@@ -14226,7 +14239,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 padding: "6px 8px",
                                 opacity: 0.9
                               }}
-                              title="Open movement opportunity"
+                              title={`Open movement opportunity${al.source_rank ? ` · source rank #${al.source_rank}` : ""}${Number.isFinite(Number(al.score)) ? ` · score ${Number(al.score).toFixed(1)}` : ""}`}
                             >
                               ⚡ <b>{al.pair}</b>
                               <span className="muted tiny" style={{ marginLeft: 8 }}>

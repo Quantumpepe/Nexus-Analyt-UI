@@ -6237,6 +6237,7 @@ useEffect(() => {
   const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useLocalStorageState("nexus_rotation_recommendations_expanded", false);
   const [tradingSessionStatus, setTradingSessionStatus] = useLocalStorageState("nexus_trading_session_status", "PREPARED");
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
+  const tradingHoldStateHydratedRef = useRef(false);
 
   const tradingSessionLabel = String(tradingSessionStatus || "PREPARED").toUpperCase();
   const clampTradingHoldHours = useCallback((value) => {
@@ -6580,6 +6581,7 @@ useEffect(() => {
         observeUntil,
         stoppedAt: now,
         condition: `Capital protected. Minimum HOLD ${holdHours}h; Strategist keeps observing before any reallocation.`,
+        observeReason: "Capital entered HOLD after a protection/stop event. Reallocation is blocked until the minimum HOLD ends and market quality is clean.",
       };
     });
     setTradingExecutionQueue(protectedQueue);
@@ -6644,6 +6646,7 @@ useEffect(() => {
             status: "RELEASE_REQUIRED",
             releaseRequiredAt: now,
             condition: "Max 12h observation reached. Capital stays protected and requires user release before new allocation.",
+            observeReason: "The maximum observation window has been reached. Nexus will not reallocate automatically; user release is required before capital can be used again.",
           };
         }
 
@@ -6655,6 +6658,7 @@ useEffect(() => {
             status: "OBSERVE",
             observeStartedAt: now,
             condition: "Minimum HOLD completed. Strategist keeps observing; no trade unless market quality becomes clean.",
+            observeReason: "Minimum HOLD is complete, but this is not trade approval. The Strategist still needs clean market structure, liquidity confirmation, acceptable RVOL and controlled risk before any new allocation.",
           };
         }
 
@@ -6679,6 +6683,50 @@ useEffect(() => {
     const id = setInterval(tick, 60 * 1000);
     return () => clearInterval(id);
   }, [gridMode, tradingSessionLabel, tradingExecutionQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+
+  useEffect(() => {
+    if (String(gridMode || "").toLowerCase() !== "trading") return;
+    if (tradingHoldStateHydratedRef.current) return;
+    tradingHoldStateHydratedRef.current = true;
+
+    api("/api/nexus/trading/hold-state")
+      .then((res) => {
+        const holdState = res?.hold_state;
+        if (!holdState || typeof holdState !== "object") return;
+
+        const status = String(holdState.status || "").toUpperCase();
+        if (!["HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(status)) return;
+
+        const holdUntilMs = Number(holdState.hold_until_ts || 0) > 0 ? Number(holdState.hold_until_ts) * 1000 : 0;
+        const observeUntilMs = Number(holdState.observe_until_ts || 0) > 0 ? Number(holdState.observe_until_ts) * 1000 : 0;
+        const reason = String(holdState.reason || "Capital is protected while the Strategist keeps observing market quality.");
+        const queue = Array.isArray(holdState.queue) ? holdState.queue : [];
+        const nextQueue = queue.map((slot) => {
+          const slotStatus = String(slot?.status || "").toUpperCase();
+          const shouldForceRelease = status === "RELEASE_REQUIRED" && ["HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(slotStatus);
+          const shouldSyncObserve = status === "OBSERVE" && slotStatus === "HOLD";
+          return {
+            ...slot,
+            status: shouldForceRelease ? "RELEASE_REQUIRED" : shouldSyncObserve ? "OBSERVE" : (slot.status || status),
+            holdUntil: Number(slot?.holdUntil || 0) || holdUntilMs || undefined,
+            observeUntil: Number(slot?.observeUntil || 0) || observeUntilMs || undefined,
+            observeReason: slot?.observeReason || reason,
+            condition: slot?.condition || reason,
+          };
+        });
+
+        setTradingSessionStatus(status);
+        setTradingSessionUpdatedTs(Date.now());
+        if (nextQueue.length) setTradingExecutionQueue(nextQueue);
+        updateTradingPreparedSession({
+          status,
+          executionQueue: nextQueue,
+          hydratedFromHoldState: true,
+          releaseRequired: status === "RELEASE_REQUIRED",
+        });
+      })
+      .catch(() => {});
+  }, [gridMode, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const applyTradingRiskPreset = useCallback((mode, confidence = tradingConfidenceMin) => {
     const risk = String(mode || "BALANCED").toUpperCase();
@@ -15514,8 +15562,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
                               <div className="muted tiny">{slot.symbol || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition}</div>
                               {["HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(String(slot.status || "").toUpperCase()) ? (
-                                <div className="muted tiny">
-                                  HOLD until {slot.holdUntil ? new Date(Number(slot.holdUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"} · max observe until {slot.observeUntil ? new Date(Number(slot.observeUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"}
+                                <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
+                                  <div>
+                                    HOLD until {slot.holdUntil ? new Date(Number(slot.holdUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"} · max observe until {slot.observeUntil ? new Date(Number(slot.observeUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"}
+                                  </div>
+                                  <details style={{ border: "1px solid rgba(139,220,255,.18)", borderRadius: 8, padding: "4px 6px", background: "rgba(64,196,255,.045)" }}>
+                                    <summary style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}>Observe info</summary>
+                                    <div style={{ marginTop: 4, lineHeight: 1.45 }}>
+                                      {slot.observeReason || slot.condition || "The Strategist is still observing market structure, liquidity, RVOL and risk. Capital will not be reallocated until market quality is clean."}
+                                    </div>
+                                  </details>
                                 </div>
                               ) : null}
                             </div>

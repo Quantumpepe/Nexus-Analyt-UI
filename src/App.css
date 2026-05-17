@@ -2017,3 +2017,88 @@ body::before {
   }
 }
 
+
+/* =========================================================
+   Nexus desktop overview compact width v97
+   - overview cards stay compact
+   - no 50/50 full-width split
+   - focused/active mode keeps the v94/v96 layout
+   ========================================================= */
+@media (min-width: 981px){
+  .dashboardGrid:not(.hasFocus),
+  .appDashboard:not(.hasFocus),
+  .homeDashboard:not(.hasFocus),
+  .mainDashboard:not(.hasFocus){
+    width: min(100%, 1420px) !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    display: grid !important;
+    grid-template-columns: minmax(500px, 680px) minmax(500px, 680px) !important;
+    justify-content: center !important;
+    align-items: start !important;
+    gap: 18px !important;
+  }
+
+  .dashboardGrid:not(.hasFocus) > .dashboardPanel,
+  .appDashboard:not(.hasFocus) > .dashboardPanel,
+  .homeDashboard:not(.hasFocus) > .dashboardPanel,
+  .mainDashboard:not(.hasFocus) > .dashboardPanel,
+  .dashboardGrid:not(.hasFocus) > .card,
+  .appDashboard:not(.hasFocus) > .card,
+  .homeDashboard:not(.hasFocus) > .card,
+  .mainDashboard:not(.hasFocus) > .card{
+    width: 100% !important;
+    max-width: 680px !important;
+    height: auto !important;
+    max-height: 330px !important;
+    min-height: 0 !important;
+    align-self: start !important;
+    justify-self: center !important;
+    transform: none !important;
+    overflow: hidden !important;
+  }
+
+  .dashboardGrid:not(.hasFocus) .cardBody,
+  .appDashboard:not(.hasFocus) .cardBody,
+  .homeDashboard:not(.hasFocus) .cardBody,
+  .mainDashboard:not(.hasFocus) .cardBody{
+    max-height: 255px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  .dashboardGrid:not(.hasFocus) .compareGrid,
+  .dashboardGrid:not(.hasFocus) .gridWrap,
+  .dashboardGrid:not(.hasFocus) .aiWrap,
+  .appDashboard:not(.hasFocus) .compareGrid,
+  .appDashboard:not(.hasFocus) .gridWrap,
+  .appDashboard:not(.hasFocus) .aiWrap,
+  .homeDashboard:not(.hasFocus) .compareGrid,
+  .homeDashboard:not(.hasFocus) .gridWrap,
+  .homeDashboard:not(.hasFocus) .aiWrap,
+  .mainDashboard:not(.hasFocus) .compareGrid,
+  .mainDashboard:not(.hasFocus) .gridWrap,
+  .mainDashboard:not(.hasFocus) .aiWrap{
+    height: auto !important;
+    max-height: 250px !important;
+    overflow: hidden !important;
+  }
+
+  .dashboardGrid:not(.hasFocus) .watchScroll,
+  .dashboardGrid:not(.hasFocus) .ordersList,
+  .dashboardGrid:not(.hasFocus) .liveListBox,
+  .appDashboard:not(.hasFocus) .watchScroll,
+  .appDashboard:not(.hasFocus) .ordersList,
+  .appDashboard:not(.hasFocus) .liveListBox,
+  .homeDashboard:not(.hasFocus) .watchScroll,
+  .homeDashboard:not(.hasFocus) .ordersList,
+  .homeDashboard:not(.hasFocus) .liveListBox,
+  .mainDashboard:not(.hasFocus) .watchScroll,
+  .mainDashboard:not(.hasFocus) .ordersList,
+  .mainDashboard:not(.hasFocus) .liveListBox{
+    max-height: 190px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+}
+/* === END Nexus desktop overview compact width v97 === */

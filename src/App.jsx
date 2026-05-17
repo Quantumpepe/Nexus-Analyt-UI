@@ -17862,6 +17862,87 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 
       `}
+
+
+/* =========================================================
+   Nexus desktop layout v95
+   Focused view stays like approved screenshot 1.
+   Non-focused overview returns to compact/natural sizing.
+   ========================================================= */
+@media (min-width: 981px){
+  /* Do not let overview mode stretch every window to half the viewport. */
+  .dashboardGrid:not(.hasFocus){
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    grid-template-rows: none !important;
+    align-items: start !important;
+    gap: 18px !important;
+  }
+
+  .dashboardGrid:not(.hasFocus) .dashboardPanel{
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: 330px !important;
+    margin-bottom: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  .dashboardGrid:not(.hasFocus) .dashboardPanel .cardHead{
+    flex: 0 0 auto !important;
+  }
+
+  .dashboardGrid:not(.hasFocus) .dashboardPanel .cardBody,
+  .dashboardGrid:not(.hasFocus) .dashboardPanel .panelScroll{
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-height: 245px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding-right: 6px !important;
+  }
+
+  /* Keep Compare, Watchlist and Strategist overview compact, not terminal-sized. */
+  .dashboardGrid:not(.hasFocus) .section-compare .panelScroll,
+  .dashboardGrid:not(.hasFocus) .section-watch .panelScroll,
+  .dashboardGrid:not(.hasFocus) .section-ai .panelScroll{
+    max-height: 245px !important;
+  }
+
+  .dashboardGrid:not(.hasFocus) .section-grid .panelScroll{
+    max-height: 245px !important;
+  }
+
+  .dashboardGrid:not(.hasFocus) .compareGrid,
+  .dashboardGrid:not(.hasFocus) .gridWrap,
+  .dashboardGrid:not(.hasFocus) .aiWrap{
+    height: auto !important;
+    max-height: 245px !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .dashboardGrid:not(.hasFocus) .watchScroll,
+  .dashboardGrid:not(.hasFocus) .pairsScroll,
+  .dashboardGrid:not(.hasFocus) .ordersList,
+  .dashboardGrid:not(.hasFocus) .liveListBox{
+    max-height: 185px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Focused mode: keep approved v94 balance. */
+  .dashboardGrid.hasFocus{
+    grid-template-columns: clamp(190px, 13vw, 250px) minmax(0, 1fr) clamp(210px, 13vw, 250px) !important;
+  }
+}
+
 </style>
 </>
       )}

@@ -2500,7 +2500,38 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
       <svg className="sparkSvg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
         <path d={d} className={`chartLine ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ opacity: 0.95, strokeWidth: 2.8, stroke: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]) }} />
       </svg>
-      <div className="sparkFoot muted tiny">{indexMode ? "Index 100" : "Price"} · 30D</div>
+      <div className="sparkFoot muted tiny">{indexMode ? "Index 100" : "Price"} · 30D
+<div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+  <button
+    className="btnGhost"
+    type="button"
+    onClick={() => {
+      setAccessTab("subscribe");
+      setSubPlan("strategist_weekly");
+      setSubMsg("");
+      setAccessModalOpen(true);
+    }}
+    title="Strategist Weekly Access"
+  >
+    Strategist Weekly · $20
+  </button>
+
+  <button
+    className="btnGhost"
+    type="button"
+    onClick={() => {
+      setAccessTab("subscribe");
+      setSubPlan("strategist_monthly");
+      setSubMsg("");
+      setAccessModalOpen(true);
+    }}
+    title="Strategist Monthly Access"
+  >
+    Strategist Monthly · $50
+  </button>
+</div>
+
+</div>
     </button>
   );
 }
@@ -17194,27 +17225,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
           <div className="cardHead">
             <div className="cardTitle">Nexus Strategist</div>
             <div className="cardActions" style={{ alignItems: "center" }}>
-              {strategistActive ? (
-                <span className="pill good" title="Strategist access is active">Strategist Active</span>
-              ) : (
-                <button
-                  className="btnGhost"
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setAccessTab("subscribe");
-                    setSubPlan("strategist_monthly");
-                    setSubMsg("Strategist access: $20/7 days or $50/30 days. Select a plan below.");
-                    setAccessModalOpen(true);
-                  }}
-                  title="Buy Strategist access"
-                  style={{ height: 28, padding: "6px 10px", borderRadius: 999, fontSize: 12, fontWeight: 900 }}
-                >
-                  Buy Strategist
-                </button>
-              )}
               <InfoButton title="Nexus Strategist">
                 <Help showClose dismissable
                   de={<><p><b>Nexus Strategist</b> ist dein aktiver Strategie-Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Unterschied zu AI Insight:</b> AI Insight erklaert kompakt den aktuellen Markt. Nexus Strategist hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten, Trade-Review und der Einordnung zwischen Nexus Grid und Nexus Rotation.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Hinweis:</b> Nexus Strategist liefert Analyse, Struktur und taktische Orientierung. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}

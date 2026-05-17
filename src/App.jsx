@@ -4732,8 +4732,21 @@ const byChain = {};
   // Core plan: $25 / 30 days
   const SUB_PRICE_USD = 25;
   const SUB_PLAN = "pro";
+  const STRATEGIST_WEEKLY_PRICE_USD = 20;
+  const STRATEGIST_MONTHLY_PRICE_USD = 50;
+  const [subPlan, setSubPlan] = useState("core"); // core | strategist_weekly | strategist_monthly
   const [subChain, setSubChain] = useState("ETH"); // ETH | BNB | POL
   const [subToken, setSubToken] = useState("USDT"); // USDC | USDT only
+
+  const selectedSubPlan = subPlan === "strategist_weekly" || subPlan === "strategist_monthly" ? subPlan : SUB_PLAN;
+  const selectedSubPriceUsd =
+    subPlan === "strategist_weekly" ? STRATEGIST_WEEKLY_PRICE_USD :
+    subPlan === "strategist_monthly" ? STRATEGIST_MONTHLY_PRICE_USD :
+    SUB_PRICE_USD;
+  const selectedSubLabel =
+    subPlan === "strategist_weekly" ? "Strategist Weekly" :
+    subPlan === "strategist_monthly" ? "Strategist Monthly" :
+    "Nexus Core";
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState("");
   const [autoRenewBusy, setAutoRenewBusy] = useState(false);
@@ -4785,6 +4798,7 @@ const byChain = {};
   const requireStrategistAccess = useCallback((actionLabel = "Nexus Strategist") => {
     if (canUseStrategist) return true;
     setAccessTab("subscribe");
+    setSubPlan("strategist_monthly");
     setAccessModalOpen(true);
     setSubMsg(`🔒 ${actionLabel} requires Strategist access. Weekly: $20/7 days. Monthly: $50/30 days.`);
     return false;
@@ -5000,7 +5014,7 @@ const byChain = {};
         throw new Error(`${payToken} address is not configured for ${chainKey}.`);
       }
 
-      const priceUsd = String(cfg?.price_usd ?? SUB_PRICE_USD ?? "25");
+      const priceUsd = String(selectedSubPriceUsd ?? cfg?.price_usd ?? SUB_PRICE_USD ?? "25");
       const amountUnits = decimalStringToUnits(priceUsd, spec.decimals || 6);
       if (amountUnits <= 0n) throw new Error("Payment amount is zero.");
       const data = _erc20TransferData(treasury, amountUnits);
@@ -5021,10 +5035,10 @@ const byChain = {};
         method: "POST",
         token,
         wallet,
-        body: { wallet, wallet_address: wallet, chain_id: chainId, tx_hash: txHash, plan: SUB_PLAN, token_type: "erc20", token: payToken },
+        body: { wallet, wallet_address: wallet, chain_id: chainId, tx_hash: txHash, plan: selectedSubPlan, token_type: "erc20", token: payToken },
       });
 
-      setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : "Payment verified. Access activated.");
+      setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : `${selectedSubLabel} payment verified. Access activated.`);
 
       setAccessModalOpen(false);
       await refreshAccess();
@@ -5034,7 +5048,7 @@ const byChain = {};
     } finally {
       setSubBusy(false);
     }
-  }, [wallet, subChain, subToken, token, api, refreshAccess, _getEmbeddedProvider, _trySwitchChain]);
+  }, [wallet, subChain, subToken, selectedSubPlan, selectedSubPriceUsd, selectedSubLabel, token, api, refreshAccess, _getEmbeddedProvider, _trySwitchChain]);
 
   // Best-pair explain (click -> modal)
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }
@@ -12520,6 +12534,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   e.stopPropagation();
                   if (!ENABLE_VAULT_SUBSCRIBE) return;
                   setAccessTab("subscribe");
+                  setSubPlan("core");
                   setSubMsg("");
                   setAccessModalOpen(true);
                 }}
@@ -12629,7 +12644,34 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 ) : (
                   <div>
                                         <div className="hint" style={{ marginBottom: 8 }}>
-                      Subscribe for <b>Nexus Core</b> (${SUB_PRICE_USD}/30 days). Pay with <b>USDC or USDT only</b>. AI Insight is included; Strategist is a separate add-on.
+                      Select <b>Nexus Core</b> or the separate <b>Strategist</b> add-on. Pay with <b>USDC or USDT only</b>.
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 10 }}>
+                      <button
+                        type="button"
+                        className={`btnGhost ${subPlan === "core" ? "active" : ""}`}
+                        onClick={() => { setSubPlan("core"); setSubMsg(""); }}
+                        style={{ textAlign: "left", borderColor: subPlan === "core" ? "rgba(57,217,138,0.45)" : undefined, background: subPlan === "core" ? "rgba(57,217,138,0.10)" : undefined }}
+                      >
+                        <b>Nexus Core</b> · ${SUB_PRICE_USD}/30 days · AI Insight included
+                      </button>
+                      <button
+                        type="button"
+                        className={`btnGhost ${subPlan === "strategist_weekly" ? "active" : ""}`}
+                        onClick={() => { setSubPlan("strategist_weekly"); setSubMsg(""); }}
+                        style={{ textAlign: "left", borderColor: subPlan === "strategist_weekly" ? "rgba(57,217,138,0.45)" : undefined, background: subPlan === "strategist_weekly" ? "rgba(57,217,138,0.10)" : undefined }}
+                      >
+                        <b>Strategist Weekly</b> · ${STRATEGIST_WEEKLY_PRICE_USD}/7 days
+                      </button>
+                      <button
+                        type="button"
+                        className={`btnGhost ${subPlan === "strategist_monthly" ? "active" : ""}`}
+                        onClick={() => { setSubPlan("strategist_monthly"); setSubMsg(""); }}
+                        style={{ textAlign: "left", borderColor: subPlan === "strategist_monthly" ? "rgba(57,217,138,0.45)" : undefined, background: subPlan === "strategist_monthly" ? "rgba(57,217,138,0.10)" : undefined }}
+                      >
+                        <b>Strategist Monthly</b> · ${STRATEGIST_MONTHLY_PRICE_USD}/30 days · best value
+                      </button>
                     </div>
 
                     <div className="row" style={{ gap: 8, marginBottom: 10, alignItems: "center" }}>
@@ -12665,7 +12707,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         USDT
                       </button>
                     </div><div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
-                      Selected: <b>Nexus Core ${SUB_PRICE_USD}</b> · <b>{subToken}</b>
+                      Selected: <b>{selectedSubLabel} ${selectedSubPriceUsd}</b> · <b>{subToken}</b>
                     </div>
 
                     <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.02)", margin: "10px 0" }}>
@@ -12703,7 +12745,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     <div className="row" style={{ gap: 8, marginTop: 8 }}>
                       <button className="btn" disabled={subBusy} onClick={subscribePay}>
-                        {subBusy ? "..." : `Pay ${SUB_PRICE_USD} ${subToken} & Activate`}
+                        {subBusy ? "..." : `Pay ${selectedSubPriceUsd} ${subToken} & Activate`}
                       </button>
                       <button
                         className="btnGhost"
@@ -17152,6 +17194,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
           <div className="cardHead">
             <div className="cardTitle">Nexus Strategist</div>
             <div className="cardActions" style={{ alignItems: "center" }}>
+              {strategistActive ? (
+                <span className="pill good" title="Strategist access is active">Strategist Active</span>
+              ) : (
+                <button
+                  className="btnGhost"
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setAccessTab("subscribe");
+                    setSubPlan("strategist_monthly");
+                    setSubMsg("Strategist access: $20/7 days or $50/30 days. Select a plan below.");
+                    setAccessModalOpen(true);
+                  }}
+                  title="Buy Strategist access"
+                  style={{ height: 28, padding: "6px 10px", borderRadius: 999, fontSize: 12, fontWeight: 900 }}
+                >
+                  Buy Strategist
+                </button>
+              )}
               <InfoButton title="Nexus Strategist">
                 <Help showClose dismissable
                   de={<><p><b>Nexus Strategist</b> ist dein aktiver Strategie-Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Unterschied zu AI Insight:</b> AI Insight erklaert kompakt den aktuellen Markt. Nexus Strategist hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten, Trade-Review und der Einordnung zwischen Nexus Grid und Nexus Rotation.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Hinweis:</b> Nexus Strategist liefert Analyse, Struktur und taktische Orientierung. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}

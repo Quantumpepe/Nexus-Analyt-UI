@@ -1621,7 +1621,15 @@ function formatAiSignalContextForPrompt(ctx) {
     : "";
   const weightLine = ctx?.compare_weights ? `AI mode=${ctx.ai_mode || "standard"}; Compare weights corr=${ctx.compare_weights.corr}, momentum=${ctx.compare_weights.momentum}, opportunity=${ctx.compare_weights.opportunity}, stability=${ctx.compare_weights.stability}, sentiment=${ctx.compare_weights.sentiment}` : "";
   const tradingLine = ctx?.nexus_trading
-    ? `Nexus Trading context: prepared=${ctx.nexus_trading?.prepared_setup?.symbol || "none"}, executable=${ctx.nexus_trading?.prepared_setup?.executable ?? "n/a"}, learning_setups=${ctx.nexus_trading?.learning_count ?? 0}, budget=${ctx.nexus_trading?.configured_budget_usd || "not set"}, risk_mode=${ctx.nexus_trading?.risk_mode || "n/a"}`
+    ? `
+• HOLD / OBSERVE protects capital after risk exits or unstable market conditions.
+• HOLD duration is configurable from 1–12h and acts as a minimum protection period.
+• After HOLD expires, the Strategist continues monitoring market structure, liquidity, RVOL and risk conditions.
+• Capital is NOT automatically re-entered after HOLD expiry.
+• If market conditions remain weak, the slot stays in OBSERVE until conditions improve.
+• After the maximum observation window, the user must manually release the capital again.
+
+Nexus Trading context: prepared=${ctx.nexus_trading?.prepared_setup?.symbol || "none"}, executable=${ctx.nexus_trading?.prepared_setup?.executable ?? "n/a"}, learning_setups=${ctx.nexus_trading?.learning_count ?? 0}, budget=${ctx.nexus_trading?.configured_budget_usd || "not set"}, risk_mode=${ctx.nexus_trading?.risk_mode || "n/a"}`
     : "";
 
   return [

@@ -4754,6 +4754,7 @@ const byChain = {};
   const [supportEmail, setSupportEmail] = useState("");
   const [supportBusy, setSupportBusy] = useState(false);
   const [supportMsg, setSupportMsg] = useState("");
+  const [billingEmail, setBillingEmail] = useState("");
   const [nexusBackendState, setNexusBackendState] = useState(null);
 
   const [redeemCode, setRedeemCode] = useState("");
@@ -5086,7 +5087,7 @@ const byChain = {};
         method: "POST",
         token,
         wallet,
-        body: { wallet, wallet_address: wallet, chain_id: chainId, tx_hash: txHash, plan: selectedSubPlan, token_type: "erc20", token: payToken },
+        body: { wallet, wallet_address: wallet, chain_id: chainId, tx_hash: txHash, plan: selectedSubPlan, token_type: "erc20", token: payToken, email: billingEmail },
       });
 
       setSubMsg(res?.already_verified ? "Payment already verified. Access updated." : `${selectedSubLabel} payment verified. Access activated.`);
@@ -5099,7 +5100,7 @@ const byChain = {};
     } finally {
       setSubBusy(false);
     }
-  }, [wallet, subChain, subToken, selectedSubPlan, selectedSubPriceUsd, selectedSubLabel, token, api, refreshAccess, _getEmbeddedProvider, _trySwitchChain]);
+  }, [wallet, subChain, subToken, selectedSubPlan, selectedSubPriceUsd, selectedSubLabel, billingEmail, token, api, refreshAccess, _getEmbeddedProvider, _trySwitchChain]);
 
   // Best-pair explain (click -> modal)
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }
@@ -12723,6 +12724,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       >
                         <b>Strategist Monthly</b> · ${STRATEGIST_MONTHLY_PRICE_USD}/30 days · best value
                       </button>
+                    </div>
+
+                    <div className="formRow" style={{ marginBottom: 10 }}>
+                      <label className="label">Billing email (optional)</label>
+                      <input
+                        className="input"
+                        value={billingEmail}
+                        onChange={(e) => setBillingEmail(e.target.value)}
+                        placeholder="you@example.com"
+                      />
                     </div>
 
                     <div className="row" style={{ gap: 8, marginBottom: 10, alignItems: "center" }}>

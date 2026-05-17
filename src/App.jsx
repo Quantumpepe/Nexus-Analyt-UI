@@ -1621,15 +1621,7 @@ function formatAiSignalContextForPrompt(ctx) {
     : "";
   const weightLine = ctx?.compare_weights ? `AI mode=${ctx.ai_mode || "standard"}; Compare weights corr=${ctx.compare_weights.corr}, momentum=${ctx.compare_weights.momentum}, opportunity=${ctx.compare_weights.opportunity}, stability=${ctx.compare_weights.stability}, sentiment=${ctx.compare_weights.sentiment}` : "";
   const tradingLine = ctx?.nexus_trading
-    ? `
-• HOLD / OBSERVE protects capital after risk exits or unstable market conditions.
-• HOLD duration is configurable from 1–12h and acts as a minimum protection period.
-• After HOLD expires, the Strategist continues monitoring market structure, liquidity, RVOL and risk conditions.
-• Capital is NOT automatically re-entered after HOLD expiry.
-• If market conditions remain weak, the slot stays in OBSERVE until conditions improve.
-• After the maximum observation window, the user must manually release the capital again.
-
-Nexus Trading context: prepared=${ctx.nexus_trading?.prepared_setup?.symbol || "none"}, executable=${ctx.nexus_trading?.prepared_setup?.executable ?? "n/a"}, learning_setups=${ctx.nexus_trading?.learning_count ?? 0}, budget=${ctx.nexus_trading?.configured_budget_usd || "not set"}, risk_mode=${ctx.nexus_trading?.risk_mode || "n/a"}`
+    ? `Nexus Trading context: prepared=${ctx.nexus_trading?.prepared_setup?.symbol || "none"}, executable=${ctx.nexus_trading?.prepared_setup?.executable ?? "n/a"}, learning_setups=${ctx.nexus_trading?.learning_count ?? 0}, budget=${ctx.nexus_trading?.configured_budget_usd || "not set"}, risk_mode=${ctx.nexus_trading?.risk_mode || "n/a"}`
     : "";
 
   return [
@@ -14654,6 +14646,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Nexus Rotation:</b> Recommendation-basierter Order-Modus. Du waehlst eine Watchlist-/Rotation-Empfehlung, setzt ein Rotation-Budget, waehlst das Payout Asset und erstellst danach eine Rotation-Order. Die Order bleibt technisch dieselbe Order-Struktur, wird aber intern als <b>source = ROTATION</b> markiert.</p>
 
                       <p><b>Nexus Trading:</b> autonomer Trading-Modus nach Budget-Freigabe. Du definierst Budget, Slots, Runtime, Style, erlaubte Assets/Chains, Risk Mode, Drawdown, Profit Lock, Slippage und Max Trades. Danach arbeitet Nexus Trading innerhalb dieser Grenzen selbststaendig.</p>
+                      <p><b>HOLD / OBSERVE:</b> Nach einem Risk Exit, Protect oder Stop wird Kapital zuerst geschuetzt. Die HOLD-Zeit ist ein Mindestschutz von 1-12h. Nach Ablauf darf Nexus nicht blind neu einsteigen; der Strategist prueft weiter Marktstruktur, Liquiditaet, RVOL und Risiko.</p>
+                      <p><b>Kein Blind-Reentry:</b> Wenn der Markt nach HOLD weiterhin schlecht ist, bleibt der Slot in OBSERVE. Nach der maximalen Beobachtungszeit muss der User Kapital wieder freigeben, bevor Nexus Trading neu allokieren darf.</p>
                       <p><b>Wichtig:</b> WAIT oder BLOCKED ist kein Fehler. Es bedeutet, dass das System lieber wartet oder blockiert, wenn Qualitaet und Risiko noch nicht passen. Lieber kein Trade als ein schlechter Trade.</p>
 
                       <p><b>Payout Asset:</b> bestimmt, wohin eine ausgefuehrte Order settled, z. B. USDC oder USDT. Wenn zu wenig direktes Asset vorhanden ist, kann Nexus einen Funding-/Swap-Vorschlag anzeigen. Nichts wird automatisch geswapt, bevor der User zustimmt.</p>
@@ -14679,6 +14673,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Nexus Rotation:</b> recommendation-based order mode. You select a Watchlist/Rotation recommendation, set a Rotation budget, choose the payout asset, then create a Rotation order. Technically it uses the same order structure, but is marked internally as <b>source = ROTATION</b>.</p>
 
                       <p><b>Nexus Trading:</b> autonomous trading mode after budget approval. The user defines budget, slots, runtime, style, allowed assets/chains, risk mode, drawdown, profit lock, slippage and max trades. After that, Nexus Trading works independently inside those limits.</p>
+                      <p><b>HOLD / OBSERVE:</b> After a Risk Exit, Protect or Stop, capital is protected first. HOLD is a minimum protection period from 1-12h. When it expires, Nexus must not blindly re-enter; the Strategist keeps checking market structure, liquidity, RVOL and risk.</p>
+                      <p><b>No blind re-entry:</b> If the market is still weak after HOLD, the slot stays in OBSERVE. After the maximum observation window, the user must release the capital again before Nexus Trading may allocate it.</p>
                       <p><b>Important:</b> WAIT or BLOCKED is not an error. It means the system prefers to wait or block if quality and risk are not good enough. No trade is better than a bad trade.</p>
 
                       <p><b>Payout Asset:</b> defines where an executed order settles, for example USDC or USDT. If the direct asset is insufficient, Nexus can show a funding/swap suggestion. Nothing is swapped automatically before user approval.</p>
@@ -15424,7 +15420,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <p><b>Hard Stop</b>: echter Notfall-Stopp bei zu hohem Risiko oder Regelbruch.</p>
                                 <p><b>Profit Lock</b>: schuetzt Gewinne, indem Risiko nach starkem Profit reduziert wird.</p>
                                 <p><b>Max Trades</b>: begrenzt Aktivitaet und verhindert Overtrading.</p>
-                                <p><b>Capital HOLD</b>: Nach Exit/Stop wird Kapital mindestens 1-12h gesichert. Danach entscheidet nicht der Timer, sondern der Strategist. Nach maximal 12h ist eine neue User-Freigabe noetig.</p>
                               </>
                             }
                             en={
@@ -15433,7 +15428,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <p><b>Hard Stop</b>: emergency stop for excessive risk or rule violation.</p>
                                 <p><b>Profit Lock</b>: protects gains by reducing risk after strong profit.</p>
                                 <p><b>Max Trades</b>: limits activity and avoids overtrading.</p>
-                                <p><b>Capital HOLD</b>: after exit/stop, capital is protected for 1-12h minimum. Timer expiry does not allow blind re-entry; the Strategist must confirm conditions. After max 12h, user release is required.</p>
                               </>
                             }
                           />

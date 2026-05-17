@@ -6347,7 +6347,7 @@ useEffect(() => {
 
   const tradingQueueSummary = useMemo(() => {
     const queue = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [];
-    const active = queue.filter((s) => s.status === "ACTIVE");
+    const active = queue.filter((s) => ["ACTIVE", "PROTECT"].includes(String(s.status || "").toUpperCase()));
     const ready = queue.filter((s) => s.status === "READY");
     const blocked = queue.filter((s) => s.status === "BLOCKED");
     const wait = queue.filter((s) => s.status === "WAIT");
@@ -6465,9 +6465,9 @@ useEffect(() => {
 
   const tradingCanApprove = !!tradingPreflight.ok;
   const tradingCanStart = false;
-  const tradingCanPause = tradingSessionLabel === "ACTIVE";
+  const tradingCanPause = ["ACTIVE", "PROTECT"].includes(tradingSessionLabel);
   const tradingCanResume = tradingSessionLabel === "PAUSED";
-  const tradingCanStop = ["ARMED", "ACTIVE", "PAUSED"].includes(tradingSessionLabel);
+  const tradingCanStop = ["ARMED", "ACTIVE", "PROTECT", "PAUSED"].includes(tradingSessionLabel);
   const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(tradingSessionLabel);
 
   const updateTradingPreparedSession = useCallback((patch = {}) => {
@@ -6621,6 +6621,158 @@ useEffect(() => {
     });
     api("/api/nexus/trading/hold-state", { method: "POST", body: { action: "release" } }).catch(() => {});
   }, [tradingCanReleaseCapital, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+
+
+
+  const applyTradingRiskDecision = useCallback((riskResult = {}) => {
+    const decisions = Array.isArray(riskResult?.decisions) ? riskResult.decisions : [];
+    if (!decisions.length) return;
+
+    const now = Date.now();
+    const decisionBySlot = new Map();
+    decisions.forEach((d) => {
+      const key = String(d?.slot ?? "");
+      if (key) decisionBySlot.set(key, d);
+    });
+
+    let shouldEnterHold = false;
+    let nextSession = tradingSessionLabel;
+    let holdReason = "Risk decision engine requested capital protection.";
+    const holdHours = clampTradingHoldHours(tradingHoldHours);
+    const holdUntil = now + holdHours * 60 * 60 * 1000;
+    const observeUntil = now + 12 * 60 * 60 * 1000;
+
+    const nextQueue = (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : []).map((slot) => {
+      const d = decisionBySlot.get(String(slot?.slot ?? ""));
+      if (!d) return slot;
+
+      const action = String(d.action || "KEEP_ACTIVE").toUpperCase();
+      const reasons = Array.isArray(d.reasons) ? d.reasons.filter(Boolean).join(" ") : String(d.reason || "");
+      const riskScore = Number(d.risk_score || 0);
+      const confirmations = Number(d.confirmations || 0);
+      const decisionMeta = {
+        riskDecision: d.decision || action,
+        riskScore,
+        riskConfirmations: confirmations,
+        riskReasons: Array.isArray(d.reasons) ? d.reasons : [],
+        riskCheckedAt: now,
+      };
+
+      if (action === "FORCE_EXIT" || action === "EXIT") {
+        shouldEnterHold = true;
+        nextSession = "HOLD";
+        holdReason = reasons || (action === "FORCE_EXIT" ? "Hard risk block triggered force exit." : "Confirmed risk cluster triggered exit.");
+        return {
+          ...slot,
+          ...decisionMeta,
+          status: "HOLD",
+          exitRequestedAt: now,
+          holdStartedAt: now,
+          holdUntil,
+          observeUntil,
+          condition: action === "FORCE_EXIT" ? "Force exit risk detected. Capital is protected in HOLD." : "Exit risk confirmed. Capital is protected in HOLD.",
+          observeReason: holdReason,
+        };
+      }
+
+      if (action === "REDUCE") {
+        nextSession = nextSession === "ACTIVE" ? "PROTECT" : nextSession;
+        return {
+          ...slot,
+          ...decisionMeta,
+          status: "PROTECT",
+          reduceRecommendedAt: now,
+          condition: "Reduce / protect recommended. Risk cluster is elevated but not force-exit critical.",
+          observeReason: reasons || "The Strategist detected elevated risk and recommends reducing exposure before conditions worsen.",
+        };
+      }
+
+      if (action === "PROTECT") {
+        nextSession = nextSession === "ACTIVE" ? "PROTECT" : nextSession;
+        return {
+          ...slot,
+          ...decisionMeta,
+          status: "PROTECT",
+          protectStartedAt: slot.protectStartedAt || now,
+          condition: "Protect mode. No new add-ons; Strategist watches for confirmation or recovery.",
+          observeReason: reasons || "The Strategist detected early risk signals. This is not an exit yet, but the trade is under protection.",
+        };
+      }
+
+      if (action === "CLEAR_PROTECT") {
+        return {
+          ...slot,
+          ...decisionMeta,
+          status: "ACTIVE",
+          protectClearedAt: now,
+          condition: "Risk normalized. Slot returned to ACTIVE monitoring.",
+          observeReason: reasons || "Risk cluster cleared and market conditions normalized enough for active monitoring.",
+        };
+      }
+
+      return {
+        ...slot,
+        ...decisionMeta,
+        condition: slot.condition || "Active; Strategist continues monitoring for risk changes.",
+      };
+    });
+
+    setTradingExecutionQueue(nextQueue);
+    if (nextSession !== tradingSessionLabel) {
+      setTradingSessionStatus(nextSession);
+      setTradingSessionUpdatedTs(now);
+    }
+    updateTradingPreparedSession({
+      status: nextSession,
+      executionQueue: nextQueue,
+      backendRiskDecision: riskResult,
+      riskCheckedAt: now,
+    });
+
+    if (shouldEnterHold) {
+      api("/api/nexus/trading/hold-state", {
+        method: "POST",
+        body: { action: "exit", hold_hours: holdHours, queue: nextQueue, reason: holdReason },
+      }).catch(() => {});
+    }
+  }, [tradingExecutionQueue, tradingSessionLabel, tradingHoldHours, clampTradingHoldHours, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+
+  useEffect(() => {
+    if (String(gridMode || "").toLowerCase() !== "trading") return;
+    if (!["ACTIVE", "PROTECT"].includes(tradingSessionLabel)) return;
+    if (!Array.isArray(tradingExecutionQueue) || !tradingExecutionQueue.length) return;
+
+    let cancelled = false;
+    const checkRisk = () => {
+      const monitoredQueue = (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [])
+        .filter((slot) => ["ACTIVE", "PROTECT", "READY"].includes(String(slot?.status || "").toUpperCase()));
+      if (!monitoredQueue.length) return;
+      api("/api/nexus/trading/risk-decision", {
+        method: "POST",
+        body: {
+          queue: monitoredQueue,
+          config: {
+            risk_mode: tradingRiskMode,
+            caution_drawdown_pct: tradingCautionDrawdownPct,
+            hard_stop_pct: tradingHardStopPct,
+            max_slippage_pct: tradingMaxSlippagePct,
+          },
+        },
+      })
+        .then((res) => {
+          if (cancelled) return;
+          if (res?.status === "ok") applyTradingRiskDecision(res);
+        })
+        .catch(() => {});
+    };
+
+    checkRisk();
+    const id = setInterval(checkRisk, 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, applyTradingRiskDecision]);
 
   useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;
@@ -15536,14 +15688,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               style={(() => {
                                 const st = String(slot.status || "").toUpperCase();
                                 const isGreen = ["ACTIVE", "READY", "EXECUTED"].includes(st);
+                                const isProtect = st === "PROTECT";
                                 const isWait = st === "WAIT";
                                 const isHold = ["HOLD", "OBSERVE"].includes(st);
                                 const isRelease = st === "RELEASE_REQUIRED";
                                 const isBlocked = st === "BLOCKED";
                                 return {
                                   borderRadius: 10,
-                                  border: isGreen ? "1px solid rgba(34,197,94,.45)" : isWait ? "1px solid rgba(255,193,7,.34)" : isHold ? "1px solid rgba(64,196,255,.34)" : isRelease ? "1px solid rgba(255,193,7,.42)" : isBlocked ? "1px solid rgba(239,68,68,.28)" : "1px solid rgba(255,255,255,.08)",
-                                  background: isGreen ? "rgba(34,197,94,.11)" : isWait ? "rgba(255,193,7,.085)" : isHold ? "rgba(64,196,255,.075)" : isRelease ? "rgba(255,193,7,.10)" : isBlocked ? "rgba(239,68,68,.075)" : "rgba(255,255,255,.035)",
+                                  border: isGreen ? "1px solid rgba(34,197,94,.45)" : isProtect ? "1px solid rgba(255,193,7,.42)" : isWait ? "1px solid rgba(255,193,7,.34)" : isHold ? "1px solid rgba(64,196,255,.34)" : isRelease ? "1px solid rgba(255,193,7,.42)" : isBlocked ? "1px solid rgba(239,68,68,.28)" : "1px solid rgba(255,255,255,.08)",
+                                  background: isGreen ? "rgba(34,197,94,.11)" : isProtect ? "rgba(255,193,7,.095)" : isWait ? "rgba(255,193,7,.085)" : isHold ? "rgba(64,196,255,.075)" : isRelease ? "rgba(255,193,7,.10)" : isBlocked ? "rgba(239,68,68,.075)" : "rgba(255,255,255,.035)",
                                   padding: "7px 8px",
                                   display: "grid",
                                   gap: 3,
@@ -15555,16 +15708,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <span
                                   className="tiny"
                                   style={{
-                                    color: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.status || "").toUpperCase()) ? "#7cf7a2" : String(slot.status || "").toUpperCase() === "WAIT" ? "#ffc107" : ["HOLD", "OBSERVE"].includes(String(slot.status || "").toUpperCase()) ? "#8bdcff" : String(slot.status || "").toUpperCase() === "RELEASE_REQUIRED" ? "#ffd166" : String(slot.status || "").toUpperCase() === "BLOCKED" ? "#ff6b6b" : "rgba(235,255,247,.72)",
+                                    color: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.status || "").toUpperCase()) ? "#7cf7a2" : String(slot.status || "").toUpperCase() === "PROTECT" ? "#ffd166" : String(slot.status || "").toUpperCase() === "WAIT" ? "#ffc107" : ["HOLD", "OBSERVE"].includes(String(slot.status || "").toUpperCase()) ? "#8bdcff" : String(slot.status || "").toUpperCase() === "RELEASE_REQUIRED" ? "#ffd166" : String(slot.status || "").toUpperCase() === "BLOCKED" ? "#ff6b6b" : "rgba(235,255,247,.72)",
                                     fontWeight: 900,
                                   }}
                                 >{String(slot.status || "WAIT").toUpperCase()} · priority {Math.round(Number(slot.priority || 0))}</span>
                               </div>
                               <div className="muted tiny">{slot.symbol || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition}</div>
-                              {["HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(String(slot.status || "").toUpperCase()) ? (
+                              {["PROTECT", "HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(String(slot.status || "").toUpperCase()) ? (
                                 <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
                                   <div>
-                                    HOLD until {slot.holdUntil ? new Date(Number(slot.holdUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"} · max observe until {slot.observeUntil ? new Date(Number(slot.observeUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"}
+                                    {String(slot.status || "").toUpperCase() === "PROTECT" ? "Protect mode active" : <>HOLD until {slot.holdUntil ? new Date(Number(slot.holdUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"} · max observe until {slot.observeUntil ? new Date(Number(slot.observeUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"}</>}
                                   </div>
                                   <details style={{ border: "1px solid rgba(139,220,255,.18)", borderRadius: 8, padding: "4px 6px", background: "rgba(64,196,255,.045)" }}>
                                     <summary style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}>Observe info</summary>
@@ -15586,8 +15739,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       style={{
                         padding: "7px 10px",
                         borderRadius: 12,
-                        background: tradingSessionLabel === "ACTIVE" ? "rgba(34,197,94,.08)" : tradingSessionLabel === "PAUSED" ? "rgba(245,193,108,.08)" : "rgba(245,193,108,.07)",
-                        border: tradingSessionLabel === "ACTIVE" ? "1px solid rgba(34,197,94,.22)" : "1px solid rgba(245,193,108,.20)",
+                        background: tradingSessionLabel === "ACTIVE" ? "rgba(34,197,94,.08)" : tradingSessionLabel === "PROTECT" ? "rgba(255,193,7,.09)" : tradingSessionLabel === "PAUSED" ? "rgba(245,193,108,.08)" : "rgba(245,193,108,.07)",
+                        border: tradingSessionLabel === "ACTIVE" ? "1px solid rgba(34,197,94,.22)" : tradingSessionLabel === "PROTECT" ? "1px solid rgba(255,193,7,.28)" : "1px solid rgba(245,193,108,.20)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "space-between",
@@ -15596,10 +15749,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 900, color: tradingSessionLabel === "ACTIVE" ? "#7cf7a2" : ["HOLD", "OBSERVE"].includes(tradingSessionLabel) ? "#8bdcff" : tradingSessionLabel === "RELEASE_REQUIRED" ? "#ffd166" : "#f5c16c", fontSize: 13 }}>
-                          Status: {tradingSessionLabel === "PREPARED" ? "Prepared" : tradingSessionLabel === "ARMED" ? "Armed" : tradingSessionLabel === "ACTIVE" ? "Active" : tradingSessionLabel === "PAUSED" ? "Paused" : tradingSessionLabel === "HOLD" ? "Capital Hold" : tradingSessionLabel === "OBSERVE" ? "Observe" : tradingSessionLabel === "RELEASE_REQUIRED" ? "Release required" : tradingSessionLabel === "STOPPED" ? "Stopped" : "Prepared"}
+                        <div style={{ fontWeight: 900, color: tradingSessionLabel === "ACTIVE" ? "#7cf7a2" : tradingSessionLabel === "PROTECT" ? "#ffd166" : ["HOLD", "OBSERVE"].includes(tradingSessionLabel) ? "#8bdcff" : tradingSessionLabel === "RELEASE_REQUIRED" ? "#ffd166" : "#f5c16c", fontSize: 13 }}>
+                          Status: {tradingSessionLabel === "PREPARED" ? "Prepared" : tradingSessionLabel === "ARMED" ? "Armed" : tradingSessionLabel === "ACTIVE" ? "Active" : tradingSessionLabel === "PROTECT" ? "Protect" : tradingSessionLabel === "PAUSED" ? "Paused" : tradingSessionLabel === "HOLD" ? "Capital Hold" : tradingSessionLabel === "OBSERVE" ? "Observe" : tradingSessionLabel === "RELEASE_REQUIRED" ? "Release required" : tradingSessionLabel === "STOPPED" ? "Stopped" : "Prepared"}
                         </div>
-                        <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget once. After approval, Nexus Trading works autonomously inside your limits." : tradingSessionLabel === "ARMED" ? "Armed. Nexus Trading activates automatically." : tradingSessionLabel === "ACTIVE" ? "Autonomous trading active. User controls Pause and Stop only." : tradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : tradingSessionLabel === "HOLD" ? "Capital protected. Minimum HOLD is active; no new allocation can start." : tradingSessionLabel === "OBSERVE" ? "Minimum HOLD completed. Strategist keeps checking; no trade unless market quality is clean." : tradingSessionLabel === "RELEASE_REQUIRED" ? "Max 12h observation reached. User must release/approve capital before new allocation." : "Stopped. Load or approve a setup again to continue."}</div>
+                        <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget once. After approval, Nexus Trading works autonomously inside your limits." : tradingSessionLabel === "ARMED" ? "Armed. Nexus Trading activates automatically." : tradingSessionLabel === "ACTIVE" ? "Autonomous trading active. User controls Pause and Stop only." : tradingSessionLabel === "PROTECT" ? "Protect mode active. Strategist detected elevated risk; no new add-ons and exit can be triggered if risk worsens." : tradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : tradingSessionLabel === "HOLD" ? "Capital protected. Minimum HOLD is active; no new allocation can start." : tradingSessionLabel === "OBSERVE" ? "Minimum HOLD completed. Strategist keeps checking; no trade unless market quality is clean." : tradingSessionLabel === "RELEASE_REQUIRED" ? "Max 12h observation reached. User must release/approve capital before new allocation." : "Stopped. Load or approve a setup again to continue."}</div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         
@@ -15609,7 +15762,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </button>
                         ) : null}
                         
-                        {tradingSessionLabel === "ACTIVE" ? (
+                        {["ACTIVE", "PROTECT"].includes(tradingSessionLabel) ? (
                           <button className="btnGhost" type="button" onClick={handleTradingPauseSession} style={{ height: 30, paddingInline: 10 }}>Pause</button>
                         ) : null}
                         {tradingSessionLabel === "PAUSED" ? (

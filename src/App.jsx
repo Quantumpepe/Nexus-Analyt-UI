@@ -6220,6 +6220,7 @@ useEffect(() => {
   const [tradingBudgetSplitInput, setTradingBudgetSplitInput] = useLocalStorageState("nexus_trading_budget_splits", "");
   const [tradingExecutionQueue, setTradingExecutionQueue] = useLocalStorageState("nexus_trading_execution_queue", []);
   const [tradingRuntimeHours, setTradingRuntimeHours] = useLocalStorageState("nexus_trading_runtime_hours", "24");
+  const [tradingHoldHours, setTradingHoldHours] = useLocalStorageState("nexus_trading_hold_hours", "1");
   const [tradingAllowedAssets, setTradingAllowedAssets] = useLocalStorageState("nexus_trading_allowed_assets", "");
   const [tradingAllowedChains, setTradingAllowedChains] = useLocalStorageState("nexus_trading_allowed_chains", "POL,BNB,ETH");
   const [tradingRiskMode, setTradingRiskMode] = useLocalStorageState("nexus_trading_risk_mode", "BALANCED");
@@ -6238,6 +6239,11 @@ useEffect(() => {
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
 
   const tradingSessionLabel = String(tradingSessionStatus || "PREPARED").toUpperCase();
+  const clampTradingHoldHours = useCallback((value) => {
+    const n = Number(String(value ?? "").replace(",", "."));
+    if (!Number.isFinite(n)) return 1;
+    return Math.max(1, Math.min(12, n));
+  }, []);
 
   const normalizeTradingCsv = useCallback((value) => {
     return String(value || "")
@@ -6344,8 +6350,10 @@ useEffect(() => {
     const ready = queue.filter((s) => s.status === "READY");
     const blocked = queue.filter((s) => s.status === "BLOCKED");
     const wait = queue.filter((s) => s.status === "WAIT");
+    const hold = queue.filter((s) => ["HOLD", "OBSERVE"].includes(String(s.status || "").toUpperCase()));
+    const releaseRequired = queue.filter((s) => String(s.status || "").toUpperCase() === "RELEASE_REQUIRED");
     const total = queue.reduce((sum, s) => sum + (Number(s.amountUsd) || 0), 0);
-    return { queue, active, ready, blocked, wait, total };
+    return { queue, active, ready, blocked, wait, hold, releaseRequired, total };
   }, [tradingExecutionQueue]);
 
   const refreshTradingQueue = useCallback((setup = tradingPreparedSetup) => {
@@ -6356,6 +6364,7 @@ useEffect(() => {
 
   useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;
+    if (["HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(tradingSessionLabel)) return;
     const budget = Number(String(tradingBudgetUsd || "").replace(",", "."));
     const splits = parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
     const hasPositiveSlots = Array.isArray(splits) && splits.some((n) => Number(n) > 0);
@@ -6373,6 +6382,7 @@ useEffect(() => {
     return () => clearTimeout(t);
   }, [
     gridMode,
+    tradingSessionLabel,
     tradingBudgetUsd,
     tradingBudgetSplitInput,
     tradingAllowedAssets,
@@ -6389,6 +6399,7 @@ useEffect(() => {
   const tradingPreflight = useMemo(() => {
     const budget = Number(String(tradingBudgetUsd || "").replace(",", "."));
     const runtime = Number(String(tradingRuntimeHours || "").replace(",", "."));
+    const holdHours = Number(String(tradingHoldHours || "").replace(",", "."));
     const slippage = Number(String(tradingMaxSlippagePct || "").replace(",", "."));
     const maxTrades = Number(String(tradingMaxTrades || "").replace(",", "."));
     const cautionDd = Number(String(tradingCautionDrawdownPct || "").replace(",", "."));
@@ -6408,6 +6419,7 @@ useEffect(() => {
     if (!chains.length) issues.push("chain");
     if (unsupportedChains.length) issues.push(`unsupported chain ${unsupportedChains[0]}`);
     if (!(runtime >= 1 && runtime <= 168)) issues.push("runtime 1-168h");
+    if (!(holdHours >= 1 && holdHours <= 12)) issues.push("hold 1-12h");
     if (!Number.isFinite(slippage) || slippage <= 0 || slippage > 5) issues.push("slippage <=5%");
     if (!Number.isFinite(maxTrades) || maxTrades < 1 || maxTrades > 50) issues.push("max trades");
     if (!Number.isFinite(cautionDd) || cautionDd < 0 || cautionDd > 25) issues.push("caution DD");
@@ -6420,6 +6432,7 @@ useEffect(() => {
       issues,
       budget,
       runtime,
+      holdHours,
       assets,
       chains,
       slippage,
@@ -6434,6 +6447,7 @@ useEffect(() => {
   }, [
     tradingBudgetUsd,
     tradingRuntimeHours,
+    tradingHoldHours,
     tradingAllowedAssets,
     tradingAllowedChains,
     tradingRiskMode,
@@ -6453,6 +6467,7 @@ useEffect(() => {
   const tradingCanPause = tradingSessionLabel === "ACTIVE";
   const tradingCanResume = tradingSessionLabel === "PAUSED";
   const tradingCanStop = ["ARMED", "ACTIVE", "PAUSED"].includes(tradingSessionLabel);
+  const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(tradingSessionLabel);
 
   const updateTradingPreparedSession = useCallback((patch = {}) => {
     setTradingPreparedSetup((prev) => {
@@ -6502,13 +6517,15 @@ useEffect(() => {
       approvedBudgetUsd: tradingBudgetUsd,
       approvedAt: now,
       startedAt: now,
+      holdHours: clampTradingHoldHours(tradingHoldHours),
+      observeMaxHours: 12,
       preflight: tradingPreflight,
       executionQueue: activeQueue,
       userAction: { approvedBudget: true, armed: true, started: true, preflightOk: true },
       note: "Budget approved. Nexus Trading is autonomous within approved limits. User controls Pause and Stop.",
     });
     setErrorMsg("");
-  }, [tradingCanApprove, tradingBudgetUsd, tradingPreflight, refreshTradingQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setErrorMsg]);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, refreshTradingQueue, clampTradingHoldHours, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setErrorMsg]);
 
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;
@@ -6549,16 +6566,119 @@ useEffect(() => {
   const handleTradingStopSession = useCallback(() => {
     if (!tradingCanStop) return;
     const now = Date.now();
-    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => ["ACTIVE", "READY", "WAIT"].includes(s.status) ? { ...s, status: "BLOCKED", stoppedAt: now } : s));
-    setTradingSessionStatus("STOPPED");
+    const holdHours = clampTradingHoldHours(tradingHoldHours);
+    const holdUntil = now + holdHours * 60 * 60 * 1000;
+    const observeUntil = now + 12 * 60 * 60 * 1000;
+    const protectedQueue = (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : []).map((s) => {
+      const st = String(s.status || "").toUpperCase();
+      if (!["ACTIVE", "READY", "WAIT"].includes(st)) return s;
+      return {
+        ...s,
+        status: "HOLD",
+        holdStartedAt: now,
+        holdUntil,
+        observeUntil,
+        stoppedAt: now,
+        condition: `Capital protected. Minimum HOLD ${holdHours}h; Strategist keeps observing before any reallocation.`,
+      };
+    });
+    setTradingExecutionQueue(protectedQueue);
+    setTradingSessionStatus("HOLD");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({
-      status: "STOPPED",
+      status: "HOLD",
       stoppedAt: now,
-      userAction: { stopped: true },
-      outcome: { status: "manual_stop_pending_outcome" },
+      holdStartedAt: now,
+      holdUntil,
+      observeUntil,
+      holdHours,
+      observeMaxHours: 12,
+      executionQueue: protectedQueue,
+      userAction: { stopped: true, protectedCapital: true },
+      outcome: { status: "capital_hold_observe_pending_strategist" },
+      note: "Capital is protected first. Timer expiry does not permit blind re-entry; Strategist must confirm clean market conditions.",
     });
-  }, [tradingCanStop, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+    api("/api/nexus/trading/hold-state", {
+      method: "POST",
+      body: { action: "hold", hold_hours: holdHours, queue: protectedQueue, reason: "protect_stop" },
+    }).catch(() => {});
+  }, [tradingCanStop, tradingExecutionQueue, tradingHoldHours, clampTradingHoldHours, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+
+  const handleTradingReleaseCapital = useCallback(() => {
+    if (!tradingCanReleaseCapital) return;
+    const now = Date.now();
+    setTradingExecutionQueue([]);
+    setTradingSessionStatus("PREPARED");
+    setTradingSessionUpdatedTs(now);
+    updateTradingPreparedSession({
+      status: "PREPARED",
+      releasedAt: now,
+      executionQueue: [],
+      userAction: { releasedCapital: true },
+      note: "Capital released by user. Approve budget again before Nexus Trading can allocate it.",
+    });
+    api("/api/nexus/trading/hold-state", { method: "POST", body: { action: "release" } }).catch(() => {});
+  }, [tradingCanReleaseCapital, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+
+  useEffect(() => {
+    if (String(gridMode || "").toLowerCase() !== "trading") return;
+    if (!["HOLD", "OBSERVE"].includes(tradingSessionLabel)) return;
+
+    const tick = () => {
+      const now = Date.now();
+      let nextSession = tradingSessionLabel;
+      let changed = false;
+      let releaseNeeded = false;
+
+      const nextQueue = (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : []).map((slot) => {
+        const st = String(slot?.status || "").toUpperCase();
+        if (!["HOLD", "OBSERVE"].includes(st)) return slot;
+        const holdUntil = Number(slot.holdUntil || 0);
+        const observeUntil = Number(slot.observeUntil || 0);
+
+        if (observeUntil > 0 && now >= observeUntil) {
+          changed = true;
+          releaseNeeded = true;
+          return {
+            ...slot,
+            status: "RELEASE_REQUIRED",
+            releaseRequiredAt: now,
+            condition: "Max 12h observation reached. Capital stays protected and requires user release before new allocation.",
+          };
+        }
+
+        if (st === "HOLD" && holdUntil > 0 && now >= holdUntil) {
+          changed = true;
+          nextSession = "OBSERVE";
+          return {
+            ...slot,
+            status: "OBSERVE",
+            observeStartedAt: now,
+            condition: "Minimum HOLD completed. Strategist keeps observing; no trade unless market quality becomes clean.",
+          };
+        }
+
+        return slot;
+      });
+
+      if (releaseNeeded) nextSession = "RELEASE_REQUIRED";
+      if (changed) {
+        setTradingExecutionQueue(nextQueue);
+        setTradingSessionStatus(nextSession);
+        setTradingSessionUpdatedTs(now);
+        updateTradingPreparedSession({
+          status: nextSession,
+          executionQueue: nextQueue,
+          updatedByHoldObserve: true,
+          releaseRequired: releaseNeeded,
+        });
+      }
+    };
+
+    tick();
+    const id = setInterval(tick, 60 * 1000);
+    return () => clearInterval(id);
+  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const applyTradingRiskPreset = useCallback((mode, confidence = tradingConfidenceMin) => {
     const risk = String(mode || "BALANCED").toUpperCase();
@@ -8233,6 +8353,8 @@ setGridBusy((s) => ({ ...s, stop: true }));
         strategy_id: `trading_${chain}_${symbol}_${String(tradingStyle || "TACTICAL").toLowerCase()}`,
         trading_style: tradingStyle,
         trading_runtime_hours: tradingRuntimeHours,
+        trading_hold_hours: clampTradingHoldHours(tradingHoldHours),
+        trading_observe_max_hours: 12,
         trading_risk_mode: tradingRiskMode,
         caution_drawdown_pct: tradingCautionDrawdownPct,
         hard_stop_pct: tradingHardStopPct,
@@ -8242,7 +8364,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         execution_queue: tradingExecutionQueue,
       },
     });
-  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, addCoreOrderFromModule]);
+  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingHoldHours, clampTradingHoldHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, addCoreOrderFromModule]);
 
   async function addManualOrder(opts = {}) {
     setErrorMsg("");
@@ -15224,6 +15346,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <input value={tradingRuntimeHours} onChange={(e) => setTradingRuntimeHours(e.target.value)} placeholder="24" />
                       </div>
                       <div className="formRow">
+                        <label>Capital HOLD (1-12h)</label>
+                        <input
+                          value={tradingHoldHours}
+                          onChange={(e) => setTradingHoldHours(e.target.value)}
+                          onBlur={() => setTradingHoldHours(String(clampTradingHoldHours(tradingHoldHours)))}
+                          placeholder="1"
+                          title="Minimum HOLD after exit/protection. After that Strategist keeps observing; no blind re-entry. Max observation is 12h."
+                        />
+                      </div>
+                      <div className="formRow">
                         <label>Style</label>
                         <select value={tradingStyle} onChange={(e) => setTradingStyle(e.target.value)}>
                           <option value="TACTICAL">Tactical</option>
@@ -15284,6 +15416,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <p><b>Hard Stop</b>: echter Notfall-Stopp bei zu hohem Risiko oder Regelbruch.</p>
                                 <p><b>Profit Lock</b>: schuetzt Gewinne, indem Risiko nach starkem Profit reduziert wird.</p>
                                 <p><b>Max Trades</b>: begrenzt Aktivitaet und verhindert Overtrading.</p>
+                                <p><b>Capital HOLD</b>: Nach Exit/Stop wird Kapital mindestens 1-12h gesichert. Danach entscheidet nicht der Timer, sondern der Strategist. Nach maximal 12h ist eine neue User-Freigabe noetig.</p>
                               </>
                             }
                             en={
@@ -15292,6 +15425,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <p><b>Hard Stop</b>: emergency stop for excessive risk or rule violation.</p>
                                 <p><b>Profit Lock</b>: protects gains by reducing risk after strong profit.</p>
                                 <p><b>Max Trades</b>: limits activity and avoids overtrading.</p>
+                                <p><b>Capital HOLD</b>: after exit/stop, capital is protected for 1-12h minimum. Timer expiry does not allow blind re-entry; the Strategist must confirm conditions. After max 12h, user release is required.</p>
                               </>
                             }
                           />
@@ -15349,26 +15483,39 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           {tradingQueueSummary.queue.map((slot) => (
                             <div
                               key={slot.id || `${slot.slot}-${slot.amountUsd}`}
-                              style={{
-                                borderRadius: 10,
-                                border: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.status || "").toUpperCase()) ? "1px solid rgba(34,197,94,.45)" : String(slot.status || "").toUpperCase() === "WAIT" ? "1px solid rgba(255,193,7,.34)" : String(slot.status || "").toUpperCase() === "BLOCKED" ? "1px solid rgba(239,68,68,.28)" : "1px solid rgba(255,255,255,.08)",
-                                background: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.status || "").toUpperCase()) ? "rgba(34,197,94,.11)" : String(slot.status || "").toUpperCase() === "WAIT" ? "rgba(255,193,7,.085)" : String(slot.status || "").toUpperCase() === "BLOCKED" ? "rgba(239,68,68,.075)" : "rgba(255,255,255,.035)",
-                                padding: "7px 8px",
-                                display: "grid",
-                                gap: 3,
-                              }}
+                              style={(() => {
+                                const st = String(slot.status || "").toUpperCase();
+                                const isGreen = ["ACTIVE", "READY", "EXECUTED"].includes(st);
+                                const isWait = st === "WAIT";
+                                const isHold = ["HOLD", "OBSERVE"].includes(st);
+                                const isRelease = st === "RELEASE_REQUIRED";
+                                const isBlocked = st === "BLOCKED";
+                                return {
+                                  borderRadius: 10,
+                                  border: isGreen ? "1px solid rgba(34,197,94,.45)" : isWait ? "1px solid rgba(255,193,7,.34)" : isHold ? "1px solid rgba(64,196,255,.34)" : isRelease ? "1px solid rgba(255,193,7,.42)" : isBlocked ? "1px solid rgba(239,68,68,.28)" : "1px solid rgba(255,255,255,.08)",
+                                  background: isGreen ? "rgba(34,197,94,.11)" : isWait ? "rgba(255,193,7,.085)" : isHold ? "rgba(64,196,255,.075)" : isRelease ? "rgba(255,193,7,.10)" : isBlocked ? "rgba(239,68,68,.075)" : "rgba(255,255,255,.035)",
+                                  padding: "7px 8px",
+                                  display: "grid",
+                                  gap: 3,
+                                };
+                              })()}
                             >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                                 <b style={{ color: "#eafff5" }}>Slot {slot.slot} · {fmtUsd(Number(slot.amountUsd || 0))}</b>
                                 <span
                                   className="tiny"
                                   style={{
-                                    color: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.status || "").toUpperCase()) ? "#7cf7a2" : String(slot.status || "").toUpperCase() === "WAIT" ? "#ffc107" : String(slot.status || "").toUpperCase() === "BLOCKED" ? "#ff6b6b" : "rgba(235,255,247,.72)",
+                                    color: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.status || "").toUpperCase()) ? "#7cf7a2" : String(slot.status || "").toUpperCase() === "WAIT" ? "#ffc107" : ["HOLD", "OBSERVE"].includes(String(slot.status || "").toUpperCase()) ? "#8bdcff" : String(slot.status || "").toUpperCase() === "RELEASE_REQUIRED" ? "#ffd166" : String(slot.status || "").toUpperCase() === "BLOCKED" ? "#ff6b6b" : "rgba(235,255,247,.72)",
                                     fontWeight: 900,
                                   }}
                                 >{String(slot.status || "WAIT").toUpperCase()} · priority {Math.round(Number(slot.priority || 0))}</span>
                               </div>
                               <div className="muted tiny">{slot.symbol || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition}</div>
+                              {["HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(String(slot.status || "").toUpperCase()) ? (
+                                <div className="muted tiny">
+                                  HOLD until {slot.holdUntil ? new Date(Number(slot.holdUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"} · max observe until {slot.observeUntil ? new Date(Number(slot.observeUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"}
+                                </div>
+                              ) : null}
                             </div>
                           ))}
                         </div>
@@ -15391,10 +15538,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 900, color: tradingSessionLabel === "ACTIVE" ? "#7cf7a2" : "#f5c16c", fontSize: 13 }}>
-                          Status: {tradingSessionLabel === "PREPARED" ? "Prepared" : tradingSessionLabel === "ARMED" ? "Armed" : tradingSessionLabel === "ACTIVE" ? "Active" : tradingSessionLabel === "PAUSED" ? "Paused" : tradingSessionLabel === "STOPPED" ? "Stopped" : "Prepared"}
+                        <div style={{ fontWeight: 900, color: tradingSessionLabel === "ACTIVE" ? "#7cf7a2" : ["HOLD", "OBSERVE"].includes(tradingSessionLabel) ? "#8bdcff" : tradingSessionLabel === "RELEASE_REQUIRED" ? "#ffd166" : "#f5c16c", fontSize: 13 }}>
+                          Status: {tradingSessionLabel === "PREPARED" ? "Prepared" : tradingSessionLabel === "ARMED" ? "Armed" : tradingSessionLabel === "ACTIVE" ? "Active" : tradingSessionLabel === "PAUSED" ? "Paused" : tradingSessionLabel === "HOLD" ? "Capital Hold" : tradingSessionLabel === "OBSERVE" ? "Observe" : tradingSessionLabel === "RELEASE_REQUIRED" ? "Release required" : tradingSessionLabel === "STOPPED" ? "Stopped" : "Prepared"}
                         </div>
-                        <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget once. After approval, Nexus Trading works autonomously inside your limits." : tradingSessionLabel === "ARMED" ? "Armed. Nexus Trading activates automatically." : tradingSessionLabel === "ACTIVE" ? "Autonomous trading active. User controls Pause and Stop only." : tradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : "Stopped. Load or approve a setup again to continue."}</div>
+                        <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget once. After approval, Nexus Trading works autonomously inside your limits." : tradingSessionLabel === "ARMED" ? "Armed. Nexus Trading activates automatically." : tradingSessionLabel === "ACTIVE" ? "Autonomous trading active. User controls Pause and Stop only." : tradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : tradingSessionLabel === "HOLD" ? "Capital protected. Minimum HOLD is active; no new allocation can start." : tradingSessionLabel === "OBSERVE" ? "Minimum HOLD completed. Strategist keeps checking; no trade unless market quality is clean." : tradingSessionLabel === "RELEASE_REQUIRED" ? "Max 12h observation reached. User must release/approve capital before new allocation." : "Stopped. Load or approve a setup again to continue."}</div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         
@@ -15411,7 +15558,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <button className="btn" type="button" onClick={handleTradingResumeSession} style={{ height: 30, paddingInline: 10 }}>Resume</button>
                         ) : null}
                         {tradingCanStop ? (
-                          <button className="btnDanger" type="button" onClick={handleTradingStopSession} style={{ height: 30, paddingInline: 10 }}>Stop</button>
+                          <button className="btnDanger" type="button" onClick={handleTradingStopSession} style={{ height: 30, paddingInline: 10 }}>Protect / Stop</button>
+                        ) : null}
+                        {tradingCanReleaseCapital ? (
+                          <button className="btnGhost" type="button" onClick={handleTradingReleaseCapital} style={{ height: 30, paddingInline: 10 }}>Release Capital</button>
                         ) : null}
                       </div>
                     </div>

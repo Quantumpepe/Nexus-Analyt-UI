@@ -17507,6 +17507,183 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
         }
 
+
+/* =========================================================
+   Nexus desktop layout v93
+   Goal:
+   - keep left reserve area free for future modules
+   - active panel uses the gained space
+   - inactive panels form a compact right rail at the page edge
+   ========================================================= */
+@media (min-width: 981px){
+  .main{
+    width: 100vw !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 18px 14px 18px !important;
+  }
+
+  .dashboardGrid.hasFocus{
+    width: 100% !important;
+    height: 100% !important;
+    display: grid !important;
+    grid-template-columns: minmax(260px, 25vw) minmax(0, 1fr) 168px !important;
+    grid-template-rows: repeat(3, minmax(0, 1fr)) !important;
+    column-gap: 18px !important;
+    row-gap: 14px !important;
+    align-items: stretch !important;
+    justify-items: stretch !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel.panelActive{
+    grid-column: 2 !important;
+    grid-row: 1 / 4 !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    align-self: stretch !important;
+    justify-self: stretch !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive){
+    grid-column: 3 !important;
+    width: 168px !important;
+    max-width: 168px !important;
+    min-width: 168px !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    align-self: stretch !important;
+    justify-self: end !important;
+    opacity: .9 !important;
+    transform: none !important;
+    padding: 8px !important;
+    border-radius: 16px !important;
+    overflow: hidden !important;
+  }
+
+  .dashboardGrid.hasFocus.focus-compare .section-grid,
+  .dashboardGrid.hasFocus.focus-vault .section-compare,
+  .dashboardGrid.hasFocus.focus-watchlist .section-compare,
+  .dashboardGrid.hasFocus.focus-ai .section-compare{
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+  }
+
+  .dashboardGrid.hasFocus.focus-compare .section-watch,
+  .dashboardGrid.hasFocus.focus-vault .section-watch,
+  .dashboardGrid.hasFocus.focus-watchlist .section-grid,
+  .dashboardGrid.hasFocus.focus-ai .section-grid{
+    grid-column: 3 !important;
+    grid-row: 2 !important;
+  }
+
+  .dashboardGrid.hasFocus.focus-compare .section-ai,
+  .dashboardGrid.hasFocus.focus-vault .section-ai,
+  .dashboardGrid.hasFocus.focus-watchlist .section-ai,
+  .dashboardGrid.hasFocus.focus-ai .section-watch{
+    grid-column: 3 !important;
+    grid-row: 3 !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardHead{
+    gap: 4px !important;
+    margin-bottom: 6px !important;
+    align-items: flex-start !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardTitle{
+    font-size: 11px !important;
+    line-height: 1.08 !important;
+    max-width: 118px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardActions{
+    gap: 3px !important;
+    transform: scale(.82) !important;
+    transform-origin: top right !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .cardBody,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .panelScroll{
+    height: calc(100% - 30px) !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    gap: 5px !important;
+    padding-right: 0 !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .chip,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .btn,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .btnGhost,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .btnPill,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .pill,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .legendItem{
+    min-height: 22px !important;
+    height: 22px !important;
+    padding: 2px 6px !important;
+    border-radius: 8px !important;
+    font-size: 8px !important;
+    line-height: 1 !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .input,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .select,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) input,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) select,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) textarea{
+    font-size: 8px !important;
+    min-height: 24px !important;
+    padding: 4px 6px !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .muted,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .tiny,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .text-xs,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .hint,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .label{
+    font-size: 8px !important;
+    line-height: 1.18 !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .compareGrid,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridLayout,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridWrap,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .aiWrap{
+    display: block !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .compareLive,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .compareChart,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridLeft,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridRight,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridControls,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridOrders,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .aiSelect,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .aiOut,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .watchTable,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .watchScroll,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .ordersList,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .liveListBox,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .pairsScroll{
+    max-height: none !important;
+    height: auto !important;
+    overflow: hidden !important;
+  }
+
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) canvas,
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) svg{
+    max-height: 58px !important;
+  }
+}
+
       `}
 </style>
 </>

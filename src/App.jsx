@@ -1536,7 +1536,7 @@ function buildLocalPairAlertsForUi(pairs, compareWeights, aiMode) {
   rows.forEach((p, sourceIndex) => {
     if (!p || typeof p !== "object") return;
     const pair = String(p.pair || "").toUpperCase();
-    if (!pair || !pair.includes("/")) continue;
+    if (!pair || !pair.includes("/")) return;
 
     const corr = Number(p.corr);
     const spread = Math.abs(Number(p.spreadPct));
@@ -1580,7 +1580,7 @@ function buildLocalPairAlertsForUi(pairs, compareWeights, aiMode) {
       base += Number(w.opportunity || 25) * 0.18;
     }
 
-    if (!reasons.length) continue;
+    if (!reasons.length) return;
     const strengthScore = Math.max(0, Math.min(100, Math.round(base * 10) / 10));
     const strength = strengthScore >= 82 ? "high" : strengthScore >= 65 ? "medium" : "low";
     alerts.push({
@@ -1599,7 +1599,7 @@ function buildLocalPairAlertsForUi(pairs, compareWeights, aiMode) {
   const byPair = new Map();
   for (const alert of alerts) {
     const key = String(alert?.pair || "").toUpperCase().trim();
-    if (!key) continue;
+    if (!key) return;
     const prev = byPair.get(key);
     if (!prev || Number(alert.score || 0) > Number(prev.score || 0)) {
       byPair.set(key, alert);

@@ -1534,7 +1534,7 @@ function buildLocalPairAlertsForUi(pairs, compareWeights, aiMode) {
   const alerts = [];
 
   rows.forEach((p, sourceIndex) => {
-    if (!p || typeof p !== "object") continue;
+    if (!p || typeof p !== "object") return;
     const pair = String(p.pair || "").toUpperCase();
     if (!pair || !pair.includes("/")) continue;
 

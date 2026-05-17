@@ -4754,6 +4754,7 @@ const byChain = {};
   const [supportEmail, setSupportEmail] = useState("");
   const [supportBusy, setSupportBusy] = useState(false);
   const [supportMsg, setSupportMsg] = useState("");
+  const [nexusBackendState, setNexusBackendState] = useState(null);
 
   const [redeemCode, setRedeemCode] = useState("");
   const [redeemBusy, setRedeemBusy] = useState(false);
@@ -4873,6 +4874,25 @@ const byChain = {};
       setSupportBusy(false);
     }
   }, [supportMessage, supportEmail, supportCategory, supportSubject, token, wallet, api, access?.mode, isPro, strategistActive]);
+
+  const refreshNexusBackendState = useCallback(async () => {
+    if (!wallet) {
+      setNexusBackendState(null);
+      return null;
+    }
+    try {
+      const data = await api(`/api/nexus/trading/state`, { wallet });
+      setNexusBackendState(data || null);
+      return data || null;
+    } catch {
+      return null;
+    }
+  }, [api, wallet]);
+
+  useEffect(() => {
+    refreshNexusBackendState();
+  }, [refreshNexusBackendState]);
+
 
   const redeemNow = useCallback(async () => {
     const code = (redeemCode || "").trim();

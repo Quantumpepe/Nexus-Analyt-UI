@@ -4716,14 +4716,21 @@ const byChain = {};
   const [access, setAccess] = useState(null); // { active, until, source, tier, note }
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [accessTab, setAccessTab] = useState("redeem"); // 'redeem' | 'subscribe'
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [supportCategory, setSupportCategory] = useState("General");
+  const [supportSubject, setSupportSubject] = useState("");
+  const [supportMessage, setSupportMessage] = useState("");
+  const [supportEmail, setSupportEmail] = useState("");
+  const [supportBusy, setSupportBusy] = useState(false);
+  const [supportMsg, setSupportMsg] = useState("");
 
   const [redeemCode, setRedeemCode] = useState("");
   const [redeemBusy, setRedeemBusy] = useState(false);
   const [redeemMsg, setRedeemMsg] = useState("");
 
   // Subscribe (USDC/USDT on ETH)
-  // Single plan: PRO $15
-  const SUB_PRICE_USD = 15;
+  // Core plan: $25 / 30 days
+  const SUB_PRICE_USD = 25;
   const SUB_PLAN = "pro";
   const [subChain, setSubChain] = useState("ETH"); // ETH | BNB | POL
   const [subToken, setSubToken] = useState("USDT"); // USDC | USDT only
@@ -4753,6 +4760,12 @@ const byChain = {};
 
   // Pro access: subscription or redeem code
   const isPro = !!(access?.active);
+  const strategistActive = !!(access?.strategist_active || access?.strategist_access?.active);
+  const canUseStrategist = !!(access?.can_use_strategist || strategistActive || access?.is_demo);
+  const demoAiUsedToday = Number(access?.ai_used_today ?? 0);
+  const demoAiDailyLimit = access?.ai_daily_limit ?? 3;
+  const demoAiMonthDaysUsed = Number(access?.ai_month_days_used ?? 0);
+  const demoAiMonthDaysLimit = access?.ai_month_days_limit ?? 5;
   const accessExpiresTs = Number(access?.expires_at || 0);
   const accessDaysLeft = accessExpiresTs > 0
     ? Math.ceil((accessExpiresTs - Math.floor(Date.now() / 1000)) / 86400)
@@ -4765,9 +4778,56 @@ const byChain = {};
     // Open Access modal directly on Subscribe tab with a friendly message
     setAccessTab("subscribe");
     setAccessModalOpen(true);
-    setSubMsg(`🔒 ${actionLabel} requires an active Nexus Pro subscription ($15/mo).`);
+    setSubMsg(`🔒 ${actionLabel} requires an active Nexus Core subscription ($25/30 days).`);
     return false;
   }, [isPro]);
+
+  const requireStrategistAccess = useCallback((actionLabel = "Nexus Strategist") => {
+    if (canUseStrategist) return true;
+    setAccessTab("subscribe");
+    setAccessModalOpen(true);
+    setSubMsg(`🔒 ${actionLabel} requires Strategist access. Weekly: $20/7 days. Monthly: $50/30 days.`);
+    return false;
+  }, [canUseStrategist]);
+
+  const submitSupportTicket = useCallback(async () => {
+    const msg = String(supportMessage || "").trim();
+    if (msg.length < 10) {
+      setSupportMsg("Please describe the issue with at least 10 characters.");
+      return;
+    }
+    setSupportBusy(true);
+    setSupportMsg("");
+    try {
+      const res = await api("/api/support/ticket", {
+        method: "POST",
+        token,
+        wallet,
+        body: {
+          wallet,
+          wallet_address: wallet,
+          email: supportEmail,
+          category: supportCategory,
+          subject: supportSubject || supportCategory,
+          message: msg,
+          meta: {
+            app_version: APP_VERSION,
+            access_mode: access?.mode || "DEMO",
+            core_active: !!isPro,
+            strategist_active: !!strategistActive,
+            user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+          },
+        },
+      });
+      setSupportMsg(`Support ticket created: ${res?.ticket_id || "received"}`);
+      setSupportSubject("");
+      setSupportMessage("");
+    } catch (e) {
+      setSupportMsg(e?.message || "Support ticket failed.");
+    } finally {
+      setSupportBusy(false);
+    }
+  }, [supportMessage, supportEmail, supportCategory, supportSubject, token, wallet, api, access?.mode, isPro, strategistActive]);
 
   const redeemNow = useCallback(async () => {
     const code = (redeemCode || "").trim();
@@ -4940,7 +5000,7 @@ const byChain = {};
         throw new Error(`${payToken} address is not configured for ${chainKey}.`);
       }
 
-      const priceUsd = String(cfg?.price_usd ?? SUB_PRICE_USD ?? "15");
+      const priceUsd = String(cfg?.price_usd ?? SUB_PRICE_USD ?? "25");
       const amountUnits = decimalStringToUnits(priceUsd, spec.decimals || 6);
       if (amountUnits <= 0n) throw new Error("Payment amount is zero.");
       const data = _erc20TransferData(treasury, amountUnits);
@@ -10763,7 +10823,7 @@ function aiTaskPlaceholder(kind) {
 async function runAi() {
     setErrorMsg("");
     setAiOutput("");
-    if (!requirePro("Nexus Strategist")) return;
+    if (!requireStrategistAccess("Nexus Strategist")) return;
     const q = (aiQuestion || "").trim();
     if (!q) return setErrorMsg("Please describe what the Nexus Strategist should do.");
     const userLang = detectNexusUserLanguage(q);
@@ -12342,9 +12402,88 @@ const handlePanelActivate = useCallback((name) => (e) => {
             >
               {authenticated ? "Disconnect" : "Connect"}
             </button>
+            <button
+              type="button"
+              className="btnGhost"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setSupportOpen(true);
+                setSupportMsg("");
+              }}
+            >
+              Support
+            </button>
           </div>
 
-          
+          {supportOpen && (
+            <>
+              <div
+                onClick={() => setSupportOpen(false)}
+                style={{ position: "fixed", inset: 0, background: "transparent", zIndex: 3000 }}
+              />
+              <div
+                role="dialog"
+                aria-label="Support"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: "fixed",
+                  top: 78,
+                  right: 24,
+                  width: 420,
+                  maxWidth: "calc(100vw - 24px)",
+                  background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  borderRadius: 14,
+                  padding: 14,
+                  zIndex: 4000,
+                  boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div className="cardTitle" style={{ margin: 0 }}>Support</div>
+                  <button className="iconBtn" type="button" onClick={() => setSupportOpen(false)}>×</button>
+                </div>
+                <div className="muted" style={{ marginTop: 8 }}>
+                  Send a support request. App state, wallet and access mode are attached automatically when available.
+                </div>
+                <div className="hr" style={{ margin: "12px 0" }} />
+                <div className="formRow">
+                  <label className="label">Category</label>
+                  <select className="select" value={supportCategory} onChange={(e) => setSupportCategory(e.target.value)}>
+                    <option>General</option>
+                    <option>Subscription</option>
+                    <option>Strategist</option>
+                    <option>Nexus Trading</option>
+                    <option>AI Insight</option>
+                    <option>Wallet</option>
+                    <option>Payment</option>
+                    <option>Bug Report</option>
+                    <option>Feature Request</option>
+                  </select>
+                </div>
+                <div className="formRow">
+                  <label className="label">Email (optional)</label>
+                  <input className="input" value={supportEmail} onChange={(e) => setSupportEmail(e.target.value)} placeholder="you@example.com" />
+                </div>
+                <div className="formRow">
+                  <label className="label">Subject</label>
+                  <input className="input" value={supportSubject} onChange={(e) => setSupportSubject(e.target.value)} placeholder="Short summary" />
+                </div>
+                <div className="formRow">
+                  <label className="label">Message</label>
+                  <textarea className="input" value={supportMessage} onChange={(e) => setSupportMessage(e.target.value)} placeholder="Describe what happened..." style={{ minHeight: 110, resize: "vertical" }} />
+                </div>
+                <div className="row" style={{ gap: 8, marginTop: 8 }}>
+                  <button className="btn" type="button" disabled={supportBusy} onClick={submitSupportTicket}>{supportBusy ? "..." : "Send Support"}</button>
+                  <button className="btnGhost" type="button" onClick={() => setSupportOpen(false)}>Close</button>
+                </div>
+                {supportMsg ? <div className="hint" style={{ marginTop: 8 }}>{supportMsg}</div> : null}
+              </div>
+            </>
+          )}
 
           {/* Access (Redeem / Subscribe) */}
           {wallet && (
@@ -12490,7 +12629,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 ) : (
                   <div>
                                         <div className="hint" style={{ marginBottom: 8 }}>
-                      Subscribe for <b>Nexus Pro</b> (${SUB_PRICE_USD}/30 days). Pay with <b>USDC or USDT only</b>.
+                      Subscribe for <b>Nexus Core</b> (${SUB_PRICE_USD}/30 days). Pay with <b>USDC or USDT only</b>. AI Insight is included; Strategist is a separate add-on.
                     </div>
 
                     <div className="row" style={{ gap: 8, marginBottom: 10, alignItems: "center" }}>
@@ -12526,7 +12665,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         USDT
                       </button>
                     </div><div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
-                      Selected: <b>Nexus Pro ${SUB_PRICE_USD}</b> · <b>{subToken}</b>
+                      Selected: <b>Nexus Core ${SUB_PRICE_USD}</b> · <b>{subToken}</b>
                     </div>
 
                     <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.02)", margin: "10px 0" }}>
@@ -12642,6 +12781,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   Status: {isPro ? "ACTIVE" : "OFF"}
                   {access?.source ? ` • via ${access.source}` : ""}
                 </div>
+                {!isPro ? (
+                  <div className="hint" style={{ marginTop: 8, opacity: 0.86 }}>
+                    Demo AI: {demoAiUsedToday}/{demoAiDailyLimit} today · {demoAiMonthDaysUsed}/{demoAiMonthDaysLimit} days this month. Simulation only.
+                  </div>
+                ) : (
+                  <div className="hint" style={{ marginTop: 8, opacity: 0.86 }}>
+                    Core active. AI Insight included. Strategist: {strategistActive ? "ACTIVE" : "separate add-on ($20/7d or $50/30d)"}.
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -17108,7 +17256,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               {!isPro ? (
                 <div className="hint" style={{ marginTop: 10, color: "rgba(255,255,255,0.75)" }}>
-                  Nexus Strategist is available for <b>Nexus Pro</b> only. Subscribe to unlock.
+                  Nexus Strategist is a separate add-on: <b>$20/7 days</b> or <b>$50/30 days</b>. Demo users can try limited AI usage; Core users need Strategist access for full Strategist mode.
                 </div>
               ) : null}
 

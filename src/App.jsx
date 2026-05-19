@@ -14091,7 +14091,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
             style={{
               display: "flex",
               flexDirection: "column",
-              minHeight: 0
+              minHeight: 0,
+              overflowY: "auto",
+              overflowX: "hidden",
+              paddingBottom: 14
             }}
           >
             <div
@@ -14191,7 +14194,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 			<div className="compareGrid">
             {/* Chart */}
 
-            <div className="compareChart">
+            <div className="compareChart" style={{ minHeight: 0, overflow: "visible" }}>
               <div className="chartHeader">
                 <div className="label"></div>
                 <div className="rowBtn">
@@ -14372,8 +14375,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     marginTop: movementPanelOpen ? 0 : 6,
 
                     minHeight: 0,
-                    maxHeight: movementPanelOpen ? "0px" : "clamp(238px, 29vh, 352px)",
-                    height: movementPanelOpen ? "0px" : "clamp(238px, 29vh, 352px)",
+                    maxHeight: movementPanelOpen ? "0px" : "clamp(168px, 21vh, 228px)",
+                    height: movementPanelOpen ? "0px" : "clamp(168px, 21vh, 228px)",
                     padding: movementPanelOpen ? "0px" : "8px",
                     borderWidth: movementPanelOpen ? 0 : 1,
                     opacity: movementPanelOpen ? 0 : 1,

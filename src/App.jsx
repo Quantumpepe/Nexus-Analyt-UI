@@ -4856,6 +4856,12 @@ const byChain = {};
 
   const submitSupportTicket = useCallback(async () => {
     const msg = String(supportMessage || "").trim();
+    const email = String(supportEmail || "").trim();
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    if (!emailOk) {
+      setSupportMsg("Please enter a valid email address.");
+      return;
+    }
     if (msg.length < 10) {
       setSupportMsg("Please describe the issue with at least 10 characters.");
       return;
@@ -4870,7 +4876,7 @@ const byChain = {};
         body: {
           wallet,
           wallet_address: wallet,
-          email: supportEmail,
+          email,
           category: supportCategory,
           subject: supportSubject || supportCategory,
           message: msg,
@@ -4886,6 +4892,7 @@ const byChain = {};
       setSupportMsg(`Support ticket created: ${res?.ticket_id || "received"}`);
       setSupportSubject("");
       setSupportMessage("");
+      setSupportEmail("");
     } catch (e) {
       setSupportMsg(e?.message || "Support ticket failed.");
     } finally {
@@ -12642,8 +12649,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </select>
                 </div>
                 <div className="formRow">
-                  <label className="label">Email (optional)</label>
-                  <input className="input" value={supportEmail} onChange={(e) => setSupportEmail(e.target.value)} placeholder="you@example.com" />
+                  <label className="label">Email <span className="muted tiny">(required)</span></label>
+                  <input
+                    className="input"
+                    type="email"
+                    required
+                    value={supportEmail}
+                    onChange={(e) => setSupportEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                  />
                 </div>
                 <div className="formRow">
                   <label className="label">Subject</label>

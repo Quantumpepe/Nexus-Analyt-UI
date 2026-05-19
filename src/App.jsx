@@ -14111,7 +14111,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={chartRaw} height={movementPanelOpen ? 250 : 300} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <SvgChart chart={chartRaw} height={movementPanelOpen ? 225 : 300} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     <div style={{ marginTop: 10 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>
@@ -14189,12 +14189,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     background: "rgba(255,184,0,.04)",
                     padding: "8px 10px",
                     marginBottom: 10,
-                    height: "clamp(260px, 38vh, 470px)",
-                    maxHeight: "clamp(260px, 38vh, 470px)",
+                    height: 270,
+                    maxHeight: 270,
+                    minHeight: 270,
                     overflow: "hidden",
                     display: "flex",
-                    flexDirection: "column",
-                    minHeight: 0
+                    flexDirection: "column"
                   }}>
                     <div style={{
                       display: "flex",
@@ -14221,12 +14221,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div style={{
                       display: "grid",
                       gap: 5,
-                      flex: "1 1 auto",
-                      minHeight: 0,
-                      maxHeight: "none",
+                      height: 205,
+                      maxHeight: 205,
+                      minHeight: 205,
                       overflowY: "auto",
                       paddingRight: 4,
-                      paddingBottom: 6
+                      paddingBottom: 6,
+                      alignContent: "start"
                     }}>
                       {(bestPairUiAlerts || [])
                         .map((al) => {
@@ -14279,8 +14280,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     borderWidth: movementPanelOpen ? 0 : 1,
                     opacity: movementPanelOpen ? 0 : 1,
                     pointerEvents: movementPanelOpen ? "none" : "auto",
-                    overflowY: "auto",
-                    paddingBottom: 10,
+                    overflowY: movementPanelOpen ? "hidden" : "auto",
+                    paddingBottom: movementPanelOpen ? 0 : 10,
                   }}
                 >
                   {bestPairsToShow.length ? (

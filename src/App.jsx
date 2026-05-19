@@ -5890,6 +5890,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
           used: Boolean(backendContextUsed?.has_strategist_memory_v2),
           bias: backendContextUsed?.strategist_memory_bias || "",
         },
+        aiInsightBridge: {
+          used: Boolean(backendContextUsed?.has_ai_insight_bridge),
+          bias: backendContextUsed?.ai_insight_bridge_bias || "",
+        },
         pairAlerts: Array.isArray(engineV2?.pair_alerts) ? engineV2.pair_alerts : [],
       });
     } catch (e) {
@@ -14933,6 +14937,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         }}>
                           <div className="muted tiny">Strategist Memory</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData?.strategistMemory?.used ? (aiExplainData?.strategistMemory?.bias || "active") : "learning"}</div>
+                        </div>
+                        <div style={{
+                          border: `1px solid ${aiExplainData?.aiInsightBridge?.used ? "rgba(168,85,247,0.32)" : "rgba(255,255,255,0.08)"}`,
+                          borderRadius: 12,
+                          padding: "8px 10px",
+                          background: aiExplainData?.aiInsightBridge?.used ? "rgba(168,85,247,0.07)" : "rgba(255,255,255,0.03)"
+                        }}>
+                          <div className="muted tiny">AI Insight Bridge</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData?.aiInsightBridge?.used ? (aiExplainData?.aiInsightBridge?.bias || "active") : "learning"}</div>
                         </div>
                       </div>
 

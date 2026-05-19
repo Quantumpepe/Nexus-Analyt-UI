@@ -14375,8 +14375,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     marginTop: movementPanelOpen ? 0 : 6,
 
                     minHeight: 0,
-                    maxHeight: movementPanelOpen ? "0px" : "clamp(168px, 21vh, 228px)",
-                    height: movementPanelOpen ? "0px" : "clamp(168px, 21vh, 228px)",
+                    maxHeight: movementPanelOpen ? "0px" : "clamp(150px, 19vh, 210px)",
+                    height: movementPanelOpen ? "0px" : "clamp(150px, 19vh, 210px)",
                     padding: movementPanelOpen ? "0px" : "8px",
                     borderWidth: movementPanelOpen ? 0 : 1,
                     opacity: movementPanelOpen ? 0 : 1,

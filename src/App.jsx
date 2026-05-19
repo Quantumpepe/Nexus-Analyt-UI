@@ -5533,6 +5533,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     try {
       const [a, b] = _pairSyms(selectedPair.pair);
       const corr = Number(selectedPair?.corr);
+      const isExtremeInsight = normalizedAiInsightMode === "extreme";
 
       const windowDefs = ["7D", "30D", "90D", "1Y"];
       const pairWindows = {};
@@ -5583,45 +5584,57 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       else if (shortBias === longBias && shortBias !== "n/a") momentumShift = `Short-term and long-term momentum are aligned ${shortBias}.`;
 
       let setup = "Neutral";
-      let confidence = 5.4;
+      let confidence = isExtremeInsight ? 5.9 : 5.4;
       let confidenceLabel = "MEDIUM";
-      let risk = "Medium";
-      let gridMode = "Standard";
-      let gridRange = "2–4%";
+      let risk = isExtremeInsight ? "Medium-High" : "Medium";
+      let gridMode = isExtremeInsight ? "Extreme Scout" : "Standard";
+      let gridRange = isExtremeInsight ? "4–8%" : "2–4%";
       let why = [];
-      let verdictText = "This pair is interesting, but the signal is not strong enough for a clear structure yet.";
+      let verdictText = isExtremeInsight
+        ? "Extreme mode treats this as an early-signal scan: weaker confirmation is allowed, but invalidation is faster."
+        : "This pair is interesting, but the signal is not strong enough for a clear structure yet.";
 
       if (Number.isFinite(corr)) {
-        if (corr >= 0.9) confidence += 1.8;
-        else if (corr >= 0.8) confidence += 1.2;
-        else if (corr >= 0.65) confidence += 0.6;
-        else if (corr < 0.45) confidence -= 1.4;
+        if (corr >= 0.9) confidence += isExtremeInsight ? 1.5 : 1.8;
+        else if (corr >= 0.8) confidence += isExtremeInsight ? 1.1 : 1.2;
+        else if (corr >= 0.65) confidence += isExtremeInsight ? 0.9 : 0.6;
+        else if (corr >= 0.45 && isExtremeInsight) confidence += 0.3;
+        else if (corr < 0.45) confidence -= isExtremeInsight ? 0.7 : 1.4;
       }
 
       if (Number.isFinite(spread)) {
         const absSpread = Math.abs(spread);
-        if (absSpread >= 4) confidence += 1.6;
-        else if (absSpread >= 2) confidence += 1.0;
-        else if (absSpread >= 1) confidence += 0.5;
-        else confidence -= 0.4;
+        if (absSpread >= 4) confidence += isExtremeInsight ? 2.1 : 1.6;
+        else if (absSpread >= 2) confidence += isExtremeInsight ? 1.5 : 1.0;
+        else if (absSpread >= 1) confidence += isExtremeInsight ? 0.9 : 0.5;
+        else confidence -= isExtremeInsight ? 0.1 : 0.4;
       }
 
-      if (Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(spread) && Math.abs(spread) >= 0.75 && winner && loser) {
-        setup = "MEAN REVERSION";
-        verdictText = `${winner} outperformed ${loser} over 30D. With relatively high correlation, the pair shows a mean-reversion style structure.`;
-        why.push(`High correlation (${corr >= 0 ? "+" : ""}${corr.toFixed(2)}) means both coins often move together.`);
+      if (Number.isFinite(corr) && corr >= (isExtremeInsight ? 0.62 : 0.8) && Number.isFinite(spread) && Math.abs(spread) >= (isExtremeInsight ? 0.45 : 0.75) && winner && loser) {
+        setup = isExtremeInsight ? "EXTREME REVERSAL SCOUT" : "MEAN REVERSION";
+        verdictText = isExtremeInsight
+          ? `${winner} is leading ${loser} over 30D. Extreme mode flags this earlier as a high-sensitivity reversal/rotation scout, not as a confirmed clean setup.`
+          : `${winner} outperformed ${loser} over 30D. With relatively high correlation, the pair shows a mean-reversion style structure.`;
+        why.push(`${isExtremeInsight ? "Usable" : "High"} correlation (${corr >= 0 ? "+" : ""}${corr.toFixed(2)}) keeps the pair relationship relevant.`);
         why.push(`The performance spread of ${_fmtPctLocal(spread)} creates a visible imbalance between both sides.`);
         why.push(`${winner} is currently the stronger side, while ${loser} is the weaker side in this window.`);
-        if (Math.abs(spread) >= 4) {
-          gridMode = "Wide";
-          gridRange = "4–6%";
-          risk = "Medium-High";
-        } else if (Math.abs(spread) >= 2) {
-          gridMode = "Standard";
-          gridRange = "3–5%";
-          risk = "Medium";
+        if (isExtremeInsight) {
+          why.push("Extreme mode accepts earlier imbalance, but the setup can invalidate faster if follow-through fails.");
         }
-      } else if (Number.isFinite(corr) && corr < 0.45) {
+        if (Math.abs(spread) >= 4) {
+          gridMode = isExtremeInsight ? "Extreme Wide" : "Wide";
+          gridRange = isExtremeInsight ? "6–10%" : "4–6%";
+          risk = isExtremeInsight ? "High" : "Medium-High";
+        } else if (Math.abs(spread) >= 2) {
+          gridMode = isExtremeInsight ? "Extreme Scout" : "Standard";
+          gridRange = isExtremeInsight ? "4–8%" : "3–5%";
+          risk = isExtremeInsight ? "Medium-High" : "Medium";
+        } else if (isExtremeInsight) {
+          gridMode = "Extreme Scout";
+          gridRange = "3–6%";
+          risk = "Medium-High";
+        }
+      } else if (Number.isFinite(corr) && corr < (isExtremeInsight ? 0.30 : 0.45)) {
         setup = "AVOID";
         confidence -= 1.2;
         confidenceLabel = "LOW";
@@ -5632,26 +5645,30 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         why.push("This increases the chance of persistent divergence.");
         gridMode = "Wait";
         gridRange = "No setup";
-      } else if (Number.isFinite(spread) && Math.abs(spread) < 0.75) {
-        setup = "WAIT";
-        confidence -= 0.6;
+      } else if (Number.isFinite(spread) && Math.abs(spread) < (isExtremeInsight ? 0.35 : 0.75)) {
+        setup = isExtremeInsight ? "EARLY WATCH" : "WAIT";
+        confidence -= isExtremeInsight ? 0.2 : 0.6;
         confidenceLabel = "LOW-MED";
-        risk = "Low-Medium";
-        verdictText = "The pair is correlated enough, but the spread is still small and the structure remains less expressive.";
+        risk = isExtremeInsight ? "Medium" : "Low-Medium";
+        verdictText = isExtremeInsight
+          ? "Extreme mode keeps this on early watch, but the spread is still too small for a strong edge."
+          : "The pair is correlated enough, but the spread is still small and the structure remains less expressive.";
         why.push("The current performance gap is still narrow.");
         why.push("Without enough spread, the relative structure can feel random and weak.");
-        why.push("A clearer imbalance usually creates a stronger read.");
-        gridMode = "Wait";
-        gridRange = "Below 2%";
+        why.push(isExtremeInsight ? "Extreme mode can monitor it earlier, but confirmation is still thin." : "A clearer imbalance usually creates a stronger read.");
+        gridMode = isExtremeInsight ? "Extreme Watch" : "Wait";
+        gridRange = isExtremeInsight ? "2–4%" : "Below 2%";
       } else if (winner && loser) {
-        setup = "TREND BIAS";
-        confidence += 0.2;
+        setup = isExtremeInsight ? "EXTREME TREND SCOUT" : "TREND BIAS";
+        confidence += isExtremeInsight ? 0.8 : 0.2;
         confidenceLabel = "MEDIUM";
-        risk = "Medium-High";
-        verdictText = `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence paired structure.`;
+        risk = isExtremeInsight ? "High" : "Medium-High";
+        verdictText = isExtremeInsight
+          ? `${winner} is stronger than ${loser}. Extreme mode treats this as an early trend/rotation scout with higher false-signal risk.`
+          : `${winner} is stronger than ${loser}, but the pair does not yet qualify as a clean high-confidence paired structure.`;
         why.push("There is a leader and a laggard, but the data is not perfectly aligned for a strong reversion structure.");
-        why.push("Mixed conditions increase the chance of continuation instead of catch-up.");
-        why.push("The current profile looks more mixed than clean.");
+        why.push(isExtremeInsight ? "Extreme mode prioritizes early movement, so false continuation risk is higher." : "Mixed conditions increase the chance of continuation instead of catch-up.");
+        why.push(isExtremeInsight ? "This is a scout read, not a confirmed structure." : "The current profile looks more mixed than clean.");
       }
 
       confidence = Math.max(1, Math.min(10, Math.round(confidence * 10) / 10));
@@ -5774,21 +5791,26 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       const strategyFitLine = `Behavior: ${behaviorRead}. Strategy fit: ${gridMode || "Standard"} / ${gridRange || "n/a"} with ${risk || "medium"} risk.`;
 
       let finalText = finalTextRaw;
+      if (isExtremeInsight && !/extreme mode|high-sensitivity|early-signal|false-signal/i.test(finalText)) {
+        finalText = `Extreme mode: high-sensitivity early-signal read. It reacts sooner than Standard mode, but false-signal and fast invalidation risk are higher.\n\n${finalText}`;
+      }
       if (signalLine && !/rating|on-chain|onchain|community|vote/i.test(finalText)) {
         finalText = `${finalText}\n\nSignal context: ${signalLine}`;
       }
       if (!/behavior|strategy fit|grid-fit|range-bound|mean-reversion|unstable|choppy|conviction/i.test(finalText)) {
         finalText = `${finalText}\n\nLevel 2: ${strategyFitLine}`;
       }
+      if (isExtremeInsight && !/Extreme fit:/i.test(finalText)) {
+        finalText = `${finalText}\n\nExtreme fit: earlier detection, wider scout range, higher risk, faster invalidation if momentum or spread confirmation fades.`;
+      }
 
       setAiExplainText(finalText);
       setAiExplainData({
-        setup: engineV2?.verdict || setup,
-        confidence: Number.isFinite(Number(engineV2?.confidence)) ? Number(engineV2.confidence) : confidence,
-        confidenceLabel: Number.isFinite(Number(engineV2?.confidence))
-          ? (Number(engineV2.confidence) >= 8 ? "HIGH" : Number(engineV2.confidence) >= 6 ? "MEDIUM" : "LOW")
-          : confidenceLabel,
-        risk: engineV2?.risk || risk,
+        setup: setup,
+        confidence: confidence,
+        confidenceLabel: confidenceLabel,
+        risk: risk,
+        effectiveMode: isExtremeInsight ? "Extreme" : "Standard",
         exitRisk: engineV2?.exit_risk || null,
         preExitWarning: Boolean(engineV2?.pre_exit_warning),
         contradictions: Array.isArray(engineV2?.contradictions) ? engineV2.contradictions : [],
@@ -14824,6 +14846,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div className="muted tiny">Risk</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.risk}</div>
                         </div>
+                        <div style={{
+                          border: `1px solid ${aiExplainData.aiMode === "extreme" ? "rgba(255,184,0,0.35)" : "rgba(255,255,255,0.08)"}`,
+                          borderRadius: 12,
+                          padding: "8px 10px",
+                          background: aiExplainData.aiMode === "extreme" ? "rgba(255,184,0,0.08)" : "rgba(255,255,255,0.03)"
+                        }}>
+                          <div className="muted tiny">Insight Mode</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.effectiveMode || (aiExplainData.aiMode === "extreme" ? "Extreme" : "Standard")}</div>
+                        </div>
                       </div>
 
                       {(() => {
@@ -15023,7 +15054,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                           <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
                             <div className="muted tiny">Mode</div>
-                            <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.gridMode || aiExplainData.mode || "—"}</div>
+                            <div style={{ fontWeight: 900, marginTop: 4 }}>
+                              {aiExplainData.aiMode === "extreme" ? (aiExplainData.gridMode || "Extreme Scout") : (aiExplainData.gridMode || aiExplainData.mode || "—")}
+                            </div>
                           </div>
                           <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
                             <div className="muted tiny">Time horizon</div>

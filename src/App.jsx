@@ -11938,7 +11938,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-compare .pairsScroll{
             flex: 1 1 auto !important;
             min-height: 0 !important;
-            max-height: clamp(180px, 26vh, 300px) !important;
+            max-height: clamp(150px, 19vh, 210px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 8px !important;
@@ -11947,7 +11947,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             margin-bottom: 0 !important;
             scroll-padding-bottom: 10px !important;
             overscroll-behavior: contain !important;
-            box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+            box-shadow: none !important;
           }
           .section-compare .liveListBox::-webkit-scrollbar,
           .section-compare .pairsScroll::-webkit-scrollbar{
@@ -11964,29 +11964,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
             background: rgba(0,0,0,.10);
             border-radius: 999px;
           }
-          .section-compare .pairsScroll::after{
-            content: "";
-            position: sticky;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            display: block;
-            height: 10px;
-            margin-top: -10px;
-            background: linear-gradient(180deg, rgba(6,24,22,0), rgba(6,24,22,.95));
-            pointer-events: none;
-          }
 
           /* focused desktop: give Compare more usable pair-list height */
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsScroll{
             min-height: 0 !important;
-            max-height: clamp(190px, 28vh, 330px) !important;
+            max-height: clamp(150px, 19vh, 210px) !important;
             padding-bottom: 10px !important;
             scroll-padding-bottom: 10px !important;
           }
 
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsBox{
             flex: 1 1 auto !important;
+          }
+
+          .section-compare .pairsScroll::after,
+          .section-compare .pairsScroll::before{
+            content: none !important;
+            display: none !important;
+            background: none !important;
           }
 
                     /* focused desktop: compact sidebar panels */

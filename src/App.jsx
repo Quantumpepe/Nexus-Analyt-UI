@@ -5784,6 +5784,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         if (backendEngineV2 && typeof backendEngineV2 === "object") {
           payload.__backendEngineV2 = backendEngineV2;
         }
+        if (r?.context_used && typeof r.context_used === "object") {
+          payload.__contextUsed = r.context_used;
+        }
+        if (r?.market_memory_snapshot_id) {
+          payload.__marketMemorySnapshotId = r.market_memory_snapshot_id;
+        }
         backendText =
           r?.answer ??
           r?.output ??
@@ -5795,6 +5801,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       }
 
       const engineV2 = payload.__backendEngineV2 || null;
+      const backendContextUsed = payload.__contextUsed || null;
       const finalTextRaw = buildCompactAiInsight({
         backendText,
         trendStructure,
@@ -5877,6 +5884,11 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
           waitSpread: adaptiveWaitSpread,
           thresholdShift,
           customOn: !!customCompareWeightsOn,
+        },
+        strategistMemory: {
+          snapshotId: payload.__marketMemorySnapshotId || null,
+          used: Boolean(backendContextUsed?.has_strategist_memory_v2),
+          bias: backendContextUsed?.strategist_memory_bias || "",
         },
         pairAlerts: Array.isArray(engineV2?.pair_alerts) ? engineV2.pair_alerts : [],
       });
@@ -14912,6 +14924,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         }}>
                           <div className="muted tiny">Adaptive Lens</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData?.adaptiveProfile || "Balanced adaptive"}</div>
+                        </div>
+                        <div style={{
+                          border: `1px solid ${aiExplainData?.strategistMemory?.used ? "rgba(96,165,250,0.32)" : "rgba(255,255,255,0.08)"}`,
+                          borderRadius: 12,
+                          padding: "8px 10px",
+                          background: aiExplainData?.strategistMemory?.used ? "rgba(96,165,250,0.07)" : "rgba(255,255,255,0.03)"
+                        }}>
+                          <div className="muted tiny">Strategist Memory</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData?.strategistMemory?.used ? (aiExplainData?.strategistMemory?.bias || "active") : "learning"}</div>
                         </div>
                       </div>
 

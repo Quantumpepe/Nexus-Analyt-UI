@@ -5552,6 +5552,37 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       const rb = getRet(b, "30D");
       const spread = (Number.isFinite(ra) && Number.isFinite(rb)) ? (ra - rb) : null;
 
+      const adaptiveWeights = sanitizeCompareWeights(activeCompareWeights || DEFAULT_COMPARE_WEIGHTS);
+      const wCorr = Number(adaptiveWeights.corr || 0);
+      const wMomentum = Number(adaptiveWeights.momentum || 0);
+      const wOpportunity = Number(adaptiveWeights.opportunity || 0);
+      const wStability = Number(adaptiveWeights.stability || 0);
+      const wSentiment = Number(adaptiveWeights.sentiment || 0);
+
+      // Adaptive Threshold System:
+      // Custom Weighting now changes the actual AI Insight thresholds, not only the prompt.
+      // Higher Opportunity/Momentum makes the system earlier and more scout-oriented.
+      // Higher Stability/Correlation makes it stricter and confirmation-oriented.
+      const adaptiveAggression =
+        (isExtremeInsight ? 0.18 : 0) +
+        ((wMomentum - DEFAULT_COMPARE_WEIGHTS.momentum) / 100) * 0.22 +
+        ((wOpportunity - DEFAULT_COMPARE_WEIGHTS.opportunity) / 100) * 0.26 -
+        ((wStability - DEFAULT_COMPARE_WEIGHTS.stability) / 100) * 0.18 -
+        ((wCorr - DEFAULT_COMPARE_WEIGHTS.corr) / 100) * 0.12;
+
+      const thresholdShift = Math.max(-0.18, Math.min(0.24, adaptiveAggression));
+      const adaptiveCorrMin = Math.max(0.42, Math.min(0.86, (isExtremeInsight ? 0.62 : 0.80) - thresholdShift));
+      const adaptiveAvoidCorr = Math.max(0.18, Math.min(0.52, (isExtremeInsight ? 0.30 : 0.45) - thresholdShift * 0.65));
+      const adaptiveSpreadMin = Math.max(0.25, Math.min(1.25, (isExtremeInsight ? 0.45 : 0.75) - thresholdShift * 1.35));
+      const adaptiveWaitSpread = Math.max(0.20, Math.min(1.00, (isExtremeInsight ? 0.35 : 0.75) - thresholdShift * 1.15));
+      const adaptiveWideSpread = Math.max(2.5, Math.min(6.5, 4 - thresholdShift * 5));
+      const adaptiveMidSpread = Math.max(1.25, Math.min(3.5, 2 - thresholdShift * 3));
+
+      const adaptiveProfileLabel =
+        thresholdShift >= 0.12 ? "Aggressive / early scout" :
+        thresholdShift <= -0.10 ? "Strict / confirmation-first" :
+        "Balanced adaptive";
+
       const winner = Number.isFinite(ra) && Number.isFinite(rb) ? (ra >= rb ? a : b) : null;
       const loser = Number.isFinite(ra) && Number.isFinite(rb) ? (ra >= rb ? b : a) : null;
 
@@ -5595,22 +5626,28 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         : "This pair is interesting, but the signal is not strong enough for a clear structure yet.";
 
       if (Number.isFinite(corr)) {
-        if (corr >= 0.9) confidence += isExtremeInsight ? 1.5 : 1.8;
-        else if (corr >= 0.8) confidence += isExtremeInsight ? 1.1 : 1.2;
-        else if (corr >= 0.65) confidence += isExtremeInsight ? 0.9 : 0.6;
-        else if (corr >= 0.45 && isExtremeInsight) confidence += 0.3;
-        else if (corr < 0.45) confidence -= isExtremeInsight ? 0.7 : 1.4;
+        if (corr >= Math.max(0.88, adaptiveCorrMin + 0.18)) confidence += isExtremeInsight ? 1.5 : 1.8;
+        else if (corr >= adaptiveCorrMin) confidence += isExtremeInsight ? 1.1 : 1.2;
+        else if (corr >= Math.max(0.52, adaptiveCorrMin - 0.15)) confidence += isExtremeInsight ? 0.9 : 0.6;
+        else if (corr >= adaptiveAvoidCorr && isExtremeInsight) confidence += 0.3;
+        else if (corr < adaptiveAvoidCorr) confidence -= isExtremeInsight ? 0.7 : 1.4;
       }
 
       if (Number.isFinite(spread)) {
         const absSpread = Math.abs(spread);
-        if (absSpread >= 4) confidence += isExtremeInsight ? 2.1 : 1.6;
-        else if (absSpread >= 2) confidence += isExtremeInsight ? 1.5 : 1.0;
-        else if (absSpread >= 1) confidence += isExtremeInsight ? 0.9 : 0.5;
+        if (absSpread >= adaptiveWideSpread) confidence += isExtremeInsight ? 2.1 : 1.6;
+        else if (absSpread >= adaptiveMidSpread) confidence += isExtremeInsight ? 1.5 : 1.0;
+        else if (absSpread >= adaptiveSpreadMin) confidence += isExtremeInsight ? 0.9 : 0.5;
         else confidence -= isExtremeInsight ? 0.1 : 0.4;
       }
 
-      if (Number.isFinite(corr) && corr >= (isExtremeInsight ? 0.62 : 0.8) && Number.isFinite(spread) && Math.abs(spread) >= (isExtremeInsight ? 0.45 : 0.75) && winner && loser) {
+      // Weight bias changes confidence after raw metric scoring.
+      confidence += thresholdShift * 2.2;
+      if (wStability >= 40 && Number.isFinite(corr) && corr < 0.65) confidence -= 0.8;
+      if (wOpportunity >= 40 && Number.isFinite(spread) && Math.abs(spread) >= adaptiveSpreadMin) confidence += 0.5;
+      if (wMomentum >= 40 && shortBias !== "n/a" && shortBias !== "neutral") confidence += 0.35;
+
+      if (Number.isFinite(corr) && corr >= adaptiveCorrMin && Number.isFinite(spread) && Math.abs(spread) >= adaptiveSpreadMin && winner && loser) {
         setup = isExtremeInsight ? "EXTREME REVERSAL SCOUT" : "MEAN REVERSION";
         verdictText = isExtremeInsight
           ? `${winner} is leading ${loser} over 30D. Extreme mode flags this earlier as a high-sensitivity reversal/rotation scout, not as a confirmed clean setup.`
@@ -5621,11 +5658,11 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         if (isExtremeInsight) {
           why.push("Extreme mode accepts earlier imbalance, but the setup can invalidate faster if follow-through fails.");
         }
-        if (Math.abs(spread) >= 4) {
+        if (Math.abs(spread) >= adaptiveWideSpread) {
           gridMode = isExtremeInsight ? "Extreme Wide" : "Wide";
           gridRange = isExtremeInsight ? "6–10%" : "4–6%";
           risk = isExtremeInsight ? "High" : "Medium-High";
-        } else if (Math.abs(spread) >= 2) {
+        } else if (Math.abs(spread) >= adaptiveMidSpread) {
           gridMode = isExtremeInsight ? "Extreme Scout" : "Standard";
           gridRange = isExtremeInsight ? "4–8%" : "3–5%";
           risk = isExtremeInsight ? "Medium-High" : "Medium";
@@ -5634,7 +5671,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
           gridRange = "3–6%";
           risk = "Medium-High";
         }
-      } else if (Number.isFinite(corr) && corr < (isExtremeInsight ? 0.30 : 0.45)) {
+      } else if (Number.isFinite(corr) && corr < adaptiveAvoidCorr) {
         setup = "AVOID";
         confidence -= 1.2;
         confidenceLabel = "LOW";
@@ -5645,7 +5682,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         why.push("This increases the chance of persistent divergence.");
         gridMode = "Wait";
         gridRange = "No setup";
-      } else if (Number.isFinite(spread) && Math.abs(spread) < (isExtremeInsight ? 0.35 : 0.75)) {
+      } else if (Number.isFinite(spread) && Math.abs(spread) < adaptiveWaitSpread) {
         setup = isExtremeInsight ? "EARLY WATCH" : "WAIT";
         confidence -= isExtremeInsight ? 0.2 : 0.6;
         confidenceLabel = "LOW-MED";
@@ -5781,14 +5818,14 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
       const absSpreadForLevel2 = Math.abs(Number(spread));
       const behaviorRead =
-        Number.isFinite(corr) && corr >= 0.8 && Number.isFinite(absSpreadForLevel2) && absSpreadForLevel2 >= 2
-          ? "mean-reversion style behavior with visible imbalance"
-          : Number.isFinite(corr) && corr < 0.45
+        Number.isFinite(corr) && corr >= adaptiveCorrMin && Number.isFinite(absSpreadForLevel2) && absSpreadForLevel2 >= adaptiveMidSpread
+          ? (thresholdShift >= 0.12 ? "early mean-reversion / opportunity-scout behavior" : "mean-reversion style behavior with visible imbalance")
+          : Number.isFinite(corr) && corr < adaptiveAvoidCorr
             ? "unstable/choppy behavior because the pair relationship is weak"
-            : Number.isFinite(absSpreadForLevel2) && absSpreadForLevel2 < 0.75
+            : Number.isFinite(absSpreadForLevel2) && absSpreadForLevel2 < adaptiveWaitSpread
               ? "low-conviction/range-bound behavior because the spread is still narrow"
-              : "mixed behavior with limited confirmation";
-      const strategyFitLine = `Behavior: ${behaviorRead}. Strategy fit: ${gridMode || "Standard"} / ${gridRange || "n/a"} with ${risk || "medium"} risk.`;
+              : (thresholdShift <= -0.10 ? "confirmation-watch behavior with stricter stability requirements" : "mixed behavior with limited confirmation");
+      const strategyFitLine = `Behavior: ${behaviorRead}. Adaptive profile: ${adaptiveProfileLabel}. Strategy fit: ${gridMode || "Standard"} / ${gridRange || "n/a"} with ${risk || "medium"} risk.`;
 
       let finalText = finalTextRaw;
       if (isExtremeInsight && !/extreme mode|high-sensitivity|early-signal|false-signal/i.test(finalText)) {
@@ -5802,6 +5839,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       }
       if (isExtremeInsight && !/Extreme fit:/i.test(finalText)) {
         finalText = `${finalText}\n\nExtreme fit: earlier detection, wider scout range, higher risk, faster invalidation if momentum or spread confirmation fades.`;
+      }
+      if (customCompareWeightsOn && !/Adaptive weighting:/i.test(finalText)) {
+        finalText = `${finalText}\n\nAdaptive weighting: ${adaptiveProfileLabel}. Momentum ${wMomentum}%, Opportunity ${wOpportunity}%, Stability ${wStability}%, Correlation ${wCorr}% changed the active thresholds for this read.`;
       }
 
       setAiExplainText(finalText);
@@ -5829,6 +5869,15 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
         engineV2,
         aiMode: normalizedAiInsightMode,
         compareWeights: activeCompareWeights,
+        adaptiveProfile: adaptiveProfileLabel,
+        adaptiveThresholds: {
+          corrMin: adaptiveCorrMin,
+          avoidCorr: adaptiveAvoidCorr,
+          spreadMin: adaptiveSpreadMin,
+          waitSpread: adaptiveWaitSpread,
+          thresholdShift,
+          customOn: !!customCompareWeightsOn,
+        },
         pairAlerts: Array.isArray(engineV2?.pair_alerts) ? engineV2.pair_alerts : [],
       });
     } catch (e) {
@@ -14854,6 +14903,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         }}>
                           <div className="muted tiny">Insight Mode</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.effectiveMode || (aiExplainData.aiMode === "extreme" ? "Extreme" : "Standard")}</div>
+                        </div>
+                        <div style={{
+                          border: `1px solid ${aiExplainData?.adaptiveThresholds?.customOn ? "rgba(34,197,94,0.32)" : "rgba(255,255,255,0.08)"}`,
+                          borderRadius: 12,
+                          padding: "8px 10px",
+                          background: aiExplainData?.adaptiveThresholds?.customOn ? "rgba(34,197,94,0.07)" : "rgba(255,255,255,0.03)"
+                        }}>
+                          <div className="muted tiny">Adaptive Lens</div>
+                          <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData?.adaptiveProfile || "Balanced adaptive"}</div>
                         </div>
                       </div>
 

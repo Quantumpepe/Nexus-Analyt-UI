@@ -10735,6 +10735,7 @@ function aiTaskPlaceholder(kind) {
       nexus_trading: { title: "Nexus Trading", sub: "Kontrollierte autonome Ausführung" },
       risk_context: { title: "Risikokontext", sub: "Was kippen kann" },
       tactical_take: { title: "Taktische Einordnung", sub: "Indirekte nächste Schritte" },
+      strategist_check: { title: "Strategist Check", sub: "Warum / Risiko / Invalidation / Confidence" },
       next_check: { title: "Nächste Prüfung", sub: "Was zu beobachten ist" },
       output: { title: "Antwort", sub: "Nexus Strategist" },
     },
@@ -10747,6 +10748,7 @@ function aiTaskPlaceholder(kind) {
       nexus_trading: { title: "Nexus Trading", sub: "Controlled autonomous execution" },
       risk_context: { title: "Risk Context", sub: "What can go wrong" },
       tactical_take: { title: "Tactical Take", sub: "Indirect next steps" },
+      strategist_check: { title: "Strategist Check", sub: "Why / Risk / Invalidation / Confidence" },
       next_check: { title: "Next Check", sub: "What to monitor" },
       output: { title: "Answer", sub: "Nexus Strategist" },
     },
@@ -10771,6 +10773,7 @@ function aiTaskPlaceholder(kind) {
       nexus_trading: { title: "Nexus Trading", sub: "Ejecución autónoma controlada" },
       risk_context: { title: "Contexto de riesgo", sub: "Qué puede fallar" },
       tactical_take: { title: "Lectura táctica", sub: "Próximos pasos indirectos" },
+      strategist_check: { title: "Strategist Check", sub: "Por qué / Riesgo / Invalidation / Confidence" },
       next_check: { title: "Próxima revisión", sub: "Qué vigilar" },
       output: { title: "Respuesta", sub: "Nexus Strategist" },
     },
@@ -10783,6 +10786,7 @@ function aiTaskPlaceholder(kind) {
       nexus_trading: { title: "Nexus Trading", sub: "Esecuzione autonoma controllata" },
       risk_context: { title: "Contesto di rischio", sub: "Cosa può andare storto" },
       tactical_take: { title: "Lettura tattica", sub: "Prossimi passi indiretti" },
+      strategist_check: { title: "Strategist Check", sub: "Perché / Rischio / Invalidation / Confidence" },
       next_check: { title: "Prossimo controllo", sub: "Cosa monitorare" },
       output: { title: "Risposta", sub: "Nexus Strategist" },
     },
@@ -10819,6 +10823,7 @@ function aiTaskPlaceholder(kind) {
       nexus_trading: { title: "Nexus Trading", sub: "Gecontroleerde autonome uitvoering" },
       risk_context: { title: "Risicocontext", sub: "Wat mis kan gaan" },
       tactical_take: { title: "Tactische inschatting", sub: "Indirecte volgende stappen" },
+      strategist_check: { title: "Strategist Check", sub: "Waarom / Risico / Invalidation / Confidence" },
       next_check: { title: "Volgende controle", sub: "Wat te volgen" },
       output: { title: "Antwoord", sub: "Nexus Strategist" },
     },
@@ -10857,6 +10862,11 @@ function aiTaskPlaceholder(kind) {
       "RISIKOKONTEXT": "risk_context",
       "TACTICAL TAKE": "tactical_take",
       "TAKTISCHE EINORDNUNG": "tactical_take",
+      "STRATEGIST CHECK": "strategist_check",
+      "STRATEGIST-CHECK": "strategist_check",
+      "NEXUS STRATEGIST CHECK": "strategist_check",
+      "WHY / RISK / INVALIDATION / CONFIDENCE": "strategist_check",
+      "WARUM / RISIKO / INVALIDATION / CONFIDENCE": "strategist_check",
       "NEXT CHECK": "next_check",
       "NÄCHSTE PRÜFUNG": "next_check",
       "NAECHSTE PRUEFUNG": "next_check",
@@ -10895,7 +10905,7 @@ function aiTaskPlaceholder(kind) {
       return [{ key: "output", body: source }];
     }
 
-    const order = ["direct_view", "exchange_spread", "market_read", "nexus_rotation", "nexus_grid", "nexus_trading", "risk_context", "tactical_take", "next_check", "output"];
+    const order = ["direct_view", "exchange_spread", "market_read", "nexus_rotation", "nexus_grid", "nexus_trading", "risk_context", "tactical_take", "strategist_check", "next_check", "output"];
     return sections.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
   }, []);
 

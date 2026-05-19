@@ -1599,7 +1599,7 @@ function buildLocalPairAlertsForUi(pairs, compareWeights, aiMode) {
   const byPair = new Map();
   for (const alert of alerts) {
     const key = String(alert?.pair || "").toUpperCase().trim();
-    if (!key) return;
+    if (!key) continue;
     const prev = byPair.get(key);
     if (!prev || Number(alert.score || 0) > Number(prev.score || 0)) {
       byPair.set(key, alert);
@@ -11119,7 +11119,8 @@ ${aiSignalText}
         raw_user_question: q,
         user_intent: userIntent,
         response_profile: nexusStrategistResponseProfile(userIntent),
-        strategist_phase: "phase1_intelligence",
+        strategist_phase: "phase2_depth_engine",
+        strategist_intelligence_focus: "hidden_why_risk_context_invalidation_confidence",
         strategist_followup: !!isFollowUpAsk,
         previous_response_summary: isFollowUpAsk ? String(aiOutput || "").slice(0, 1200) : "",
       };

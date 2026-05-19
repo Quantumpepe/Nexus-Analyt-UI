@@ -14368,19 +14368,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     border: "1px solid rgba(255,255,255,.06)",
                     borderRadius: 14,
                     background: "rgba(255,255,255,.02)",
-                    padding: "8px",
                     boxSizing: "border-box",
                     marginTop: movementPanelOpen ? 0 : 6,
 
                     minHeight: 0,
-                    maxHeight: movementPanelOpen ? "0px" : "clamp(280px, 36vh, 460px)",
-                    height: movementPanelOpen ? "0px" : undefined,
+                    maxHeight: movementPanelOpen ? "0px" : "clamp(238px, 29vh, 352px)",
+                    height: movementPanelOpen ? "0px" : "clamp(238px, 29vh, 352px)",
                     padding: movementPanelOpen ? "0px" : "8px",
                     borderWidth: movementPanelOpen ? 0 : 1,
                     opacity: movementPanelOpen ? 0 : 1,
                     pointerEvents: movementPanelOpen ? "none" : "auto",
                     overflowY: movementPanelOpen ? "hidden" : "auto",
-                    paddingBottom: movementPanelOpen ? 0 : 10,
+                    overflowX: "hidden",
+                    paddingBottom: movementPanelOpen ? 0 : 8,
+                    scrollbarGutter: "stable",
                   }}
                 >
                   {bestPairsToShow.length ? (
@@ -14409,7 +14410,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           style={{
                             gap: 8,
                             cursor: "pointer",
-                            marginBottom: i === bestPairsToShow.length - 1 ? 4 : 0,
+                            marginBottom: 0,
                             alignItems: "center",
                           }}
                           onClick={(e) => { e.stopPropagation(); openPairExplain(p); }}

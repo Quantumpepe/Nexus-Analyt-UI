@@ -14111,7 +14111,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={chartRaw} height={300} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <SvgChart chart={chartRaw} height={movementPanelOpen ? 250 : 300} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     <div style={{ marginTop: 10 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>
@@ -14188,7 +14188,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     borderRadius: 12,
                     background: "rgba(255,184,0,.04)",
                     padding: "8px 10px",
-                    marginBottom: 10
+                    marginBottom: 10,
+                    maxHeight: "clamp(230px, 34vh, 430px)",
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    minHeight: 0
                   }}>
                     <div style={{
                       display: "flex",
@@ -14215,9 +14220,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div style={{
                       display: "grid",
                       gap: 5,
-                      maxHeight: "clamp(150px, 24vh, 320px)",
+                      flex: "1 1 auto",
+                      minHeight: 0,
+                      maxHeight: "none",
                       overflowY: "auto",
-                      paddingRight: 4
+                      paddingRight: 4,
+                      paddingBottom: 6
                     }}>
                       {(bestPairUiAlerts || [])
                         .map((al) => {
@@ -14264,7 +14272,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     marginTop: 6,
 
                     minHeight: 0,
-                    maxHeight: "clamp(280px, 36vh, 460px)",
+                    maxHeight: movementPanelOpen ? "clamp(160px, 22vh, 280px)" : "clamp(280px, 36vh, 460px)",
                     overflowY: "auto",
                     paddingBottom: 10,
                   }}

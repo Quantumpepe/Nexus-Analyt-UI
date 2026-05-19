@@ -2102,3 +2102,94 @@ body::before {
   }
 }
 /* === END Nexus desktop overview compact width v97 === */
+
+
+/* ===== Fix: Compare pair list bottom clipping / dark strip ===== */
+.section-compare .pairsScroll{
+  max-height: clamp(238px, 29vh, 352px) !important;
+  height: clamp(238px, 29vh, 352px) !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  box-shadow: none !important;
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+}
+
+.section-compare .pairsScroll .pairRow{
+  margin-bottom: 0 !important;
+}
+
+.section-compare .pairsScroll::-webkit-scrollbar:horizontal{
+  display: none !important;
+  height: 0 !important;
+}
+
+
+/* ===== Fix v2: Compare pair list must not touch bottom clipping edge ===== */
+@media (min-width: 981px){
+  .section-compare .panelScroll{
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding-bottom: 14px !important;
+  }
+
+  .section-compare .compareChart{
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .section-compare .pairsBox{
+    min-height: 0 !important;
+    overflow: visible !important;
+    padding-bottom: 8px !important;
+  }
+
+  .section-compare .pairsScroll{
+    max-height: clamp(168px, 21vh, 228px) !important;
+    height: clamp(168px, 21vh, 228px) !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    padding-bottom: 8px !important;
+    margin-bottom: 10px !important;
+    box-shadow: none !important;
+    background-clip: padding-box !important;
+  }
+}
+
+
+
+/* ===== Hard fix: remove dark clipping line under compare rows ===== */
+.section-compare .pairsScroll{
+  position: relative !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding-bottom: 18px !important;
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+  background-image: none !important;
+}
+
+.section-compare .pairRow{
+  position: relative !important;
+  z-index: 2 !important;
+  background-clip: padding-box !important;
+}
+
+.section-compare .pairRow:last-child{
+  margin-bottom: 14px !important;
+}
+
+.section-compare .pairsScroll::after{
+  display: none !important;
+  content: none !important;
+}
+
+.section-compare .compareChart,
+.section-compare .pairsBox,
+.section-compare .panelScroll{
+  overflow: visible !important;
+}

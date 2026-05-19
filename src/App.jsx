@@ -11938,7 +11938,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .section-compare .pairsScroll{
             flex: 1 1 auto !important;
             min-height: 0 !important;
-            max-height: clamp(150px, 19vh, 210px) !important;
+            max-height: clamp(230px, 31vh, 360px) !important;
             overflow-y: auto !important;
             overflow-x: hidden !important;
             padding-right: 8px !important;
@@ -11968,7 +11968,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           /* focused desktop: give Compare more usable pair-list height */
           .dashboardGrid.hasFocus.focus-compare .section-compare .pairsScroll{
             min-height: 0 !important;
-            max-height: clamp(150px, 19vh, 210px) !important;
+            max-height: clamp(230px, 31vh, 360px) !important;
             padding-bottom: 10px !important;
             scroll-padding-bottom: 10px !important;
           }
@@ -14208,8 +14208,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={chartRaw} height={movementPanelOpen ? 225 : 300} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
-                    <div style={{ marginTop: 10 }}>
+                    <SvgChart chart={chartRaw} height={movementPanelOpen ? 205 : 255} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <div style={{ marginTop: 6 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>
                   </>
@@ -14370,8 +14370,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     marginTop: movementPanelOpen ? 0 : 6,
 
                     minHeight: 0,
-                    maxHeight: movementPanelOpen ? "0px" : "clamp(150px, 19vh, 210px)",
-                    height: movementPanelOpen ? "0px" : "clamp(150px, 19vh, 210px)",
+                    maxHeight: movementPanelOpen ? "0px" : "clamp(230px, 31vh, 360px)",
+                    height: movementPanelOpen ? "0px" : "clamp(230px, 31vh, 360px)",
                     padding: movementPanelOpen ? "0px" : "8px",
                     borderWidth: movementPanelOpen ? 0 : 1,
                     opacity: movementPanelOpen ? 0 : 1,

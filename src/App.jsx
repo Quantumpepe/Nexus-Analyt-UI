@@ -11121,6 +11121,7 @@ ${aiSignalText}
         response_profile: nexusStrategistResponseProfile(userIntent),
         strategist_phase: "phase2_depth_engine",
         strategist_intelligence_focus: "hidden_why_risk_context_invalidation_confidence",
+        strategist_quality_gate: true,
         strategist_followup: !!isFollowUpAsk,
         previous_response_summary: isFollowUpAsk ? String(aiOutput || "").slice(0, 1200) : "",
       };

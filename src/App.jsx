@@ -4912,6 +4912,7 @@ const byChain = {};
     try {
       const data = await api(`/api/nexus/trading/state`, { wallet });
       setNexusBackendState(data || null);
+      if (data?.shadow_executor) setShadowExecutorState(data.shadow_executor);
       return data || null;
     } catch {
       return null;
@@ -4931,8 +4932,6 @@ const byChain = {};
       return null;
     }
   }, [api, wallet]);
-
-
 
   useEffect(() => {
     refreshNexusBackendState();
@@ -6492,38 +6491,6 @@ useEffect(() => {
   const [tradingPreparedSetup, setTradingPreparedSetup] = useLocalStorageState("nexus_trading_prepared_setup", null);
   const [tradingLearningSetups, setTradingLearningSetups] = useLocalStorageState("nexus_trading_learning_setups", []);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useLocalStorageState("nexus_trading_risk_expanded", false);
-
-  const runShadowExecutorValidation = useCallback(async () => {
-    if (!wallet) {
-      setShadowExecutorMsg("Wallet not connected.");
-      return;
-    }
-    setShadowExecutorBusy(true);
-    setShadowExecutorMsg("");
-    try {
-      const res = await api(`/api/nexus/shadow/executor`, {
-        method: "POST",
-        wallet,
-        body: {
-          source: "frontend_trading_panel",
-          queue: Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [],
-          config: {
-            runtime_hours: tradingRuntimeHours,
-            max_trades: tradingMaxTrades,
-            risk_mode: tradingRiskMode,
-            max_slippage_pct: tradingMaxSlippagePct,
-          },
-        },
-      });
-      setShadowExecutorState({ ...(shadowExecutorState || {}), last_run: res?.run || null, run: res?.run || null });
-      setShadowExecutorMsg(res?.message || "Shadow validation completed. No Vault execution was triggered.");
-      await refreshNexusBackendState();
-    } catch (e) {
-      setShadowExecutorMsg(e?.message || "Shadow validation failed.");
-    } finally {
-      setShadowExecutorBusy(false);
-    }
-  }, [api, wallet, tradingExecutionQueue, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, refreshNexusBackendState]);
   const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useLocalStorageState("nexus_rotation_recommendations_expanded", false);
   const [tradingSessionStatus, setTradingSessionStatus] = useLocalStorageState("nexus_trading_session_status", "PREPARED");
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
@@ -6759,6 +6726,57 @@ useEffect(() => {
   const tradingCanResume = tradingSessionLabel === "PAUSED";
   const tradingCanStop = ["ARMED", "ACTIVE", "PROTECT", "PAUSED"].includes(tradingSessionLabel);
   const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(tradingSessionLabel);
+
+  const runShadowExecutorValidation = useCallback(async () => {
+    if (!wallet) {
+      setShadowExecutorMsg("Wallet not connected.");
+      return;
+    }
+    setShadowExecutorBusy(true);
+    setShadowExecutorMsg("");
+    try {
+      const res = await api(`/api/nexus/shadow/executor`, {
+        method: "POST",
+        wallet,
+        body: {
+          source: "frontend_trading_panel",
+          queue: Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [],
+          config: {
+            runtime_hours: tradingRuntimeHours,
+            max_trades: tradingMaxTrades,
+            risk_mode: tradingRiskMode,
+            max_slippage_pct: tradingMaxSlippagePct,
+          },
+        },
+      });
+      setShadowExecutorState({ ...(shadowExecutorState || {}), last_run: res?.run || null, run: res?.run || null });
+      setShadowExecutorMsg(res?.message || "Shadow validation completed. No Vault execution was triggered.");
+      await refreshNexusBackendState();
+    } catch (e) {
+      setShadowExecutorMsg(e?.message || "Shadow validation failed.");
+    } finally {
+      setShadowExecutorBusy(false);
+    }
+  }, [api, wallet, tradingExecutionQueue, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, refreshNexusBackendState]);
+  const tradingGlobalRiskState = useMemo(() => {
+    const fromBackend = nexusBackendState?.risk_state || nexusBackendState?.global_risk_state || null;
+    const fromSession = tradingPreparedSetup?.session?.backendRiskState || tradingPreparedSetup?.session?.backendRiskDecision?.risk_state || null;
+    const rs = fromBackend && typeof fromBackend === "object" ? fromBackend : fromSession && typeof fromSession === "object" ? fromSession : null;
+    if (!rs) return null;
+    const status = String(rs.global_status || rs.status || "ACTIVE_OK").toUpperCase();
+    const cooldownUntil = Number(rs.cooldown_until_ts || 0) > 0 ? Number(rs.cooldown_until_ts) * 1000 : 0;
+    const invalidations = Array.isArray(rs.invalidations) ? rs.invalidations : [];
+    return { ...rs, status, cooldownUntil, invalidations };
+  }, [nexusBackendState, tradingPreparedSetup]);
+
+  const tradingGlobalRiskLabel = useMemo(() => {
+    const rs = tradingGlobalRiskState;
+    if (!rs) return "Risk sync: ready";
+    const score = Number.isFinite(Number(rs.risk_score)) ? ` · Risk ${Math.round(Number(rs.risk_score))}/100` : "";
+    const cooldown = rs.cooldownUntil > Date.now() ? ` · cooldown until ${new Date(rs.cooldownUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
+    const status = rs.status === "ACTIVE_OK" ? "Risk sync: clean" : rs.status === "PROTECT" ? "Risk sync: PROTECT" : rs.status === "COOLDOWN" ? "Risk sync: COOLDOWN" : `Risk sync: ${rs.status}`;
+    return `${status}${score}${cooldown}`;
+  }, [tradingGlobalRiskState]);
 
   const updateTradingPreparedSession = useCallback((patch = {}) => {
     setTradingPreparedSetup((prev) => {
@@ -7016,6 +7034,7 @@ useEffect(() => {
       status: nextSession,
       executionQueue: nextQueue,
       backendRiskDecision: riskResult,
+      backendRiskState: riskResult?.risk_state || riskResult?.global_risk_state || null,
       riskCheckedAt: now,
     });
 
@@ -7051,7 +7070,10 @@ useEffect(() => {
       })
         .then((res) => {
           if (cancelled) return;
-          if (res?.status === "ok") applyTradingRiskDecision(res);
+          if (res?.status === "ok") {
+            applyTradingRiskDecision(res);
+            if (typeof refreshNexusBackendState === "function") refreshNexusBackendState();
+          }
         })
         .catch(() => {});
     };
@@ -7062,7 +7084,7 @@ useEffect(() => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, applyTradingRiskDecision]);
+  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, applyTradingRiskDecision, refreshNexusBackendState]);
 
   useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;
@@ -14601,6 +14623,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               {quality.label} {p.score}
                             </span>
+                            {Number.isFinite(Number(p?.movement_quality_score)) ? (() => {
+                              const mq = getMovementQualityUi(p.movement_quality_score);
+                              return (
+                                <span
+                                  className="tiny"
+                                  title={(Array.isArray(p?.movement_quality_reasons) ? p.movement_quality_reasons.join(", ") : p?.movement_rejection_reason) || "Movement Quality Filter v2"}
+                                  style={{ border: `1px solid ${mq.border}`, borderRadius: 999, padding: "2px 6px", color: mq.color, fontWeight: 950 }}
+                                >
+                                  MQ {mq.label} {Math.round(Number(p.movement_quality_score))}
+                                </span>
+                              );
+                            })() : null}
                             <span className="pill" title="Correlation of indexed price lines" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                           </div>
                         </div>
@@ -16278,6 +16312,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       })()}
                     </div>
 
+
                     {renderFundingPrompt("TRADING")}
 
                     <div
@@ -16298,6 +16333,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           Status: {tradingSessionLabel === "PREPARED" ? "Prepared" : tradingSessionLabel === "ARMED" ? "Armed" : tradingSessionLabel === "ACTIVE" ? "Active" : tradingSessionLabel === "PROTECT" ? "Protect" : tradingSessionLabel === "PAUSED" ? "Paused" : tradingSessionLabel === "HOLD" ? "Capital Hold" : tradingSessionLabel === "OBSERVE" ? "Observe" : tradingSessionLabel === "RELEASE_REQUIRED" ? "Release required" : tradingSessionLabel === "STOPPED" ? "Stopped" : "Prepared"}
                         </div>
                         <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget once. After approval, Nexus Trading works autonomously inside your limits." : tradingSessionLabel === "ARMED" ? "Armed. Nexus Trading activates automatically." : tradingSessionLabel === "ACTIVE" ? "Autonomous trading active. User controls Pause and Stop only." : tradingSessionLabel === "PROTECT" ? "Protect mode active. Strategist detected elevated risk; no new add-ons and exit can be triggered if risk worsens." : tradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : tradingSessionLabel === "HOLD" ? "Capital protected. Minimum HOLD is active; no new allocation can start." : tradingSessionLabel === "OBSERVE" ? "Minimum HOLD completed. Strategist keeps checking; no trade unless market quality is clean." : tradingSessionLabel === "RELEASE_REQUIRED" ? "Max 12h observation reached. User must release/approve capital before new allocation." : "Stopped. Load or approve a setup again to continue."}</div>
+                        <div className="muted tiny" style={{ marginTop: 3, color: tradingGlobalRiskState?.status === "COOLDOWN" || tradingGlobalRiskState?.status === "PROTECT" ? "#ffd166" : "rgba(216,255,241,.72)" }}>
+                          {tradingGlobalRiskLabel}
+                          {tradingGlobalRiskState?.blocked_reason ? ` · ${String(tradingGlobalRiskState.blocked_reason).slice(0, 140)}` : ""}
+                        </div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         
@@ -18432,26 +18471,7 @@ export default function App() {
 // -------------------------
 function getMovementQualityUi(score) {
   const n = Number(score || 0);
-
-  if (n >= 75) {
-    return {
-      label: "HIGH QUALITY",
-      color: "#16c784",
-      border: "rgba(22,199,132,.35)",
-    };
-  }
-
-  if (n >= 55) {
-    return {
-      label: "MEDIUM",
-      color: "#f5b300",
-      border: "rgba(245,179,0,.35)",
-    };
-  }
-
-  return {
-    label: "WEAK",
-    color: "#ea3943",
-    border: "rgba(234,57,67,.35)",
-  };
+  if (n >= 75) return { label: "HIGH QUALITY", color: "#16c784", border: "rgba(22,199,132,.35)" };
+  if (n >= 55) return { label: "MEDIUM", color: "#f5b300", border: "rgba(245,179,0,.35)" };
+  return { label: "WEAK", color: "#ea3943", border: "rgba(234,57,67,.35)" };
 }

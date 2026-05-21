@@ -6555,7 +6555,18 @@ useEffect(() => {
     const suitability = String(base.suitability || "MEDIUM").toUpperCase();
     const riskMode = String(base.riskMode || tradingRiskMode || "BALANCED").toUpperCase();
     const style = String(base.style || tradingStyle || "TACTICAL").toUpperCase();
-    const symbol = String(base.symbol || (String(tradingAllowedAssets || "").split(",")[0] || "")).toUpperCase();
+
+    // Trading must stay usable even when the user did not manually type an asset yet.
+    // Fallback order: prepared Strategist setup -> allowed assets -> selected Grid asset -> active chain symbol.
+    // This prevents the Prepared/Budget flow from locking itself with an empty queue.
+    const symbol = String(
+      base.symbol ||
+      base.sym ||
+      (String(tradingAllowedAssets || "").split(",")[0] || "") ||
+      gridItem ||
+      activeGridChainSymbol ||
+      ""
+    ).trim().toUpperCase();
 
     const priorityBase =
       confidence === "HIGH" ? 80 :
@@ -6600,6 +6611,8 @@ useEffect(() => {
     tradingRiskMode,
     tradingStyle,
     tradingAllowedAssets,
+    gridItem,
+    activeGridChainSymbol,
   ]);
 
   const tradingQueueSummary = useMemo(() => {
@@ -6663,8 +6676,21 @@ useEffect(() => {
     const cautionDd = Number(String(tradingCautionDrawdownPct || "").replace(",", "."));
     const hardStop = Number(String(tradingHardStopPct || "").replace(",", "."));
     const profitLock = Number(String(tradingProfitLockPct || "").replace(",", "."));
-    const assets = normalizeTradingCsv(tradingAllowedAssets);
-    const chains = normalizeTradingCsv(tradingAllowedChains);
+    // User-entered values stay primary. If fields are still empty, fall back to the
+    // currently prepared/selected context so Redeem-Code users are not stuck in PREPARED.
+    const rawAssets = normalizeTradingCsv(tradingAllowedAssets);
+    const fallbackAsset = String(
+      tradingPreparedSetup?.symbol ||
+      tradingPreparedSetup?.sym ||
+      gridItem ||
+      activeGridChainSymbol ||
+      ""
+    ).trim().toUpperCase();
+    const assets = rawAssets.length ? rawAssets : normalizeTradingCsv(fallbackAsset);
+
+    const rawChains = normalizeTradingCsv(tradingAllowedChains);
+    const fallbackChain = String(activeGridChainKey || "POL").trim().toUpperCase();
+    const chains = rawChains.length ? rawChains : normalizeTradingCsv(fallbackChain);
     const budgetSplits = parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
     const splitTotal = budgetSplits.reduce((sum, n) => sum + (Number(n) || 0), 0);
     const knownChains = new Set([...(gridWalletChains || []), "POL", "BNB", "ETH"].map((x) => String(x || "").toUpperCase()));
@@ -6718,6 +6744,10 @@ useEffect(() => {
     parseTradingBudgetSplits,
     gridWalletChains,
     normalizeTradingCsv,
+    tradingPreparedSetup,
+    gridItem,
+    activeGridChainSymbol,
+    activeGridChainKey,
   ]);
 
   const tradingCanApprove = !!tradingPreflight.ok;
@@ -8828,10 +8858,102 @@ setGridBusy((s) => ({ ...s, stop: true }));
     );
   }, [fundingPrompt, continueWithFundingSuggestion]);
 
+  const getRotationPreflight = useCallback(() => {
+    const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+    const fallbackChain = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+    const native = fallbackChain === "BNB" ? "BNB" : fallbackChain === "ETH" ? "ETH" : "POL";
+
+    const pick = rotationSelectedPick && typeof rotationSelectedPick === "object" ? rotationSelectedPick : {};
+    const candidate = Array.isArray(strategistRotationCandidates)
+      ? strategistRotationCandidates.find((c) => String(c?.rank || "").toUpperCase() !== "AVOID")
+      : null;
+    const watchFallback = Array.isArray(watchRows)
+      ? watchRows.find((r) => String(r?.symbol || "").trim())
+      : null;
+
+    const sourceSymbol = String(
+      pick.coin ||
+      pick.source ||
+      candidate?.sym ||
+      candidate?.symbol ||
+      watchFallback?.symbol ||
+      gridItem ||
+      native
+    ).toUpperCase().trim();
+
+    const coinsByChain = gridWalletCoinsByChain || {};
+    const hasCoinOnChain = (chain, coin) => {
+      const list = coinsByChain?.[String(chain || "").toUpperCase()] || [];
+      return list.map((x) => String(x || "").toUpperCase()).includes(String(coin || "").toUpperCase());
+    };
+    const chooseFirstAvailable = (options) => {
+      for (const opt of options) {
+        if (hasCoinOnChain(opt.chain, opt.coin)) return opt;
+      }
+      return null;
+    };
+
+    let resolvedChain = String(pick.chain || "").toUpperCase();
+    let resolvedSymbol = String(pick.coin || "").toUpperCase();
+
+    if (!resolvedSymbol && sourceSymbol === "BTC") {
+      const resolved = chooseFirstAvailable([
+        { chain: "ETH", coin: "WBTC" },
+        { chain: "BNB", coin: "BTCB" },
+        { chain: "BNB", coin: "WBTC" },
+        { chain: "POL", coin: "WBTC" },
+      ]);
+      resolvedChain = resolved?.chain || resolvedChain;
+      resolvedSymbol = resolved?.coin || "WBTC";
+    } else if (!resolvedSymbol && sourceSymbol === "SOL") {
+      const resolved = chooseFirstAvailable([
+        { chain: "ETH", coin: "WSOL" },
+        { chain: "BNB", coin: "WSOL" },
+        { chain: "POL", coin: "WSOL" },
+      ]);
+      resolvedChain = resolved?.chain || resolvedChain;
+      resolvedSymbol = resolved?.coin || "WSOL";
+    }
+
+    if (!resolvedSymbol) resolvedSymbol = sourceSymbol || native;
+    if (!resolvedChain) {
+      for (const chain of Object.keys(coinsByChain || {}).map((x) => String(x || "").toUpperCase())) {
+        if (hasCoinOnChain(chain, resolvedSymbol)) {
+          resolvedChain = chain;
+          break;
+        }
+      }
+    }
+    if (!resolvedChain) resolvedChain = fallbackChain;
+
+    const amountOk = Number.isFinite(amount) && amount > 0;
+    const symbolOk = Boolean(resolvedSymbol);
+    return {
+      ok: amountOk && symbolOk,
+      amount,
+      amountOk,
+      chain: resolvedChain,
+      symbol: resolvedSymbol,
+      source: pick.source || candidate?.sym || watchFallback?.symbol || gridItem || native,
+      selected: Boolean(pick?.ok),
+      score: pick.score ?? candidate?.score ?? watchFallback?.score,
+      message: !amountOk
+        ? "Enter a Rotation budget first."
+        : pick?.ok
+          ? `Ready: ${resolvedSymbol} on ${resolvedChain}.`
+          : `Ready with fallback: ${resolvedSymbol} on ${resolvedChain}. You can still select a recommendation for more precision.`,
+    };
+  }, [rotationBudgetRelease, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, gridWalletCoinsByChain]);
+
   const addRotationOrder = useCallback(async () => {
     const pick = rotationSelectedPick || {};
-    const chain = String(pick.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-    const symbol = String(pick.coin || pick.source || "").toUpperCase();
+    const preflight = getRotationPreflight();
+    if (!preflight.ok) {
+      setRotationBackendMsg(preflight.message || "Rotation preflight is not ready.");
+      return;
+    }
+    const chain = preflight.chain;
+    const symbol = preflight.symbol;
     await addCoreOrderFromModule({
       source: "ROTATION",
       chain,
@@ -8841,13 +8963,15 @@ setGridBusy((s) => ({ ...s, stop: true }));
       priceUsd: getNexusOrderPriceUsd(symbol),
       meta: {
         strategy_id: `rotation_${chain}_${symbol}`,
-        rotation_score: pick.score,
+        rotation_score: pick.score ?? preflight.score,
         rotation_mode: rotationMode,
         risk_limit_pct: rotationRiskLimit,
         min_net_advantage_pct: rotationMinNetAdvantage,
+        preflight_fallback_used: !preflight.selected,
+        preflight_source: preflight.source,
       },
     });
-  }, [rotationSelectedPick, activeGridChainKey, rotationBudgetRelease, getNexusOrderPriceUsd, rotationMode, rotationRiskLimit, rotationMinNetAdvantage, addCoreOrderFromModule]);
+  }, [rotationSelectedPick, rotationBudgetRelease, getRotationPreflight, getNexusOrderPriceUsd, rotationMode, rotationRiskLimit, rotationMinNetAdvantage, addCoreOrderFromModule]);
 
   const addTradingOrder = useCallback(async () => {
     const chains = String(tradingAllowedChains || activeGridChainKey || DEFAULT_CHAIN || "POL").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
@@ -15742,10 +15866,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           : "Waiting for budget approval"}
                       </span>
                       <span style={{ opacity: 0.75 }}>
-                        {rotationSelectedPick?.ok
-                          ? `${rotationSelectedPick.coin} / ${rotationSelectedPick.chain}`
-                          : "No selection"}
+                        {(() => {
+                          const preflight = getRotationPreflight();
+                          return preflight.symbol ? `${preflight.symbol} / ${preflight.chain}${preflight.selected ? "" : " · fallback"}` : "No selection";
+                        })()}
                       </span>
+                    </div>
+
+                    <div className="muted tiny" style={{ marginTop: -4, lineHeight: 1.35 }}>
+                      Rotation preflight: {getRotationPreflight().message}
                     </div>
 
                     {renderFundingPrompt("ROTATION")}
@@ -15964,8 +16093,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         className="btn"
                         type="button"
                         disabled={(() => {
-                          const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
-                          if (!rotationBudgetReleased || !rotationSelectedPick?.ok || !(amount > 0)) return true;
+                          const preflight = getRotationPreflight();
+                          if (!rotationBudgetReleased || !preflight.ok) return true;
+                          const amount = Number(preflight.amount || 0);
                           const px = Number(activeGridNativeUsd || 0);
                           const vaultTotalUsd = Number.isFinite(px) && px > 0 ? Number(manualVaultTotalQty || 0) * px : 0;
                           const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? Number(manualVaultAllocatedQty || 0) * px : 0;
@@ -15973,7 +16103,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return vaultTotalUsd > 0 && amount > availableUsd;
                         })()}
                         onClick={addRotationOrder}
-                        title={rotationBudgetReleased ? (rotationSelectedPick?.ok ? "Create a Rotation order through the shared SQLite order core" : "Select a recommendation first") : "Approve the Rotation budget first"}
+                        title={rotationBudgetReleased ? getRotationPreflight().message : "Approve the Rotation budget first"}
                       >
                         {gridBusy.add ? "Adding..." : "Add Rotation Order"}
                       </button>
@@ -16096,6 +16226,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <label>Allowed chains</label>
                         <input value={tradingAllowedChains} onChange={(e) => setTradingAllowedChains(e.target.value.toUpperCase())} placeholder="POL,BNB,ETH" />
                       </div>
+                    </div>
+
+                    <div
+                      className="muted tiny"
+                      style={{
+                        marginTop: -2,
+                        padding: "7px 9px",
+                        borderRadius: 10,
+                        border: tradingPreflight.ok ? "1px solid rgba(34,197,94,.22)" : "1px solid rgba(255,193,7,.28)",
+                        background: tradingPreflight.ok ? "rgba(34,197,94,.06)" : "rgba(255,193,7,.075)",
+                        color: tradingPreflight.ok ? "#9ff7b5" : "#ffd166",
+                        fontWeight: 800,
+                      }}
+                    >
+                      {tradingPreflight.ok
+                        ? `Trading preflight ready · ${fmtUsd(tradingPreflight.budget)} · ${tradingPreflight.assets.join(", ")} · ${tradingPreflight.chains.join(",")}`
+                        : `Trading preflight needs: ${tradingPreflight.issues.join(", ")}. Add Budget and at least one asset/chain, or use the selected asset fallback.`}
                     </div>
 
                     {renderPayoutAssetSelector("Payout asset")}

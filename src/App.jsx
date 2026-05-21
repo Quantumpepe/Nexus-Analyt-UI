@@ -1090,6 +1090,12 @@ function useLocalStorageState(key, initialValue) {
   return [v, setV];
 }
 
+
+// Stable top-level helper: avoids React TDZ crashes when session ids are used in early hooks/dependency arrays.
+function makeNexusSessionId(prefix = "NS") {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+}
+
 // ------------------------
 // Info button + modal (opaque, bilingual content)
 // ------------------------
@@ -6529,9 +6535,9 @@ useEffect(() => {
   // Multi-session support: each later budget approval becomes an independent user-bounded session.
   // Existing sessions are preserved; new Trading/Rotation sessions get their own session_id.
   const [tradingSessions, setTradingSessions] = useLocalStorageState("nexus_trading_sessions_v1", []);
+  const [activeTradingSessionId, setActiveTradingSessionId] = useLocalStorageState("nexus_trading_active_session_id", "");
   const [rotationSessions, setRotationSessions] = useLocalStorageState("nexus_rotation_sessions_v1", []);
   const [activeRotationSessionId, setActiveRotationSessionId] = useLocalStorageState("nexus_rotation_active_session_id", "");
-  const makeNexusSessionId = useCallback((prefix = "NS") => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase(), []);
   const tradingHoldStateHydratedRef = useRef(false);
 
   const tradingSessionLabel = String(tradingSessionStatus || "PREPARED").toUpperCase();
@@ -6874,6 +6880,7 @@ useEffect(() => {
     }
     const now = Date.now();
     const sessionId = makeNexusSessionId("TRD");
+    setActiveTradingSessionId(sessionId);
     const queue = buildTradingQueue();
     let activatedOne = false;
     const activeQueue = (Array.isArray(queue) ? queue : []).map((slot, idx) => {
@@ -6928,7 +6935,7 @@ useEffect(() => {
       note: "New independent Trading session created. Nexus Trading is autonomous only inside this session's approved limits. User controls Pause and Stop.",
     });
     setErrorMsg(`Trading session created: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}`);
-  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setErrorMsg]);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg]);
 
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;
@@ -9049,7 +9056,8 @@ setGridBusy((s) => ({ ...s, stop: true }));
       priceUsd: getNexusOrderPriceUsd(symbol),
       meta: {
         strategy_id: `trading_${chain}_${symbol}_${String(tradingStyle || "TACTICAL").toLowerCase()}`,
-        session_id: makeNexusSessionId("TRDORDER"),
+        session_id: activeTradingSessionId || makeNexusSessionId("TRDORDER"),
+        trade_session_id: activeTradingSessionId || "",
         trading_style: tradingStyle,
         trading_runtime_hours: tradingRuntimeHours,
         trading_hold_hours: clampTradingHoldHours(tradingHoldHours),
@@ -9063,7 +9071,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         execution_queue: tradingExecutionQueue,
       },
     });
-  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingHoldHours, clampTradingHoldHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, makeNexusSessionId, addCoreOrderFromModule]);
+  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingHoldHours, clampTradingHoldHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, activeTradingSessionId, makeNexusSessionId, addCoreOrderFromModule]);
 
   async function addManualOrder(opts = {}) {
     setErrorMsg("");
@@ -16553,7 +16561,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {tradingSessions.slice(0, 5).map((sess) => (
                           <div key={sess.id} className="muted tiny" style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                             <span>{(sess.assets || []).join(",") || "ASSET"} · {fmtUsd(Number(sess.budgetUsd || 0))} · {sess.slots || 0} slots</span>
-                            <span>{String(sess.status || "ACTIVE")} · {String(sess.id || "").slice(0, 18)}</span>
+                            <span>{String(sess.status || "ACTIVE")} · {String(sess.id || "").slice(0, 18)}{String(sess.id || "") === String(activeTradingSessionId || "") ? " · active" : ""}</span>
                           </div>
                         ))}
                       </div>

@@ -4773,6 +4773,9 @@ const byChain = {};
   const [supportMsg, setSupportMsg] = useState("");
   const [billingEmail, setBillingEmail] = useState("");
   const [nexusBackendState, setNexusBackendState] = useState(null);
+  const [shadowExecutorState, setShadowExecutorState] = useState(null);
+  const [shadowExecutorBusy, setShadowExecutorBusy] = useState(false);
+  const [shadowExecutorMsg, setShadowExecutorMsg] = useState("");
 
   const [redeemCode, setRedeemCode] = useState("");
   const [redeemBusy, setRedeemBusy] = useState(false);
@@ -4903,6 +4906,7 @@ const byChain = {};
   const refreshNexusBackendState = useCallback(async () => {
     if (!wallet) {
       setNexusBackendState(null);
+      setShadowExecutorState(null);
       return null;
     }
     try {
@@ -4914,9 +4918,26 @@ const byChain = {};
     }
   }, [api, wallet]);
 
+  const refreshShadowExecutorState = useCallback(async () => {
+    if (!wallet) {
+      setShadowExecutorState(null);
+      return null;
+    }
+    try {
+      const data = await api(`/api/nexus/shadow/executor`, { wallet });
+      setShadowExecutorState(data || null);
+      return data || null;
+    } catch {
+      return null;
+    }
+  }, [api, wallet]);
+
+
+
   useEffect(() => {
     refreshNexusBackendState();
-  }, [refreshNexusBackendState]);
+    refreshShadowExecutorState();
+  }, [refreshNexusBackendState, refreshShadowExecutorState]);
 
 
   const redeemNow = useCallback(async () => {
@@ -6471,6 +6492,38 @@ useEffect(() => {
   const [tradingPreparedSetup, setTradingPreparedSetup] = useLocalStorageState("nexus_trading_prepared_setup", null);
   const [tradingLearningSetups, setTradingLearningSetups] = useLocalStorageState("nexus_trading_learning_setups", []);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useLocalStorageState("nexus_trading_risk_expanded", false);
+
+  const runShadowExecutorValidation = useCallback(async () => {
+    if (!wallet) {
+      setShadowExecutorMsg("Wallet not connected.");
+      return;
+    }
+    setShadowExecutorBusy(true);
+    setShadowExecutorMsg("");
+    try {
+      const res = await api(`/api/nexus/shadow/executor`, {
+        method: "POST",
+        wallet,
+        body: {
+          source: "frontend_trading_panel",
+          queue: Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [],
+          config: {
+            runtime_hours: tradingRuntimeHours,
+            max_trades: tradingMaxTrades,
+            risk_mode: tradingRiskMode,
+            max_slippage_pct: tradingMaxSlippagePct,
+          },
+        },
+      });
+      setShadowExecutorState({ ...(shadowExecutorState || {}), last_run: res?.run || null, run: res?.run || null });
+      setShadowExecutorMsg(res?.message || "Shadow validation completed. No Vault execution was triggered.");
+      await refreshNexusBackendState();
+    } catch (e) {
+      setShadowExecutorMsg(e?.message || "Shadow validation failed.");
+    } finally {
+      setShadowExecutorBusy(false);
+    }
+  }, [api, wallet, tradingExecutionQueue, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, refreshNexusBackendState]);
   const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useLocalStorageState("nexus_rotation_recommendations_expanded", false);
   const [tradingSessionStatus, setTradingSessionStatus] = useLocalStorageState("nexus_trading_session_status", "PREPARED");
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
@@ -16163,6 +16216,67 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
                     ) : null}
+
+                    <div
+                      style={{
+                        padding: "9px 10px",
+                        borderRadius: 12,
+                        background: "rgba(64,196,255,.055)",
+                        border: "1px solid rgba(64,196,255,.18)",
+                        display: "grid",
+                        gap: 7,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ fontWeight: 950, color: "#8bdcff", fontSize: 13 }}>Shadow Executor</div>
+                          <div className="muted tiny">Paper execution only: virtual fills, stop/re-entry validation, reallocation observation. No Vault transaction can be triggered here.</div>
+                        </div>
+                        <button
+                          className="btnGhost"
+                          type="button"
+                          onClick={runShadowExecutorValidation}
+                          disabled={shadowExecutorBusy || !wallet}
+                          style={{ height: 30, paddingInline: 10 }}
+                          title="Run off-chain Shadow Executor validation"
+                        >
+                          {shadowExecutorBusy ? "Testing..." : "Run Shadow Test"}
+                        </button>
+                      </div>
+                      {(() => {
+                        const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
+                        const summary = run?.summary || {};
+                        if (!run && !shadowExecutorMsg) {
+                          return <div className="muted tiny">No shadow run yet. Run this before Vault deployment to validate behavior without risking live capital.</div>;
+                        }
+                        const status = String(summary?.status || run?.status || "pending").toUpperCase();
+                        const readiness = String(summary?.readiness || "PENDING").replaceAll("_", " ");
+                        const score = Number(summary?.safety_score ?? NaN);
+                        return (
+                          <div style={{ display: "grid", gap: 5 }}>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <span className="tiny" style={{ fontWeight: 950, color: status === "PASSED" ? "#7cf7a2" : status === "BLOCKED" ? "#ff8a8a" : "#ffd166" }}>Status: {status}</span>
+                              <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.78)" }}>Safety: {Number.isFinite(score) ? `${score}/100` : "—"}</span>
+                              <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.78)" }}>Readiness: {readiness}</span>
+                            </div>
+                            <div className="muted tiny">
+                              Virtual fills: {summary?.virtual_fills ?? 0} · Blocks: {summary?.virtual_blocks ?? 0} · Protect tests: {summary?.protect_tests ?? 0} · Re-entry allowed: {summary?.reentry_allowed ? "yes" : "no"}
+                            </div>
+                            {shadowExecutorMsg ? <div className="muted tiny" style={{ color: "#8bdcff" }}>{shadowExecutorMsg}</div> : null}
+                            {Array.isArray(run?.events) && run.events.length ? (
+                              <details style={{ border: "1px solid rgba(139,220,255,.16)", borderRadius: 8, padding: "4px 6px", background: "rgba(64,196,255,.035)" }}>
+                                <summary style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}>Latest shadow events</summary>
+                                <div style={{ marginTop: 5, display: "grid", gap: 4 }}>
+                                  {run.events.slice(0, 5).map((ev, idx) => (
+                                    <div key={`${ev?.type || "event"}-${idx}`} className="muted tiny">{ev?.type || "EVENT"}: {ev?.message || "Shadow event recorded."}</div>
+                                  ))}
+                                </div>
+                              </details>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
+                    </div>
 
                     {renderFundingPrompt("TRADING")}
 

@@ -6548,12 +6548,28 @@ useEffect(() => {
     return String(slot?.session_id || slot?.sessionId || slot?.trade_session_id || "").trim();
   }, []);
 
-  const selectedTradingSession = useMemo(() => {
+  const openTradingSessions = useMemo(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
+    return sessions.filter((sess) => {
+      const st = String(sess?.status || "").toUpperCase();
+      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED"].includes(st);
+    });
+  }, [tradingSessions]);
+
+  const stoppedTradingSessions = useMemo(() => {
+    const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
+    return sessions.filter((sess) => {
+      const st = String(sess?.status || "").toUpperCase();
+      return ["STOPPED", "CLOSED", "EXPIRED", "CANCELLED"].includes(st);
+    });
+  }, [tradingSessions]);
+
+  const selectedTradingSession = useMemo(() => {
+    const sessions = Array.isArray(openTradingSessions) ? openTradingSessions : [];
     if (!sessions.length) return null;
     const activeId = String(activeTradingSessionId || "").trim();
     return sessions.find((sess) => String(sess?.id || "") === activeId) || sessions[0] || null;
-  }, [tradingSessions, activeTradingSessionId]);
+  }, [openTradingSessions, activeTradingSessionId]);
 
   const selectedTradingSessionId = String(selectedTradingSession?.id || activeTradingSessionId || "").trim();
 
@@ -6742,11 +6758,11 @@ useEffect(() => {
     // older approved sessions while the user edits the next-budget form.
     setTradingExecutionQueue((prev) => {
       const existing = Array.isArray(prev) ? prev : [];
-      const hasApprovedSessions = Array.isArray(tradingSessions) && tradingSessions.length > 0;
+      const hasApprovedSessions = Array.isArray(openTradingSessions) && openTradingSessions.length > 0;
       return hasApprovedSessions ? existing : next;
     });
     return next;
-  }, [buildTradingQueue, setTradingExecutionQueue, tradingPreparedSetup, tradingSessions]);
+  }, [buildTradingQueue, setTradingExecutionQueue, tradingPreparedSetup, openTradingSessions]);
 
   useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;
@@ -6757,7 +6773,7 @@ useEffect(() => {
     const hasSetup = tradingPreparedSetup && typeof tradingPreparedSetup === "object";
     const hasAssets = String(tradingAllowedAssets || "").trim();
 
-    const hasApprovedSessions = Array.isArray(tradingSessions) && tradingSessions.length > 0;
+    const hasApprovedSessions = Array.isArray(openTradingSessions) && openTradingSessions.length > 0;
 
     if (!(budget > 0) || !hasPositiveSlots || (!hasSetup && !hasAssets)) {
       if (!hasApprovedSessions) setTradingExecutionQueue([]);
@@ -7067,50 +7083,44 @@ useEffect(() => {
     if (!tradingCanStop) return;
     const now = Date.now();
     const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
-    const holdHours = clampTradingHoldHours(tradingHoldHours);
-    const holdUntil = now + holdHours * 60 * 60 * 1000;
-    const observeUntil = now + 12 * 60 * 60 * 1000;
-    let selectedProtectedQueue = [];
-    const protectedQueue = (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : []).map((s) => {
-      const sameSession = !sid || String(getTradingSlotSessionId(s) || "") === sid;
-      const st = String(s.status || "").toUpperCase();
-      if (!sameSession || !["ACTIVE", "READY", "WAIT"].includes(st)) return s;
-      const next = {
-        ...s,
-        status: "HOLD",
-        holdStartedAt: now,
-        holdUntil,
-        observeUntil,
-        stoppedAt: now,
-        condition: `Capital protected. Minimum HOLD ${holdHours}h; Strategist keeps observing before any reallocation.`,
-        observeReason: "Capital entered HOLD after a protection/stop event. Reallocation is blocked until the minimum HOLD ends and market quality is clean.",
-      };
-      selectedProtectedQueue.push(next);
-      return next;
+    let stoppedQueue = [];
+
+    // Stop means: close the selected independent session and remove its slots
+    // from the active runtime view. The session is kept only as local history so
+    // old sessions are not overwritten, but they no longer count as active capital.
+    setTradingExecutionQueue((prev) => {
+      const all = Array.isArray(prev) ? prev : [];
+      stoppedQueue = all
+        .filter((slot) => String(getTradingSlotSessionId(slot) || "") === sid)
+        .map((slot) => ({ ...slot, status: "STOPPED", stoppedAt: now, closedAt: now }));
+      return all.filter((slot) => String(getTradingSlotSessionId(slot) || "") !== sid);
     });
-    setTradingExecutionQueue(protectedQueue);
-    setTradingSessionStatus("HOLD");
+
+    setTradingSessionStatus("PREPARED");
     setTradingSessionUpdatedTs(now);
-    updateTradingSessionMeta(sid, { status: "HOLD", stoppedAt: now, holdStartedAt: now, holdUntil, observeUntil });
+    updateTradingSessionMeta(sid, { status: "STOPPED", stoppedAt: now, closedAt: now, active: false });
+
+    const remainingOpen = (Array.isArray(openTradingSessions) ? openTradingSessions : [])
+      .filter((sess) => String(sess?.id || "") !== sid);
+    setActiveTradingSessionId(String(remainingOpen?.[0]?.id || ""));
+
     updateTradingPreparedSession({
-      status: "HOLD",
+      status: "PREPARED",
       sessionId: sid,
       stoppedAt: now,
-      holdStartedAt: now,
-      holdUntil,
-      observeUntil,
-      holdHours,
-      observeMaxHours: 12,
-      executionQueue: selectedProtectedQueue,
-      userAction: { stopped: true, protectedCapital: true, sessionId: sid },
-      outcome: { status: "capital_hold_observe_pending_strategist" },
-      note: "Capital is protected first. Timer expiry does not permit blind re-entry; Strategist must confirm clean market conditions.",
+      closedAt: now,
+      executionQueue: [],
+      stoppedQueue,
+      userAction: { stopped: true, closedSession: true, sessionId: sid },
+      outcome: { status: "session_stopped_by_user" },
+      note: "Selected Trading session stopped. It is removed from active sessions and kept only as local history. A new budget must be approved/signed for the next independent session.",
     });
+
     api("/api/nexus/trading/hold-state", {
       method: "POST",
-      body: { action: "hold", hold_hours: holdHours, queue: selectedProtectedQueue, reason: "protect_stop", session_id: sid },
+      body: { action: "stop", queue: [], stopped_queue: stoppedQueue, reason: "user_stop_session", session_id: sid },
     }).catch(() => {});
-  }, [tradingCanStop, selectedTradingSessionId, activeTradingSessionId, tradingExecutionQueue, tradingHoldHours, clampTradingHoldHours, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession]);
+  }, [tradingCanStop, selectedTradingSessionId, activeTradingSessionId, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession, openTradingSessions, setActiveTradingSessionId]);
 
   const handleTradingReleaseCapital = useCallback(() => {
     if (!tradingCanReleaseCapital) return;
@@ -16342,7 +16352,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const px = Number(activeGridNativeUsd || 0);
                           const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
                           const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
-                          const tradingAllocatedUsd = (Array.isArray(tradingSessions) ? tradingSessions : []).reduce((sum, sess) => {
+                          const tradingAllocatedUsd = (Array.isArray(openTradingSessions) ? openTradingSessions : []).reduce((sum, sess) => {
                             const st = String(sess?.status || "").toUpperCase();
                             if (["RELEASED", "CLOSED", "EXPIRED"].includes(st)) return sum;
                             return sum + (Number(sess?.budgetUsd) || 0);
@@ -16364,8 +16374,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10, alignItems: "end" }}>
                       <div className="formRow">
-                        <label>{Array.isArray(tradingSessions) && tradingSessions.length ? "Next Budget ($)" : "Budget ($)"}</label>
-                        <input value={tradingBudgetUsd} onChange={(e) => setTradingBudgetUsd(e.target.value)} placeholder={Array.isArray(tradingSessions) && tradingSessions.length ? "e.g. next 300" : "e.g. 300"} />
+                        <label>{Array.isArray(openTradingSessions) && openTradingSessions.length ? "Next Budget ($)" : "Budget ($)"}</label>
+                        <input value={tradingBudgetUsd} onChange={(e) => setTradingBudgetUsd(e.target.value)} placeholder={Array.isArray(openTradingSessions) && openTradingSessions.length ? "e.g. next 300" : "e.g. 300"} />
                       </div>
                       <div className="formRow">
                         <label>Budget slots</label>
@@ -16658,10 +16668,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     {renderFundingPrompt("TRADING")}
 
-                    {Array.isArray(tradingSessions) && tradingSessions.length ? (
+                    {Array.isArray(openTradingSessions) && openTradingSessions.length ? (
                       <div style={{ display: "grid", gap: 6, padding: "8px 10px", borderRadius: 12, background: "rgba(0,0,0,.14)", border: "1px solid rgba(139,220,255,.12)" }}>
-                        <div className="muted tiny" style={{ fontWeight: 950, color: "#8bdcff" }}>Trading sessions</div>
-                        {tradingSessions.slice(0, 8).map((sess) => {
+                        <div className="muted tiny" style={{ fontWeight: 950, color: "#8bdcff" }}>Active Trading sessions</div>
+                        {openTradingSessions.slice(0, 8).map((sess) => {
                           const sid = String(sess?.id || "");
                           const selected = sid && sid === String(selectedTradingSessionId || "");
                           return (
@@ -16693,8 +16703,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           );
                         })}
                         {selectedTradingSessionId ? (
-                          <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. Click another session above to inspect its slots/status.</div>
+                          <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. Click another active session above to inspect its slots/status.</div>
                         ) : null}
+                      </div>
+                    ) : Array.isArray(stoppedTradingSessions) && stoppedTradingSessions.length ? (
+                      <div className="muted tiny" style={{ padding: "8px 10px", borderRadius: 12, background: "rgba(0,0,0,.12)", border: "1px solid rgba(255,255,255,.08)", color: "rgba(216,255,241,.68)" }}>
+                        No active Trading sessions. {stoppedTradingSessions.length} stopped session{stoppedTradingSessions.length === 1 ? "" : "s"} kept only as local history.
                       </div>
                     ) : null}
 
@@ -16724,7 +16738,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         
                         <button className="btnGhost" type="button" onClick={handleTradingApproveBudget} disabled={!tradingCanApprove} title={tradingPreflight.title} style={{ height: 30, paddingInline: 10 }}>
-                          {Array.isArray(tradingSessions) && tradingSessions.length ? "Approve Next Budget" : "Approve Budget"}
+                          {Array.isArray(openTradingSessions) && openTradingSessions.length ? "Approve Next Budget" : "Approve Budget"}
                         </button>
                         {(String(tradingBudgetUsd || "").trim() || String(tradingBudgetSplitInput || "").trim()) ? (
                           <button

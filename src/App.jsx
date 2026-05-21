@@ -6707,26 +6707,6 @@ useEffect(() => {
   const tradingCanStop = ["ARMED", "ACTIVE", "PROTECT", "PAUSED"].includes(tradingSessionLabel);
   const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(tradingSessionLabel);
 
-  const tradingGlobalRiskState = useMemo(() => {
-    const fromBackend = nexusBackendState?.risk_state || nexusBackendState?.global_risk_state || null;
-    const fromSession = tradingPreparedSetup?.session?.backendRiskState || tradingPreparedSetup?.session?.backendRiskDecision?.risk_state || null;
-    const rs = fromBackend && typeof fromBackend === "object" ? fromBackend : fromSession && typeof fromSession === "object" ? fromSession : null;
-    if (!rs) return null;
-    const status = String(rs.global_status || rs.status || "ACTIVE_OK").toUpperCase();
-    const cooldownUntil = Number(rs.cooldown_until_ts || 0) > 0 ? Number(rs.cooldown_until_ts) * 1000 : 0;
-    const invalidations = Array.isArray(rs.invalidations) ? rs.invalidations : [];
-    return { ...rs, status, cooldownUntil, invalidations };
-  }, [nexusBackendState, tradingPreparedSetup]);
-
-  const tradingGlobalRiskLabel = useMemo(() => {
-    const rs = tradingGlobalRiskState;
-    if (!rs) return "Risk sync: ready";
-    const score = Number.isFinite(Number(rs.risk_score)) ? ` · Risk ${Math.round(Number(rs.risk_score))}/100` : "";
-    const cooldown = rs.cooldownUntil > Date.now() ? ` · cooldown until ${new Date(rs.cooldownUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "";
-    const status = rs.status === "ACTIVE_OK" ? "Risk sync: clean" : rs.status === "PROTECT" ? "Risk sync: PROTECT" : rs.status === "COOLDOWN" ? "Risk sync: COOLDOWN" : `Risk sync: ${rs.status}`;
-    return `${status}${score}${cooldown}`;
-  }, [tradingGlobalRiskState]);
-
   const updateTradingPreparedSession = useCallback((patch = {}) => {
     setTradingPreparedSetup((prev) => {
       const base = prev && typeof prev === "object" ? prev : {};
@@ -6983,7 +6963,6 @@ useEffect(() => {
       status: nextSession,
       executionQueue: nextQueue,
       backendRiskDecision: riskResult,
-      backendRiskState: riskResult?.risk_state || riskResult?.global_risk_state || null,
       riskCheckedAt: now,
     });
 
@@ -7019,10 +6998,7 @@ useEffect(() => {
       })
         .then((res) => {
           if (cancelled) return;
-          if (res?.status === "ok") {
-            applyTradingRiskDecision(res);
-            if (typeof refreshNexusBackendState === "function") refreshNexusBackendState();
-          }
+          if (res?.status === "ok") applyTradingRiskDecision(res);
         })
         .catch(() => {});
     };
@@ -7033,7 +7009,7 @@ useEffect(() => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, applyTradingRiskDecision, refreshNexusBackendState]);
+  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, applyTradingRiskDecision]);
 
   useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;
@@ -16208,10 +16184,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           Status: {tradingSessionLabel === "PREPARED" ? "Prepared" : tradingSessionLabel === "ARMED" ? "Armed" : tradingSessionLabel === "ACTIVE" ? "Active" : tradingSessionLabel === "PROTECT" ? "Protect" : tradingSessionLabel === "PAUSED" ? "Paused" : tradingSessionLabel === "HOLD" ? "Capital Hold" : tradingSessionLabel === "OBSERVE" ? "Observe" : tradingSessionLabel === "RELEASE_REQUIRED" ? "Release required" : tradingSessionLabel === "STOPPED" ? "Stopped" : "Prepared"}
                         </div>
                         <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget once. After approval, Nexus Trading works autonomously inside your limits." : tradingSessionLabel === "ARMED" ? "Armed. Nexus Trading activates automatically." : tradingSessionLabel === "ACTIVE" ? "Autonomous trading active. User controls Pause and Stop only." : tradingSessionLabel === "PROTECT" ? "Protect mode active. Strategist detected elevated risk; no new add-ons and exit can be triggered if risk worsens." : tradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : tradingSessionLabel === "HOLD" ? "Capital protected. Minimum HOLD is active; no new allocation can start." : tradingSessionLabel === "OBSERVE" ? "Minimum HOLD completed. Strategist keeps checking; no trade unless market quality is clean." : tradingSessionLabel === "RELEASE_REQUIRED" ? "Max 12h observation reached. User must release/approve capital before new allocation." : "Stopped. Load or approve a setup again to continue."}</div>
-                        <div className="muted tiny" style={{ marginTop: 3, color: tradingGlobalRiskState?.status === "COOLDOWN" || tradingGlobalRiskState?.status === "PROTECT" ? "#ffd166" : "rgba(216,255,241,.72)" }}>
-                          {tradingGlobalRiskLabel}
-                          {tradingGlobalRiskState?.blocked_reason ? ` · ${String(tradingGlobalRiskState.blocked_reason).slice(0, 140)}` : ""}
-                        </div>
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         
@@ -18339,4 +18311,33 @@ const handlePanelActivate = useCallback((name) => (e) => {
 }
 export default function App() {
   return <AppInner />;
+}
+
+// -------------------------
+// Nexus Movement Quality Filter v2 (UI Layer)
+// -------------------------
+function getMovementQualityUi(score) {
+  const n = Number(score || 0);
+
+  if (n >= 75) {
+    return {
+      label: "HIGH QUALITY",
+      color: "#16c784",
+      border: "rgba(22,199,132,.35)",
+    };
+  }
+
+  if (n >= 55) {
+    return {
+      label: "MEDIUM",
+      color: "#f5b300",
+      border: "rgba(245,179,0,.35)",
+    };
+  }
+
+  return {
+    label: "WEAK",
+    color: "#ea3943",
+    border: "rgba(234,57,67,.35)",
+  };
 }

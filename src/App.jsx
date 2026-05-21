@@ -16448,8 +16448,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                             {shadowExecutorMsg ? <div className="muted tiny" style={{ color: "#8bdcff" }}>{shadowExecutorMsg}</div> : null}
                             {Array.isArray(run?.events) && run.events.length ? (
-                              <details style={{ border: "1px solid rgba(139,220,255,.16)", borderRadius: 8, padding: "4px 6px", background: "rgba(64,196,255,.035)" }}>
-                                <summary style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}>Latest shadow events</summary>
+                              <details
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onTouchStart={(e) => e.stopPropagation()}
+                                style={{ border: "1px solid rgba(139,220,255,.16)", borderRadius: 8, padding: "4px 6px", background: "rgba(64,196,255,.035)" }}
+                              >
+                                <summary
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onTouchStart={(e) => e.stopPropagation()}
+                                  style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}
+                                >Latest shadow events</summary>
                                 <div style={{ marginTop: 5, display: "grid", gap: 4 }}>
                                   {run.events.slice(0, 5).map((ev, idx) => (
                                     <div key={`${ev?.type || "event"}-${idx}`} className="muted tiny">{ev?.type || "EVENT"}: {ev?.message || "Shadow event recorded."}</div>

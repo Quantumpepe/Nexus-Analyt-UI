@@ -6552,7 +6552,7 @@ useEffect(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
     return sessions.filter((sess) => {
       const st = String(sess?.status || "").toUpperCase();
-      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED"].includes(st);
+      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(st);
     });
   }, [tradingSessions]);
 
@@ -6560,7 +6560,7 @@ useEffect(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
     return sessions.filter((sess) => {
       const st = String(sess?.status || "").toUpperCase();
-      return ["STOPPED", "CLOSED", "EXPIRED", "CANCELLED"].includes(st);
+      return ["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(st);
     });
   }, [tradingSessions]);
 
@@ -16669,46 +16669,48 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     {renderFundingPrompt("TRADING")}
 
                     {Array.isArray(openTradingSessions) && openTradingSessions.length ? (
-                      <div style={{ display: "grid", gap: 6, padding: "8px 10px", borderRadius: 12, background: "rgba(0,0,0,.14)", border: "1px solid rgba(139,220,255,.12)" }}>
+                      <div style={{ display: "grid", gap: 8, padding: "8px 10px", borderRadius: 12, background: "rgba(0,0,0,.14)", border: "1px solid rgba(139,220,255,.12)" }}>
                         <div className="muted tiny" style={{ fontWeight: 950, color: "#8bdcff" }}>Active Trading sessions</div>
-                        {openTradingSessions.slice(0, 8).map((sess) => {
-                          const sid = String(sess?.id || "");
-                          const selected = sid && sid === String(selectedTradingSessionId || "");
-                          return (
-                            <button
-                              key={sid || `session-${sess?.createdAt || Math.random()}`}
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); selectTradingSession(sid); }}
-                              style={{
-                                width: "100%",
-                                border: selected ? "1px solid rgba(34,197,94,.58)" : "1px solid rgba(255,255,255,.08)",
-                                borderRadius: 10,
-                                background: selected ? "rgba(34,197,94,.12)" : "rgba(255,255,255,.035)",
-                                color: selected ? "#eafff5" : "rgba(216,255,241,.78)",
-                                padding: "7px 8px",
-                                display: "flex",
-                                justifyContent: "space-between",
-                                gap: 8,
-                                flexWrap: "wrap",
-                                cursor: "pointer",
-                                textAlign: "left",
-                                fontSize: 12,
-                                fontWeight: selected ? 950 : 800,
-                              }}
-                              title="Show this independent Trading session"
-                            >
-                              <span>{(sess.assets || []).join(",") || "ASSET"} · {fmtUsd(Number(sess.budgetUsd || 0))} · {sess.slots || 0} slots</span>
-                              <span>{String(sess.status || "ACTIVE").toUpperCase()} · {sid.slice(0, 18)}{selected ? " · viewing" : ""}</span>
-                            </button>
-                          );
-                        })}
-                        {selectedTradingSessionId ? (
-                          <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. Click another active session above to inspect its slots/status.</div>
+                        <select
+                          value={selectedTradingSessionId || String(openTradingSessions?.[0]?.id || "")}
+                          onChange={(e) => selectTradingSession(e.target.value)}
+                          style={{
+                            width: "100%",
+                            border: "1px solid rgba(139,220,255,.22)",
+                            borderRadius: 10,
+                            background: "rgba(0,0,0,.28)",
+                            color: "#eafff5",
+                            padding: "8px 10px",
+                            fontSize: 12,
+                            fontWeight: 900,
+                          }}
+                          title="Choose which independent Trading session to inspect/control"
+                        >
+                          {openTradingSessions.slice(0, 20).map((sess) => {
+                            const sid = String(sess?.id || "");
+                            const label = `${(sess.assets || []).join(",") || "ASSET"} · ${fmtUsd(Number(sess.budgetUsd || 0))} · ${sess.slots || 0} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
+                            return <option key={sid || `session-${sess?.createdAt || Math.random()}`} value={sid}>{label}</option>;
+                          })}
+                        </select>
+                        {selectedTradingSession ? (
+                          <div
+                            style={{
+                              border: "1px solid rgba(34,197,94,.30)",
+                              borderRadius: 10,
+                              background: "rgba(34,197,94,.07)",
+                              padding: "7px 8px",
+                              display: "grid",
+                              gap: 3,
+                            }}
+                          >
+                            <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{(selectedTradingSession.assets || []).join(",") || "ASSET"} · {fmtUsd(Number(selectedTradingSession.budgetUsd || 0))} · {selectedTradingSession.slots || 0} slots</div>
+                            <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
+                          </div>
                         ) : null}
                       </div>
                     ) : Array.isArray(stoppedTradingSessions) && stoppedTradingSessions.length ? (
                       <div className="muted tiny" style={{ padding: "8px 10px", borderRadius: 12, background: "rgba(0,0,0,.12)", border: "1px solid rgba(255,255,255,.08)", color: "rgba(216,255,241,.68)" }}>
-                        No active Trading sessions. {stoppedTradingSessions.length} stopped session{stoppedTradingSessions.length === 1 ? "" : "s"} kept only as local history.
+                        No active Trading sessions. {stoppedTradingSessions.length} stopped/released session{stoppedTradingSessions.length === 1 ? "" : "s"} kept only as local history.
                       </div>
                     ) : null}
 

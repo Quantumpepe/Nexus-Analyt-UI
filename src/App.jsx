@@ -6175,6 +6175,13 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationBudgetReleased, setRotationBudgetReleased] = useState(false);
   const [rotationBackendLoading, setRotationBackendLoading] = useState(false);
   const [rotationBackendMsg, setRotationBackendMsg] = useState("");
+
+  // Multi-session support: each later budget approval becomes an independent user-bounded session.
+  // Existing sessions are preserved; new Trading/Rotation sessions get their own session_id.
+  const [tradingSessions, setTradingSessions] = useLocalStorageState("nexus_trading_sessions_v1", []);
+  const [activeTradingSessionId, setActiveTradingSessionId] = useLocalStorageState("nexus_trading_active_session_id", "");
+  const [rotationSessions, setRotationSessions] = useLocalStorageState("nexus_rotation_sessions_v1", []);
+  const [activeRotationSessionId, setActiveRotationSessionId] = useLocalStorageState("nexus_rotation_active_session_id", "");
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
@@ -6532,12 +6539,6 @@ useEffect(() => {
   const [tradingSessionStatus, setTradingSessionStatus] = useLocalStorageState("nexus_trading_session_status", "PREPARED");
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
 
-  // Multi-session support: each later budget approval becomes an independent user-bounded session.
-  // Existing sessions are preserved; new Trading/Rotation sessions get their own session_id.
-  const [tradingSessions, setTradingSessions] = useLocalStorageState("nexus_trading_sessions_v1", []);
-  const [activeTradingSessionId, setActiveTradingSessionId] = useLocalStorageState("nexus_trading_active_session_id", "");
-  const [rotationSessions, setRotationSessions] = useLocalStorageState("nexus_rotation_sessions_v1", []);
-  const [activeRotationSessionId, setActiveRotationSessionId] = useLocalStorageState("nexus_rotation_active_session_id", "");
   const tradingHoldStateHydratedRef = useRef(false);
 
   const tradingSessionLabel = String(tradingSessionStatus || "PREPARED").toUpperCase();

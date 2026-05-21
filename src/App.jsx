@@ -6176,6 +6176,13 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     return String(gridChain || DEFAULT_CHAIN || "POL").toUpperCase().trim();
   }, [gridChain]);
 
+  // Keep this directly after activeGridChainKey. Several Trading/Rotation/Grid
+  // preflight builders use the native chain symbol as a safe fallback, so it
+  // must be initialized before those callbacks are created.
+  const activeGridChainSymbol = useMemo(() => {
+    return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+  }, [activeGridChainKey]);
+
   const gridItemId = useMemo(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
     if (!sym) return "";
@@ -8578,10 +8585,6 @@ setGridBusy((s) => ({ ...s, stop: true }));
     }
   }
 
-
-  const activeGridChainSymbol = useMemo(() => {
-    return String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-  }, [activeGridChainKey]);
 
   const activeGridNativeUsd = useMemo(() => {
     const px = Number(walletPx?.native?.[activeGridChainSymbol]);

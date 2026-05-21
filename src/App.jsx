@@ -6362,9 +6362,33 @@ useEffect(() => {
   const releaseRotationBudget = useCallback(() => {
     const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
     if (!Number.isFinite(amount) || amount <= 0) return;
+
+    // Must not call getRotationPreflight here because that callback is declared later in the component.
+    // Use a safe local fallback so React never hits a before-initialization crash.
+    const fallbackChain = String(rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+    const fallbackSymbol = String(rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || fallbackChain).toUpperCase();
+    const now = Date.now();
+    const sessionId = makeNexusSessionId("ROT");
     setRotationBudgetReleased(true);
-    setRotationBackendMsg("Rotation budget approved ✓");
-  }, [rotationBudgetRelease]);
+    setActiveRotationSessionId(sessionId);
+    setRotationSessions((prev) => {
+      const existing = Array.isArray(prev) ? prev : [];
+      return [
+        {
+          id: sessionId,
+          type: "ROTATION",
+          budgetUsd: amount,
+          chain: fallbackChain,
+          symbol: fallbackSymbol,
+          status: "APPROVED",
+          createdAt: now,
+          updatedAt: now,
+        },
+        ...existing,
+      ].slice(0, 20);
+    });
+    setRotationBackendMsg(`Rotation session approved ✓ ${sessionId}`);
+  }, [rotationBudgetRelease, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, gridItem]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -6501,6 +6525,13 @@ useEffect(() => {
   const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useLocalStorageState("nexus_rotation_recommendations_expanded", false);
   const [tradingSessionStatus, setTradingSessionStatus] = useLocalStorageState("nexus_trading_session_status", "PREPARED");
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
+
+  // Multi-session support: each later budget approval becomes an independent user-bounded session.
+  // Existing sessions are preserved; new Trading/Rotation sessions get their own session_id.
+  const [tradingSessions, setTradingSessions] = useLocalStorageState("nexus_trading_sessions_v1", []);
+  const [rotationSessions, setRotationSessions] = useLocalStorageState("nexus_rotation_sessions_v1", []);
+  const [activeRotationSessionId, setActiveRotationSessionId] = useLocalStorageState("nexus_rotation_active_session_id", "");
+  const makeNexusSessionId = useCallback((prefix = "NS") => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`.toUpperCase(), []);
   const tradingHoldStateHydratedRef = useRef(false);
 
   const tradingSessionLabel = String(tradingSessionStatus || "PREPARED").toUpperCase();
@@ -6842,24 +6873,50 @@ useEffect(() => {
       return;
     }
     const now = Date.now();
-    const queue = refreshTradingQueue();
+    const sessionId = makeNexusSessionId("TRD");
+    const queue = buildTradingQueue();
     let activatedOne = false;
     const activeQueue = (Array.isArray(queue) ? queue : []).map((slot, idx) => {
+      let next = { ...slot, session_id: sessionId, sessionId, trade_session_id: sessionId };
       if (slot.status === "READY") {
         activatedOne = true;
-        return { ...slot, status: "ACTIVE", activatedAt: now };
-      }
-      if (!activatedOne && idx === 0 && slot.status === "WAIT" && Number(slot.priority || 0) >= 50) {
+        next = { ...next, status: "ACTIVE", activatedAt: now };
+      } else if (!activatedOne && idx === 0 && slot.status === "WAIT" && Number(slot.priority || 0) >= 50) {
         activatedOne = true;
-        return { ...slot, status: "ACTIVE", activatedAt: now };
+        next = { ...next, status: "ACTIVE", activatedAt: now };
       }
-      return slot;
+      return next;
     });
-    setTradingExecutionQueue(activeQueue);
+
+    // Do not replace older trades. A later 300$ approval becomes a separate session.
+    setTradingExecutionQueue((prev) => {
+      const existing = Array.isArray(prev) ? prev : [];
+      return [...existing, ...activeQueue];
+    });
+    setTradingSessions((prev) => {
+      const existing = Array.isArray(prev) ? prev : [];
+      const assets = Array.isArray(tradingPreflight.assets) && tradingPreflight.assets.length ? tradingPreflight.assets : [activeQueue?.[0]?.symbol].filter(Boolean);
+      const chains = Array.isArray(tradingPreflight.chains) && tradingPreflight.chains.length ? tradingPreflight.chains : [activeGridChainKey].filter(Boolean);
+      return [
+        {
+          id: sessionId,
+          type: "TRADING",
+          budgetUsd: Number(String(tradingBudgetUsd || "").replace(",", ".")) || 0,
+          assets,
+          chains,
+          status: activeQueue.some((s) => String(s.status || "").toUpperCase() === "ACTIVE") ? "ACTIVE" : "WAIT",
+          slots: activeQueue.length,
+          createdAt: now,
+          updatedAt: now,
+        },
+        ...existing,
+      ].slice(0, 20);
+    });
     setTradingSessionStatus("ACTIVE");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({
       status: "ACTIVE",
+      sessionId,
       approvedBudgetUsd: tradingBudgetUsd,
       approvedAt: now,
       startedAt: now,
@@ -6867,11 +6924,11 @@ useEffect(() => {
       observeMaxHours: 12,
       preflight: tradingPreflight,
       executionQueue: activeQueue,
-      userAction: { approvedBudget: true, armed: true, started: true, preflightOk: true },
-      note: "Budget approved. Nexus Trading is autonomous within approved limits. User controls Pause and Stop.",
+      userAction: { approvedBudget: true, armed: true, started: true, preflightOk: true, multiSession: true },
+      note: "New independent Trading session created. Nexus Trading is autonomous only inside this session's approved limits. User controls Pause and Stop.",
     });
-    setErrorMsg("");
-  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, refreshTradingQueue, clampTradingHoldHours, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setErrorMsg]);
+    setErrorMsg(`Trading session created: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}`);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setErrorMsg]);
 
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;
@@ -8970,11 +9027,13 @@ setGridBusy((s) => ({ ...s, stop: true }));
         rotation_mode: rotationMode,
         risk_limit_pct: rotationRiskLimit,
         min_net_advantage_pct: rotationMinNetAdvantage,
+        session_id: activeRotationSessionId || makeNexusSessionId("ROT"),
+        rotation_session_id: activeRotationSessionId || "",
         preflight_fallback_used: !preflight.selected,
         preflight_source: preflight.source,
       },
     });
-  }, [rotationSelectedPick, rotationBudgetRelease, getRotationPreflight, getNexusOrderPriceUsd, rotationMode, rotationRiskLimit, rotationMinNetAdvantage, addCoreOrderFromModule]);
+  }, [rotationSelectedPick, rotationBudgetRelease, getRotationPreflight, getNexusOrderPriceUsd, rotationMode, rotationRiskLimit, rotationMinNetAdvantage, activeRotationSessionId, makeNexusSessionId, addCoreOrderFromModule]);
 
   const addTradingOrder = useCallback(async () => {
     const chains = String(tradingAllowedChains || activeGridChainKey || DEFAULT_CHAIN || "POL").split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
@@ -8990,6 +9049,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
       priceUsd: getNexusOrderPriceUsd(symbol),
       meta: {
         strategy_id: `trading_${chain}_${symbol}_${String(tradingStyle || "TACTICAL").toLowerCase()}`,
+        session_id: makeNexusSessionId("TRDORDER"),
         trading_style: tradingStyle,
         trading_runtime_hours: tradingRuntimeHours,
         trading_hold_hours: clampTradingHoldHours(tradingHoldHours),
@@ -9003,7 +9063,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         execution_queue: tradingExecutionQueue,
       },
     });
-  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingHoldHours, clampTradingHoldHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, addCoreOrderFromModule]);
+  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingHoldHours, clampTradingHoldHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, makeNexusSessionId, addCoreOrderFromModule]);
 
   async function addManualOrder(opts = {}) {
     setErrorMsg("");
@@ -15754,7 +15814,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const px = Number(activeGridNativeUsd || 0);
                           const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
                           const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
-                          const rotationAllocatedUsd = rotationBudgetReleased ? Math.max(0, Number(String(rotationBudgetRelease || "").replace(",", ".")) || 0) : 0;
+                          const rotationAllocatedUsd = (Array.isArray(rotationSessions) ? rotationSessions : []).reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
                           const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
                           const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
                           return (
@@ -16115,17 +16175,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         type="button"
                         disabled={(() => {
                           const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
-                          return !Number.isFinite(amount) || amount <= 0 || rotationBudgetReleased;
+                          return !Number.isFinite(amount) || amount <= 0;
                         })()}
                         onClick={releaseRotationBudget}
                         title="Approve the Rotation budget locally. Vault safety is checked internally when an order is created."
                       >
-                        {rotationBudgetReleased ? "Budget Approved" : "Approve Budget"}
+                        {rotationBudgetReleased ? "Approve New Rotation Session" : "Approve Budget"}
                       </button>
                       {rotationBudgetReleased && (
                         <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>
                       )}
                     </div>
+                    {Array.isArray(rotationSessions) && rotationSessions.length ? (
+                      <div style={{ display: "grid", gap: 5, marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.07)" }}>
+                        <div className="muted tiny" style={{ fontWeight: 900, color: "#8bdcff" }}>Rotation sessions</div>
+                        {rotationSessions.slice(0, 4).map((sess) => (
+                          <div key={sess.id} className="muted tiny" style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                            <span>{sess.symbol || "ASSET"} / {sess.chain || "CHAIN"} · {fmtUsd(Number(sess.budgetUsd || 0))}</span>
+                            <span>{String(sess.status || "APPROVED")} · {String(sess.id || "").slice(0, 18)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
                     {rotationBackendMsg ? (
                       <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
                         {rotationBackendMsg}
@@ -16475,6 +16547,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     {renderFundingPrompt("TRADING")}
 
+                    {Array.isArray(tradingSessions) && tradingSessions.length ? (
+                      <div style={{ display: "grid", gap: 5, padding: "8px 10px", borderRadius: 12, background: "rgba(0,0,0,.14)", border: "1px solid rgba(139,220,255,.12)" }}>
+                        <div className="muted tiny" style={{ fontWeight: 950, color: "#8bdcff" }}>Trading sessions</div>
+                        {tradingSessions.slice(0, 5).map((sess) => (
+                          <div key={sess.id} className="muted tiny" style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                            <span>{(sess.assets || []).join(",") || "ASSET"} · {fmtUsd(Number(sess.budgetUsd || 0))} · {sess.slots || 0} slots</span>
+                            <span>{String(sess.status || "ACTIVE")} · {String(sess.id || "").slice(0, 18)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
                     <div
                       style={{
                         padding: "7px 10px",
@@ -16492,7 +16576,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ fontWeight: 900, color: tradingSessionLabel === "ACTIVE" ? "#7cf7a2" : tradingSessionLabel === "PROTECT" ? "#ffd166" : ["HOLD", "OBSERVE"].includes(tradingSessionLabel) ? "#8bdcff" : tradingSessionLabel === "RELEASE_REQUIRED" ? "#ffd166" : "#f5c16c", fontSize: 13 }}>
                           Status: {tradingSessionLabel === "PREPARED" ? "Prepared" : tradingSessionLabel === "ARMED" ? "Armed" : tradingSessionLabel === "ACTIVE" ? "Active" : tradingSessionLabel === "PROTECT" ? "Protect" : tradingSessionLabel === "PAUSED" ? "Paused" : tradingSessionLabel === "HOLD" ? "Capital Hold" : tradingSessionLabel === "OBSERVE" ? "Observe" : tradingSessionLabel === "RELEASE_REQUIRED" ? "Release required" : tradingSessionLabel === "STOPPED" ? "Stopped" : "Prepared"}
                         </div>
-                        <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve budget once. After approval, Nexus Trading works autonomously inside your limits." : tradingSessionLabel === "ARMED" ? "Armed. Nexus Trading activates automatically." : tradingSessionLabel === "ACTIVE" ? "Autonomous trading active. User controls Pause and Stop only." : tradingSessionLabel === "PROTECT" ? "Protect mode active. Strategist detected elevated risk; no new add-ons and exit can be triggered if risk worsens." : tradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : tradingSessionLabel === "HOLD" ? "Capital protected. Minimum HOLD is active; no new allocation can start." : tradingSessionLabel === "OBSERVE" ? "Minimum HOLD completed. Strategist keeps checking; no trade unless market quality is clean." : tradingSessionLabel === "RELEASE_REQUIRED" ? "Max 12h observation reached. User must release/approve capital before new allocation." : "Stopped. Load or approve a setup again to continue."}</div>
+                        <div className="muted tiny">{tradingSessionLabel === "PREPARED" ? "Approve a budget to create a new independent Trading session. Later budgets create additional sessions inside your limits." : tradingSessionLabel === "ARMED" ? "Armed. Nexus Trading activates automatically." : tradingSessionLabel === "ACTIVE" ? "Autonomous trading active. User controls Pause and Stop only." : tradingSessionLabel === "PROTECT" ? "Protect mode active. Strategist detected elevated risk; no new add-ons and exit can be triggered if risk worsens." : tradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : tradingSessionLabel === "HOLD" ? "Capital protected. Minimum HOLD is active; no new allocation can start." : tradingSessionLabel === "OBSERVE" ? "Minimum HOLD completed. Strategist keeps checking; no trade unless market quality is clean." : tradingSessionLabel === "RELEASE_REQUIRED" ? "Max 12h observation reached. User must release/approve capital before new allocation." : "Stopped. Load or approve a setup again to continue."}</div>
                         <div className="muted tiny" style={{ marginTop: 3, color: tradingGlobalRiskState?.status === "COOLDOWN" || tradingGlobalRiskState?.status === "PROTECT" ? "#ffd166" : "rgba(216,255,241,.72)" }}>
                           {tradingGlobalRiskLabel}
                           {tradingGlobalRiskState?.blocked_reason ? ` · ${String(tradingGlobalRiskState.blocked_reason).slice(0, 140)}` : ""}
@@ -16500,11 +16584,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         
-                        {tradingSessionLabel === "PREPARED" || tradingSessionLabel === "STOPPED" ? (
-                          <button className="btnGhost" type="button" onClick={handleTradingApproveBudget} disabled={!tradingCanApprove} title={tradingPreflight.title} style={{ height: 30, paddingInline: 10 }}>
-                            Approve Budget
-                          </button>
-                        ) : null}
+                        <button className="btnGhost" type="button" onClick={handleTradingApproveBudget} disabled={!tradingCanApprove} title={tradingPreflight.title} style={{ height: 30, paddingInline: 10 }}>
+                          {tradingSessionLabel === "PREPARED" || tradingSessionLabel === "STOPPED" ? "Approve Budget" : "Create New Trade Session"}
+                        </button>
                         
                         {["ACTIVE", "PROTECT"].includes(tradingSessionLabel) ? (
                           <button className="btnGhost" type="button" onClick={handleTradingPauseSession} style={{ height: 30, paddingInline: 10 }}>Pause</button>

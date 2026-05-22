@@ -2923,6 +2923,167 @@ const [errorMsg, setErrorMsg] = useState("");
   const [token, setToken] = useLocalStorageState("nexus_token", ""); // backend token
   const [wallet, setWallet] = useLocalStorageState("nexus_wallet", "");
   const walletAddress = wallet; // alias for older handlers / debug
+
+  const [marketBannerItems, setMarketBannerItems] = useState([
+    { label: "Trader Pulse", value: "Loading liquidity, volatility and risk…", tone: "neutral" },
+  ]);
+  const [marketBannerIndex, setMarketBannerIndex] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+
+    const fmtBannerUsd = (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return "—";
+      if (Math.abs(n) >= 1_000_000_000_000) return `$${stripTrailingZeros((n / 1_000_000_000_000).toFixed(2))}T`;
+      if (Math.abs(n) >= 1_000_000_000) return `$${stripTrailingZeros((n / 1_000_000_000).toFixed(2))}B`;
+      if (Math.abs(n) >= 1_000_000) return `$${stripTrailingZeros((n / 1_000_000).toFixed(2))}M`;
+      return fmtUsd(n);
+    };
+
+    const pctText = (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return "—";
+      return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+    };
+
+    const loadGlobalMarketBanner = async () => {
+      try {
+        const [globalRes, priceRes] = await Promise.allSettled([
+          api("/api/coingecko/global"),
+          api("/api/coingecko/simple_price?ids=bitcoin,ethereum,binancecoin,ripple,solana,polygon-ecosystem-token&vs_currencies=usd&include_24hr_change=true"),
+        ]);
+
+        const globalRaw = globalRes.status === "fulfilled" ? globalRes.value : {};
+        const globalData = globalRaw?.data || globalRaw || {};
+        const prices = priceRes.status === "fulfilled" ? priceRes.value || {} : {};
+
+        const next = [];
+        const capChange = Number(globalData?.market_cap_change_percentage_24h_usd);
+        const totalCap = Number(globalData?.total_market_cap?.usd);
+        const totalVol = Number(globalData?.total_volume?.usd);
+        const btcDom = Number(globalData?.market_cap_percentage?.btc);
+        const ethDom = Number(globalData?.market_cap_percentage?.eth);
+        const liquidityRatio = Number.isFinite(totalVol) && Number.isFinite(totalCap) && totalCap > 0
+          ? (totalVol / totalCap) * 100
+          : NaN;
+
+        const coinMap = [
+          ["bitcoin", "BTC"],
+          ["ethereum", "ETH"],
+          ["binancecoin", "BNB"],
+          ["ripple", "XRP"],
+          ["solana", "SOL"],
+          ["polygon-ecosystem-token", "POL"],
+        ];
+        const majorChanges = coinMap
+          .map(([id]) => Number(prices?.[id]?.usd_24h_change))
+          .filter((n) => Number.isFinite(n));
+        const avgAbsVolatility = majorChanges.length
+          ? majorChanges.reduce((a, b) => a + Math.abs(b), 0) / majorChanges.length
+          : NaN;
+        const gainers = majorChanges.filter((n) => n > 0).length;
+        const breadthPct = majorChanges.length ? (gainers / majorChanges.length) * 100 : NaN;
+
+        const riskScore = (() => {
+          let score = 50;
+          if (Number.isFinite(capChange)) score += Math.max(-18, Math.min(18, capChange * 4));
+          if (Number.isFinite(liquidityRatio)) score += liquidityRatio >= 4 ? 8 : liquidityRatio < 2.5 ? -8 : 0;
+          if (Number.isFinite(avgAbsVolatility)) score += avgAbsVolatility > 5 ? -12 : avgAbsVolatility > 3 ? -6 : 4;
+          if (Number.isFinite(breadthPct)) score += breadthPct >= 66 ? 8 : breadthPct <= 34 ? -8 : 0;
+          if (Number.isFinite(btcDom) && Number.isFinite(capChange) && btcDom > 58 && capChange < 0) score -= 6;
+          return Math.max(0, Math.min(100, Math.round(score)));
+        })();
+        const riskLabel = riskScore >= 62 ? "Risk-On" : riskScore <= 42 ? "Risk-Off" : "Neutral";
+        const riskTone = riskScore >= 62 ? "positive" : riskScore <= 42 ? "negative" : "warning";
+
+        next.push({
+          label: "Market Risk",
+          value: `${riskLabel} ${riskScore}/100${Number.isFinite(capChange) ? ` · MCap ${pctText(capChange)}` : ""}`,
+          tone: riskTone,
+        });
+
+        if (Number.isFinite(liquidityRatio) || Number.isFinite(totalVol)) {
+          next.push({
+            label: "Global Liquidity",
+            value: `${Number.isFinite(liquidityRatio) ? `${liquidityRatio.toFixed(2)}% vol/cap` : "—"}${Number.isFinite(totalVol) ? ` · Vol ${fmtBannerUsd(totalVol)}` : ""}`,
+            tone: Number.isFinite(liquidityRatio) && liquidityRatio >= 4 ? "positive" : Number.isFinite(liquidityRatio) && liquidityRatio < 2.5 ? "negative" : "neutral",
+          });
+        }
+
+        if (Number.isFinite(avgAbsVolatility)) {
+          next.push({
+            label: "Volatility Pulse",
+            value: `${avgAbsVolatility.toFixed(2)}% avg 24h move · ${Number.isFinite(breadthPct) ? `${breadthPct.toFixed(0)}% green` : "breadth —"}`,
+            tone: avgAbsVolatility > 5 ? "negative" : avgAbsVolatility > 3 ? "warning" : "positive",
+          });
+        }
+
+        if (Number.isFinite(btcDom)) {
+          next.push({
+            label: "Dominance Risk",
+            value: `BTC ${btcDom.toFixed(1)}%${Number.isFinite(ethDom) ? ` · ETH ${ethDom.toFixed(1)}%` : ""}`,
+            tone: btcDom > 58 ? "warning" : "neutral",
+          });
+        }
+
+        const btcCh = Number(prices?.bitcoin?.usd_24h_change);
+        const ethCh = Number(prices?.ethereum?.usd_24h_change);
+        if (Number.isFinite(btcCh) && Number.isFinite(ethCh)) {
+          const spread = ethCh - btcCh;
+          next.push({
+            label: "Rotation Signal",
+            value: `ETH-BTC ${spread >= 0 ? "+" : ""}${spread.toFixed(2)}% · BTC ${pctText(btcCh)} / ETH ${pctText(ethCh)}`,
+            tone: Math.abs(spread) >= 2 ? "warning" : "neutral",
+          });
+        }
+
+        const strongest = coinMap
+          .map(([id, sym]) => ({ sym, ch: Number(prices?.[id]?.usd_24h_change) }))
+          .filter((x) => Number.isFinite(x.ch))
+          .sort((a, b) => b.ch - a.ch);
+        if (strongest.length) {
+          const top = strongest[0];
+          const weak = strongest[strongest.length - 1];
+          next.push({
+            label: "Relative Strength",
+            value: `Strong ${top.sym} ${pctText(top.ch)} · Weak ${weak.sym} ${pctText(weak.ch)}`,
+            tone: Math.abs(top.ch - weak.ch) >= 4 ? "warning" : "neutral",
+          });
+        }
+
+        if (alive && next.length) {
+          setMarketBannerItems(next.slice(0, 8));
+          setMarketBannerIndex((i) => i % next.length);
+        }
+      } catch (e) {
+        if (alive) {
+          setMarketBannerItems([{ label: "Trader Pulse", value: "Trader market data temporarily unavailable", tone: "neutral" }]);
+          setMarketBannerIndex(0);
+        }
+      }
+    };
+
+    loadGlobalMarketBanner();
+    const refreshTimer = setInterval(loadGlobalMarketBanner, 120000);
+    return () => {
+      alive = false;
+      clearInterval(refreshTimer);
+    };
+  }, [token, wallet]);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setMarketBannerIndex((i) => (marketBannerItems.length ? (i + 1) % marketBannerItems.length : 0));
+    }, 8000);
+    return () => clearInterval(t);
+  }, [marketBannerItems.length]);
+
+  const activeMarketBanner = marketBannerItems[marketBannerIndex] || marketBannerItems[0] || {
+    label: "Trader Pulse",
+    value: "Loading liquidity, volatility and risk…",
+    tone: "neutral",
+  };
   // Trading policy is UI-only for now (no Vault/Allowance yet).
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
 const [walletModalOpen, setWalletModalOpen] = useState(false);
@@ -12151,6 +12312,47 @@ const handlePanelActivate = useCallback((name) => (e) => {
           -webkit-text-fill-color: #fff !important;
         }
 
+        header.topbar .marketBanner {
+          flex: 1 1 420px;
+          min-width: 320px;
+          max-width: 560px;
+          height: 36px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          padding: 0 8px;
+          border: 0;
+          background: transparent;
+          box-shadow: none;
+          overflow: hidden;
+          white-space: nowrap;
+        }
+        header.topbar .marketBannerLabel {
+          color: #ff5252;
+          font-size: 11px;
+          font-weight: 950;
+          letter-spacing: 0.35px;
+          text-transform: uppercase;
+          flex: 0 0 auto;
+          text-shadow: 0 0 10px rgba(255,82,82,0.35);
+        }
+        header.topbar .marketBannerValue {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          color: #62d6ff;
+          font-size: 13px;
+          font-weight: 900;
+          text-align: left;
+          font-variant-numeric: tabular-nums;
+          text-shadow: 0 0 12px rgba(98,214,255,0.32);
+        }
+        header.topbar .marketBannerValue.positive,
+        header.topbar .marketBannerValue.negative,
+        header.topbar .marketBannerValue.warning,
+        header.topbar .marketBannerValue.neutral { color: #62d6ff; }
+
         /* --- Mobile / small screens: prevent horizontal overflow and wrap topbar controls --- */
         html, body { max-width: 100%; overflow-x: hidden; }
         #root { max-width: 100%; overflow-x: hidden; }
@@ -12181,7 +12383,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
           header.topbar .brandSub {
             margin-top: 1px !important;
           }
+          header.topbar .marketBanner {
+            display: none !important;
+          }
           header.topbar .walletBox {
+            order: 3 !important;
             flex: 0 0 auto !important;
             width: 100% !important;
             display: flex !important;
@@ -13059,6 +13265,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="brandSub">Live Vault Trading</div>
             <div className="brandTag">Secured by GoPlus</div>
           </div>
+        </div>
+
+        <div
+          className="marketBanner"
+          title={`${activeMarketBanner.label}: ${activeMarketBanner.value}`}
+          aria-label={`Trader market banner: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
+        >
+          <span className="marketBannerLabel">{activeMarketBanner.label}</span>
+          <span className={`marketBannerValue ${activeMarketBanner.tone || "neutral"}`}>
+            {activeMarketBanner.value}
+          </span>
         </div>
 
         <div className="walletBox" style={{ position: "relative" }}>

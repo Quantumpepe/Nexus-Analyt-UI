@@ -13086,16 +13086,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
             {wallet && (
               <button
                 type="button"
-                className="pill silver"
                 style={{
                   cursor: "pointer",
-                  background: "rgba(229,231,235,0.92)",
-                  color: "#1d4ed8",
-                  border: "1px solid rgba(29,78,216,0.24)",
-                  fontWeight: 900,
+                  background: "transparent",
+                  color: "rgba(255,255,255,0.92)",
+                  border: "none",
+                  boxShadow: "none",
+                  padding: "0 2px",
+                  margin: 0,
+                  fontSize: 12,
+                  lineHeight: 1,
+                  fontWeight: 800,
                   display: isCompactMobile ? "none" : "inline-flex",
                   alignItems: "center",
-                  gap: 8,
+                  gap: 6,
+                  whiteSpace: "nowrap",
                 }}
                 onClick={(e) => {
                   e.preventDefault();
@@ -13105,16 +13110,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 title={walletProfit.available ? "Wallet value and profit since saved baseline" : "Wallet value. Open wallet details to set profit baseline."}
               >
                 <span>Value: {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}</span>
-                <span style={{ opacity: 0.55 }}>•</span>
-                <span
-                  style={{
-                    color: walletProfit.available
-                      ? Number(walletProfit.amount || 0) >= 0
-                        ? "#15803d"
-                        : "#b91c1c"
-                      : "#1d4ed8",
-                  }}
-                >
+                <span style={{ opacity: 0.45 }}>•</span>
+                <span>
                   Profit: {walletProfit.available
                     ? `${Number(walletProfit.amount || 0) >= 0 ? "+" : ""}${fmtUsd(walletProfit.amount)}${Number.isFinite(Number(walletProfit.pct)) ? ` (${Number(walletProfit.pct).toFixed(2)}%)` : ""}`
                     : "Set baseline"}

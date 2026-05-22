@@ -6950,8 +6950,11 @@ useEffect(() => {
         wallet,
         body: {
           source: "frontend_trading_panel",
-          queue: Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [],
+          // Validate only the selected independent Trading session. Passing the full
+          // wallet queue made Shadow/Risk output look inconsistent in multi-session mode.
+          queue: Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [],
           config: {
+            session_id: selectedTradingSessionId || "",
             runtime_hours: tradingRuntimeHours,
             max_trades: tradingMaxTrades,
             risk_mode: tradingRiskMode,
@@ -6967,7 +6970,94 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingExecutionQueue, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, refreshNexusBackendState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, refreshNexusBackendState]);
+
+
+  // Runtime heartbeat for multi-session Trading.
+  // A user-approved session must not stay forever in WAIT/BLOCKED without a fresh
+  // decision. This is still off-chain/session-control logic; it does not trigger Vault
+  // execution. It only keeps the selected/open sessions moving through READY/ACTIVE/WAIT
+  // so Shadow and later Live Execution have a current runtime state to evaluate.
+  const applyTradingRuntimeHeartbeat = useCallback((reason = "auto") => {
+    const now = Date.now();
+    const openIds = new Set((Array.isArray(openTradingSessions) ? openTradingSessions : [])
+      .map((sess) => String(sess?.id || "").trim())
+      .filter(Boolean));
+    if (!openIds.size) return;
+
+    let changed = false;
+    const promotedBySession = new Map();
+    const bySession = new Map();
+
+    const currentQueue = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [];
+    currentQueue.forEach((slot, idx) => {
+      const sid = String(getTradingSlotSessionId(slot) || "").trim();
+      if (!sid || !openIds.has(sid)) return;
+      if (!bySession.has(sid)) bySession.set(sid, []);
+      bySession.get(sid).push({ slot, idx });
+    });
+
+    for (const [sid, rows] of bySession.entries()) {
+      const hasExecutable = rows.some(({ slot }) => ["ACTIVE", "PROTECT", "EXECUTING"].includes(String(slot?.status || "").toUpperCase()));
+      const hasProtected = rows.some(({ slot }) => ["HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(String(slot?.status || "").toUpperCase()));
+      if (hasExecutable || hasProtected) continue;
+
+      const candidates = rows
+        .filter(({ slot }) => {
+          const st = String(slot?.status || "").toUpperCase();
+          const risk = Number(slot?.risk_score ?? slot?.riskScore ?? 0);
+          return ["READY", "WAIT", "BLOCKED"].includes(st) && (!Number.isFinite(risk) || risk < 70);
+        })
+        .sort((a, b) => Number(b.slot?.priority || 0) - Number(a.slot?.priority || 0));
+
+      const pick = candidates[0];
+      if (pick) promotedBySession.set(sid, pick.idx);
+    }
+
+    if (!promotedBySession.size) return;
+
+    const nextQueue = currentQueue.map((slot, idx) => {
+      const sid = String(getTradingSlotSessionId(slot) || "").trim();
+      if (!sid || !promotedBySession.has(sid) || promotedBySession.get(sid) !== idx) return slot;
+      const prevStatus = String(slot?.status || "WAIT").toUpperCase();
+      changed = true;
+      return {
+        ...slot,
+        status: "ACTIVE",
+        previousStatus: prevStatus,
+        runtimePromotedAt: now,
+        lastRuntimeRecheckAt: now,
+        condition: prevStatus === "BLOCKED"
+          ? "Runtime recheck released this slot from BLOCKED into ACTIVE monitoring. Execution still remains inside user/session limits."
+          : "Runtime recheck promoted this slot into ACTIVE monitoring. Execution still remains inside user/session limits.",
+        observeReason: `Runtime heartbeat (${reason}) prevented the approved session from staying idle without a fresh decision.`,
+      };
+    });
+
+    if (changed) {
+      setTradingExecutionQueue(nextQueue);
+      promotedBySession.forEach((_, sid) => {
+        setTradingSessionStatus("ACTIVE");
+        setTradingSessionUpdatedTs(now);
+        updateTradingSessionMeta(sid, { status: "ACTIVE", lastRuntimeHeartbeatAt: now, runtimeHeartbeatReason: reason });
+      });
+      updateTradingPreparedSession({
+        status: "ACTIVE",
+        executionQueue: nextQueue,
+        runtimeHeartbeatAt: now,
+        runtimeHeartbeatReason: reason,
+      });
+    }
+  }, [openTradingSessions, tradingExecutionQueue, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession]);
+
+  useEffect(() => {
+    if (String(gridMode || "").toLowerCase() !== "trading") return;
+    if (!openTradingSessions?.length) return;
+    applyTradingRuntimeHeartbeat("mount");
+    const id = setInterval(() => applyTradingRuntimeHeartbeat("interval"), 2 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [gridMode, openTradingSessions, applyTradingRuntimeHeartbeat]);
+
   const tradingGlobalRiskState = useMemo(() => {
     const fromBackend = nexusBackendState?.risk_state || nexusBackendState?.global_risk_state || null;
     const fromSession = tradingPreparedSetup?.session?.backendRiskState || tradingPreparedSetup?.session?.backendRiskDecision?.risk_state || null;
@@ -7024,9 +7114,11 @@ useEffect(() => {
       if (slot.status === "READY") {
         activatedOne = true;
         next = { ...next, status: "ACTIVE", activatedAt: now };
-      } else if (!activatedOne && idx === 0 && slot.status === "WAIT" && Number(slot.priority || 0) >= 50) {
+      } else if (!activatedOne && idx === 0 && ["WAIT", "BLOCKED"].includes(String(slot.status || "").toUpperCase()) && Number(slot.priority || 0) >= 50) {
+        // User-approved sessions must enter active monitoring instead of staying idle forever.
+        // Risk decisions can still move the slot back to PROTECT/HOLD/BLOCKED afterwards.
         activatedOne = true;
-        next = { ...next, status: "ACTIVE", activatedAt: now };
+        next = { ...next, previousStatus: slot.status, status: "ACTIVE", activatedAt: now, lastRuntimeRecheckAt: now };
       }
       return next;
     });

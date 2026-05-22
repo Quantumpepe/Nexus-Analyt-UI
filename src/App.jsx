@@ -13062,7 +13062,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
         </div>
 
         <div className="walletBox" style={{ position: "relative" }}>
-          <div className="walletRow">
+          <div
+            className="walletRow"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              gap: isCompactMobile ? 5 : 8,
+              flexWrap: isCompactMobile ? "wrap" : "nowrap",
+              minWidth: 0,
+              maxWidth: "100%",
+            }}
+          >
             {/* Wallet pill is DISPLAY-ONLY: opens modal, must never trigger external wallet connect */}
             <button
               type="button"
@@ -13092,15 +13103,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   color: "rgba(255,255,255,0.92)",
                   border: "none",
                   boxShadow: "none",
-                  padding: "0 2px",
+                  padding: isCompactMobile ? "1px 2px" : "0 2px",
                   margin: 0,
-                  fontSize: 12,
-                  lineHeight: 1,
+                  fontSize: isCompactMobile ? 10 : 11,
+                  lineHeight: 1.08,
                   fontWeight: 800,
-                  display: isCompactMobile ? "none" : "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
+                  display: "inline-flex",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  justifyContent: "center",
+                  gap: 2,
                   whiteSpace: "nowrap",
+                  minWidth: 0,
+                  maxWidth: isCompactMobile ? 132 : 190,
+                  overflow: "hidden",
+                  flex: "0 1 auto",
                 }}
                 onClick={(e) => {
                   e.preventDefault();
@@ -13109,9 +13126,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 }}
                 title={walletProfit.available ? "Wallet value and profit since saved baseline" : "Wallet value. Open wallet details to set profit baseline."}
               >
-                <span>Value: {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}</span>
-                <span style={{ opacity: 0.45 }}>•</span>
-                <span>
+                <span style={{ display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  Value: {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}
+                </span>
+                <span style={{ display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>
                   Profit: {walletProfit.available
                     ? `${Number(walletProfit.amount || 0) >= 0 ? "+" : ""}${fmtUsd(walletProfit.amount)}${Number.isFinite(Number(walletProfit.pct)) ? ` (${Number(walletProfit.pct).toFixed(2)}%)` : ""}`
                     : "Set baseline"}

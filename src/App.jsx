@@ -3602,6 +3602,48 @@ useEffect(() => {
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
   const [walletUsdLoading, setWalletUsdLoading] = useState(false);
+  const [walletProfitBaselineStore, setWalletProfitBaselineStore] = useLocalStorageState("nexus_wallet_profit_baseline_v1", {});
+
+  const walletProfitBaseline = useMemo(() => {
+    const key = String(wallet || "").toLowerCase();
+    const entry = key ? walletProfitBaselineStore?.[key] : null;
+    const amount = Number(entry?.amountUsd ?? entry?.amount ?? entry);
+    return {
+      amountUsd: Number.isFinite(amount) && amount > 0 ? amount : null,
+      ts: Number(entry?.ts || 0) || null,
+    };
+  }, [wallet, walletProfitBaselineStore]);
+
+  const walletProfit = useMemo(() => {
+    const total = Number(walletUsd?.total);
+    const base = Number(walletProfitBaseline?.amountUsd);
+    if (!Number.isFinite(total) || !Number.isFinite(base) || base <= 0) {
+      return { available: false, amount: null, pct: null };
+    }
+    const amount = total - base;
+    const pct = base > 0 ? (amount / base) * 100 : null;
+    return { available: true, amount, pct };
+  }, [walletUsd, walletProfitBaseline]);
+
+  const setWalletProfitBaselineNow = useCallback(() => {
+    const key = String(wallet || "").toLowerCase();
+    const total = Number(walletUsd?.total);
+    if (!key || !Number.isFinite(total) || total <= 0) return;
+    setWalletProfitBaselineStore((prev) => ({
+      ...(prev || {}),
+      [key]: { amountUsd: total, ts: Date.now() },
+    }));
+  }, [wallet, walletUsd, setWalletProfitBaselineStore]);
+
+  const clearWalletProfitBaseline = useCallback(() => {
+    const key = String(wallet || "").toLowerCase();
+    if (!key) return;
+    setWalletProfitBaselineStore((prev) => {
+      const next = { ...(prev || {}) };
+      delete next[key];
+      return next;
+    });
+  }, [wallet, setWalletProfitBaselineStore]);
 
   // ------------------------
   // Wallet tokens (User-added, unlimited, persisted)
@@ -12949,6 +12991,45 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   : "Wallet not connected"}
             </button>
 
+            {wallet && (
+              <button
+                type="button"
+                className="pill silver"
+                style={{
+                  cursor: "pointer",
+                  background: "rgba(229,231,235,0.92)",
+                  color: "#1d4ed8",
+                  border: "1px solid rgba(29,78,216,0.24)",
+                  fontWeight: 900,
+                  display: isCompactMobile ? "none" : "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setWalletModalOpen((v) => !v);
+                }}
+                title={walletProfit.available ? "Wallet value and profit since saved baseline" : "Wallet value. Open wallet details to set profit baseline."}
+              >
+                <span>Value: {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}</span>
+                <span style={{ opacity: 0.55 }}>•</span>
+                <span
+                  style={{
+                    color: walletProfit.available
+                      ? Number(walletProfit.amount || 0) >= 0
+                        ? "#15803d"
+                        : "#b91c1c"
+                      : "#1d4ed8",
+                  }}
+                >
+                  Profit: {walletProfit.available
+                    ? `${Number(walletProfit.amount || 0) >= 0 ? "+" : ""}${fmtUsd(walletProfit.amount)}${Number.isFinite(Number(walletProfit.pct)) ? ` (${Number(walletProfit.pct).toFixed(2)}%)` : ""}`
+                    : "Set baseline"}
+                </span>
+              </button>
+            )}
+
             {/* External connect is EXPLICIT: only this button may open MetaMask */}
             <button
               type="button"
@@ -13563,6 +13644,72 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="mono" style={{ fontWeight: 900 }}>
                   {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}
                 </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  background: "rgba(255,255,255,0.035)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  display: "grid",
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Profit baseline</div>
+                  <div className="mono" style={{ fontWeight: 900 }}>
+                    {walletProfitBaseline.amountUsd ? fmtUsd(walletProfitBaseline.amountUsd) : "Not set"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                  <div className="muted" style={{ fontSize: 12 }}>Estimated profit</div>
+                  <div
+                    className="mono"
+                    style={{
+                      fontWeight: 900,
+                      color: walletProfit.available
+                        ? Number(walletProfit.amount || 0) >= 0
+                          ? "#21d07a"
+                          : "#ff8a8a"
+                        : "inherit",
+                    }}
+                  >
+                    {walletProfit.available
+                      ? `${Number(walletProfit.amount || 0) >= 0 ? "+" : ""}${fmtUsd(walletProfit.amount)}${Number.isFinite(Number(walletProfit.pct)) ? ` (${Number(walletProfit.pct).toFixed(2)}%)` : ""}`
+                      : "Set baseline first"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="miniBtn"
+                    disabled={!wallet || walletUsdLoading || !Number.isFinite(Number(walletUsd?.total)) || Number(walletUsd?.total) <= 0}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setWalletProfitBaselineNow();
+                    }}
+                    title="Save the current wallet value as the baseline for future profit display."
+                  >
+                    Set baseline now
+                  </button>
+                  <button
+                    type="button"
+                    className="miniBtn"
+                    disabled={!walletProfitBaseline.amountUsd}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      clearWalletProfitBaseline();
+                    }}
+                    title="Clear the saved profit baseline for this wallet on this browser."
+                  >
+                    Clear baseline
+                  </button>
+                </div>
+                <div className="muted tiny">Profit is calculated from your saved baseline and excludes unpriced tokens.</div>
               </div>
 
               {balError && (

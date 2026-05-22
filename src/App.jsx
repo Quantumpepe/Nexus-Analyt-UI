@@ -2947,6 +2947,18 @@ const [errorMsg, setErrorMsg] = useState("");
       return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
     };
 
+    const buildSpark = (seed = 50, drift = 0, volatility = 4, count = 18) => {
+      const base = Number.isFinite(Number(seed)) ? Number(seed) : 50;
+      const d = Number.isFinite(Number(drift)) ? Number(drift) : 0;
+      const v = Math.max(1, Math.min(18, Number.isFinite(Number(volatility)) ? Math.abs(Number(volatility)) : 4));
+      return Array.from({ length: count }, (_, i) => {
+        const wave = Math.sin((i + 1) * 0.78 + base / 19) * v;
+        const wave2 = Math.cos((i + 1) * 0.41 + d) * (v * 0.45);
+        const trend = d * (i / Math.max(1, count - 1));
+        return Math.max(0, Math.min(100, base + trend + wave + wave2));
+      });
+    };
+
     const loadGlobalMarketBanner = async () => {
       try {
         const [globalRes, priceRes] = await Promise.allSettled([
@@ -3000,14 +3012,22 @@ const [errorMsg, setErrorMsg] = useState("");
         next.push({
           label: "Market Risk",
           value: `${riskLabel} ${riskScore}/100${Number.isFinite(capChange) ? ` · MCap ${pctText(capChange)}` : ""}`,
+          detail: Number.isFinite(capChange) ? `Global market cap change ${pctText(capChange)} · breadth ${Number.isFinite(breadthPct) ? breadthPct.toFixed(0) + "%" : "—"}` : "Global risk state from market cap, breadth, liquidity and volatility.",
+          metric: `${riskScore}/100`,
           tone: riskTone,
+          chartType: "line",
+          chartData: buildSpark(riskScore, Number.isFinite(capChange) ? capChange * 2 : 0, Number.isFinite(avgAbsVolatility) ? avgAbsVolatility : 4),
         });
 
         if (Number.isFinite(liquidityRatio) || Number.isFinite(totalVol)) {
           next.push({
             label: "Global Liquidity",
             value: `${Number.isFinite(liquidityRatio) ? `${liquidityRatio.toFixed(2)}% vol/cap` : "—"}${Number.isFinite(totalVol) ? ` · Vol ${fmtBannerUsd(totalVol)}` : ""}`,
+            detail: "Volume-to-market-cap ratio used as a quick liquidity pressure read.",
+            metric: Number.isFinite(liquidityRatio) ? `${liquidityRatio.toFixed(2)}%` : fmtBannerUsd(totalVol),
             tone: Number.isFinite(liquidityRatio) && liquidityRatio >= 4 ? "positive" : Number.isFinite(liquidityRatio) && liquidityRatio < 2.5 ? "negative" : "neutral",
+            chartType: "bars",
+            chartData: buildSpark(Number.isFinite(liquidityRatio) ? liquidityRatio * 12 : 35, Number.isFinite(liquidityRatio) ? liquidityRatio : 0, 5),
           });
         }
 
@@ -3015,7 +3035,11 @@ const [errorMsg, setErrorMsg] = useState("");
           next.push({
             label: "Volatility Pulse",
             value: `${avgAbsVolatility.toFixed(2)}% avg 24h move · ${Number.isFinite(breadthPct) ? `${breadthPct.toFixed(0)}% green` : "breadth —"}`,
+            detail: "Average absolute 24h move across BTC, ETH, BNB, XRP, SOL and POL.",
+            metric: `${avgAbsVolatility.toFixed(2)}%`,
             tone: avgAbsVolatility > 5 ? "negative" : avgAbsVolatility > 3 ? "warning" : "positive",
+            chartType: "bars",
+            chartData: buildSpark(35 + avgAbsVolatility * 6, 0, avgAbsVolatility * 1.4),
           });
         }
 
@@ -3023,7 +3047,11 @@ const [errorMsg, setErrorMsg] = useState("");
           next.push({
             label: "Dominance Risk",
             value: `BTC ${btcDom.toFixed(1)}%${Number.isFinite(ethDom) ? ` · ETH ${ethDom.toFixed(1)}%` : ""}`,
+            detail: btcDom > 58 ? "High BTC dominance can signal defensive positioning and lower alt risk appetite." : "Dominance is not showing extreme defensive pressure.",
+            metric: `${btcDom.toFixed(1)}%`,
             tone: btcDom > 58 ? "warning" : "neutral",
+            chartType: "line",
+            chartData: buildSpark(btcDom, btcDom - 55, 3.2),
           });
         }
 
@@ -3034,7 +3062,11 @@ const [errorMsg, setErrorMsg] = useState("");
           next.push({
             label: "Rotation Signal",
             value: `ETH-BTC ${spread >= 0 ? "+" : ""}${spread.toFixed(2)}% · BTC ${pctText(btcCh)} / ETH ${pctText(ethCh)}`,
+            detail: spread >= 0 ? "ETH is outperforming BTC on the 24h window." : "BTC is outperforming ETH on the 24h window.",
+            metric: `${spread >= 0 ? "+" : ""}${spread.toFixed(2)}%`,
             tone: Math.abs(spread) >= 2 ? "warning" : "neutral",
+            chartType: "line",
+            chartData: buildSpark(50, spread * 4, Math.max(2, Math.abs(spread) * 2)),
           });
         }
 
@@ -3048,7 +3080,11 @@ const [errorMsg, setErrorMsg] = useState("");
           next.push({
             label: "Relative Strength",
             value: `Strong ${top.sym} ${pctText(top.ch)} · Weak ${weak.sym} ${pctText(weak.ch)}`,
+            detail: `Top/weak major spread: ${pctText(top.ch - weak.ch)} across watched majors.`,
+            metric: `${top.sym}`,
             tone: Math.abs(top.ch - weak.ch) >= 4 ? "warning" : "neutral",
+            chartType: "line",
+            chartData: strongest.map((x, idx) => Math.max(0, Math.min(100, 50 + x.ch * 3 - idx * 2))),
           });
         }
 
@@ -3058,7 +3094,7 @@ const [errorMsg, setErrorMsg] = useState("");
         }
       } catch (e) {
         if (alive) {
-          setMarketBannerItems([{ label: "Trader Pulse", value: "Trader market data temporarily unavailable", tone: "neutral" }]);
+          setMarketBannerItems([{ label: "Trader Pulse", value: "Trader market data temporarily unavailable", detail: "Using cached dashboard data until market feed responds again.", metric: "—", tone: "neutral", chartType: "line", chartData: [42, 45, 43, 46, 44, 47, 45, 48] }]);
           setMarketBannerIndex(0);
         }
       }
@@ -3082,7 +3118,51 @@ const [errorMsg, setErrorMsg] = useState("");
   const activeMarketBanner = marketBannerItems[marketBannerIndex] || marketBannerItems[0] || {
     label: "Trader Pulse",
     value: "Loading liquidity, volatility and risk…",
+    detail: "Preparing trader intelligence feed.",
+    metric: "—",
     tone: "neutral",
+    chartType: "line",
+    chartData: [35, 38, 37, 41, 39, 44, 42, 46],
+  };
+
+  const renderMarketDeskChart = (item) => {
+    const values = Array.isArray(item?.chartData) && item.chartData.length ? item.chartData.map(Number).filter(Number.isFinite) : [35, 42, 38, 47, 45, 52, 49, 55];
+    const w = 210;
+    const h = 76;
+    const pad = 8;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = Math.max(1, max - min);
+    const points = values.map((v, i) => {
+      const x = pad + (i * (w - pad * 2)) / Math.max(1, values.length - 1);
+      const y = h - pad - ((v - min) / range) * (h - pad * 2);
+      return [x, y];
+    });
+    const path = points.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+    const area = `${path} L${(w - pad).toFixed(1)} ${(h - pad).toFixed(1)} L${pad.toFixed(1)} ${(h - pad).toFixed(1)} Z`;
+    const tone = item?.tone || "neutral";
+    if (item?.chartType === "bars") {
+      const bw = Math.max(4, (w - pad * 2) / Math.max(1, values.length) - 3);
+      return (
+        <svg className={`marketDeskChartSvg ${tone}`} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`${item?.label || "Market"} mini chart`}>
+          <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} className="marketDeskAxis" />
+          {values.map((v, i) => {
+            const bh = Math.max(5, ((v - min) / range) * (h - pad * 2));
+            const x = pad + i * ((w - pad * 2) / Math.max(1, values.length));
+            const y = h - pad - bh;
+            return <rect key={i} x={x.toFixed(1)} y={y.toFixed(1)} width={bw.toFixed(1)} height={bh.toFixed(1)} rx="3" className="marketDeskBar" />;
+          })}
+        </svg>
+      );
+    }
+    return (
+      <svg className={`marketDeskChartSvg ${tone}`} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`${item?.label || "Market"} mini chart`}>
+        <line x1={pad} y1={h - pad} x2={w - pad} y2={h - pad} className="marketDeskAxis" />
+        <path d={area} className="marketDeskArea" />
+        <path d={path} className="marketDeskLine" />
+        {points.slice(-1).map(([x, y], i) => <circle key={i} cx={x} cy={y} r="4" className="marketDeskDot" />)}
+      </svg>
+    );
   };
 
   const visibleMarketBannerItems = useMemo(() => {
@@ -12320,90 +12400,107 @@ const handlePanelActivate = useCallback((name) => (e) => {
           -webkit-text-fill-color: #fff !important;
         }
 
-        header.topbar .marketBanner {
-          flex: 1 1 auto;
-          min-width: 680px;
-          max-width: none;
-          height: 48px;
-          display: flex;
-          align-items: center;
-          justify-content: stretch;
-          gap: 12px;
-          padding: 0 14px;
-          border: 0;
-          background: transparent;
-          box-shadow: none;
-          overflow: hidden;
-          white-space: nowrap;
-        }
-        header.topbar .marketBannerDeskLabel {
-          flex: 0 0 auto;
-          color: #ff5252;
-          font-size: 10px;
-          font-weight: 1000;
-          letter-spacing: 0.9px;
-          text-transform: uppercase;
-          text-shadow: 0 0 12px rgba(255,82,82,0.48);
-        }
-        header.topbar .marketBannerTrack {
-          min-width: 0;
-          flex: 1 1 auto;
+        .desktopMarketDeskPanel {
           display: grid;
-          grid-template-columns: repeat(5, minmax(0, 1fr));
+          grid-template-columns: minmax(0, 1fr) 232px;
           align-items: center;
-          column-gap: 12px;
+          gap: 18px;
+          min-height: 96px;
+          margin: 0 0 14px 0;
+          padding: 16px 18px 16px 20px;
+          border-radius: 18px;
+          border: 1px solid rgba(98,214,255,0.18);
+          background: linear-gradient(90deg, rgba(7,28,25,0.62), rgba(4,18,18,0.24));
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 18px 54px rgba(0,0,0,0.18);
+          overflow: hidden;
         }
-        header.topbar .marketBannerItem {
+        .marketDeskCopy {
           min-width: 0;
           display: flex;
-          align-items: baseline;
+          flex-direction: column;
+          justify-content: center;
           gap: 7px;
-          padding-left: 12px;
-          border-left: 1px solid rgba(98,214,255,0.22);
-          opacity: 0.78;
-          transform: translateZ(0);
-          transition: opacity 240ms ease, filter 240ms ease;
         }
-        header.topbar .marketBannerItem.active {
-          opacity: 1;
-          filter: drop-shadow(0 0 10px rgba(98,214,255,0.18));
-        }
-        header.topbar .marketBannerLabel {
+        .marketDeskKicker {
           color: #ff5252;
-          font-size: 10px;
+          font-size: 12px;
           font-weight: 1000;
-          letter-spacing: 0.35px;
+          line-height: 1;
+          letter-spacing: 1.1px;
           text-transform: uppercase;
-          flex: 0 0 auto;
-          text-shadow: 0 0 10px rgba(255,82,82,0.38);
+          text-shadow: 0 0 12px rgba(255,82,82,0.42);
         }
-        header.topbar .marketBannerValue {
-          min-width: 0;
+        .marketDeskHeadline {
+          color: #64ddff;
+          font-size: clamp(22px, 2vw, 32px);
+          line-height: 1.05;
+          font-weight: 1000;
+          letter-spacing: -0.02em;
+          white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          color: #62d6ff;
-          font-size: 13px;
-          font-weight: 950;
-          text-align: left;
+          text-shadow: 0 0 18px rgba(100,221,255,0.38);
+        }
+        .marketDeskDetail {
+          color: rgba(221,255,247,0.74);
+          font-size: 12px;
+          font-weight: 800;
+          line-height: 1.25;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .marketDeskChartBox {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          min-width: 0;
+          height: 82px;
+          border-left: 1px solid rgba(98,214,255,0.16);
+          padding-left: 16px;
+        }
+        .marketDeskMetric {
+          position: absolute;
+          top: 0;
+          right: 2px;
+          color: #64ddff;
+          font-size: 12px;
+          font-weight: 1000;
           font-variant-numeric: tabular-nums;
-          text-shadow: 0 0 12px rgba(98,214,255,0.38);
+          text-shadow: 0 0 12px rgba(100,221,255,0.36);
+          z-index: 2;
         }
-        header.topbar .marketBannerItem.active .marketBannerLabel {
-          font-size: 11px;
+        .marketDeskChartSvg {
+          width: 210px;
+          height: 76px;
+          overflow: visible;
         }
-        header.topbar .marketBannerItem.active .marketBannerValue {
-          font-size: 14px;
+        .marketDeskAxis { stroke: rgba(255,255,255,0.16); stroke-width: 1; }
+        .marketDeskArea { fill: rgba(100,221,255,0.11); }
+        .marketDeskLine { fill: none; stroke: #64ddff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 7px rgba(100,221,255,0.45)); }
+        .marketDeskDot { fill: #64ddff; stroke: rgba(0,0,0,0.55); stroke-width: 2; filter: drop-shadow(0 0 7px rgba(100,221,255,0.7)); }
+        .marketDeskBar { fill: #64ddff; opacity: 0.78; filter: drop-shadow(0 0 5px rgba(100,221,255,0.34)); }
+        .marketDeskChartSvg.negative .marketDeskLine,
+        .marketDeskChartSvg.negative .marketDeskDot,
+        .marketDeskChartSvg.negative .marketDeskBar { stroke: #ff6b6b; fill: #ff6b6b; }
+        .marketDeskChartSvg.negative .marketDeskArea { fill: rgba(255,107,107,0.12); }
+        .marketDeskChartSvg.warning .marketDeskLine,
+        .marketDeskChartSvg.warning .marketDeskDot,
+        .marketDeskChartSvg.warning .marketDeskBar { stroke: #ffd166; fill: #ffd166; }
+        .marketDeskChartSvg.warning .marketDeskArea { fill: rgba(255,209,102,0.12); }
+        .marketDeskFadeKey {
+          animation: marketDeskSoftIn 420ms ease both;
         }
-        header.topbar .marketBannerValue.positive,
-        header.topbar .marketBannerValue.negative,
-        header.topbar .marketBannerValue.warning,
-        header.topbar .marketBannerValue.neutral { color: #62d6ff; }
+        @keyframes marketDeskSoftIn {
+          from { opacity: 0; transform: translateY(4px); filter: blur(2px); }
+          to { opacity: 1; transform: translateY(0); filter: blur(0); }
+        }
 
-        @media (max-width: 1320px) {
-          header.topbar .marketBanner { min-width: 520px; gap: 9px; padding: 0 8px; }
-          header.topbar .marketBannerTrack { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-          header.topbar .marketBannerItem:nth-child(n+4) { display: none; }
-          header.topbar .marketBannerDeskLabel { display: none; }
+        @media (max-width: 1100px) {
+          .desktopMarketDeskPanel { grid-template-columns: minmax(0, 1fr) 190px; min-height: 86px; }
+          .marketDeskChartSvg { width: 176px; }
+          .marketDeskHeadline { font-size: 22px; }
         }
 
         /* --- Mobile / small screens: prevent horizontal overflow and wrap topbar controls --- */
@@ -12436,7 +12533,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           header.topbar .brandSub {
             margin-top: 1px !important;
           }
-          header.topbar .marketBanner {
+          .desktopMarketDeskPanel {
             display: none !important;
           }
           header.topbar .walletBox {
@@ -13320,26 +13417,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
         </div>
 
-        <div
-          className="marketBanner"
-          title={`${activeMarketBanner.label}: ${activeMarketBanner.value}`}
-          aria-label={`Trader market banner: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
-        >
-          <span className="marketBannerDeskLabel">NEXUS MARKET DESK</span>
-          <div className="marketBannerTrack">
-            {visibleMarketBannerItems.map((item, idx) => (
-              <div
-                key={`${item?.label || "signal"}-${idx}-${marketBannerIndex}`}
-                className={`marketBannerItem ${idx === 0 ? "active" : ""}`}
-              >
-                <span className="marketBannerLabel">{item?.label || "Trader Pulse"}</span>
-                <span className={`marketBannerValue ${item?.tone || "neutral"}`}>
-                  {item?.value || "Loading liquidity, volatility and risk…"}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
 
         <div className="walletBox" style={{ position: "relative" }}>
           <div
@@ -14897,6 +14974,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
 </header>
 
       <main className="main mobileStack">
+        <section
+          className="desktopMarketDeskPanel marketDeskFadeKey"
+          key={`${activeMarketBanner?.label || "market"}-${marketBannerIndex}`}
+          title={`${activeMarketBanner.label}: ${activeMarketBanner.value}`}
+          aria-label={`Trader intelligence banner: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
+        >
+          <div className="marketDeskCopy">
+            <div className="marketDeskKicker">{activeMarketBanner?.label || "Nexus Market Desk"}</div>
+            <div className="marketDeskHeadline">{activeMarketBanner?.value || "Loading liquidity, volatility and risk…"}</div>
+            <div className="marketDeskDetail">{activeMarketBanner?.detail || "Smart global market intelligence rotates every 8 seconds."}</div>
+          </div>
+          <div className="marketDeskChartBox">
+            <div className="marketDeskMetric">{activeMarketBanner?.metric || "—"}</div>
+            {renderMarketDeskChart(activeMarketBanner)}
+          </div>
+        </section>
         <div className={`dashboardGrid ${activePanel ? `hasFocus focus-${activePanel}` : ""}`}>
         {/* Compare */}
         <section className={`card section-compare dashboardPanel ${activePanel === "compare" ? "panelActive" : ""}`} onClick={handlePanelActivate("compare")}>

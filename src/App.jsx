@@ -2925,7 +2925,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const walletAddress = wallet; // alias for older handlers / debug
 
   const [marketBannerItems, setMarketBannerItems] = useState([
-    { label: "Trader Pulse", value: "Loading liquidity, volatility and risk…", tone: "neutral" },
+    { label: "Trader Pulse", value: "Loading live liquidity, volatility and risk…", detail: "Waiting for real market data from the backend.", metric: "LIVE", tone: "neutral", chartType: "line", chartData: [] },
   ]);
   const [marketBannerIndex, setMarketBannerIndex] = useState(0);
 
@@ -2947,28 +2947,85 @@ const [errorMsg, setErrorMsg] = useState("");
       return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
     };
 
-    const buildSpark = (seed = 50, drift = 0, volatility = 4, count = 18) => {
-      const base = Number.isFinite(Number(seed)) ? Number(seed) : 50;
-      const d = Number.isFinite(Number(drift)) ? Number(drift) : 0;
-      const v = Math.max(1, Math.min(18, Number.isFinite(Number(volatility)) ? Math.abs(Number(volatility)) : 4));
-      return Array.from({ length: count }, (_, i) => {
-        const wave = Math.sin((i + 1) * 0.78 + base / 19) * v;
-        const wave2 = Math.cos((i + 1) * 0.41 + d) * (v * 0.45);
-        const trend = d * (i / Math.max(1, count - 1));
-        return Math.max(0, Math.min(100, base + trend + wave + wave2));
+    const cleanSeries = (arr = []) => (Array.isArray(arr) ? arr : [])
+      .map((x) => Array.isArray(x) ? Number(x[1]) : Number(x))
+      .filter((n) => Number.isFinite(n));
+
+    const pctSeries = (values = []) => {
+      const v = cleanSeries(values);
+      if (v.length < 2) return [];
+      const base = v[0] || 1;
+      return v.map((x) => ((x - base) / base) * 100);
+    };
+
+    const returnSeries = (values = []) => {
+      const v = cleanSeries(values);
+      const out = [];
+      for (let i = 1; i < v.length; i += 1) {
+        const prev = v[i - 1];
+        if (prev) out.push(((v[i] - prev) / prev) * 100);
+      }
+      return out;
+    };
+
+    const sumAlignedSeries = (seriesList = []) => {
+      const cleaned = seriesList.map(cleanSeries).filter((v) => v.length >= 2);
+      if (!cleaned.length) return [];
+      const len = Math.min(...cleaned.map((v) => v.length));
+      return Array.from({ length: len }, (_, i) => cleaned.reduce((sum, v) => sum + Number(v[v.length - len + i] || 0), 0));
+    };
+
+    const avgAbsReturnSeries = (seriesList = []) => {
+      const returns = seriesList.map(returnSeries).filter((v) => v.length >= 1);
+      if (!returns.length) return [];
+      const len = Math.min(...returns.map((v) => v.length));
+      return Array.from({ length: len }, (_, i) => {
+        const vals = returns.map((v) => Math.abs(Number(v[v.length - len + i] || 0)));
+        return vals.reduce((a, b) => a + b, 0) / Math.max(1, vals.length);
       });
+    };
+
+    const latestPctChange = (values = []) => {
+      const v = cleanSeries(values);
+      if (v.length < 2 || !v[0]) return NaN;
+      return ((v[v.length - 1] - v[0]) / v[0]) * 100;
     };
 
     const loadGlobalMarketBanner = async () => {
       try {
-        const [globalRes, priceRes] = await Promise.allSettled([
+        const coins = [
+          ["bitcoin", "BTC"],
+          ["ethereum", "ETH"],
+          ["binancecoin", "BNB"],
+          ["ripple", "XRP"],
+          ["solana", "SOL"],
+          ["polygon-ecosystem-token", "POL"],
+        ];
+
+        const [globalRes, priceRes, ...chartResults] = await Promise.allSettled([
           api("/api/coingecko/global"),
           api("/api/coingecko/simple_price?ids=bitcoin,ethereum,binancecoin,ripple,solana,polygon-ecosystem-token&vs_currencies=usd&include_24hr_change=true"),
+          ...coins.map(([id]) => api(`/api/coingecko/market_chart/${encodeURIComponent(id)}?vs_currency=usd&days=7&interval=daily`)),
         ]);
 
         const globalRaw = globalRes.status === "fulfilled" ? globalRes.value : {};
         const globalData = globalRaw?.data || globalRaw || {};
         const prices = priceRes.status === "fulfilled" ? priceRes.value || {} : {};
+
+        const chartById = {};
+        chartResults.forEach((res, idx) => {
+          if (res.status === "fulfilled" && res.value) chartById[coins[idx][0]] = res.value;
+        });
+
+        const priceSeriesById = {};
+        const volumeSeriesById = {};
+        coins.forEach(([id]) => {
+          priceSeriesById[id] = cleanSeries(chartById[id]?.prices || []);
+          volumeSeriesById[id] = cleanSeries(chartById[id]?.total_volumes || []);
+        });
+
+        const priceSeriesList = Object.values(priceSeriesById).filter((v) => v.length >= 2);
+        const volumeSeriesList = Object.values(volumeSeriesById).filter((v) => v.length >= 2);
 
         const next = [];
         const capChange = Number(globalData?.market_cap_change_percentage_24h_usd);
@@ -2980,22 +3037,43 @@ const [errorMsg, setErrorMsg] = useState("");
           ? (totalVol / totalCap) * 100
           : NaN;
 
-        const coinMap = [
-          ["bitcoin", "BTC"],
-          ["ethereum", "ETH"],
-          ["binancecoin", "BNB"],
-          ["ripple", "XRP"],
-          ["solana", "SOL"],
-          ["polygon-ecosystem-token", "POL"],
-        ];
-        const majorChanges = coinMap
-          .map(([id]) => Number(prices?.[id]?.usd_24h_change))
+        const majorChanges = coins
+          .map(([id]) => {
+            const live24h = Number(prices?.[id]?.usd_24h_change);
+            return Number.isFinite(live24h) ? live24h : latestPctChange(priceSeriesById[id]);
+          })
           .filter((n) => Number.isFinite(n));
         const avgAbsVolatility = majorChanges.length
           ? majorChanges.reduce((a, b) => a + Math.abs(b), 0) / majorChanges.length
           : NaN;
         const gainers = majorChanges.filter((n) => n > 0).length;
         const breadthPct = majorChanges.length ? (gainers / majorChanges.length) * 100 : NaN;
+
+        const volatilityCurve = avgAbsReturnSeries(priceSeriesList);
+        const liquidityCurve = sumAlignedSeries(volumeSeriesList);
+        const btcCurve = pctSeries(priceSeriesById.bitcoin || []);
+        const ethCurve = pctSeries(priceSeriesById.ethereum || []);
+        const rotationCurve = (() => {
+          const len = Math.min(btcCurve.length, ethCurve.length);
+          if (!len) return [];
+          return Array.from({ length: len }, (_, i) => ethCurve[ethCurve.length - len + i] - btcCurve[btcCurve.length - len + i]);
+        })();
+        const riskCurve = (() => {
+          const len = Math.max(volatilityCurve.length, liquidityCurve.length, btcCurve.length);
+          if (!len) return [];
+          return Array.from({ length: len }, (_, i) => {
+            const vol = Number(volatilityCurve[volatilityCurve.length - len + i] ?? avgAbsVolatility ?? 0);
+            const liqBase = liquidityCurve[0] || 1;
+            const liqNow = Number(liquidityCurve[liquidityCurve.length - len + i] ?? liquidityCurve[liquidityCurve.length - 1] ?? liqBase);
+            const liqPct = liqBase ? ((liqNow - liqBase) / liqBase) * 100 : 0;
+            const btcMove = Number(btcCurve[btcCurve.length - len + i] ?? 0);
+            let score = 50;
+            score += Math.max(-12, Math.min(12, liqPct / 2));
+            score += Math.max(-10, Math.min(10, btcMove));
+            score -= Math.max(0, Math.min(18, vol * 3));
+            return Math.max(0, Math.min(100, score));
+          });
+        })();
 
         const riskScore = (() => {
           let score = 50;
@@ -3012,66 +3090,66 @@ const [errorMsg, setErrorMsg] = useState("");
         next.push({
           label: "Market Risk",
           value: `${riskLabel} ${riskScore}/100${Number.isFinite(capChange) ? ` · MCap ${pctText(capChange)}` : ""}`,
-          detail: Number.isFinite(capChange) ? `Global market cap change ${pctText(capChange)} · breadth ${Number.isFinite(breadthPct) ? breadthPct.toFixed(0) + "%" : "—"}` : "Global risk state from market cap, breadth, liquidity and volatility.",
+          detail: Number.isFinite(capChange) ? `Live global market cap ${pctText(capChange)} · breadth ${Number.isFinite(breadthPct) ? breadthPct.toFixed(0) + "%" : "—"}` : "Live risk state from market cap, breadth, liquidity and volatility.",
           metric: `${riskScore}/100`,
           tone: riskTone,
           chartType: "line",
-          chartData: buildSpark(riskScore, Number.isFinite(capChange) ? capChange * 2 : 0, Number.isFinite(avgAbsVolatility) ? avgAbsVolatility : 4),
+          chartData: riskCurve,
         });
 
-        if (Number.isFinite(liquidityRatio) || Number.isFinite(totalVol)) {
+        if (Number.isFinite(liquidityRatio) || Number.isFinite(totalVol) || liquidityCurve.length) {
           next.push({
             label: "Global Liquidity",
             value: `${Number.isFinite(liquidityRatio) ? `${liquidityRatio.toFixed(2)}% vol/cap` : "—"}${Number.isFinite(totalVol) ? ` · Vol ${fmtBannerUsd(totalVol)}` : ""}`,
-            detail: "Volume-to-market-cap ratio used as a quick liquidity pressure read.",
+            detail: "Live volume curve from major market charts plus global vol/cap pressure.",
             metric: Number.isFinite(liquidityRatio) ? `${liquidityRatio.toFixed(2)}%` : fmtBannerUsd(totalVol),
             tone: Number.isFinite(liquidityRatio) && liquidityRatio >= 4 ? "positive" : Number.isFinite(liquidityRatio) && liquidityRatio < 2.5 ? "negative" : "neutral",
             chartType: "bars",
-            chartData: buildSpark(Number.isFinite(liquidityRatio) ? liquidityRatio * 12 : 35, Number.isFinite(liquidityRatio) ? liquidityRatio : 0, 5),
+            chartData: liquidityCurve,
           });
         }
 
-        if (Number.isFinite(avgAbsVolatility)) {
+        if (Number.isFinite(avgAbsVolatility) || volatilityCurve.length) {
           next.push({
             label: "Volatility Pulse",
-            value: `${avgAbsVolatility.toFixed(2)}% avg 24h move · ${Number.isFinite(breadthPct) ? `${breadthPct.toFixed(0)}% green` : "breadth —"}`,
-            detail: "Average absolute 24h move across BTC, ETH, BNB, XRP, SOL and POL.",
-            metric: `${avgAbsVolatility.toFixed(2)}%`,
+            value: `${Number.isFinite(avgAbsVolatility) ? avgAbsVolatility.toFixed(2) + "% avg 24h move" : "Live volatility"} · ${Number.isFinite(breadthPct) ? `${breadthPct.toFixed(0)}% green` : "breadth —"}`,
+            detail: "Live 7D return-volatility from BTC, ETH, BNB, XRP, SOL and POL.",
+            metric: Number.isFinite(avgAbsVolatility) ? `${avgAbsVolatility.toFixed(2)}%` : "LIVE",
             tone: avgAbsVolatility > 5 ? "negative" : avgAbsVolatility > 3 ? "warning" : "positive",
             chartType: "bars",
-            chartData: buildSpark(35 + avgAbsVolatility * 6, 0, avgAbsVolatility * 1.4),
+            chartData: volatilityCurve,
           });
         }
 
-        if (Number.isFinite(btcDom)) {
+        if (Number.isFinite(btcDom) || btcCurve.length) {
           next.push({
             label: "Dominance Risk",
-            value: `BTC ${btcDom.toFixed(1)}%${Number.isFinite(ethDom) ? ` · ETH ${ethDom.toFixed(1)}%` : ""}`,
+            value: `BTC ${Number.isFinite(btcDom) ? btcDom.toFixed(1) + "%" : "—"}${Number.isFinite(ethDom) ? ` · ETH ${ethDom.toFixed(1)}%` : ""}`,
             detail: btcDom > 58 ? "High BTC dominance can signal defensive positioning and lower alt risk appetite." : "Dominance is not showing extreme defensive pressure.",
-            metric: `${btcDom.toFixed(1)}%`,
+            metric: Number.isFinite(btcDom) ? `${btcDom.toFixed(1)}%` : "LIVE",
             tone: btcDom > 58 ? "warning" : "neutral",
             chartType: "line",
-            chartData: buildSpark(btcDom, btcDom - 55, 3.2),
+            chartData: btcCurve,
           });
         }
 
-        const btcCh = Number(prices?.bitcoin?.usd_24h_change);
-        const ethCh = Number(prices?.ethereum?.usd_24h_change);
-        if (Number.isFinite(btcCh) && Number.isFinite(ethCh)) {
-          const spread = ethCh - btcCh;
+        const btcCh = Number.isFinite(Number(prices?.bitcoin?.usd_24h_change)) ? Number(prices?.bitcoin?.usd_24h_change) : latestPctChange(priceSeriesById.bitcoin || []);
+        const ethCh = Number.isFinite(Number(prices?.ethereum?.usd_24h_change)) ? Number(prices?.ethereum?.usd_24h_change) : latestPctChange(priceSeriesById.ethereum || []);
+        if ((Number.isFinite(btcCh) && Number.isFinite(ethCh)) || rotationCurve.length) {
+          const spread = Number.isFinite(btcCh) && Number.isFinite(ethCh) ? ethCh - btcCh : Number(rotationCurve[rotationCurve.length - 1] || 0);
           next.push({
             label: "Rotation Signal",
-            value: `ETH-BTC ${spread >= 0 ? "+" : ""}${spread.toFixed(2)}% · BTC ${pctText(btcCh)} / ETH ${pctText(ethCh)}`,
-            detail: spread >= 0 ? "ETH is outperforming BTC on the 24h window." : "BTC is outperforming ETH on the 24h window.",
+            value: `ETH-BTC ${spread >= 0 ? "+" : ""}${spread.toFixed(2)}%${Number.isFinite(btcCh) && Number.isFinite(ethCh) ? ` · BTC ${pctText(btcCh)} / ETH ${pctText(ethCh)}` : ""}`,
+            detail: spread >= 0 ? "Live ETH curve is outperforming BTC in the current window." : "Live BTC curve is outperforming ETH in the current window.",
             metric: `${spread >= 0 ? "+" : ""}${spread.toFixed(2)}%`,
             tone: Math.abs(spread) >= 2 ? "warning" : "neutral",
             chartType: "line",
-            chartData: buildSpark(50, spread * 4, Math.max(2, Math.abs(spread) * 2)),
+            chartData: rotationCurve,
           });
         }
 
-        const strongest = coinMap
-          .map(([id, sym]) => ({ sym, ch: Number(prices?.[id]?.usd_24h_change) }))
+        const strongest = coins
+          .map(([id, sym]) => ({ sym, ch: Number.isFinite(Number(prices?.[id]?.usd_24h_change)) ? Number(prices?.[id]?.usd_24h_change) : latestPctChange(priceSeriesById[id]) }))
           .filter((x) => Number.isFinite(x.ch))
           .sort((a, b) => b.ch - a.ch);
         if (strongest.length) {
@@ -3080,11 +3158,11 @@ const [errorMsg, setErrorMsg] = useState("");
           next.push({
             label: "Relative Strength",
             value: `Strong ${top.sym} ${pctText(top.ch)} · Weak ${weak.sym} ${pctText(weak.ch)}`,
-            detail: `Top/weak major spread: ${pctText(top.ch - weak.ch)} across watched majors.`,
+            detail: `Live top/weak major spread: ${pctText(top.ch - weak.ch)} across watched majors.`,
             metric: `${top.sym}`,
             tone: Math.abs(top.ch - weak.ch) >= 4 ? "warning" : "neutral",
             chartType: "line",
-            chartData: strongest.map((x, idx) => Math.max(0, Math.min(100, 50 + x.ch * 3 - idx * 2))),
+            chartData: strongest.map((x) => x.ch),
           });
         }
 
@@ -3094,7 +3172,7 @@ const [errorMsg, setErrorMsg] = useState("");
         }
       } catch (e) {
         if (alive) {
-          setMarketBannerItems([{ label: "Trader Pulse", value: "Trader market data temporarily unavailable", detail: "Using cached dashboard data until market feed responds again.", metric: "—", tone: "neutral", chartType: "line", chartData: [42, 45, 43, 46, 44, 47, 45, 48] }]);
+          setMarketBannerItems([{ label: "Trader Pulse", value: "Live trader market data unavailable", detail: "No dummy chart is shown. Waiting for real market data from the backend.", metric: "—", tone: "neutral", chartType: "line", chartData: [] }]);
           setMarketBannerIndex(0);
         }
       }
@@ -3122,11 +3200,14 @@ const [errorMsg, setErrorMsg] = useState("");
     metric: "—",
     tone: "neutral",
     chartType: "line",
-    chartData: [35, 38, 37, 41, 39, 44, 42, 46],
+    chartData: [],
   };
 
   const renderMarketDeskChart = (item) => {
-    const values = Array.isArray(item?.chartData) && item.chartData.length ? item.chartData.map(Number).filter(Number.isFinite) : [35, 42, 38, 47, 45, 52, 49, 55];
+    const values = Array.isArray(item?.chartData) && item.chartData.length ? item.chartData.map(Number).filter(Number.isFinite) : [];
+    if (!values.length) {
+      return <div className="marketDeskNoChart">LIVE DATA</div>;
+    }
     const w = 210;
     const h = 76;
     const pad = 8;
@@ -12475,6 +12556,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
           width: 210px;
           height: 76px;
           overflow: visible;
+        }
+        .marketDeskNoChart {
+          width: 210px;
+          height: 76px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: rgba(100,221,255,0.76);
+          font-size: 12px;
+          font-weight: 1000;
+          letter-spacing: 1px;
+          border: 1px dashed rgba(100,221,255,0.22);
+          border-radius: 12px;
         }
         .marketDeskAxis { stroke: rgba(255,255,255,0.16); stroke-width: 1; }
         .marketDeskArea { fill: rgba(100,221,255,0.11); }

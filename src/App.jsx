@@ -2991,26 +2991,148 @@ const [errorMsg, setErrorMsg] = useState("");
       return ((v[v.length - 1] - v[0]) / v[0]) * 100;
     };
 
+
+    const KNOWN_MARKET_IDS = {
+      BTC: "bitcoin",
+      ETH: "ethereum",
+      BNB: "binancecoin",
+      XRP: "ripple",
+      SOL: "solana",
+      POL: "polygon-ecosystem-token",
+      MATIC: "polygon-ecosystem-token",
+      ADA: "cardano",
+      AVAX: "avalanche-2",
+      LINK: "chainlink",
+      TON: "the-open-network",
+      DOGE: "dogecoin",
+      TRX: "tron",
+      DOT: "polkadot",
+      LTC: "litecoin",
+      BCH: "bitcoin-cash",
+      UNI: "uniswap",
+      NEAR: "near",
+      APT: "aptos",
+      ARB: "arbitrum",
+      OP: "optimism",
+      SUI: "sui",
+      INJ: "injective-protocol",
+      FET: "fetch-ai",
+      RENDER: "render-token",
+      RNDR: "render-token",
+      TAO: "bittensor",
+    };
+
+    const readJsonLS = (key, fallback) => {
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const isProbablyCgId = (value) => {
+      const v = String(value || "").trim().toLowerCase();
+      if (!v || v.startsWith("0x")) return false;
+      if (/^[a-z0-9-]{3,80}$/.test(v) && !/^[a-z]{1,6}$/.test(v)) return true;
+      return false;
+    };
+
+    const pushAdaptiveCoin = (map, id, sym, source = "market") => {
+      const coinId = String(id || "").trim().toLowerCase();
+      const symbol = String(sym || "").trim().toUpperCase();
+      if (!coinId || !symbol || coinId.startsWith("0x")) return;
+      if (!map.has(coinId)) map.set(coinId, { id: coinId, sym: symbol, sources: new Set() });
+      map.get(coinId).sources.add(source);
+    };
+
+    const buildAdaptiveCoinUniverse = () => {
+      const map = new Map();
+      const core = [
+        ["bitcoin", "BTC", "core"],
+        ["ethereum", "ETH", "core"],
+      ];
+      const broadMarket = [
+        ["binancecoin", "BNB", "major"],
+        ["ripple", "XRP", "major"],
+        ["solana", "SOL", "major"],
+        ["polygon-ecosystem-token", "POL", "major"],
+        ["cardano", "ADA", "major"],
+        ["avalanche-2", "AVAX", "major"],
+        ["chainlink", "LINK", "major"],
+        ["the-open-network", "TON", "major"],
+        ["dogecoin", "DOGE", "major"],
+        ["arbitrum", "ARB", "major"],
+        ["optimism", "OP", "major"],
+        ["sui", "SUI", "major"],
+      ];
+
+      [...core, ...broadMarket].forEach(([id, sym, source]) => pushAdaptiveCoin(map, id, sym, source));
+
+      const addFromObj = (obj, source) => {
+        if (!obj || typeof obj !== "object") return;
+        const sym = String(obj.symbol || obj.sym || obj.coin || obj.ticker || "").trim().toUpperCase();
+        const directId = obj.coingecko_id || obj.coingeckoId || obj.cg_id || obj.coin_id || obj.coinId;
+        const id = isProbablyCgId(directId) ? directId : KNOWN_MARKET_IDS[sym];
+        if (id && sym) pushAdaptiveCoin(map, id, sym, source);
+      };
+
+      const watchItemsLS = readJsonLS("nexus_watch_items", []);
+      const watchRowsLS = readJsonLS(LS_WATCH_ROWS_CACHE, []);
+      if (Array.isArray(watchItemsLS)) watchItemsLS.forEach((x) => addFromObj(x, "watchlist"));
+      if (Array.isArray(watchRowsLS)) watchRowsLS.forEach((x) => addFromObj(x, "watchlist"));
+
+      return Array.from(map.values()).slice(0, 24).map((x) => ({ ...x, sources: Array.from(x.sources || []) }));
+    };
+
+    const selectAdaptiveCoins = (universe, prices) => {
+      const safe = Array.isArray(universe) ? universe : [];
+      const coreIds = new Set(["bitcoin", "ethereum"]);
+      const core = safe.filter((c) => coreIds.has(c.id));
+      const scored = safe
+        .filter((c) => !coreIds.has(c.id))
+        .map((c) => {
+          const p = prices?.[c.id] || {};
+          const ch = Number(p.usd_24h_change);
+          const vol = Number(p.usd_24h_vol);
+          const cap = Number(p.usd_market_cap);
+          const sourceBoost = c.sources?.includes("watchlist") ? 18 : c.sources?.includes("major") ? 7 : 0;
+          const volatilityScore = Number.isFinite(ch) ? Math.min(45, Math.abs(ch) * 4) : 0;
+          const volumeScore = Number.isFinite(vol) && vol > 0 ? Math.min(25, Math.log10(vol) * 3) : 0;
+          const capScore = Number.isFinite(cap) && cap > 0 ? Math.min(15, Math.log10(cap) * 1.4) : 0;
+          return { ...c, score: sourceBoost + volatilityScore + volumeScore + capScore, ch, vol, cap };
+        })
+        .sort((a, b) => b.score - a.score);
+
+      const picked = [...core, ...scored.slice(0, 6)];
+      const seen = new Set();
+      return picked.filter((c) => {
+        if (!c?.id || seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      });
+    };
+
     const loadGlobalMarketBanner = async () => {
       try {
-        const coins = [
-          ["bitcoin", "BTC"],
-          ["ethereum", "ETH"],
-          ["binancecoin", "BNB"],
-          ["ripple", "XRP"],
-          ["solana", "SOL"],
-          ["polygon-ecosystem-token", "POL"],
-        ];
+        const universe = buildAdaptiveCoinUniverse();
+        const universeIds = universe.map((c) => c.id).filter(Boolean).join(",");
 
-        const [globalRes, priceRes, ...chartResults] = await Promise.allSettled([
+        const [globalRes, priceRes] = await Promise.allSettled([
           api("/api/coingecko/global"),
-          api("/api/coingecko/simple_price?ids=bitcoin,ethereum,binancecoin,ripple,solana,polygon-ecosystem-token&vs_currencies=usd&include_24hr_change=true"),
-          ...coins.map(([id]) => api(`/api/coingecko/market_chart/${encodeURIComponent(id)}?vs_currency=usd&days=7&interval=daily`)),
+          api(`/api/coingecko/simple_price?ids=${encodeURIComponent(universeIds)}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true`),
         ]);
 
         const globalRaw = globalRes.status === "fulfilled" ? globalRes.value : {};
         const globalData = globalRaw?.data || globalRaw || {};
         const prices = priceRes.status === "fulfilled" ? priceRes.value || {} : {};
+
+        const selectedCoins = selectAdaptiveCoins(universe, prices);
+        const coins = selectedCoins.map((c) => [c.id, c.sym, c.sources || []]);
+
+        const chartResults = await Promise.allSettled(
+          coins.map(([id]) => api(`/api/coingecko/market_chart/${encodeURIComponent(id)}?vs_currency=usd&days=7&interval=daily`))
+        );
 
         const chartById = {};
         chartResults.forEach((res, idx) => {
@@ -3113,7 +3235,7 @@ const [errorMsg, setErrorMsg] = useState("");
           next.push({
             label: "Volatility Pulse",
             value: `${Number.isFinite(avgAbsVolatility) ? avgAbsVolatility.toFixed(2) + "% avg 24h move" : "Live volatility"} · ${Number.isFinite(breadthPct) ? `${breadthPct.toFixed(0)}% green` : "breadth —"}`,
-            detail: "Live 7D return-volatility from BTC, ETH, BNB, XRP, SOL and POL.",
+            detail: `Live adaptive 7D return-volatility from BTC/ETH core plus ${Math.max(0, coins.length - 2)} active market/watchlist assets.`,
             metric: Number.isFinite(avgAbsVolatility) ? `${avgAbsVolatility.toFixed(2)}%` : "LIVE",
             tone: avgAbsVolatility > 5 ? "negative" : avgAbsVolatility > 3 ? "warning" : "positive",
             chartType: "bars",
@@ -3158,7 +3280,7 @@ const [errorMsg, setErrorMsg] = useState("");
           next.push({
             label: "Relative Strength",
             value: `Strong ${top.sym} ${pctText(top.ch)} · Weak ${weak.sym} ${pctText(weak.ch)}`,
-            detail: `Live top/weak major spread: ${pctText(top.ch - weak.ch)} across watched majors.`,
+            detail: `Live top/weak adaptive spread: ${pctText(top.ch - weak.ch)} across core, active market and watchlist assets.`,
             metric: `${top.sym}`,
             tone: Math.abs(top.ch - weak.ch) >= 4 ? "warning" : "neutral",
             chartType: "line",

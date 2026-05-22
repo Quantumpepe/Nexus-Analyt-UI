@@ -6978,6 +6978,27 @@ useEffect(() => {
   // decision. This is still off-chain/session-control logic; it does not trigger Vault
   // execution. It only keeps the selected/open sessions moving through READY/ACTIVE/WAIT
   // so Shadow and later Live Execution have a current runtime state to evaluate.
+  const updateTradingPreparedSession = useCallback((patch = {}) => {
+    setTradingPreparedSetup((prev) => {
+      const base = prev && typeof prev === "object" ? prev : {};
+      const previousSession = base.session && typeof base.session === "object" ? base.session : {};
+      const nextSession = { ...previousSession, ...patch, updatedTs: Date.now() };
+      const next = { ...base, session: nextSession };
+
+      if (next.learningEvent && typeof next.learningEvent === "object") {
+        next.learningEvent = {
+          ...next.learningEvent,
+          userAction: {
+            ...(next.learningEvent.userAction || {}),
+            ...(patch.userAction || {}),
+          },
+          session: nextSession,
+        };
+      }
+      return next;
+    });
+  }, [setTradingPreparedSetup]);
+
   const applyTradingRuntimeHeartbeat = useCallback((reason = "auto") => {
     const now = Date.now();
     const openIds = new Set((Array.isArray(openTradingSessions) ? openTradingSessions : [])
@@ -7077,27 +7098,6 @@ useEffect(() => {
     const status = rs.status === "ACTIVE_OK" ? "Risk sync: clean" : rs.status === "PROTECT" ? "Risk sync: PROTECT" : rs.status === "COOLDOWN" ? "Risk sync: COOLDOWN" : `Risk sync: ${rs.status}`;
     return `${status}${score}${cooldown}`;
   }, [tradingGlobalRiskState]);
-
-  const updateTradingPreparedSession = useCallback((patch = {}) => {
-    setTradingPreparedSetup((prev) => {
-      const base = prev && typeof prev === "object" ? prev : {};
-      const previousSession = base.session && typeof base.session === "object" ? base.session : {};
-      const nextSession = { ...previousSession, ...patch, updatedTs: Date.now() };
-      const next = { ...base, session: nextSession };
-
-      if (next.learningEvent && typeof next.learningEvent === "object") {
-        next.learningEvent = {
-          ...next.learningEvent,
-          userAction: {
-            ...(next.learningEvent.userAction || {}),
-            ...(patch.userAction || {}),
-          },
-          session: nextSession,
-        };
-      }
-      return next;
-    });
-  }, [setTradingPreparedSetup]);
 
   const handleTradingApproveBudget = useCallback(() => {
     if (!tradingCanApprove) {

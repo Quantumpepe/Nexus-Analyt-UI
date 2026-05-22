@@ -12483,16 +12483,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
         .desktopMarketDeskPanel {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 232px;
+          grid-template-columns: minmax(0, 1fr) 185px;
           align-items: center;
-          gap: 18px;
-          min-height: 96px;
-          margin: 0 0 14px 0;
-          padding: 16px 18px 16px 20px;
-          border-radius: 18px;
-          border: 1px solid rgba(98,214,255,0.18);
-          background: linear-gradient(90deg, rgba(7,28,25,0.62), rgba(4,18,18,0.24));
-          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 18px 54px rgba(0,0,0,0.18);
+          gap: 16px;
+          height: 74px;
+          min-height: 74px;
+          flex: 1 1 720px;
+          max-width: 820px;
+          min-width: 360px;
+          margin: 0 18px 0 28px;
+          padding: 0;
+          border-radius: 0;
+          border: 0;
+          background: transparent;
+          box-shadow: none;
           overflow: hidden;
         }
         .marketDeskCopy {
@@ -12513,7 +12517,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
         .marketDeskHeadline {
           color: #64ddff;
-          font-size: clamp(22px, 2vw, 32px);
+          font-size: clamp(21px, 1.45vw, 28px);
           line-height: 1.05;
           font-weight: 1000;
           letter-spacing: -0.02em;
@@ -12537,9 +12541,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
           align-items: center;
           justify-content: center;
           min-width: 0;
-          height: 82px;
+          height: 68px;
           border-left: 1px solid rgba(98,214,255,0.16);
-          padding-left: 16px;
+          padding-left: 14px;
         }
         .marketDeskMetric {
           position: absolute;
@@ -12553,13 +12557,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
           z-index: 2;
         }
         .marketDeskChartSvg {
-          width: 210px;
-          height: 76px;
+          width: 172px;
+          height: 62px;
           overflow: visible;
         }
         .marketDeskNoChart {
-          width: 210px;
-          height: 76px;
+          width: 172px;
+          height: 62px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -12592,8 +12596,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
 
         @media (max-width: 1100px) {
-          .desktopMarketDeskPanel { grid-template-columns: minmax(0, 1fr) 190px; min-height: 86px; }
-          .marketDeskChartSvg { width: 176px; }
+          .desktopMarketDeskPanel { grid-template-columns: minmax(0, 1fr) 150px; min-width: 280px; margin-left: 18px; margin-right: 12px; }
+          .marketDeskChartSvg { width: 145px; }
           .marketDeskHeadline { font-size: 22px; }
         }
 
@@ -13511,6 +13515,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
         </div>
 
+
+        <section
+          className="desktopMarketDeskPanel marketDeskFadeKey"
+          key={`${activeMarketBanner?.label || "market"}-${marketBannerIndex}`}
+          title={`${activeMarketBanner.label}: ${activeMarketBanner.value}`}
+          aria-label={`Trader intelligence banner: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
+        >
+          <div className="marketDeskCopy">
+            <div className="marketDeskKicker">{activeMarketBanner?.label || "Nexus Market Desk"}</div>
+            <div className="marketDeskHeadline">{activeMarketBanner?.value || "Loading liquidity, volatility and risk…"}</div>
+            <div className="marketDeskDetail">{activeMarketBanner?.detail || "Smart global market intelligence rotates every 8 seconds."}</div>
+          </div>
+          <div className="marketDeskChartBox">
+            <div className="marketDeskMetric">{activeMarketBanner?.metric || "—"}</div>
+            {renderMarketDeskChart(activeMarketBanner)}
+          </div>
+        </section>
 
         <div className="walletBox" style={{ position: "relative" }}>
           <div
@@ -15068,22 +15089,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
 </header>
 
       <main className="main mobileStack">
-        <section
-          className="desktopMarketDeskPanel marketDeskFadeKey"
-          key={`${activeMarketBanner?.label || "market"}-${marketBannerIndex}`}
-          title={`${activeMarketBanner.label}: ${activeMarketBanner.value}`}
-          aria-label={`Trader intelligence banner: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
-        >
-          <div className="marketDeskCopy">
-            <div className="marketDeskKicker">{activeMarketBanner?.label || "Nexus Market Desk"}</div>
-            <div className="marketDeskHeadline">{activeMarketBanner?.value || "Loading liquidity, volatility and risk…"}</div>
-            <div className="marketDeskDetail">{activeMarketBanner?.detail || "Smart global market intelligence rotates every 8 seconds."}</div>
-          </div>
-          <div className="marketDeskChartBox">
-            <div className="marketDeskMetric">{activeMarketBanner?.metric || "—"}</div>
-            {renderMarketDeskChart(activeMarketBanner)}
-          </div>
-        </section>
         <div className={`dashboardGrid ${activePanel ? `hasFocus focus-${activePanel}` : ""}`}>
         {/* Compare */}
         <section className={`card section-compare dashboardPanel ${activePanel === "compare" ? "panelActive" : ""}`} onClick={handlePanelActivate("compare")}>

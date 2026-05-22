@@ -3084,6 +3084,14 @@ const [errorMsg, setErrorMsg] = useState("");
     value: "Loading liquidity, volatility and risk…",
     tone: "neutral",
   };
+
+  const visibleMarketBannerItems = useMemo(() => {
+    const arr = Array.isArray(marketBannerItems) && marketBannerItems.length
+      ? marketBannerItems
+      : [activeMarketBanner];
+    const maxItems = Math.min(5, arr.length);
+    return Array.from({ length: maxItems }, (_, idx) => arr[(marketBannerIndex + idx) % arr.length]);
+  }, [marketBannerItems, marketBannerIndex, activeMarketBanner]);
   // Trading policy is UI-only for now (no Vault/Allowance yet).
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
 const [walletModalOpen, setWalletModalOpen] = useState(false);
@@ -12313,29 +12321,61 @@ const handlePanelActivate = useCallback((name) => (e) => {
         }
 
         header.topbar .marketBanner {
-          flex: 1 1 420px;
-          min-width: 320px;
-          max-width: 560px;
-          height: 36px;
+          flex: 1 1 auto;
+          min-width: 680px;
+          max-width: none;
+          height: 48px;
           display: flex;
           align-items: center;
-          justify-content: center;
-          gap: 10px;
-          padding: 0 8px;
+          justify-content: stretch;
+          gap: 12px;
+          padding: 0 14px;
           border: 0;
           background: transparent;
           box-shadow: none;
           overflow: hidden;
           white-space: nowrap;
         }
+        header.topbar .marketBannerDeskLabel {
+          flex: 0 0 auto;
+          color: #ff5252;
+          font-size: 10px;
+          font-weight: 1000;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          text-shadow: 0 0 12px rgba(255,82,82,0.48);
+        }
+        header.topbar .marketBannerTrack {
+          min-width: 0;
+          flex: 1 1 auto;
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          align-items: center;
+          column-gap: 12px;
+        }
+        header.topbar .marketBannerItem {
+          min-width: 0;
+          display: flex;
+          align-items: baseline;
+          gap: 7px;
+          padding-left: 12px;
+          border-left: 1px solid rgba(98,214,255,0.22);
+          opacity: 0.78;
+          transform: translateZ(0);
+          transition: opacity 240ms ease, filter 240ms ease;
+        }
+        header.topbar .marketBannerItem.active {
+          opacity: 1;
+          filter: drop-shadow(0 0 10px rgba(98,214,255,0.18));
+        }
         header.topbar .marketBannerLabel {
           color: #ff5252;
-          font-size: 11px;
-          font-weight: 950;
+          font-size: 10px;
+          font-weight: 1000;
           letter-spacing: 0.35px;
           text-transform: uppercase;
           flex: 0 0 auto;
-          text-shadow: 0 0 10px rgba(255,82,82,0.35);
+          text-shadow: 0 0 10px rgba(255,82,82,0.38);
         }
         header.topbar .marketBannerValue {
           min-width: 0;
@@ -12343,15 +12383,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
           text-overflow: ellipsis;
           color: #62d6ff;
           font-size: 13px;
-          font-weight: 900;
+          font-weight: 950;
           text-align: left;
           font-variant-numeric: tabular-nums;
-          text-shadow: 0 0 12px rgba(98,214,255,0.32);
+          text-shadow: 0 0 12px rgba(98,214,255,0.38);
+        }
+        header.topbar .marketBannerItem.active .marketBannerLabel {
+          font-size: 11px;
+        }
+        header.topbar .marketBannerItem.active .marketBannerValue {
+          font-size: 14px;
         }
         header.topbar .marketBannerValue.positive,
         header.topbar .marketBannerValue.negative,
         header.topbar .marketBannerValue.warning,
         header.topbar .marketBannerValue.neutral { color: #62d6ff; }
+
+        @media (max-width: 1320px) {
+          header.topbar .marketBanner { min-width: 520px; gap: 9px; padding: 0 8px; }
+          header.topbar .marketBannerTrack { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+          header.topbar .marketBannerItem:nth-child(n+4) { display: none; }
+          header.topbar .marketBannerDeskLabel { display: none; }
+        }
 
         /* --- Mobile / small screens: prevent horizontal overflow and wrap topbar controls --- */
         html, body { max-width: 100%; overflow-x: hidden; }
@@ -13272,10 +13325,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
           title={`${activeMarketBanner.label}: ${activeMarketBanner.value}`}
           aria-label={`Trader market banner: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
         >
-          <span className="marketBannerLabel">{activeMarketBanner.label}</span>
-          <span className={`marketBannerValue ${activeMarketBanner.tone || "neutral"}`}>
-            {activeMarketBanner.value}
-          </span>
+          <span className="marketBannerDeskLabel">NEXUS MARKET DESK</span>
+          <div className="marketBannerTrack">
+            {visibleMarketBannerItems.map((item, idx) => (
+              <div
+                key={`${item?.label || "signal"}-${idx}-${marketBannerIndex}`}
+                className={`marketBannerItem ${idx === 0 ? "active" : ""}`}
+              >
+                <span className="marketBannerLabel">{item?.label || "Trader Pulse"}</span>
+                <span className={`marketBannerValue ${item?.tone || "neutral"}`}>
+                  {item?.value || "Loading liquidity, volatility and risk…"}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="walletBox" style={{ position: "relative" }}>

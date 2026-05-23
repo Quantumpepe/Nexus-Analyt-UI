@@ -19721,21 +19721,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
   );
 }
 
+
+export default function App() {
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+
+  return (
+    <>
+      <AppInner />
+
       <div className="nexus-footer-left">
-        <div className="nexus-footer-copy">
-          © 2026 Nexus Analyt
-        </div>
+        <div className="nexus-footer-copy">© 2026 Nexus Analyt</div>
 
         <button
+          type="button"
           className="nexus-disclaimer-btn"
           onClick={() => setShowDisclaimer(true)}
         >
           Disclaimer
         </button>
 
-        <div className="nexus-footer-ai">
-          AI-assisted infrastructure
-        </div>
+        <div className="nexus-footer-ai">AI-assisted infrastructure</div>
       </div>
 
       {showDisclaimer && (
@@ -19747,35 +19752,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
             className="nexus-disclaimer-modal"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="nexus-disclaimer-title">
-              DISCLAIMER
-            </div>
+            <div className="nexus-disclaimer-title">DISCLAIMER</div>
 
             <div className="nexus-disclaimer-content">
-
               <h3>EN</h3>
               <p>
-                Nexus Analyt provides AI-assisted analytics,
-                market intelligence and research tools only.
-                No financial advice is provided.
-                Cryptocurrency trading involves risk and users
-                are fully responsible for their own decisions.
-                No profits are guaranteed.
+                Nexus Analyt provides AI-assisted analytics, market intelligence
+                and research tools only. No financial advice is provided.
+                Cryptocurrency trading involves risk and users are fully
+                responsible for their own decisions. No profits are guaranteed.
               </p>
 
               <h3>DE</h3>
               <p>
-                Nexus Analyt stellt ausschliesslich KI-gestützte
-                Analyse-, Markt- und Research-Tools bereit.
-                Es handelt sich nicht um Finanzberatung.
-                Der Handel mit Kryptowährungen ist risikoreich.
-                Nutzer handeln eigenverantwortlich.
-                Gewinne werden nicht garantiert.
+                Nexus Analyt stellt ausschliesslich KI-gestützte Analyse-, Markt-
+                und Research-Tools bereit. Es handelt sich nicht um
+                Finanzberatung. Der Handel mit Kryptowährungen ist risikoreich.
+                Nutzer handeln eigenverantwortlich. Gewinne werden nicht
+                garantiert.
               </p>
-
             </div>
 
             <button
+              type="button"
               className="nexus-disclaimer-close"
               onClick={() => setShowDisclaimer(false)}
             >
@@ -19784,11 +19783,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
         </div>
       )}
-
-
-export default function App() {
-  const [showDisclaimer, setShowDisclaimer] = useState(false);
-  return <AppInner />;
+    </>
+  );
 }
 
 // -------------------------

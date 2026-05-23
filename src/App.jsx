@@ -7496,16 +7496,30 @@ useEffect(() => {
       shadowAppliedAt: now,
       shadowAppliedSlots: appliedCount,
     });
-    updateTradingPreparedSession({
-      status: nextSessionStatus,
-      shadowLastRunId: runId,
-      shadowAppliedAt: now,
-      shadowAppliedSlots: appliedCount,
-      userAction: { shadowPreviewApplied: true, sessionId: sid },
+    // Keep this inline instead of calling updateTradingPreparedSession here.
+    // This callback is declared before updateTradingPreparedSession, so referencing
+    // that const in the dependency array causes a TDZ crash in production builds.
+    setTradingPreparedSetup((prev) => {
+      const base = prev && typeof prev === "object" ? prev : {};
+      const previousSession = base.session && typeof base.session === "object" ? base.session : {};
+      const nextSession = {
+        ...previousSession,
+        status: nextSessionStatus,
+        shadowLastRunId: runId,
+        shadowAppliedAt: now,
+        shadowAppliedSlots: appliedCount,
+        userAction: {
+          ...(previousSession.userAction || {}),
+          shadowPreviewApplied: true,
+          sessionId: sid,
+        },
+        updatedTs: now,
+      };
+      return { ...base, session: nextSession };
     });
 
     return true;
-  }, [selectedTradingSessionId, activeTradingSessionId, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession]);
+  }, [selectedTradingSessionId, activeTradingSessionId, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingPreparedSetup]);
 
   const runShadowExecutorValidation = useCallback(async () => {
     if (!wallet) {

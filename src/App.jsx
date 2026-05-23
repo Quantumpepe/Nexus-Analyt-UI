@@ -853,20 +853,22 @@ async function api(
     return true;
   });
 
-  const makeHeaders = (bearer) => {
+  const makeHeaders = (bearer, requestPath = "") => {
     const headers = { Accept: "application/json" };
 
-    // Only send Content-Type when we actually send a JSON body
+    // Only send Content-Type when we actually send a JSON body.
     if (body != null && method !== "GET") {
       headers["Content-Type"] = "application/json";
     }
 
     if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
 
-    if (wa) {
-      // Send exactly one wallet header. HTTP headers are case-insensitive;
-      // sending both X-Wallet-Address and x-wallet-address can be merged by
-      // the browser/server into "0x..., 0x...", which the backend rejects.
+    // Important for request volume:
+    // GET requests already receive wallet + wallet_address as query params via withWalletQuery().
+    // Adding a custom X-Wallet-Address header to every GET turns simple GETs into CORS preflight
+    // pairs (OPTIONS + GET). That doubled/throttled the app with thousands of network rows.
+    // Keep the wallet header only for non-GET requests where JSON body actions may need it.
+    if (wa && method !== "GET") {
       headers["X-Wallet-Address"] = wa;
     }
 
@@ -916,7 +918,7 @@ async function api(
       return await fetch(`${API_BASE}${requestPath}`, {
         method,
         signal: merged.signal,
-        headers: makeHeaders(bearer),
+        headers: makeHeaders(bearer, requestPath),
         credentials: "include",
         body: safeBody ? JSON.stringify(safeBody) : undefined,
       });
@@ -7939,10 +7941,11 @@ useEffect(() => {
         });
     };
 
-    checkRisk();
-    const id = setInterval(checkRisk, 60 * 1000);
+    const first = setTimeout(checkRisk, 5000);
+    const id = setInterval(checkRisk, 120 * 1000);
     return () => {
       cancelled = true;
+      clearTimeout(first);
       clearInterval(id);
     };
   }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, wallet, selectedTradingSessionId, activeTradingSessionId, applyTradingRiskDecision, refreshNexusBackendState]);
@@ -8732,8 +8735,8 @@ const [aiLoading, setAiLoading] = useState(false);
     syncWatchlistFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet]);
-  useInterval(syncWatchlistFromServer, 45000, !!wallet);
-  useInterval(syncAppStateFromServer, 45000, !!wallet);
+  useInterval(syncWatchlistFromServer, 120000, !!wallet);
+  useInterval(syncAppStateFromServer, 120000, !!wallet);
 
   useEffect(() => {
     const onFocusSync = () => {
@@ -8949,7 +8952,7 @@ const [aiLoading, setAiLoading] = useState(false);
   }, [compareFetchRange, compareSymbols.join("|")]);
 
   // Compare/history refresh: keep charts reasonably fresh without hammering backend/CoinGecko.
-  useInterval(fetchCompare, 30000, compareSymbols.length > 0);
+  useInterval(fetchCompare, 120000, compareSymbols.length > 0);
 
   // policy (UI-only for now)
 
@@ -9198,7 +9201,9 @@ const hasOpenGridOrders = useMemo(
   [gridOrders]
 );
 
+const gridUiActive = ["grid", "trading"].includes(String(gridMode || "").toLowerCase());
 const gridPollingAllowed =
+  gridUiActive &&
   !!isGridReady &&
   !!gridItemId &&
   !!walletAddress &&
@@ -9215,7 +9220,7 @@ useInterval(
   () => {
     fetchGridOrders();
   },
-  hasOpenGridOrders ? 10000 : 30000,
+  hasOpenGridOrders ? 20000 : 90000,
   gridPollingAllowed
 );
 
@@ -9245,7 +9250,7 @@ useInterval(
       // silent: polling should never spam the UI
     }
   },
-  8000,
+  20000,
   gridPollingAllowed && hasOpenGridOrders
 );
 

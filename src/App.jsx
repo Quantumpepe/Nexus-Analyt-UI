@@ -9124,12 +9124,27 @@ useEffect(() => {
   setGridVaultStats({ vault: 0, reserved: 0, free: 0 });
 }, [gridItemId]);
 
-const fetchGridOrders = useCallback(async () => {
+const gridOrdersFetchGuardRef = useRef({ key: "", ts: 0, inflight: false });
+
+const fetchGridOrders = useCallback(async (opts = {}) => {
+  // Hard request-storm guard. This function is called from several places
+  // (initial load, manual refresh, intervals, grid actions). Keep the guard here
+  // so every caller is protected, even if React re-renders quickly.
+  const force = !!(opts && opts.force);
+  const nowMs = Date.now();
+  const requestKey = `${String(gridItemId || "")}|${String(activeGridChainKey || "")}|${String(walletAddress || "")}`;
+  const guard = gridOrdersFetchGuardRef.current || { key: "", ts: 0, inflight: false };
+  const openNow = (Array.isArray(gridOrders) ? gridOrders : []).some((o) => String(o?.status || "").toUpperCase() === "OPEN");
+  const minGapMs = openNow ? 15000 : 60000;
+  if (guard.inflight) return;
+  if (!force && guard.key === requestKey && nowMs - Number(guard.ts || 0) < minGapMs) return;
+
   // Only fetch when wallet + backend grid context are ready.
   // Do not require the backend auth token here: api() can fall back to API key + wallet header,
   // and requiring token caused empty grid state after refresh on some devices until auth finished.
   if (!gridUiHydrated || !gridItemId || !walletAddress) return;
 
+  gridOrdersFetchGuardRef.current = { key: requestKey, ts: nowMs, inflight: true };
   try {
     // Be permissive with query param naming across backend revisions.
     // Some deployments use `addr`, others `wallet`.
@@ -9181,8 +9196,11 @@ const fetchGridOrders = useCallback(async () => {
     }
     // Keep existing orders on real backend errors; surface message.
     setErrorMsg(`Grid orders: ${msg || "temporary backend error"}`);
+  } finally {
+    const cur = gridOrdersFetchGuardRef.current || {};
+    gridOrdersFetchGuardRef.current = { ...cur, inflight: false };
   }
-}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
+}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState, gridOrders]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -9191,9 +9209,7 @@ useEffect(() => {
 }, [isGridReady, fetchGridOrders]);
 
 const kickGridRefresh = useCallback(() => {
-  try { fetchGridOrders(); } catch (_) {}
-  setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 400);
-  setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 1400);
+  try { fetchGridOrders({ force: true }); } catch (_) {}
 }, [fetchGridOrders]);
 
 const hasOpenGridOrders = useMemo(
@@ -9211,7 +9227,8 @@ const gridPollingAllowed =
   !gridBusy.stop &&
   !gridBusy.add &&
   !gridBusy.stopOrderId &&
-  !gridBusy.deleteOrderId;
+  !gridBusy.deleteOrderId &&
+  !(typeof document !== "undefined" && document.hidden);
 
 // Grid order-state refresh:
 // - active/open orders: fast enough for trader UI
@@ -9220,7 +9237,7 @@ useInterval(
   () => {
     fetchGridOrders();
   },
-  hasOpenGridOrders ? 20000 : 90000,
+  hasOpenGridOrders ? 45000 : 180000,
   gridPollingAllowed
 );
 
@@ -9250,7 +9267,7 @@ useInterval(
       // silent: polling should never spam the UI
     }
   },
-  20000,
+  45000,
   gridPollingAllowed && hasOpenGridOrders
 );
 
@@ -9591,8 +9608,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
       }
       applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-      setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 0);
-      setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 700);
+      setTimeout(() => { try { fetchGridOrders({ force: true }); } catch (_) {} }, 800);
       setErrorMsg(`${src} order added: ${String(side || "BUY").toUpperCase()} ${sym} with ${fmtUsd(usd)} budget.`);
     } catch (e) {
       setErrorMsg(`${src} add order: ${e?.message || e}`);

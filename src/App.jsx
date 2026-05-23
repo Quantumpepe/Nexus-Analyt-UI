@@ -7422,6 +7422,91 @@ useEffect(() => {
   const tradingCanStop = ["ARMED", "ACTIVE", "PROTECT", "PAUSED", "WAIT"].includes(selectedTradingSessionLabel);
   const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(selectedTradingSessionLabel);
 
+  const applyShadowQueuePreview = useCallback((shadowQueue = [], shadowRun = null) => {
+    const previewRows = Array.isArray(shadowQueue) ? shadowQueue.filter((x) => x && typeof x === "object") : [];
+    if (!previewRows.length) return false;
+
+    const now = Date.now();
+    const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+    const runId = String(shadowRun?.run_id || shadowRun?.id || "").trim();
+
+    const slotKey = (slot = {}, idx = 0) => {
+      const slotSession = String(getTradingSlotSessionId(slot) || sid || "").trim();
+      const id = String(slot?.id || slot?.queue_id || "").trim();
+      const slotNo = String(slot?.slot || slot?.slot_id || idx + 1).trim();
+      const symbol = String(slot?.symbol || slot?.asset || "").trim().toUpperCase();
+      if (id) return `id:${id}`;
+      return `session:${slotSession}|slot:${slotNo}|symbol:${symbol}`;
+    };
+
+    const previewByKey = new Map();
+    previewRows.forEach((row, idx) => {
+      previewByKey.set(slotKey(row, idx), row);
+    });
+
+    let appliedCount = 0;
+    let hasActive = false;
+    let hasReady = false;
+    let hasProtect = false;
+
+    setTradingExecutionQueue((prev) => {
+      const existing = Array.isArray(prev) ? prev : [];
+      return existing.map((slot, idx) => {
+        const slotSession = String(getTradingSlotSessionId(slot) || "").trim();
+        if (sid && slotSession && slotSession !== sid) return slot;
+
+        const preview = previewByKey.get(slotKey(slot, idx)) || previewRows[idx] || null;
+        if (!preview) return slot;
+
+        const nextStatus = String(preview.status || preview.state || slot.status || "WAIT").toUpperCase();
+        const transition = preview.shadow_transition && typeof preview.shadow_transition === "object" ? preview.shadow_transition : {};
+        const reason = String(transition.reason || preview.condition || preview.reason || slot.condition || "Shadow updated this slot.");
+        appliedCount += 1;
+        if (nextStatus === "ACTIVE") hasActive = true;
+        if (nextStatus === "READY") hasReady = true;
+        if (nextStatus === "PROTECT") hasProtect = true;
+
+        return {
+          ...slot,
+          ...preview,
+          id: slot.id || preview.id || preview.queue_id || `slot_${idx + 1}`,
+          session_id: slot.session_id || preview.session_id || sid,
+          sessionId: slot.sessionId || preview.sessionId || sid,
+          trade_session_id: slot.trade_session_id || preview.trade_session_id || sid,
+          status: nextStatus,
+          state: nextStatus,
+          priority: Number.isFinite(Number(preview.priority)) ? Number(preview.priority) : Number(slot.priority || 0),
+          confidence: Number.isFinite(Number(preview.confidence)) ? Number(preview.confidence) : (preview.confidence_score ?? slot.confidence),
+          confidence_score: Number.isFinite(Number(preview.confidence_score)) ? Number(preview.confidence_score) : (preview.confidence ?? slot.confidence_score),
+          risk_score: Number.isFinite(Number(preview.risk_score)) ? Number(preview.risk_score) : Number(slot.risk_score || 0),
+          condition: reason,
+          shadowTransition: transition,
+          shadowLastRunId: runId,
+          shadowUpdatedAt: now,
+        };
+      });
+    });
+
+    const nextSessionStatus = hasProtect ? "PROTECT" : hasActive ? "ACTIVE" : hasReady ? "ACTIVE" : "WAIT";
+    setTradingSessionStatus(nextSessionStatus);
+    setTradingSessionUpdatedTs(now);
+    updateTradingSessionMeta(sid, {
+      status: nextSessionStatus,
+      shadowLastRunId: runId,
+      shadowAppliedAt: now,
+      shadowAppliedSlots: appliedCount,
+    });
+    updateTradingPreparedSession({
+      status: nextSessionStatus,
+      shadowLastRunId: runId,
+      shadowAppliedAt: now,
+      shadowAppliedSlots: appliedCount,
+      userAction: { shadowPreviewApplied: true, sessionId: sid },
+    });
+
+    return true;
+  }, [selectedTradingSessionId, activeTradingSessionId, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession]);
+
   const runShadowExecutorValidation = useCallback(async () => {
     if (!wallet) {
       setShadowExecutorMsg("Wallet not connected.");
@@ -7430,32 +7515,40 @@ useEffect(() => {
     setShadowExecutorBusy(true);
     setShadowExecutorMsg("");
     try {
+      const currentQueue = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
       const res = await api(`/api/nexus/shadow/executor`, {
         method: "POST",
         wallet,
         body: {
           source: "frontend_trading_panel",
-          // Validate only the selected independent Trading session. Passing the full
-          // wallet queue made Shadow/Risk output look inconsistent in multi-session mode.
-          queue: Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [],
+          queue: currentQueue,
           config: {
             session_id: selectedTradingSessionId || "",
             runtime_hours: tradingRuntimeHours,
             max_trades: tradingMaxTrades,
             risk_mode: tradingRiskMode,
             max_slippage_pct: tradingMaxSlippagePct,
+            persist_state: true,
           },
         },
       });
-      setShadowExecutorState({ ...(shadowExecutorState || {}), last_run: res?.run || null, run: res?.run || null });
-      setShadowExecutorMsg(res?.message || "Shadow validation completed. No Vault execution was triggered.");
+      const shadowRun = res?.run || null;
+      const shadowQueue = Array.isArray(shadowRun?.queue) ? shadowRun.queue : [];
+      const applied = applyShadowQueuePreview(shadowQueue, shadowRun);
+      const summary = shadowRun?.summary || {};
+      setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun });
+      setShadowExecutorMsg(
+        applied
+          ? `Shadow updated ${summary?.slots_tested ?? shadowQueue.length} slot(s): ${summary?.ready_slots ?? 0} ready, ${summary?.virtual_fills ?? 0} virtual fill(s), ${summary?.virtual_waits ?? 0} waiting.`
+          : (res?.message || "Shadow validation completed. No Vault execution was triggered.")
+      );
       await refreshNexusBackendState();
     } catch (e) {
       setShadowExecutorMsg(e?.message || "Shadow validation failed.");
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, refreshNexusBackendState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState]);
 
 
   // Runtime heartbeat for multi-session Trading.

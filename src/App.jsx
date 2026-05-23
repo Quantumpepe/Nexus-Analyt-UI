@@ -864,8 +864,10 @@ async function api(
     if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
 
     if (wa) {
+      // Send exactly one wallet header. HTTP headers are case-insensitive;
+      // sending both X-Wallet-Address and x-wallet-address can be merged by
+      // the browser/server into "0x..., 0x...", which the backend rejects.
       headers["X-Wallet-Address"] = wa;
-      headers["x-wallet-address"] = wa;
     }
 
     return headers;
@@ -900,12 +902,23 @@ async function api(
 
     try {
       const requestPath = withWalletQuery(path, wa);
+      const safeBody =
+        body && typeof body === "object" && !Array.isArray(body)
+          ? (() => {
+              const next = { ...body };
+              for (const key of ["wallet", "wallet_address", "walletAddress"]) {
+                if (next[key]) next[key] = resolveWalletAddress(next[key]) || wa || "";
+              }
+              return next;
+            })()
+          : body;
+
       return await fetch(`${API_BASE}${requestPath}`, {
         method,
         signal: merged.signal,
         headers: makeHeaders(bearer),
         credentials: "include",
-        body: body ? JSON.stringify(body) : undefined,
+        body: safeBody ? JSON.stringify(safeBody) : undefined,
       });
     } finally {
       clearTimeout(tm);
@@ -7035,6 +7048,7 @@ useEffect(() => {
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
 
   const tradingHoldStateHydratedRef = useRef(false);
+  const tradingRiskRequestRef = useRef({ key: "", ts: 0, inFlight: false });
 
   const tradingSessionLabel = String(tradingSessionStatus || "PREPARED").toUpperCase();
 
@@ -7853,9 +7867,38 @@ useEffect(() => {
       const monitoredQueue = (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [])
         .filter((slot) => ["ACTIVE", "PROTECT", "READY"].includes(String(slot?.status || "").toUpperCase()));
       if (!monitoredQueue.length) return;
+
+      // Prevent request storms: queue/risk updates can re-render the component and
+      // would otherwise immediately re-trigger this effect. Keep one risk decision
+      // request per stable queue/config snapshot unless the 60s interval fires.
+      const riskKey = JSON.stringify({
+        wallet: String(wallet || "").toLowerCase(),
+        session: String(selectedTradingSessionId || activeTradingSessionId || ""),
+        queue: monitoredQueue.map((slot) => ({
+          slot: slot?.slot || slot?.slot_id || slot?.id || "",
+          symbol: slot?.symbol || slot?.asset || "",
+          status: String(slot?.status || "").toUpperCase(),
+          confidence: Number(slot?.confidence ?? slot?.confidence_score ?? 0),
+          risk_score: Number(slot?.risk_score ?? slot?.riskScore ?? 0),
+          priority: Number(slot?.priority ?? 0),
+        })),
+        risk_mode: tradingRiskMode,
+        caution_drawdown_pct: tradingCautionDrawdownPct,
+        hard_stop_pct: tradingHardStopPct,
+        max_slippage_pct: tradingMaxSlippagePct,
+      });
+      const nowMs = Date.now();
+      const last = tradingRiskRequestRef.current || { key: "", ts: 0, inFlight: false };
+      if (last.inFlight) return;
+      if (last.key === riskKey && nowMs - Number(last.ts || 0) < 55000) return;
+      tradingRiskRequestRef.current = { key: riskKey, ts: nowMs, inFlight: true };
+
       api("/api/nexus/trading/risk-decision", {
         method: "POST",
+        wallet,
         body: {
+          wallet,
+          wallet_address: wallet,
           queue: monitoredQueue,
           config: {
             risk_mode: tradingRiskMode,
@@ -7872,7 +7915,11 @@ useEffect(() => {
             if (typeof refreshNexusBackendState === "function") refreshNexusBackendState();
           }
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          const cur = tradingRiskRequestRef.current || {};
+          tradingRiskRequestRef.current = { ...cur, inFlight: false };
+        });
     };
 
     checkRisk();
@@ -7881,7 +7928,7 @@ useEffect(() => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, applyTradingRiskDecision, refreshNexusBackendState]);
+  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, wallet, selectedTradingSessionId, activeTradingSessionId, applyTradingRiskDecision, refreshNexusBackendState]);
 
   useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;

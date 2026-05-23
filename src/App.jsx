@@ -1075,13 +1075,30 @@ async function fetchSubscribeConfig() {
 
 function useInterval(fn, ms, enabled = true) {
   const fnRef = useRef(fn);
+  const inFlightRef = useRef(false);
+
   useEffect(() => {
     fnRef.current = fn;
   }, [fn]);
 
   useEffect(() => {
     if (!enabled || !ms) return;
-    const id = setInterval(() => fnRef.current?.(), ms);
+
+    const tick = async () => {
+      // Do not poll aggressively while the browser tab is hidden.
+      if (typeof document !== "undefined" && document.hidden) return;
+
+      // Prevent stacked requests when the previous async poll is still pending.
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+      try {
+        await fnRef.current?.();
+      } finally {
+        inFlightRef.current = false;
+      }
+    };
+
+    const id = setInterval(tick, ms);
     return () => clearInterval(id);
   }, [ms, enabled]);
 }
@@ -8758,7 +8775,7 @@ const [aiLoading, setAiLoading] = useState(false);
   // fetchWatchSnapshot already has an in-flight guard, so it will not stack requests.
   useInterval(
     () => fetchWatchSnapshot(null, { force: true, user: false }),
-    6000,
+    30000,
     !!wallet && Array.isArray(watchItems) && watchItems.length > 0
   );
 
@@ -8931,8 +8948,8 @@ const [aiLoading, setAiLoading] = useState(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compareFetchRange, compareSymbols.join("|")]);
 
-  // Compare/history refresh: slower than active Grid, faster than before for fresher charts.
-  useInterval(fetchCompare, 7000, compareSymbols.length > 0);
+  // Compare/history refresh: keep charts reasonably fresh without hammering backend/CoinGecko.
+  useInterval(fetchCompare, 30000, compareSymbols.length > 0);
 
   // policy (UI-only for now)
 
@@ -9198,7 +9215,7 @@ useInterval(
   () => {
     fetchGridOrders();
   },
-  hasOpenGridOrders ? 2500 : 6500,
+  hasOpenGridOrders ? 10000 : 30000,
   gridPollingAllowed
 );
 
@@ -9228,7 +9245,7 @@ useInterval(
       // silent: polling should never spam the UI
     }
   },
-  2500,
+  8000,
   gridPollingAllowed && hasOpenGridOrders
 );
 
@@ -10097,8 +10114,9 @@ if (!manualFundingOk) {
     setGridBusy((s) => ({ ...s, deleteOrderId: null }));
     setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
-// Slow fallback only when Grid is ready but no active order is running.
-useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
+// Duplicate slow fallback disabled: the main grid order-state refresh above already
+// handles the no-open-orders case at a slower cadence.
+useInterval(fetchGridOrders, 30000, false);
 
   const gridLiveFallback = useMemo(() => {
   const tgt = String(gridItem || "").toUpperCase();

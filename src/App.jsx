@@ -920,6 +920,7 @@ async function api(
         signal: merged.signal,
         headers: makeHeaders(bearer, requestPath),
         credentials: "include",
+        cache: "no-store",
         body: safeBody ? JSON.stringify(safeBody) : undefined,
       });
     } finally {
@@ -8824,8 +8825,27 @@ const [aiLoading, setAiLoading] = useState(false);
     inflightWatch.current = true;
     try {
       const wa = resolveWalletAddress(wallet);
-      const snapPath = wa ? `/api/watchlist/snapshot?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}` : "/api/watchlist/snapshot";
-      const r = await api(snapPath, { method: "POST", token, wallet: wa || wallet, body: { wallet: wa || wallet, wallet_address: wa || wallet, items: (itemsOverride ?? watchItems) } });
+      const refreshTs = Date.now();
+      const sep = "?";
+      // Mobile browsers/service workers can otherwise keep showing stale snapshot data.
+      // Cache-bust only the watch snapshot route; the in-flight guard still prevents request storms.
+      const forceParam = opts?.force ? "&force=1" : "";
+      const snapPath = wa
+        ? `/api/watchlist/snapshot${sep}wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}&_ts=${refreshTs}${forceParam}`
+        : `/api/watchlist/snapshot${sep}_ts=${refreshTs}${forceParam}`;
+      const r = await api(snapPath, {
+        method: "POST",
+        token,
+        wallet: wa || wallet,
+        body: {
+          wallet: wa || wallet,
+          wallet_address: wa || wallet,
+          items: (itemsOverride ?? watchItems),
+          force_refresh: !!opts?.force,
+          no_cache: true,
+          client_ts: refreshTs,
+        },
+      });
       const nextRowsRaw = (r?.results || r?.rows || []);
       // Merge-only rule: watchItems is the source of truth. Never resurrect removed items.
       const allowedKeys = new Set(((itemsOverride ?? watchItems) || []).map(_watchKeyFromItem));
@@ -8937,18 +8957,32 @@ const [aiLoading, setAiLoading] = useState(false);
   useInterval(syncWatchlistFromServer, 120000, !!wallet);
   useInterval(syncAppStateFromServer, 120000, !!wallet);
 
+  const lastMobileWakeRefreshRef = useRef(0);
+
   useEffect(() => {
     const onFocusSync = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+
       syncWatchlistFromServer();
       syncAppStateFromServer();
+
+      // iOS/Android often suspends intervals while the tab/app is backgrounded.
+      // When the user returns, force one fresh watch snapshot so prices do not stay frozen.
+      const now = Date.now();
+      if (now - Number(lastMobileWakeRefreshRef.current || 0) > 15000) {
+        lastMobileWakeRefreshRef.current = now;
+        fetchWatchSnapshot(null, { force: true, user: false });
+      }
     };
     window.addEventListener("focus", onFocusSync);
+    window.addEventListener("pageshow", onFocusSync);
     document.addEventListener("visibilitychange", onFocusSync);
     return () => {
       window.removeEventListener("focus", onFocusSync);
+      window.removeEventListener("pageshow", onFocusSync);
       document.removeEventListener("visibilitychange", onFocusSync);
     };
-  }, [syncWatchlistFromServer, syncAppStateFromServer]);
+  }, [syncWatchlistFromServer, syncAppStateFromServer, fetchWatchSnapshot]);
 
   // 🔁 Refetch snapshot immediately when watchlist changes (so newly added coins get data without full page refresh)
   const watchlistKey = useMemo(() => {

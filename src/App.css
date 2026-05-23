@@ -2193,3 +2193,99 @@ body::before {
 .section-compare .panelScroll{
   overflow: visible !important;
 }
+
+/* ===============================
+   Nexus Footer / Disclaimer
+   =============================== */
+
+.nexus-footer-left{
+  position:fixed;
+  left:18px;
+  bottom:14px;
+  z-index:30;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  color:#8edfff;
+  font-size:12px;
+}
+
+.nexus-footer-copy{
+  font-weight:800;
+}
+
+.nexus-footer-ai{
+  color:#78d9ff;
+  opacity:0.82;
+}
+
+.nexus-disclaimer-btn{
+  background:none;
+  border:none;
+  padding:0;
+  margin:0;
+  text-align:left;
+  cursor:pointer;
+  color:#ff6b6b;
+  font-weight:800;
+  font-size:12px;
+}
+
+.nexus-disclaimer-btn:hover{
+  opacity:0.82;
+}
+
+.nexus-disclaimer-overlay{
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.72);
+  backdrop-filter:blur(4px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:99999;
+}
+
+.nexus-disclaimer-modal{
+  width:min(560px,92%);
+  max-height:82vh;
+  overflow-y:auto;
+  background:linear-gradient(180deg,#0b2622,#071816);
+  border:1px solid rgba(210,220,230,.12);
+  border-radius:22px;
+  padding:22px;
+  color:rgba(232,242,240,.92);
+  box-shadow:0 30px 80px rgba(0,0,0,.65);
+}
+
+.nexus-disclaimer-title{
+  font-size:22px;
+  font-weight:900;
+  color:#8edfff;
+  margin-bottom:16px;
+}
+
+.nexus-disclaimer-content h3{
+  color:#ff6b6b;
+  margin-top:14px;
+}
+
+.nexus-disclaimer-content p{
+  line-height:1.65;
+}
+
+.nexus-disclaimer-close{
+  margin-top:18px;
+  padding:10px 16px;
+  border-radius:14px;
+  border:1px solid rgba(210,220,230,.12);
+  background:rgba(0,0,0,.22);
+  color:white;
+  cursor:pointer;
+}
+
+@media(max-width:900px){
+  .nexus-footer-left{
+    display:none;
+  }
+}

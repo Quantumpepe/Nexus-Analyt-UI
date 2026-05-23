@@ -18562,17 +18562,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                         border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                         background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                        gridTemplateColumns: "26px minmax(0,1fr) 132px 34px",
-                        paddingRight: 8,
+                        gridTemplateColumns: "24px minmax(0,1fr) 78px 30px",
+                        columnGap: 6,
+                        rowGap: 6,
+                        paddingRight: 6,
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
                         <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
                       </div>
                       <div className="watchCompactMain">
-                        <div className="watchCompactTop" style={{ gap: 6 }}>
-                          <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
+                        <div className="watchCompactTop" style={{ gap: 6, minWidth: 0, overflow: "hidden" }}>
+                          <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, flexWrap: "wrap", maxWidth: "100%" }}>
+                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800, maxWidth: 66, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sym}</div>
                             <button
                               type="button"
                               className="pill silver"
@@ -18598,18 +18600,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               {mcUi.code}
                             </span>
-                            <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
+                            <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 11, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", marginLeft: "auto", whiteSpace: "nowrap" }}>{fmtPct(r.change24h)}</span>
                           </div>
                         </div>
-                        <div className="watchCompactStats" style={{ gap: 8 }}>
-                          <span className="muted tiny" style={{ fontSize: 12, lineHeight: 1.1 }}>Vol {isCompactWatchNumbers ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</span>
-                          <span className="muted tiny" style={{ fontSize: 12, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? (isCompactWatchNumbers ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap)) : "—"}</span>
+                        <div className="watchCompactStats" style={{ display: "grid", gap: 2, minWidth: 0, marginTop: 4 }}>
+                          <span className="muted tiny" style={{ fontSize: 10.5, lineHeight: 1.12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Vol {fmtCompactUsd(r.volume24h)}</span>
+                          <span className="muted tiny" style={{ fontSize: 10.5, lineHeight: 1.12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : "—"}</span>
                         </div>
                       </div>
-                      <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center", minWidth: 0 }}>
-                        <div className="mono" style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtUsd(r.price)}</div>
+                      <div className="watchCompactPrice" style={{ display: "grid", gap: 2, alignItems: "center", justifyItems: "end", minWidth: 0, overflow: "hidden" }}>
+                        <div className="mono" title={fmtUsd(r.price)} style={{ fontWeight: 900, fontSize: 11.5, lineHeight: 1.1, maxWidth: "78px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "right" }}>{fmtUsd(r.price)}</div>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: 34 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: 30 }}>
                         <button
                           className="iconBtn"
                           style={{

@@ -14228,7 +14228,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <span style={{ display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>
                   Value: {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}
                 </span>
-                <span style={{ display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span
+                  style={{
+                    display: "block",
+                    maxWidth: "100%",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    color: walletProfit.available
+                      ? Number(walletProfit.amount || 0) > 0
+                        ? "#39d98a"
+                        : Number(walletProfit.amount || 0) < 0
+                          ? "#ff6b6b"
+                          : "rgba(255,255,255,0.92)"
+                      : "rgba(255,255,255,0.72)",
+                    fontWeight: walletProfit.available ? 900 : 800,
+                  }}
+                >
                   Profit: {walletProfit.available
                     ? `${Number(walletProfit.amount || 0) >= 0 ? "+" : ""}${fmtUsd(walletProfit.amount)}${Number.isFinite(Number(walletProfit.pct)) ? ` (${Number(walletProfit.pct).toFixed(2)}%)` : ""}`
                     : "Set baseline"}

@@ -7145,15 +7145,6 @@ useEffect(() => {
 
   const selectedTradingSessionId = String(selectedTradingSession?.id || activeTradingSessionId || "").trim();
 
-  const selectedTradingSessionPrimaryChain = useMemo(() => {
-    const chains = Array.isArray(selectedTradingSession?.chains) ? selectedTradingSession.chains : [];
-    const fromSession = chains.map((x) => String(x || "").toUpperCase().trim()).filter(Boolean)[0];
-    const fromQueue = (Array.isArray(selectedTradingSession?.queue) ? selectedTradingSession.queue : [])
-      .map((x) => String(x?.chain || x?.chain_key || x?.network || "").toUpperCase().trim())
-      .filter(Boolean)[0];
-    return fromSession || fromQueue || "";
-  }, [selectedTradingSession]);
-
   const updateTradingSessionMeta = useCallback((sessionId, patch = {}) => {
     const sid = String(sessionId || "").trim();
     if (!sid) return;
@@ -7494,82 +7485,107 @@ useEffect(() => {
     (selectedTradingSessionIsOpen && selectedSessionHasRuntimeQueue);
   const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(selectedControlStatus);
 
-  const normalizeShadowQueueSlotForUi = useCallback((row = {}, existing = {}, idx = 0) => {
-    const meta = row?.meta && typeof row.meta === "object" ? row.meta : {};
-    const transition = row?.shadow_transition && typeof row.shadow_transition === "object" ? row.shadow_transition : {};
-    const state = String(row?.status || row?.state || existing?.status || "WAIT").toUpperCase();
-    const slotNo = String(row?.slot || row?.slot_id || row?.slotId || existing?.slot || idx + 1).trim();
-    const amount = Number(
-      row?.amountUsd ?? row?.amount_usd ?? row?.reserved_capital_usd ?? existing?.amountUsd ?? existing?.amount_usd ?? existing?.reserved_capital_usd ?? 0
-    );
-    const symbol = String(row?.symbol || row?.asset || existing?.symbol || existing?.asset || "").toUpperCase().trim();
-    const chain = String(row?.chain || row?.chain_key || row?.network || existing?.chain || existing?.chain_key || selectedTradingSessionPrimaryChain || activeGridChainKey || "").toUpperCase().trim();
-    const sessionId = String(
-      getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || meta?.session_id || getTradingSlotSessionId(existing) || selectedTradingSessionId || ""
-    ).trim();
-    return {
-      ...existing,
-      ...row,
-      id: row?.id || row?.queue_id || existing?.id || `shadow_${sessionId || "session"}_${chain || "chain"}_${slotNo}`,
-      queue_id: row?.queue_id || row?.id || existing?.queue_id || existing?.id || "",
-      slot: slotNo,
-      slot_id: row?.slot_id || existing?.slot_id || slotNo,
-      session_id: sessionId,
-      sessionId,
-      chain,
-      chain_key: chain,
-      symbol,
-      asset: symbol,
-      amountUsd: Number.isFinite(amount) ? amount : 0,
-      status: state,
-      state,
-      priority: Number.isFinite(Number(row?.priority)) ? Number(row.priority) : Number(existing?.priority || 0),
-      confidence: row?.confidence ?? row?.confidence_score ?? existing?.confidence ?? "MEDIUM",
-      confidence_score: Number.isFinite(Number(row?.confidence_score ?? row?.confidence)) ? Number(row?.confidence_score ?? row?.confidence) : existing?.confidence_score,
-      risk_score: Number.isFinite(Number(row?.risk_score)) ? Number(row.risk_score) : Number(existing?.risk_score || 0),
-      condition: String(transition.reason || row?.condition || row?.reason || existing?.condition || "Shadow runtime updated this slot."),
-      shadowTransition: transition,
-    };
-  }, [activeGridChainKey, selectedTradingSessionPrimaryChain, selectedTradingSessionId, getTradingSlotSessionId]);
-
   const applyShadowQueuePreview = useCallback((shadowQueue = [], shadowRun = null) => {
-    const previewRows = Array.isArray(shadowQueue) ? shadowQueue.filter((x) => x && typeof x === "object") : [];
-    if (!previewRows.length) return false;
+    const previewRowsRaw = Array.isArray(shadowQueue) ? shadowQueue.filter((x) => x && typeof x === "object") : [];
+    if (!previewRowsRaw.length) return false;
 
     const now = Date.now();
     const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
     const runId = String(shadowRun?.run_id || shadowRun?.id || "").trim();
 
-    const slotKey = (slot = {}, idx = 0) => {
-      const slotNo = String(slot?.slot || slot?.slot_id || slot?.slotId || idx + 1).trim();
-      return slotNo || String(idx + 1);
+    const rowSessionId = (row) => String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || row?.meta?.session_id || sid || "").trim();
+    const rowSlotId = (row, idx = 0) => String(row?.slot || row?.slot_id || row?.slotId || row?.id || `S${idx + 1}`).trim();
+    const rowChainKey = (row) => String(row?.chain || row?.chain_key || row?.network || activeGridChainKey || gridChain || DEFAULT_CHAIN || "").toUpperCase().trim();
+
+    // IMPORTANT:
+    // Shadow runtime state is backend-owned. The frontend must not filter it by the
+    // currently displayed market chain, because a user can view POL/BNB data while
+    // the selected Trading session is ETH. That caused "4 fills" in the summary
+    // while the visible cards stayed READY/WAIT. We only isolate by selected session.
+    const previewRows = previewRowsRaw
+      .filter((row) => {
+        const rsid = rowSessionId(row);
+        return !sid || !rsid || rsid === sid;
+      })
+      .map((row, idx) => ({
+        ...row,
+        session_id: rowSessionId(row),
+        chain: rowChainKey(row),
+        chain_key: rowChainKey(row),
+        slot: rowSlotId(row, idx),
+        slot_id: rowSlotId(row, idx),
+      }));
+
+    if (!previewRows.length) return false;
+
+    const keyFor = (slot = {}, idx = 0) => {
+      const slotSession = String(getTradingSlotSessionId(slot) || slot?.session_id || slot?.sessionId || slot?.meta?.session_id || sid || "").trim();
+      const id = String(slot?.id || slot?.queue_id || "").trim();
+      const slotNo = rowSlotId(slot, idx);
+      if (id) return `id:${id}`;
+      return `session:${slotSession}|slot:${slotNo}`;
     };
 
-    const existingSelected = (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [])
-      .filter((slot) => !sid || String(getTradingSlotSessionId(slot) || "") === sid);
-    const existingBySlot = new Map();
-    existingSelected.forEach((slot, idx) => existingBySlot.set(slotKey(slot, idx), slot));
-
-    const normalizedPreview = previewRows.map((row, idx) => {
-      const key = slotKey(row, idx);
-      return normalizeShadowQueueSlotForUi(row, existingBySlot.get(key) || {}, idx);
-    });
-
+    let appliedCount = 0;
     let hasActive = false;
     let hasReady = false;
     let hasProtect = false;
-    normalizedPreview.forEach((slot) => {
-      const st = String(slot.status || slot.state || "WAIT").toUpperCase();
-      if (st === "ACTIVE") hasActive = true;
-      if (st === "READY") hasReady = true;
-      if (st === "PROTECT") hasProtect = true;
-    });
 
     setTradingExecutionQueue((prev) => {
       const existing = Array.isArray(prev) ? prev : [];
-      const kept = sid ? existing.filter((slot) => String(getTradingSlotSessionId(slot) || "") !== sid) : [];
-      return dedupeTradingQueue([...kept, ...normalizedPreview]);
+      const existingByKey = new Map();
+      existing.forEach((slot, idx) => existingByKey.set(keyFor(slot, idx), slot));
+
+      const targetSession = sid || rowSessionId(previewRows[0]);
+      const otherSessions = existing.filter((slot) => {
+        const ssid = String(getTradingSlotSessionId(slot) || slot?.session_id || slot?.sessionId || slot?.meta?.session_id || "").trim();
+        return targetSession && ssid && ssid !== targetSession;
+      });
+
+      const mergedPreview = previewRows.map((preview, idx) => {
+        const existingSlot = existingByKey.get(keyFor(preview, idx)) || {};
+        const nextStatus = String(preview.status || preview.state || existingSlot.status || "WAIT").toUpperCase();
+        const transition = preview.shadow_transition && typeof preview.shadow_transition === "object" ? preview.shadow_transition : {};
+        const reason = String(transition.reason || preview.condition || preview.reason || existingSlot.condition || "Shadow runtime updated this slot.");
+        appliedCount += 1;
+        if (nextStatus === "ACTIVE" || nextStatus === "SHADOW_ACTIVE") hasActive = true;
+        if (nextStatus === "READY") hasReady = true;
+        if (nextStatus === "PROTECT") hasProtect = true;
+
+        const amountUsd = Number(preview.amountUsd ?? preview.amount_usd ?? preview.reserved_capital_usd ?? existingSlot.amountUsd ?? existingSlot.amount_usd ?? existingSlot.reserved_capital_usd ?? 0);
+        const priority = Number(preview.priority ?? existingSlot.priority ?? 0);
+        const confidence = Number(preview.confidence ?? preview.confidence_score ?? existingSlot.confidence ?? existingSlot.confidence_score ?? 0);
+        const riskScore = Number(preview.risk_score ?? preview.riskScore ?? existingSlot.risk_score ?? 0);
+
+        return {
+          ...existingSlot,
+          ...preview,
+          id: preview.id || preview.queue_id || existingSlot.id,
+          queue_id: preview.queue_id || preview.id || existingSlot.queue_id,
+          session_id: rowSessionId(preview),
+          chain: rowChainKey(preview),
+          chain_key: rowChainKey(preview),
+          slot: rowSlotId(preview, idx),
+          slot_id: rowSlotId(preview, idx),
+          status: nextStatus,
+          state: nextStatus,
+          amountUsd: Number.isFinite(amountUsd) ? amountUsd : 0,
+          reserved_capital_usd: Number.isFinite(amountUsd) ? amountUsd : Number(existingSlot.reserved_capital_usd || 0),
+          priority: Number.isFinite(priority) ? priority : 0,
+          confidence: Number.isFinite(confidence) ? confidence : 0,
+          confidence_score: Number.isFinite(confidence) ? confidence : 0,
+          risk_score: Number.isFinite(riskScore) ? riskScore : 0,
+          condition: reason,
+          shadowTransition: transition,
+          shadowLastRunId: runId,
+          shadowUpdatedAt: now,
+        };
+      });
+
+      return dedupeTradingQueue([...otherSessions, ...mergedPreview]);
     });
+
+    if (appliedCount <= 0) return false;
 
     const nextSessionStatus = hasProtect ? "PROTECT" : hasActive ? "ACTIVE" : hasReady ? "ACTIVE" : "WAIT";
     setTradingSessionStatus(nextSessionStatus);
@@ -7578,45 +7594,29 @@ useEffect(() => {
       status: nextSessionStatus,
       shadowLastRunId: runId,
       shadowAppliedAt: now,
-      shadowAppliedSlots: normalizedPreview.length,
-      queue: normalizedPreview,
+      shadowAppliedSlots: appliedCount,
     });
     setTradingPreparedSetup((prev) => {
       const base = prev && typeof prev === "object" ? prev : {};
       const previousSession = base.session && typeof base.session === "object" ? base.session : {};
-      return {
-        ...base,
-        session: {
-          ...previousSession,
-          status: nextSessionStatus,
-          shadowLastRunId: runId,
-          shadowAppliedAt: now,
-          shadowAppliedSlots: normalizedPreview.length,
-          executionQueue: normalizedPreview,
-          userAction: {
-            ...(previousSession.userAction || {}),
-            shadowPreviewApplied: true,
-            sessionId: sid,
-          },
-          updatedTs: now,
+      const nextSession = {
+        ...previousSession,
+        status: nextSessionStatus,
+        shadowLastRunId: runId,
+        shadowAppliedAt: now,
+        shadowAppliedSlots: appliedCount,
+        userAction: {
+          ...(previousSession.userAction || {}),
+          shadowPreviewApplied: true,
+          sessionId: sid,
         },
+        updatedTs: now,
       };
+      return { ...base, session: nextSession };
     });
 
     return true;
-  }, [
-    selectedTradingSessionId,
-    activeTradingSessionId,
-    tradingExecutionQueue,
-    getTradingSlotSessionId,
-    normalizeShadowQueueSlotForUi,
-    dedupeTradingQueue,
-    setTradingExecutionQueue,
-    setTradingSessionStatus,
-    setTradingSessionUpdatedTs,
-    updateTradingSessionMeta,
-    setTradingPreparedSetup,
-  ]);
+  }, [selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, gridChain, getTradingSlotSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingPreparedSetup]);
 
   const runShadowExecutorValidation = useCallback(async () => {
     if (!wallet) {
@@ -7632,7 +7632,7 @@ useEffect(() => {
         source: "frontend_trading_panel_test_only",
         config: {
           session_id: selectedTradingSessionId || "",
-          chain: selectedTradingSessionPrimaryChain || "",
+          chain: activeGridChainKey || gridChain || "",
           runtime_hours: tradingRuntimeHours,
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
@@ -7654,7 +7654,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, selectedTradingSessionPrimaryChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState]);
 
   const runShadowRuntimeAction = useCallback(async (action = "tick") => {
     if (!wallet) {
@@ -7671,7 +7671,7 @@ useEffect(() => {
         config: {
           action,
           session_id: selectedTradingSessionId || "",
-          chain: selectedTradingSessionPrimaryChain || "",
+          chain: activeGridChainKey || gridChain || "",
           runtime_hours: tradingRuntimeHours,
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
@@ -7696,7 +7696,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, selectedTradingSessionPrimaryChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState]);
 
   useEffect(() => {
     const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
@@ -7710,6 +7710,21 @@ useEffect(() => {
     }, 60 * 1000);
     return () => clearInterval(id);
   }, [gridMode, wallet, selectedTradingSessionId, shadowExecutorState?.runtime_status, shadowExecutorState?.last_run, shadowExecutorState?.run, runShadowRuntimeAction]);
+
+  // Apply backend Shadow heartbeat/results to the visible slots whenever GET polling
+  // returns a newer runtime run. This makes Grid/Trader/Rotation controls react
+  // immediately to backend state instead of waiting for a full page refresh.
+  const lastAppliedShadowRunRef = useRef("");
+  useEffect(() => {
+    const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
+    const runId = String(run?.run_id || run?.id || "");
+    const queue = Array.isArray(run?.queue) ? run.queue : [];
+    if (!runId || !queue.length) return;
+    if (lastAppliedShadowRunRef.current === runId) return;
+    if (applyShadowQueuePreview(queue, run)) {
+      lastAppliedShadowRunRef.current = runId;
+    }
+  }, [shadowExecutorState?.last_run, shadowExecutorState?.run, applyShadowQueuePreview]);
 
 
   // Runtime heartbeat for multi-session Trading.

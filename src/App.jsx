@@ -7486,45 +7486,72 @@ useEffect(() => {
   const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(selectedControlStatus);
 
   const applyShadowQueuePreview = useCallback((shadowQueue = [], shadowRun = null) => {
-    const previewRowsRaw = Array.isArray(shadowQueue) ? shadowQueue.filter((x) => x && typeof x === "object") : [];
-    if (!previewRowsRaw.length) return false;
+    const previewRows = Array.isArray(shadowQueue) ? shadowQueue.filter((x) => x && typeof x === "object") : [];
+    if (!previewRows.length) return false;
 
     const now = Date.now();
     const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+    const visibleRows = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+    const preferredChain =
+      previewRows.find((r) => String(r?.chain || r?.chain_key || r?.network || "").trim())?.chain ||
+      visibleRows.find((r) => String(r?.chain || r?.chain_key || r?.network || "").trim())?.chain ||
+      activeGridChainKey ||
+      DEFAULT_CHAIN ||
+      "";
+    const chain = String(preferredChain || "").toUpperCase().trim();
     const runId = String(shadowRun?.run_id || shadowRun?.id || "").trim();
 
-    const rowSessionId = (row) => String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || row?.meta?.session_id || sid || "").trim();
-    const rowSlotId = (row, idx = 0) => String(row?.slot || row?.slot_id || row?.slotId || row?.id || `S${idx + 1}`).trim();
-    const rowChainKey = (row) => String(row?.chain || row?.chain_key || row?.network || activeGridChainKey || gridChain || DEFAULT_CHAIN || "").toUpperCase().trim();
-
-    // IMPORTANT:
-    // Shadow runtime state is backend-owned. The frontend must not filter it by the
-    // currently displayed market chain, because a user can view POL/BNB data while
-    // the selected Trading session is ETH. That caused "4 fills" in the summary
-    // while the visible cards stayed READY/WAIT. We only isolate by selected session.
-    const previewRows = previewRowsRaw
-      .filter((row) => {
-        const rsid = rowSessionId(row);
-        return !sid || !rsid || rsid === sid;
-      })
-      .map((row, idx) => ({
-        ...row,
-        session_id: rowSessionId(row),
-        chain: rowChainKey(row),
-        chain_key: rowChainKey(row),
-        slot: rowSlotId(row, idx),
-        slot_id: rowSlotId(row, idx),
-      }));
-
-    if (!previewRows.length) return false;
-
-    const keyFor = (slot = {}, idx = 0) => {
-      const slotSession = String(getTradingSlotSessionId(slot) || slot?.session_id || slot?.sessionId || slot?.meta?.session_id || sid || "").trim();
+    const keysFor = (slot = {}, idx = 0) => {
+      const slotSession = String(getTradingSlotSessionId(slot) || sid || "").trim();
+      const slotChain = String(slot?.chain || slot?.chain_key || slot?.network || chain || "").toUpperCase().trim();
       const id = String(slot?.id || slot?.queue_id || "").trim();
-      const slotNo = rowSlotId(slot, idx);
-      if (id) return `id:${id}`;
-      return `session:${slotSession}|slot:${slotNo}`;
+      const slotNo = String(slot?.slot || slot?.slot_id || slot?.slotId || idx + 1).trim();
+      const symbol = String(slot?.symbol || slot?.asset || "").trim().toUpperCase();
+      const out = [];
+      if (id) out.push(`id:${id}`);
+      if (slotSession && slotChain && slotNo) out.push(`session:${slotSession}|chain:${slotChain}|slot:${slotNo}`);
+      if (slotSession && slotChain && slotNo && symbol) out.push(`session:${slotSession}|chain:${slotChain}|slot:${slotNo}|symbol:${symbol}`);
+      return out;
     };
+
+    const slotSortValue = (slot = {}, idx = 0) => {
+      const raw = String(slot?.slot || slot?.slot_id || slot?.slotId || idx + 1);
+      const m = raw.match(/\d+/);
+      return m ? Number(m[0]) : idx + 1;
+    };
+
+    const normalizePreviewSlot = (row = {}, idx = 0) => {
+      const nextStatus = String(row.status || row.state || "WAIT").toUpperCase();
+      const transition = row.shadow_transition && typeof row.shadow_transition === "object" ? row.shadow_transition : {};
+      const rowChain = String(row?.chain || row?.chain_key || row?.network || chain || "").toUpperCase().trim();
+      const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || sid || "").trim();
+      return {
+        ...row,
+        status: nextStatus,
+        state: nextStatus,
+        chain: rowChain,
+        chain_key: rowChain,
+        session_id: rowSession,
+        priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : 0,
+        confidence: Number.isFinite(Number(row.confidence)) ? Number(row.confidence) : row.confidence_score,
+        confidence_score: Number.isFinite(Number(row.confidence_score)) ? Number(row.confidence_score) : row.confidence,
+        risk_score: Number.isFinite(Number(row.risk_score)) ? Number(row.risk_score) : 0,
+        condition: String(transition.reason || row.condition || row.reason || "Shadow updated this slot."),
+        shadowTransition: transition,
+        shadowLastRunId: runId,
+        shadowUpdatedAt: now,
+      };
+    };
+
+    const previewByKey = new Map();
+    previewRows.forEach((row, idx) => {
+      // Only accept preview rows for the selected session and selected chain.
+      const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || sid || "").trim();
+      const rowChain = String(row?.chain || row?.chain_key || row?.network || chain || "").toUpperCase().trim();
+      if (sid && rowSession && rowSession !== sid) return;
+      if (chain && rowChain && rowChain !== chain) return;
+      keysFor({ ...row, session_id: rowSession, chain: rowChain }, idx).forEach((key) => previewByKey.set(key, row));
+    });
 
     let appliedCount = 0;
     let hasActive = false;
@@ -7533,59 +7560,78 @@ useEffect(() => {
 
     setTradingExecutionQueue((prev) => {
       const existing = Array.isArray(prev) ? prev : [];
-      const existingByKey = new Map();
-      existing.forEach((slot, idx) => existingByKey.set(keyFor(slot, idx), slot));
+      const next = existing.map((slot, idx) => {
+        const slotSession = String(getTradingSlotSessionId(slot) || "").trim();
+        const slotChain = String(slot?.chain || slot?.chain_key || slot?.network || chain || "").toUpperCase().trim();
+        if (sid && slotSession && slotSession !== sid) return slot;
+        if (chain && slotChain && slotChain !== chain) return slot;
 
-      const targetSession = sid || rowSessionId(previewRows[0]);
-      const otherSessions = existing.filter((slot) => {
-        const ssid = String(getTradingSlotSessionId(slot) || slot?.session_id || slot?.sessionId || slot?.meta?.session_id || "").trim();
-        return targetSession && ssid && ssid !== targetSession;
-      });
+        let preview = null;
+        for (const key of keysFor(slot, idx)) {
+          if (previewByKey.has(key)) {
+            preview = previewByKey.get(key);
+            break;
+          }
+        }
+        // Do not fall back to previewRows[idx]. That caused ETH preview rows to be
+        // written into BNB/POL slots and duplicated cards across sessions.
+        if (!preview) return slot;
 
-      const mergedPreview = previewRows.map((preview, idx) => {
-        const existingSlot = existingByKey.get(keyFor(preview, idx)) || {};
-        const nextStatus = String(preview.status || preview.state || existingSlot.status || "WAIT").toUpperCase();
+        const nextStatus = String(preview.status || preview.state || slot.status || "WAIT").toUpperCase();
         const transition = preview.shadow_transition && typeof preview.shadow_transition === "object" ? preview.shadow_transition : {};
-        const reason = String(transition.reason || preview.condition || preview.reason || existingSlot.condition || "Shadow runtime updated this slot.");
+        const reason = String(transition.reason || preview.condition || preview.reason || slot.condition || "Shadow updated this slot.");
         appliedCount += 1;
-        if (nextStatus === "ACTIVE" || nextStatus === "SHADOW_ACTIVE") hasActive = true;
+        if (nextStatus === "ACTIVE") hasActive = true;
         if (nextStatus === "READY") hasReady = true;
         if (nextStatus === "PROTECT") hasProtect = true;
 
-        const amountUsd = Number(preview.amountUsd ?? preview.amount_usd ?? preview.reserved_capital_usd ?? existingSlot.amountUsd ?? existingSlot.amount_usd ?? existingSlot.reserved_capital_usd ?? 0);
-        const priority = Number(preview.priority ?? existingSlot.priority ?? 0);
-        const confidence = Number(preview.confidence ?? preview.confidence_score ?? existingSlot.confidence ?? existingSlot.confidence_score ?? 0);
-        const riskScore = Number(preview.risk_score ?? preview.riskScore ?? existingSlot.risk_score ?? 0);
-
         return {
-          ...existingSlot,
-          ...preview,
-          id: preview.id || preview.queue_id || existingSlot.id,
-          queue_id: preview.queue_id || preview.id || existingSlot.queue_id,
-          session_id: rowSessionId(preview),
-          chain: rowChainKey(preview),
-          chain_key: rowChainKey(preview),
-          slot: rowSlotId(preview, idx),
-          slot_id: rowSlotId(preview, idx),
+          ...slot,
           status: nextStatus,
           state: nextStatus,
-          amountUsd: Number.isFinite(amountUsd) ? amountUsd : 0,
-          reserved_capital_usd: Number.isFinite(amountUsd) ? amountUsd : Number(existingSlot.reserved_capital_usd || 0),
-          priority: Number.isFinite(priority) ? priority : 0,
-          confidence: Number.isFinite(confidence) ? confidence : 0,
-          confidence_score: Number.isFinite(confidence) ? confidence : 0,
-          risk_score: Number.isFinite(riskScore) ? riskScore : 0,
+          chain: slotChain || chain,
+          chain_key: slotChain || chain,
+          priority: Number.isFinite(Number(preview.priority)) ? Number(preview.priority) : Number(slot.priority || 0),
+          confidence: Number.isFinite(Number(preview.confidence)) ? Number(preview.confidence) : (preview.confidence_score ?? slot.confidence),
+          confidence_score: Number.isFinite(Number(preview.confidence_score)) ? Number(preview.confidence_score) : (preview.confidence ?? slot.confidence_score),
+          risk_score: Number.isFinite(Number(preview.risk_score)) ? Number(preview.risk_score) : Number(slot.risk_score || 0),
           condition: reason,
           shadowTransition: transition,
           shadowLastRunId: runId,
           shadowUpdatedAt: now,
         };
       });
-
-      return dedupeTradingQueue([...otherSessions, ...mergedPreview]);
+      return dedupeTradingQueue(next).slice().sort((a, b) => slotSortValue(a, 0) - slotSortValue(b, 0));
     });
 
-    if (appliedCount <= 0) return false;
+    if (appliedCount <= 0) {
+      const replacement = previewRows
+        .map((row, idx) => normalizePreviewSlot(row, idx))
+        .filter((row) => {
+          const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || sid || "").trim();
+          const rowChain = String(row?.chain || row?.chain_key || row?.network || chain || "").toUpperCase().trim();
+          if (sid && rowSession && rowSession !== sid) return false;
+          if (chain && rowChain && rowChain !== chain) return false;
+          return true;
+        })
+        .sort((a, b) => slotSortValue(a, 0) - slotSortValue(b, 0));
+      if (!replacement.length) return false;
+      setTradingExecutionQueue((prev) => {
+        const existing = Array.isArray(prev) ? prev : [];
+        const keep = existing.filter((slot) => {
+          const slotSession = String(getTradingSlotSessionId(slot) || "").trim();
+          const slotChain = String(slot?.chain || slot?.chain_key || slot?.network || chain || "").toUpperCase().trim();
+          if (sid && slotSession && slotSession === sid) return false;
+          if (!sid && chain && slotChain === chain) return false;
+          return true;
+        });
+        return dedupeTradingQueue([...keep, ...replacement]).slice().sort((a, b) => slotSortValue(a, 0) - slotSortValue(b, 0));
+      });
+      appliedCount = replacement.length;
+      hasActive = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "ACTIVE");
+      hasReady = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "READY");
+      hasProtect = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "PROTECT");
+    }
 
     const nextSessionStatus = hasProtect ? "PROTECT" : hasActive ? "ACTIVE" : hasReady ? "ACTIVE" : "WAIT";
     setTradingSessionStatus(nextSessionStatus);
@@ -7616,7 +7662,7 @@ useEffect(() => {
     });
 
     return true;
-  }, [selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, gridChain, getTradingSlotSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingPreparedSetup]);
+  }, [selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, tradingVisibleQueueSummary, getTradingSlotSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingPreparedSetup]);
 
   const runShadowExecutorValidation = useCallback(async () => {
     if (!wallet) {
@@ -7689,7 +7735,9 @@ useEffect(() => {
       applyShadowQueuePreview(shadowQueue, shadowRun);
       const runtimeStatus = String(res?.runtime_status || shadowRun?.summary?.runtime_status || shadowRun?.summary?.runtime?.status || action || "updated").toUpperCase();
       setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun });
-      setShadowExecutorMsg(`Shadow runtime ${runtimeStatus}. Paper-only; no Vault transaction triggered.`);
+      const strategist = shadowRun?.summary?.runtime?.strategist || {};
+      const extra = strategist?.driver ? ` Strategist: ${strategist.active_slots ?? 0} active, ${strategist.ready_slots ?? 0} ready, ${strategist.simulated_exits ?? 0} exited.` : "";
+      setShadowExecutorMsg(`Shadow runtime ${runtimeStatus}.${extra} Paper-only; no Vault transaction triggered.`);
       await refreshNexusBackendState();
     } catch (e) {
       setShadowExecutorMsg(e?.message || `Shadow ${action} failed.`);
@@ -7710,21 +7758,6 @@ useEffect(() => {
     }, 60 * 1000);
     return () => clearInterval(id);
   }, [gridMode, wallet, selectedTradingSessionId, shadowExecutorState?.runtime_status, shadowExecutorState?.last_run, shadowExecutorState?.run, runShadowRuntimeAction]);
-
-  // Apply backend Shadow heartbeat/results to the visible slots whenever GET polling
-  // returns a newer runtime run. This makes Grid/Trader/Rotation controls react
-  // immediately to backend state instead of waiting for a full page refresh.
-  const lastAppliedShadowRunRef = useRef("");
-  useEffect(() => {
-    const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
-    const runId = String(run?.run_id || run?.id || "");
-    const queue = Array.isArray(run?.queue) ? run.queue : [];
-    if (!runId || !queue.length) return;
-    if (lastAppliedShadowRunRef.current === runId) return;
-    if (applyShadowQueuePreview(queue, run)) {
-      lastAppliedShadowRunRef.current = runId;
-    }
-  }, [shadowExecutorState?.last_run, shadowExecutorState?.run, applyShadowQueuePreview]);
 
 
   // Runtime heartbeat for multi-session Trading.

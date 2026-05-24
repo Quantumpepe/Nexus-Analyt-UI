@@ -7756,7 +7756,7 @@ useEffect(() => {
     return `${status}${score}${cooldown}`;
   }, [tradingGlobalRiskState]);
 
-  const handleTradingApproveBudget = useCallback(() => {
+  const handleTradingApproveBudget = useCallback(async () => {
     if (!tradingCanApprove) {
       setErrorMsg(tradingPreflight.title || "Complete Nexus Trading preflight before approving.");
       return;
@@ -7819,10 +7819,48 @@ useEffect(() => {
       userAction: { approvedBudget: true, armed: true, started: true, preflightOk: true, multiSession: true },
       note: "New independent Trading session created. Nexus Trading is autonomous only inside this session's approved limits. User controls Pause and Stop.",
     });
+
+    // Backend-first: immediately create/update the authoritative queue rows.
+    // Without this, Shadow can simulate locally but the next backend hydration may
+    // restore old WAIT rows or an empty queue on another device.
+    if (wallet && Array.isArray(activeQueue) && activeQueue.length) {
+      await Promise.allSettled(activeQueue.map((slot, idx) => {
+        const slotId = String(slot?.slot_id || slot?.slot || idx + 1);
+        const symbol = String(slot?.symbol || slot?.asset || "").toUpperCase();
+        const chain = String(slot?.chain || slot?.chain_key || activeGridChainKey || "").toUpperCase();
+        const state = String(slot?.status || slot?.state || "WAIT").toUpperCase();
+        return api(`/api/nexus/trading/queue`, {
+          method: "POST",
+          wallet,
+          body: {
+            id: slot?.id || slot?.queue_id || `${sessionId}-${chain}-${slotId}-${symbol || idx + 1}`,
+            queue_id: slot?.id || slot?.queue_id || `${sessionId}-${chain}-${slotId}-${symbol || idx + 1}`,
+            slot_id: slotId,
+            slot: slotId,
+            asset: symbol,
+            symbol,
+            chain,
+            chain_key: chain,
+            action: slot?.action || "OBSERVE",
+            state,
+            priority: Number(slot?.priority || 0),
+            confidence: Number(slot?.confidence || slot?.confidence_score || 0),
+            risk_score: Number(slot?.risk_score || 0),
+            reserved_capital_usd: Number(slot?.reserved_capital_usd || slot?.amountUsd || 0),
+            session_id: sessionId,
+            trade_session_id: sessionId,
+            meta: { ...(slot?.meta || {}), session_id: sessionId, source: "frontend_budget_approval" },
+            signals: slot?.signals || {},
+            reason: slot?.condition || slot?.reason || "Created from approved Trading session.",
+          },
+        });
+      }));
+      await refreshNexusBackendState();
+    }
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
     setErrorMsg(`Trading session created: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Enter the next budget and approve/sign again when you want another independent session.`);
-  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput]);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
 
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;

@@ -4728,18 +4728,11 @@ const byChain = {};
   }, [walletModalOpen, wallet]);
 
   // watchlist
-  const [watchItems, setWatchItems] = useLocalStorageState("nexus_watch_items", []);
-  const [watchRows, setWatchRows] = useState(() => {
-    try {
-      const raw = localStorage.getItem(LS_WATCH_ROWS_CACHE);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [watchItems, setWatchItems] = useState([]);
+  const [watchRows, setWatchRows] = useState([]);
   const [watchDragKey, setWatchDragKey] = useState("");
   const [watchDropKey, setWatchDropKey] = useState("");
-  const [watchSortMode, setWatchSortMode] = useLocalStorageState("nexus_watch_sort_mode", "manual"); // manual | winner | loser
+  const [watchSortMode, setWatchSortMode] = useState("manual"); // manual | winner | loser
   const [ratingModal, setRatingModal] = useState({ open: false, row: null, symbol: "", systemRating: "", systemScore: 0 });
   const [ratingStatus, setRatingStatus] = useState(null);
   const [ratingBusy, setRatingBusy] = useState(false);
@@ -4750,8 +4743,8 @@ const byChain = {};
   const [marketConditionBySymbol, setMarketConditionBySymbol] = useState({});
   const [activeWhaleNews, setActiveWhaleNews] = useState(null);
 
-  const [watchSyncedWallet, setWatchSyncedWallet] = useLocalStorageState("nexus_watch_synced_wallet", "");
-  const [appStateSyncedWallet, setAppStateSyncedWallet] = useLocalStorageState("nexus_app_state_synced_wallet", "");
+  const [watchSyncedWallet, setWatchSyncedWallet] = useState("");
+  const [appStateSyncedWallet, setAppStateSyncedWallet] = useState("");
   const watchSyncBusyRef = useRef(false);
   const watchApplyingServerRef = useRef(false);
   const watchDirtyRef = useRef(false);
@@ -4897,18 +4890,9 @@ const byChain = {};
       const localSig = sig(localItems);
       const neverSynced = String(watchSyncedWallet || "").toLowerCase() !== String(wa || "").toLowerCase();
 
-      // First migration only: if the server has never stored a watchlist, upload the local list once.
-      // After the server has an updated_ts, the server is the cross-device source of truth, including an empty list.
-      if (!serverUpdatedTs && neverSynced && !serverItems.length && localItems.length && !watchDirtyRef.current) {
-        const saved = await saveWatchlistToServer(localItems);
-        if (saved?.updated_ts) storeWatchServerTs(saved.updated_ts);
-        setWatchSyncedWallet(wa);
-        fetchWatchSnapshot(localItems, { force: true, user: false });
-        return;
-      }
-
-      const serverHasAuthoritativeVersion = serverUpdatedTs > 0;
-      const serverIsNewerOrDifferent = serverHasAuthoritativeVersion && (serverUpdatedTs >= lastSeenServerTs || serverSig !== localSig);
+      // Backend is the cross-device source of truth. Empty server watchlist is authoritative too.
+      // LocalStorage must never re-upload old device items during hydration.
+      const serverIsNewerOrDifferent = true;
 
       if (serverIsNewerOrDifferent && !watchDirtyRef.current) {
         // Server wins for normal hydration/sync. This is what makes desktop -> mobile and mobile -> desktop reliable.
@@ -4917,7 +4901,6 @@ const byChain = {};
         if (serverSig !== localSig) {
           watchApplyingServerRef.current = true;
           setWatchItems(serverItems);
-          try { localStorage.setItem("nexus_watch_items", JSON.stringify(serverItems)); } catch {}
           watchApplyingServerRef.current = false;
         }
         storeWatchServerTs(serverUpdatedTs);
@@ -5243,7 +5226,7 @@ const byChain = {};
   }, [ratingStatus]);
 
 
-  const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
+  const [compareSet, setCompareSet] = useState([]);
   const compareSymbols = useMemo(() => {
     const uniq = [];
     for (const s of compareSet || []) {
@@ -5295,7 +5278,7 @@ const byChain = {};
   const lineClassForSym = (sym) => `line${(ensureColorSlot(sym) % PALETTE20.length) + 1}`;
 
   // compare/chart
-  const [timeframe, setTimeframe] = useLocalStorageState("nexus_timeframe", "90D");
+  const [timeframe, setTimeframe] = useState("90D");
   const compareFetchRange = useMemo(() => _compareFetchRange(timeframe), [timeframe]);
   const PAIR_EXPLAIN_TF = "30D";
 
@@ -6555,7 +6538,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compareSymbols.join("|")]);
 
-  const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
+  const [indexMode, setIndexMode] = useState(true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [comparePage, setComparePage] = useState("all"); // first10 | next10 | all
   const [highlightedSyms, setHighlightedSyms] = useState([]);
@@ -6708,21 +6691,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   // grid (manual)
   // Grid UI works with symbols; backend grid endpoints are keyed by item_id.
-  const [gridChain, setGridChain] = useState(() => {
-    try {
-      return String(localStorage.getItem("nexus_grid_chain") || localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN || "POL").toUpperCase();
-    } catch (_) {
-      return String(DEFAULT_CHAIN || "POL").toUpperCase();
-    }
-  });
-  const [gridItem, setGridItem] = useState(() => {
-    try {
-      const chain = String(localStorage.getItem("nexus_grid_chain") || localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN || "POL").toUpperCase();
-      return localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || chain;
-    } catch (_) {
-      return DEFAULT_CHAIN;
-    }
-  });
+  const [gridChain, setGridChain] = useState(() => String(DEFAULT_CHAIN || "POL").toUpperCase());
+  const [gridItem, setGridItem] = useState(() => String(DEFAULT_CHAIN || "POL").toUpperCase());
   const [rotationSelectedPick, setRotationSelectedPick] = useState(null);
   const [rotationShowAllRecommendations, setRotationShowAllRecommendations] = useState(false);
   const [rotationNetworkScope, setRotationNetworkScope] = useState("ALL");
@@ -6744,10 +6714,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   // Multi-session support: each later budget approval becomes an independent user-bounded session.
   // Existing sessions are preserved; new Trading/Rotation sessions get their own session_id.
-  const [tradingSessions, setTradingSessions] = useLocalStorageState("nexus_trading_sessions_v1", []);
-  const [activeTradingSessionId, setActiveTradingSessionId] = useLocalStorageState("nexus_trading_active_session_id", "");
-  const [rotationSessions, setRotationSessions] = useLocalStorageState("nexus_rotation_sessions_v1", []);
-  const [activeRotationSessionId, setActiveRotationSessionId] = useLocalStorageState("nexus_rotation_active_session_id", "");
+  const [tradingSessions, setTradingSessions] = useState([]);
+  const [activeTradingSessionId, setActiveTradingSessionId] = useState("");
+  const [rotationSessions, setRotationSessions] = useState([]);
+  const [activeRotationSessionId, setActiveRotationSessionId] = useState("");
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
@@ -7047,64 +7017,39 @@ useEffect(() => {
     }
   }, [gridUiHydrated, gridWalletCoins, gridItem]);
 
-  // Restore the saved Grid coin per selected network only.
+  // Backend-first: selected Grid chain/item are synchronized via /api/app-state.
+  // LocalStorage is not used as an authority here; fallback selection only happens when the server has no value.
   useEffect(() => {
     if (!gridUiHydrated) return;
-    const ck = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
     const cur = String(gridItem || "").toUpperCase();
     if (cur && gridWalletCoins.includes(cur)) return;
-
-    try {
-      const savedForChain = String(localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${ck}`) || "").toUpperCase();
-      if (savedForChain && gridWalletCoins.includes(savedForChain)) {
-        setGridItem(savedForChain);
-        return;
-      }
-    } catch (_) {}
-
     if (gridWalletCoins.length) setGridItem(gridWalletCoins[0]);
-  }, [gridUiHydrated, activeGridChainKey, gridWalletCoins, gridItem]);
-
-  // Persist selected Grid network and selected coin per network.
-  useEffect(() => {
-    if (!gridUiHydrated) return;
-    const ck = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-    const sym = String(gridItem || "").toUpperCase();
-    try { localStorage.setItem("nexus_grid_chain", ck); } catch (_) {}
-    if (sym) {
-      try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${ck}`, sym); } catch (_) {}
-    }
-  }, [gridUiHydrated, activeGridChainKey, gridItem]);
+  }, [gridUiHydrated, gridWalletCoins, gridItem]);
 
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
-  const [gridMode, setGridMode] = useState(() => {
-    try { return localStorage.getItem("nexus_grid_mode") || "normal"; } catch (_) { return "normal"; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem("nexus_grid_mode", gridMode); } catch (_) {}
-  }, [gridMode]);
+  const [gridMode, setGridMode] = useState("normal");
 
-  const [tradingBudgetUsd, setTradingBudgetUsd] = useLocalStorageState("nexus_trading_budget_usd", "");
-  const [tradingBudgetSplitInput, setTradingBudgetSplitInput] = useLocalStorageState("nexus_trading_budget_splits", "");
-  const [tradingExecutionQueue, setTradingExecutionQueue] = useLocalStorageState("nexus_trading_execution_queue", []);
-  const [tradingRuntimeHours, setTradingRuntimeHours] = useLocalStorageState("nexus_trading_runtime_hours", "24");
-  const [tradingHoldHours, setTradingHoldHours] = useLocalStorageState("nexus_trading_hold_hours", "1");
-  const [tradingAllowedAssets, setTradingAllowedAssets] = useLocalStorageState("nexus_trading_allowed_assets", "");
-  const [tradingAllowedChains, setTradingAllowedChains] = useLocalStorageState("nexus_trading_allowed_chains", "POL,BNB,ETH");
-  const [tradingRiskMode, setTradingRiskMode] = useLocalStorageState("nexus_trading_risk_mode", "BALANCED");
-  const [tradingCautionDrawdownPct, setTradingCautionDrawdownPct] = useLocalStorageState("nexus_trading_caution_drawdown_pct", "3");
-  const [tradingHardStopPct, setTradingHardStopPct] = useLocalStorageState("nexus_trading_hard_stop_pct", "12");
-  const [tradingProfitLockPct, setTradingProfitLockPct] = useLocalStorageState("nexus_trading_profit_lock_pct", "20");
-  const [tradingMaxSlippagePct, setTradingMaxSlippagePct] = useLocalStorageState("nexus_trading_max_slippage_pct", "1.2");
-  const [tradingMaxTrades, setTradingMaxTrades] = useLocalStorageState("nexus_trading_max_trades", "6");
-  const [tradingConfidenceMin, setTradingConfidenceMin] = useLocalStorageState("nexus_trading_confidence_min", "MEDIUM");
-  const [tradingStyle, setTradingStyle] = useLocalStorageState("nexus_trading_style", "TACTICAL");
-  const [tradingPreparedSetup, setTradingPreparedSetup] = useLocalStorageState("nexus_trading_prepared_setup", null);
-  const [tradingLearningSetups, setTradingLearningSetups] = useLocalStorageState("nexus_trading_learning_setups", []);
-  const [tradingRiskExpanded, setTradingRiskExpanded] = useLocalStorageState("nexus_trading_risk_expanded", false);
-  const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useLocalStorageState("nexus_rotation_recommendations_expanded", false);
-  const [tradingSessionStatus, setTradingSessionStatus] = useLocalStorageState("nexus_trading_session_status", "PREPARED");
-  const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
+  const [tradingBudgetUsd, setTradingBudgetUsd] = useState("");
+  const [tradingBudgetSplitInput, setTradingBudgetSplitInput] = useState("");
+  const [tradingExecutionQueue, setTradingExecutionQueue] = useState([]);
+  const [tradingRuntimeHours, setTradingRuntimeHours] = useState("24");
+  const [tradingHoldHours, setTradingHoldHours] = useState("1");
+  const [tradingAllowedAssets, setTradingAllowedAssets] = useState("");
+  const [tradingAllowedChains, setTradingAllowedChains] = useState("POL,BNB,ETH");
+  const [tradingRiskMode, setTradingRiskMode] = useState("BALANCED");
+  const [tradingCautionDrawdownPct, setTradingCautionDrawdownPct] = useState("3");
+  const [tradingHardStopPct, setTradingHardStopPct] = useState("12");
+  const [tradingProfitLockPct, setTradingProfitLockPct] = useState("20");
+  const [tradingMaxSlippagePct, setTradingMaxSlippagePct] = useState("1.2");
+  const [tradingMaxTrades, setTradingMaxTrades] = useState("6");
+  const [tradingConfidenceMin, setTradingConfidenceMin] = useState("MEDIUM");
+  const [tradingStyle, setTradingStyle] = useState("TACTICAL");
+  const [tradingPreparedSetup, setTradingPreparedSetup] = useState(null);
+  const [tradingLearningSetups, setTradingLearningSetups] = useState([]);
+  const [tradingRiskExpanded, setTradingRiskExpanded] = useState(false);
+  const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useState(false);
+  const [tradingSessionStatus, setTradingSessionStatus] = useState("PREPARED");
+  const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useState(0);
 
   const tradingHoldStateHydratedRef = useRef(false);
   const tradingRiskRequestRef = useRef({ key: "", ts: 0, inFlight: false });
@@ -7153,6 +7098,16 @@ useEffect(() => {
       return next;
     });
   }, [dedupeTradingQueue, setTradingExecutionQueue]);
+
+  // Backend-first Trading hydration: backend queue/hold/risk state is authoritative across devices.
+  useEffect(() => {
+    const execQueue = nexusBackendState?.execution?.queue;
+    if (Array.isArray(execQueue)) {
+      setTradingExecutionQueue(dedupeTradingQueue(execQueue));
+    }
+    const holdStatus = String(nexusBackendState?.hold_state?.status || "").toUpperCase();
+    if (holdStatus) setTradingSessionStatus(holdStatus);
+  }, [nexusBackendState, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus]);
 
   const openTradingSessions = useMemo(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
@@ -8548,7 +8503,7 @@ useEffect(() => {
   const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
 
   // AI
-  const [aiSelected, setAiSelected] = useLocalStorageState("nexus_ai_selected", []);
+  const [aiSelected, setAiSelected] = useState([]);
   const [compareForceNonce, setCompareForceNonce] = useState(0);
   const syncAppStateFromServer = useCallback(async () => {
     const wa = resolveWalletAddress(wallet);
@@ -8567,6 +8522,7 @@ useEffect(() => {
       const serverTf = String(state?.timeframe || "90D").toUpperCase();
       const serverIndex = state?.indexMode == null ? true : !!state.indexMode;
       const serverAi = Array.isArray(state?.aiSelected) ? state.aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
+      const serverUi = state?.ui && typeof state.ui === "object" ? state.ui : {};
       const neverSynced = String(appStateSyncedWallet || "").toLowerCase() !== String(wa || "").toLowerCase();
       const localCompare = Array.isArray(compareSet) ? compareSet.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
       const localAi = Array.isArray(aiSelected) ? aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
@@ -8576,29 +8532,37 @@ useEffect(() => {
       const serverSig = sig(serverCompare, serverTf, serverIndex, serverAi);
       const localSig = sig(localCompare, timeframe, indexMode, localAi);
 
-      // First migration only: if this wallet has no server state yet, upload the local state once.
-      if (!serverUpdatedTs && neverSynced && !hasServer && hasLocal) {
-        const saved = await api("/api/app-state", {
-          method: "POST",
-          token,
-          wallet: wa,
-          body: { wallet: wa, wallet_address: wa, compare: localCompare, timeframe, indexMode, aiSelected: localAi },
-        });
-        storeAppStateServerTs(saved?.updated_ts);
-        setAppStateSyncedWallet(wa);
-        return;
-      }
-
-      // Backend is the cross-device source of truth. Do not merge old local symbols into a newer server state;
-      // merging was the cause of desktop/mobile movement-score drift.
-      const serverIsAuthoritative = serverUpdatedTs > 0 && (serverUpdatedTs >= lastSeenServerTs || serverSig !== localSig);
-      if (serverIsAuthoritative && serverSig !== localSig) {
+      // Backend is the cross-device source of truth. Do not upload local state during hydration.
+      // A server empty state is authoritative too; localStorage must never resurrect old symbols or settings.
+      const serverIsAuthoritative = true;
+      if (serverIsAuthoritative) {
         appStateApplyingServerRef.current = true;
-        setCompareSet(serverCompare);
-        setTimeframe(serverTf || "90D");
-        setIndexMode(!!serverIndex);
-        setAiSelected(serverAi);
-        setCompareForceNonce((n) => n + 1);
+        if (serverSig !== localSig) {
+          setCompareSet(serverCompare);
+          setTimeframe(serverTf || "90D");
+          setIndexMode(!!serverIndex);
+          setAiSelected(serverAi);
+          try { localStorage.removeItem(LS_COMPARE_SERIES_CACHE); localStorage.removeItem(LS_COMPARE_STORE); } catch {}
+          setCompareForceNonce((n) => n + 1);
+        }
+        if (serverUi.watchSortMode != null) setWatchSortMode(String(serverUi.watchSortMode || "manual"));
+        if (serverUi.gridMode != null) setGridMode(String(serverUi.gridMode || "normal"));
+        if (serverUi.gridChain != null) setGridChain(String(serverUi.gridChain || DEFAULT_CHAIN || "POL").toUpperCase());
+        if (serverUi.gridItem != null) setGridItem(String(serverUi.gridItem || "").toUpperCase());
+        if (serverUi.tradingRuntimeHours != null) setTradingRuntimeHours(String(serverUi.tradingRuntimeHours));
+        if (serverUi.tradingHoldHours != null) setTradingHoldHours(String(serverUi.tradingHoldHours));
+        if (serverUi.tradingAllowedAssets != null) setTradingAllowedAssets(String(serverUi.tradingAllowedAssets));
+        if (serverUi.tradingAllowedChains != null) setTradingAllowedChains(String(serverUi.tradingAllowedChains));
+        if (serverUi.tradingRiskMode != null) setTradingRiskMode(String(serverUi.tradingRiskMode));
+        if (serverUi.tradingCautionDrawdownPct != null) setTradingCautionDrawdownPct(String(serverUi.tradingCautionDrawdownPct));
+        if (serverUi.tradingHardStopPct != null) setTradingHardStopPct(String(serverUi.tradingHardStopPct));
+        if (serverUi.tradingProfitLockPct != null) setTradingProfitLockPct(String(serverUi.tradingProfitLockPct));
+        if (serverUi.tradingMaxSlippagePct != null) setTradingMaxSlippagePct(String(serverUi.tradingMaxSlippagePct));
+        if (serverUi.tradingMaxTrades != null) setTradingMaxTrades(String(serverUi.tradingMaxTrades));
+        if (serverUi.tradingConfidenceMin != null) setTradingConfidenceMin(String(serverUi.tradingConfidenceMin));
+        if (serverUi.tradingStyle != null) setTradingStyle(String(serverUi.tradingStyle));
+        if (serverUi.tradingBudgetUsd != null) setTradingBudgetUsd(String(serverUi.tradingBudgetUsd));
+        if (serverUi.tradingBudgetSplitInput != null) setTradingBudgetSplitInput(String(serverUi.tradingBudgetSplitInput));
       }
       if (serverUpdatedTs) storeAppStateServerTs(serverUpdatedTs);
       setAppStateSyncedWallet(wa);
@@ -8609,7 +8573,7 @@ useEffect(() => {
       appStateSyncBusyRef.current = false;
       setTimeout(() => { appStateApplyingServerRef.current = false; }, 0);
     }
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, setCompareSet, setTimeframe, setIndexMode, setAiSelected, setAppStateSyncedWallet, storeAppStateServerTs, setCompareForceNonce]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   useEffect(() => {
     syncAppStateFromServer();
@@ -8627,6 +8591,26 @@ useEffect(() => {
       timeframe,
       indexMode,
       aiSelected: Array.isArray(aiSelected) ? aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [],
+      ui: {
+        watchSortMode,
+        gridMode,
+        gridChain: String(activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase(),
+        gridItem: String(gridItem || "").toUpperCase(),
+        tradingRuntimeHours,
+        tradingHoldHours,
+        tradingAllowedAssets,
+        tradingAllowedChains,
+        tradingRiskMode,
+        tradingCautionDrawdownPct,
+        tradingHardStopPct,
+        tradingProfitLockPct,
+        tradingMaxSlippagePct,
+        tradingMaxTrades,
+        tradingConfidenceMin,
+        tradingStyle,
+        tradingBudgetUsd,
+        tradingBudgetSplitInput,
+      },
     };
     const t = setTimeout(async () => {
       if (appStateSyncBusyRef.current || appStateApplyingServerRef.current) return;
@@ -8642,7 +8626,7 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -8864,7 +8848,6 @@ const [aiLoading, setAiLoading] = useState(false);
     });
 
     if (!changed) return rows;
-    try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(next)); } catch {}
     setWatchRows(next);
     return next;
   }, [token, wallet, setWatchRows]);
@@ -8926,7 +8909,6 @@ const [aiLoading, setAiLoading] = useState(false);
         }
 
         mergedRows = merged;
-        try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(merged)); } catch {}
         return merged;
       });
       try {
@@ -8992,8 +8974,8 @@ const [aiLoading, setAiLoading] = useState(false);
     syncWatchlistFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet]);
-  useInterval(syncWatchlistFromServer, 120000, !!wallet);
-  useInterval(syncAppStateFromServer, 120000, !!wallet);
+  useInterval(syncWatchlistFromServer, 15000, !!wallet);
+  useInterval(syncAppStateFromServer, 15000, !!wallet);
 
   useEffect(() => {
     const onFocusSync = () => {
@@ -11555,7 +11537,6 @@ useInterval(fetchGridOrders, 30000, false);
     const normalized = normalizeWatchItems(nextItems || []);
     markWatchDirty();
     setWatchItems(normalized);
-    try { localStorage.setItem("nexus_watch_items", JSON.stringify(normalized)); } catch {}
     setWatchRows((prev) => {
       const prevMap = new Map((Array.isArray(prev) ? prev : []).map((row) => [_watchKeyFromRow(row), row]));
       const ordered = normalized.map((it) => {

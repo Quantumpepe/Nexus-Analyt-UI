@@ -7669,17 +7669,49 @@ useEffect(() => {
       const res = await api(`/api/nexus/shadow/executor`, { method: "POST", wallet, body });
       const shadowRun = res?.run || null;
       const shadowQueue = Array.isArray(shadowRun?.queue) ? shadowRun.queue : [];
-      applyShadowQueuePreview(shadowQueue, shadowRun);
+      const backendQueue = Array.isArray(res?.execution?.queue) ? res.execution.queue : [];
       const runtimeStatus = String(res?.runtime_status || shadowRun?.summary?.runtime_status || shadowRun?.summary?.runtime?.status || action || "updated").toUpperCase();
-      setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun });
+
+      // Backend-first immediate UI hydration:
+      // The backend already persisted the Shadow runtime result before returning.
+      // Do not wait for a full page refresh. Apply the authoritative backend queue
+      // immediately, then let the normal backend refresh confirm the same state.
+      if (backendQueue.length) {
+        const cleanedQueue = dedupeTradingQueue(backendQueue);
+        setTradingExecutionQueue(cleanedQueue);
+        const visibleForSession = cleanedQueue.filter((slot) => {
+          const sid = String(getTradingSlotSessionId(slot) || "").trim();
+          return !selectedTradingSessionId || !sid || sid === selectedTradingSessionId;
+        });
+        const hasProtect = visibleForSession.some((slot) => String(slot?.status || slot?.state || "").toUpperCase() === "PROTECT");
+        const hasActive = visibleForSession.some((slot) => ["ACTIVE", "EXECUTING"].includes(String(slot?.status || slot?.state || "").toUpperCase()));
+        const hasReady = visibleForSession.some((slot) => String(slot?.status || slot?.state || "").toUpperCase() === "READY");
+        const hasPaused = runtimeStatus === "PAUSED";
+        const hasStopped = runtimeStatus === "STOPPED";
+        const nextSessionStatus = hasStopped ? "WAIT" : hasPaused ? "PAUSED" : hasProtect ? "PROTECT" : (hasActive || hasReady) ? "ACTIVE" : "WAIT";
+        setTradingSessionStatus(nextSessionStatus);
+        setTradingSessionUpdatedTs(Date.now());
+        if (selectedTradingSessionId) {
+          updateTradingSessionMeta(selectedTradingSessionId, {
+            status: nextSessionStatus,
+            shadowRuntimeStatus: runtimeStatus,
+            shadowLastRunId: shadowRun?.run_id || shadowRun?.id || "",
+            updatedTs: Date.now(),
+          });
+        }
+      } else {
+        applyShadowQueuePreview(shadowQueue, shadowRun);
+      }
+
+      setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun, runtime_status: runtimeStatus.toLowerCase() });
       setShadowExecutorMsg(`Shadow runtime ${runtimeStatus}. Paper-only; no Vault transaction triggered.`);
-      await refreshNexusBackendState();
+      refreshNexusBackendState();
     } catch (e) {
       setShadowExecutorMsg(e?.message || `Shadow ${action} failed.`);
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, dedupeTradingQueue, setTradingExecutionQueue, getTradingSlotSessionId, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta]);
 
   useEffect(() => {
     const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;

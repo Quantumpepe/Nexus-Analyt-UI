@@ -7610,39 +7610,34 @@ useEffect(() => {
     setShadowExecutorMsg("");
     try {
       const currentQueue = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
-      const res = await api(`/api/nexus/shadow/executor`, {
-        method: "POST",
-        wallet,
-        body: {
-          source: "frontend_trading_panel",
-          queue: currentQueue,
-          config: {
-            session_id: selectedTradingSessionId || "",
-            runtime_hours: tradingRuntimeHours,
-            max_trades: tradingMaxTrades,
-            risk_mode: tradingRiskMode,
-            max_slippage_pct: tradingMaxSlippagePct,
-            persist_state: true,
-          },
+      const body = {
+        action: "validate",
+        source: "frontend_trading_panel_test_only",
+        config: {
+          session_id: selectedTradingSessionId || "",
+          chain: activeGridChainKey || gridChain || "",
+          runtime_hours: tradingRuntimeHours,
+          max_trades: tradingMaxTrades,
+          risk_mode: tradingRiskMode,
+          max_slippage_pct: tradingMaxSlippagePct,
+          // Important: Test is only a read-only validation. It must never rewrite
+          // visible slots or clear the live-like Shadow queue.
+          persist_state: false,
         },
-      });
+      };
+      if (currentQueue.length) body.queue = currentQueue;
+      const res = await api(`/api/nexus/shadow/executor`, { method: "POST", wallet, body });
       const shadowRun = res?.run || null;
       const shadowQueue = Array.isArray(shadowRun?.queue) ? shadowRun.queue : [];
-      const applied = applyShadowQueuePreview(shadowQueue, shadowRun);
       const summary = shadowRun?.summary || {};
       setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun });
-      setShadowExecutorMsg(
-        applied
-          ? `Shadow updated ${summary?.slots_tested ?? shadowQueue.length} slot(s): ${summary?.ready_slots ?? 0} ready, ${summary?.virtual_fills ?? 0} virtual fill(s), ${summary?.virtual_waits ?? 0} waiting.`
-          : (res?.message || "Shadow validation completed. No Vault execution was triggered.")
-      );
-      await refreshNexusBackendState();
+      setShadowExecutorMsg(`Shadow test only: ${summary?.virtual_fills ?? 0} virtual fill(s), ${summary?.virtual_waits ?? 0} waiting. No slot state was changed.`);
     } catch (e) {
       setShadowExecutorMsg(e?.message || "Shadow validation failed.");
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState]);
 
   const runShadowRuntimeAction = useCallback(async (action = "tick") => {
     if (!wallet) {
@@ -7653,25 +7648,25 @@ useEffect(() => {
     setShadowExecutorMsg("");
     try {
       const currentQueue = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
-      const res = await api(`/api/nexus/shadow/executor`, {
-        method: "POST",
-        wallet,
-        body: {
+      const body = {
+        action,
+        source: "frontend_shadow_runtime",
+        config: {
           action,
-          source: "frontend_shadow_runtime",
-          queue: currentQueue,
-          config: {
-            action,
-            session_id: selectedTradingSessionId || "",
-            chain: activeGridChainKey || gridChain || "",
-            runtime_hours: tradingRuntimeHours,
-            max_trades: tradingMaxTrades,
-            risk_mode: tradingRiskMode,
-            max_slippage_pct: tradingMaxSlippagePct,
-            persist_state: true,
-          },
+          session_id: selectedTradingSessionId || "",
+          chain: activeGridChainKey || gridChain || "",
+          runtime_hours: tradingRuntimeHours,
+          max_trades: tradingMaxTrades,
+          risk_mode: tradingRiskMode,
+          max_slippage_pct: tradingMaxSlippagePct,
+          persist_state: true,
         },
-      });
+      };
+      // Only send a frontend queue when it actually has rows. Empty arrays caused
+      // the backend to ignore the persisted wallet queue, so Pause/Resume/Stop
+      // looked like they did nothing.
+      if (currentQueue.length) body.queue = currentQueue;
+      const res = await api(`/api/nexus/shadow/executor`, { method: "POST", wallet, body });
       const shadowRun = res?.run || null;
       const shadowQueue = Array.isArray(shadowRun?.queue) ? shadowRun.queue : [];
       applyShadowQueuePreview(shadowQueue, shadowRun);

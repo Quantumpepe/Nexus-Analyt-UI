@@ -7465,10 +7465,25 @@ useEffect(() => {
 
   const tradingCanApprove = !!tradingPreflight.ok;
   const tradingCanStart = false;
-  const tradingCanPause = ["ACTIVE", "PROTECT"].includes(selectedTradingSessionLabel);
-  const tradingCanResume = selectedTradingSessionLabel === "PAUSED";
-  const tradingCanStop = ["ARMED", "ACTIVE", "PROTECT", "PAUSED", "WAIT"].includes(selectedTradingSessionLabel);
-  const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(selectedTradingSessionLabel);
+
+  // Controls must be based on the selected Trading session first, not only on
+  // temporary Shadow slot states. A Shadow run can promote slots or keep cards
+  // in WAIT while the approved session itself is still open/active. If controls
+  // follow only slot labels, Pause/Stop can disappear although capital/session
+  // control must remain available.
+  const selectedTradingSessionStatus = String(selectedTradingSession?.status || "").toUpperCase();
+  const selectedTradingSessionIsOpen = !!selectedTradingSession && !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(selectedTradingSessionStatus);
+  const selectedSessionHasRuntimeQueue = Array.isArray(tradingVisibleQueueSummary?.queue) && tradingVisibleQueueSummary.queue.length > 0;
+  const selectedControlStatus = selectedTradingSessionStatus || selectedTradingSessionLabel;
+
+  const tradingCanPause =
+    ["ACTIVE", "PROTECT", "READY"].includes(selectedControlStatus) ||
+    (selectedTradingSessionIsOpen && selectedSessionHasRuntimeQueue && !["PAUSED", "HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED", "PREPARED"].includes(selectedControlStatus));
+  const tradingCanResume = selectedControlStatus === "PAUSED";
+  const tradingCanStop =
+    ["ARMED", "ACTIVE", "PROTECT", "PAUSED", "WAIT", "READY"].includes(selectedControlStatus) ||
+    (selectedTradingSessionIsOpen && selectedSessionHasRuntimeQueue);
+  const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(selectedControlStatus);
 
   const applyShadowQueuePreview = useCallback((shadowQueue = [], shadowRun = null) => {
     const previewRows = Array.isArray(shadowQueue) ? shadowQueue.filter((x) => x && typeof x === "object") : [];
@@ -7628,6 +7643,61 @@ useEffect(() => {
       setShadowExecutorBusy(false);
     }
   }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState]);
+
+  const runShadowRuntimeAction = useCallback(async (action = "tick") => {
+    if (!wallet) {
+      setShadowExecutorMsg("Wallet not connected.");
+      return;
+    }
+    setShadowExecutorBusy(true);
+    setShadowExecutorMsg("");
+    try {
+      const currentQueue = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+      const res = await api(`/api/nexus/shadow/executor`, {
+        method: "POST",
+        wallet,
+        body: {
+          action,
+          source: "frontend_shadow_runtime",
+          queue: currentQueue,
+          config: {
+            action,
+            session_id: selectedTradingSessionId || "",
+            chain: activeGridChainKey || gridChain || "",
+            runtime_hours: tradingRuntimeHours,
+            max_trades: tradingMaxTrades,
+            risk_mode: tradingRiskMode,
+            max_slippage_pct: tradingMaxSlippagePct,
+            persist_state: true,
+          },
+        },
+      });
+      const shadowRun = res?.run || null;
+      const shadowQueue = Array.isArray(shadowRun?.queue) ? shadowRun.queue : [];
+      applyShadowQueuePreview(shadowQueue, shadowRun);
+      const runtimeStatus = String(res?.runtime_status || shadowRun?.summary?.runtime_status || shadowRun?.summary?.runtime?.status || action || "updated").toUpperCase();
+      setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun });
+      setShadowExecutorMsg(`Shadow runtime ${runtimeStatus}. Paper-only; no Vault transaction triggered.`);
+      await refreshNexusBackendState();
+    } catch (e) {
+      setShadowExecutorMsg(e?.message || `Shadow ${action} failed.`);
+    } finally {
+      setShadowExecutorBusy(false);
+    }
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState]);
+
+  useEffect(() => {
+    const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
+    const status = String(shadowExecutorState?.runtime_status || run?.summary?.runtime_status || run?.summary?.runtime?.status || "").toLowerCase();
+    if (String(gridMode || "").toLowerCase() !== "trading") return;
+    if (status !== "running") return;
+    if (!wallet || !selectedTradingSessionId) return;
+    const id = setInterval(() => {
+      if (document?.hidden) return;
+      runShadowRuntimeAction("tick");
+    }, 60 * 1000);
+    return () => clearInterval(id);
+  }, [gridMode, wallet, selectedTradingSessionId, shadowExecutorState?.runtime_status, shadowExecutorState?.last_run, shadowExecutorState?.run, runShadowRuntimeAction]);
 
 
   // Runtime heartbeat for multi-session Trading.
@@ -17832,16 +17902,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div style={{ fontWeight: 950, color: "#8bdcff", fontSize: 13 }}>Shadow Executor</div>
                           <div className="muted tiny">Paper execution only: virtual fills, stop/re-entry validation, reallocation observation. No Vault transaction can be triggered here.</div>
                         </div>
-                        <button
-                          className="btnGhost"
-                          type="button"
-                          onClick={runShadowExecutorValidation}
-                          disabled={shadowExecutorBusy || !wallet}
-                          style={{ height: 30, paddingInline: 10 }}
-                          title="Run off-chain Shadow Executor validation"
-                        >
-                          {shadowExecutorBusy ? "Testing..." : "Run Shadow Test"}
-                        </button>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button
+                            className="btnGhost"
+                            type="button"
+                            onClick={() => runShadowRuntimeAction("start")}
+                            disabled={shadowExecutorBusy || !wallet}
+                            style={{ height: 30, paddingInline: 10 }}
+                            title="Start live-like paper Shadow runtime"
+                          >
+                            {shadowExecutorBusy ? "Working..." : "Start Shadow"}
+                          </button>
+                          <button className="miniBtn" type="button" onClick={() => runShadowRuntimeAction("pause")} disabled={shadowExecutorBusy || !wallet} style={{ height: 30, paddingInline: 10 }}>Pause</button>
+                          <button className="miniBtn" type="button" onClick={() => runShadowRuntimeAction("resume")} disabled={shadowExecutorBusy || !wallet} style={{ height: 30, paddingInline: 10 }}>Resume</button>
+                          <button className="btnDanger" type="button" onClick={() => runShadowRuntimeAction("stop")} disabled={shadowExecutorBusy || !wallet} style={{ height: 30, paddingInline: 10 }}>Stop</button>
+                          <button className="miniBtn" type="button" onClick={runShadowExecutorValidation} disabled={shadowExecutorBusy || !wallet} style={{ height: 30, paddingInline: 10 }} title="One-shot validation only">Test</button>
+                        </div>
                       </div>
                       {(() => {
                         const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
@@ -17850,11 +17926,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return <div className="muted tiny">No shadow run yet. Run this before Vault deployment to validate behavior without risking live capital.</div>;
                         }
                         const status = String(summary?.status || run?.status || "pending").toUpperCase();
+                        const runtimeStatus = String(shadowExecutorState?.runtime_status || summary?.runtime_status || summary?.runtime?.status || "idle").toUpperCase();
                         const readiness = String(summary?.readiness || "PENDING").replaceAll("_", " ");
                         const score = Number(summary?.safety_score ?? NaN);
                         return (
                           <div style={{ display: "grid", gap: 5 }}>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <span className="tiny" style={{ fontWeight: 950, color: runtimeStatus === "RUNNING" ? "#7cf7a2" : runtimeStatus === "PAUSED" ? "#ffd166" : "rgba(235,255,247,.78)" }}>Runtime: {runtimeStatus}</span>
                               <span className="tiny" style={{ fontWeight: 950, color: status === "PASSED" ? "#7cf7a2" : status === "BLOCKED" ? "#ff8a8a" : "#ffd166" }}>Status: {status}</span>
                               <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.78)" }}>Safety: {Number.isFinite(score) ? `${score}/100` : "—"}</span>
                               <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.78)" }}>Readiness: {readiness}</span>
@@ -17928,6 +18006,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           >
                             <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{(selectedTradingSession.assets || []).join(",") || "ASSET"} · {fmtUsd(Number(selectedTradingSession.budgetUsd || 0))} · {selectedTradingSession.slots || 0} slots</div>
                             <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                              {tradingCanPause ? (
+                                <button className="miniBtn" type="button" onClick={handleTradingPauseSession} title="Pause only this selected Trading session">Pause</button>
+                              ) : null}
+                              {tradingCanResume ? (
+                                <button className="miniBtn" type="button" onClick={handleTradingResumeSession} title="Resume only this selected Trading session">Resume</button>
+                              ) : null}
+                              {tradingCanStop ? (
+                                <button className="miniBtn" type="button" onClick={handleTradingStopSession} title="Protect / stop only this selected Trading session">Protect / Stop</button>
+                              ) : null}
+                              {tradingCanReleaseCapital ? (
+                                <button className="miniBtn" type="button" onClick={handleTradingReleaseCapital} title="Release capital for this selected Trading session">Release Capital</button>
+                              ) : null}
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -17977,10 +18069,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </button>
                         ) : null}
                         
-                        {["ACTIVE", "PROTECT"].includes(selectedTradingSessionLabel) ? (
+                        {tradingCanPause ? (
                           <button className="btnGhost" type="button" onClick={handleTradingPauseSession} style={{ height: 30, paddingInline: 10 }}>Pause</button>
                         ) : null}
-                        {selectedTradingSessionLabel === "PAUSED" ? (
+                        {tradingCanResume ? (
                           <button className="btn" type="button" onClick={handleTradingResumeSession} style={{ height: 30, paddingInline: 10 }}>Resume</button>
                         ) : null}
                         {tradingCanStop ? (

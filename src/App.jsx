@@ -7033,6 +7033,7 @@ useEffect(() => {
   const [tradingBudgetSplitInput, setTradingBudgetSplitInput] = useState("");
   const [tradingExecutionQueue, setTradingExecutionQueue] = useState([]);
   const [tradingRuntimeHours, setTradingRuntimeHours] = useState("24");
+  const [tradingRuntimeUnit, setTradingRuntimeUnit] = useState("hours");
   const [tradingHoldHours, setTradingHoldHours] = useState("1");
   const [tradingAllowedAssets, setTradingAllowedAssets] = useState("");
   const [tradingAllowedChains, setTradingAllowedChains] = useState("POL,BNB,ETH");
@@ -7058,6 +7059,65 @@ useEffect(() => {
 
   const getTradingSlotSessionId = useCallback((slot = {}) => {
     return String(slot?.session_id || slot?.sessionId || slot?.trade_session_id || "").trim();
+  }, []);
+
+  const normalizeTradingRuntimeHours = useCallback((value = tradingRuntimeHours, unit = tradingRuntimeUnit) => {
+    const n = Number(String(value ?? "").replace(",", "."));
+    const safe = Number.isFinite(n) && n > 0 ? n : 24;
+    const u = String(unit || "hours").toLowerCase();
+    const hours = u.startsWith("day") || u === "tage" || u === "days" ? safe * 24 : safe;
+    return Math.max(1, Math.min(24 * 30, Math.round(hours * 100) / 100));
+  }, [tradingRuntimeHours, tradingRuntimeUnit]);
+
+  const getTradingSlotAmountUsd = useCallback((slot = {}) => {
+    const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+    const candidates = [
+      slot.amountUsd,
+      slot.amount_usd,
+      slot.reserved_capital_usd,
+      slot.reservedCapitalUsd,
+      slot.budgetUsd,
+      meta.amountUsd,
+      meta.amount_usd,
+      meta.reserved_capital_usd,
+      meta.paper_position_usd,
+    ];
+    for (const value of candidates) {
+      const n = Number(String(value ?? "").replace(",", "."));
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 0;
+  }, []);
+
+  const getTradingSessionBudgetUsd = useCallback((sess = {}) => {
+    const explicit = [sess.budgetUsd, sess.approvedBudgetUsd, sess.reservedCapitalUsd, sess.allocatedUsd, sess.amountUsd];
+    for (const value of explicit) {
+      const n = Number(String(value ?? "").replace(",", "."));
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    const q = Array.isArray(sess.queue) ? sess.queue : [];
+    return q.reduce((sum, slot) => sum + getTradingSlotAmountUsd(slot), 0);
+  }, [getTradingSlotAmountUsd]);
+
+  const getTradingSessionAssets = useCallback((sess = {}) => {
+    const out = [];
+    const add = (value) => {
+      const v = String(value || "").trim().toUpperCase();
+      if (v && v !== "ASSET" && !out.includes(v)) out.push(v);
+    };
+    (Array.isArray(sess.assets) ? sess.assets : []).forEach(add);
+    (Array.isArray(sess.queue) ? sess.queue : []).forEach((slot) => {
+      const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+      add(slot?.symbol || slot?.asset || meta.asset || slot?.chain || meta.chain);
+    });
+    (Array.isArray(sess.chains) ? sess.chains : []).forEach(add);
+    return out;
+  }, []);
+
+  const getTradingSessionSlotCount = useCallback((sess = {}) => {
+    const q = Array.isArray(sess.queue) ? sess.queue : [];
+    const explicit = Number(sess.slots || sess.slotCount || 0);
+    return q.length || (Number.isFinite(explicit) ? explicit : 0);
   }, []);
 
   const dedupeTradingQueue = useCallback((items = []) => {
@@ -7098,6 +7158,8 @@ useEffect(() => {
         slot_id: slotNo,
         symbol: symbol || slot.symbol || slot.asset || "",
         asset: symbol || slot.asset || slot.symbol || "",
+        amountUsd: getTradingSlotAmountUsd(slot),
+        reserved_capital_usd: getTradingSlotAmountUsd(slot),
       };
 
       if (!byKey.has(key)) order.push(key);
@@ -7105,7 +7167,7 @@ useEffect(() => {
     });
 
     return order.map((key) => byKey.get(key)).filter(Boolean);
-  }, [getTradingSlotSessionId, activeGridChainKey]);
+  }, [getTradingSlotSessionId, activeGridChainKey, getTradingSlotAmountUsd]);
 
   const buildTradingSessionsFromQueue = useCallback((queue = []) => {
     const rows = Array.isArray(queue) ? queue.filter((x) => x && typeof x === "object") : [];
@@ -7123,7 +7185,7 @@ useEffect(() => {
       const sid = rawSid || `LEGACY-${chain || "CHAIN"}`;
       const st = String(slot?.status || slot?.state || "WAIT").toUpperCase();
       if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED"].includes(st)) return;
-      const amount = Number(slot?.amountUsd ?? slot?.reserved_capital_usd ?? slot?.amount_usd ?? 0) || 0;
+      const amount = getTradingSlotAmountUsd(slot);
       const slotNo = slotNoOf(slot?.slot || slot?.slot_id || meta.slot, idx + 1);
       const existing = bySession.get(sid) || {
         id: sid,
@@ -7152,7 +7214,7 @@ useEffect(() => {
     });
 
     return Array.from(bySession.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-  }, [getTradingSlotSessionId, activeGridChainKey]);
+  }, [getTradingSlotSessionId, activeGridChainKey, getTradingSlotAmountUsd]);
 
   // One-time/local cleanup for queues that were polluted by an older Shadow preview merge.
   // This removes duplicated slot cards from localStorage without touching stopped sessions.
@@ -7712,7 +7774,8 @@ useEffect(() => {
         config: {
           session_id: selectedTradingSessionId || "",
           chain: activeGridChainKey || gridChain || "",
-          runtime_hours: tradingRuntimeHours,
+          runtime_hours: normalizeTradingRuntimeHours(),
+          runtime_unit: tradingRuntimeUnit,
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
           max_slippage_pct: tradingMaxSlippagePct,
@@ -7733,7 +7796,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState]);
 
   const runShadowRuntimeAction = useCallback(async (action = "tick") => {
     if (!wallet) {
@@ -7751,7 +7814,8 @@ useEffect(() => {
           action,
           session_id: selectedTradingSessionId || "",
           chain: activeGridChainKey || gridChain || "",
-          runtime_hours: tradingRuntimeHours,
+          runtime_hours: normalizeTradingRuntimeHours(),
+          runtime_unit: tradingRuntimeUnit,
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
           max_slippage_pct: tradingMaxSlippagePct,
@@ -7789,7 +7853,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
 
   useEffect(() => {
     const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
@@ -8765,6 +8829,7 @@ useEffect(() => {
         if (serverUi.gridChain != null) setGridChain(String(serverUi.gridChain || DEFAULT_CHAIN || "POL").toUpperCase());
         if (serverUi.gridItem != null) setGridItem(String(serverUi.gridItem || "").toUpperCase());
         if (serverUi.tradingRuntimeHours != null) setTradingRuntimeHours(String(serverUi.tradingRuntimeHours));
+        if (serverUi.tradingRuntimeUnit != null) setTradingRuntimeUnit(String(serverUi.tradingRuntimeUnit || "hours"));
         if (serverUi.tradingHoldHours != null) setTradingHoldHours(String(serverUi.tradingHoldHours));
         if (serverUi.tradingAllowedAssets != null) setTradingAllowedAssets(String(serverUi.tradingAllowedAssets));
         if (serverUi.tradingAllowedChains != null) setTradingAllowedChains(String(serverUi.tradingAllowedChains));
@@ -8816,6 +8881,7 @@ useEffect(() => {
         gridChain: String(activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase(),
         gridItem: String(gridItem || "").toUpperCase(),
         tradingRuntimeHours,
+        tradingRuntimeUnit,
         tradingHoldHours,
         tradingAllowedAssets,
         tradingAllowedChains,
@@ -8847,7 +8913,7 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -10311,7 +10377,8 @@ setGridBusy((s) => ({ ...s, stop: true }));
         session_id: activeTradingSessionId || makeNexusSessionId("TRDORDER"),
         trade_session_id: activeTradingSessionId || "",
         trading_style: tradingStyle,
-        trading_runtime_hours: tradingRuntimeHours,
+        trading_runtime_hours: normalizeTradingRuntimeHours(),
+        trading_runtime_unit: tradingRuntimeUnit,
         trading_hold_hours: clampTradingHoldHours(tradingHoldHours),
         trading_observe_max_hours: 12,
         trading_risk_mode: tradingRiskMode,
@@ -10323,7 +10390,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         execution_queue: tradingExecutionQueue,
       },
     });
-  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingHoldHours, clampTradingHoldHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, activeTradingSessionId, makeNexusSessionId, addCoreOrderFromModule]);
+  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, tradingHoldHours, clampTradingHoldHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, activeTradingSessionId, makeNexusSessionId, addCoreOrderFromModule]);
 
   async function addManualOrder(opts = {}) {
     setErrorMsg("");
@@ -17776,7 +17843,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const tradingAllocatedUsd = (Array.isArray(openTradingSessions) ? openTradingSessions : []).reduce((sum, sess) => {
                             const st = String(sess?.status || "").toUpperCase();
                             if (["RELEASED", "CLOSED", "EXPIRED"].includes(st)) return sum;
-                            return sum + (Number(sess?.budgetUsd) || 0);
+                            return sum + getTradingSessionBudgetUsd(sess);
                           }, 0);
                           const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - tradingAllocatedUsd);
                           const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + tradingAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
@@ -17812,7 +17879,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                       <div className="formRow">
                         <label>Runtime (h)</label>
-                        <input value={tradingRuntimeHours} onChange={(e) => setTradingRuntimeHours(e.target.value)} placeholder="24" />
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 6 }}>
+                          <input value={tradingRuntimeHours} onChange={(e) => setTradingRuntimeHours(e.target.value)} placeholder="24" />
+                          <select value={tradingRuntimeUnit} onChange={(e) => setTradingRuntimeUnit(e.target.value)} title="Runtime unit">
+                            <option value="hours">Stunden</option>
+                            <option value="days">Tage</option>
+                          </select>
+                        </div>
                       </div>
                       <div className="formRow">
                         <label>Capital HOLD (1-12h)</label>
@@ -17986,7 +18059,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               })()}
                             >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                <b style={{ color: "#eafff5" }}>Slot {slot.slot} · {fmtUsd(Number(slot.amountUsd || 0))}</b>
+                                <b style={{ color: "#eafff5" }}>Slot {slot.slot} · {fmtUsd(getTradingSlotAmountUsd(slot))}</b>
                                 <span
                                   className="tiny"
                                   style={{
@@ -18001,13 +18074,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const pnlPct = Number(slot.paper_pnl_pct ?? meta.paper_pnl_pct);
                                 const pnlUsd = Number(slot.paper_pnl_usd ?? meta.paper_pnl_usd);
                                 const pnlTotal = Number(slot.paper_pnl_total_usd ?? meta.paper_pnl_total_usd);
-                                if (!Number.isFinite(pnlPct) && !Number.isFinite(pnlUsd) && !Number.isFinite(pnlTotal)) return null;
+                                const entryPx = Number(slot.paper_entry_price ?? meta.paper_entry_price);
+                                const markPx = Number(slot.paper_mark_price ?? meta.paper_mark_price);
+                                const exitPx = Number(slot.paper_exit_price ?? meta.paper_exit_price);
+                                if (!Number.isFinite(pnlPct) && !Number.isFinite(pnlUsd) && !Number.isFinite(pnlTotal) && !Number.isFinite(entryPx) && !Number.isFinite(markPx) && !Number.isFinite(exitPx)) return null;
                                 const positive = (Number.isFinite(pnlUsd) ? pnlUsd : pnlPct) >= 0;
                                 return (
-                                  <div className="tiny" style={{ color: positive ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
-                                    Paper PnL: {Number.isFinite(pnlPct) ? `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : "—"}
-                                    {Number.isFinite(pnlUsd) ? ` · ${pnlUsd >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlUsd))}` : ""}
-                                    {Number.isFinite(pnlTotal) ? ` · total ${pnlTotal >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlTotal))}` : ""}
+                                  <div style={{ display: "grid", gap: 2 }}>
+                                    <div className="tiny" style={{ color: positive ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
+                                      Paper PnL: {Number.isFinite(pnlPct) ? `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : "—"}
+                                      {Number.isFinite(pnlUsd) ? ` · ${pnlUsd >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlUsd))}` : ""}
+                                      {Number.isFinite(pnlTotal) ? ` · total ${pnlTotal >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlTotal))}` : ""}
+                                    </div>
+                                    {(Number.isFinite(entryPx) || Number.isFinite(markPx) || Number.isFinite(exitPx)) ? (
+                                      <div className="muted tiny">
+                                        Entry: {Number.isFinite(entryPx) ? fmtUsd(entryPx) : "—"} · Current: {Number.isFinite(markPx) ? fmtUsd(markPx) : "—"}{Number.isFinite(exitPx) ? ` · Exit: ${fmtUsd(exitPx)}` : ""}
+                                      </div>
+                                    ) : null}
                                   </div>
                                 );
                               })()}
@@ -18132,7 +18215,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         >
                           {openTradingSessions.slice(0, 20).map((sess) => {
                             const sid = String(sess?.id || "");
-                            const label = `${(sess.assets || []).join(",") || "ASSET"} · ${fmtUsd(Number(sess.budgetUsd || 0))} · ${sess.slots || 0} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
+                            const label = `${getTradingSessionAssets(sess).join(",") || "ASSET"} · ${fmtUsd(getTradingSessionBudgetUsd(sess))} · ${getTradingSessionSlotCount(sess)} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
                             return <option key={sid || `session-${sess?.createdAt || Math.random()}`} value={sid}>{label}</option>;
                           })}
                         </select>
@@ -18147,7 +18230,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               gap: 3,
                             }}
                           >
-                            <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{(selectedTradingSession.assets || []).join(",") || "ASSET"} · {fmtUsd(Number(selectedTradingSession.budgetUsd || 0))} · {selectedTradingSession.slots || 0} slots</div>
+                            <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{getTradingSessionAssets(selectedTradingSession).join(",") || "ASSET"} · {fmtUsd(getTradingSessionBudgetUsd(selectedTradingSession))} · {getTradingSessionSlotCount(selectedTradingSession)} slots</div>
                             <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                               {tradingCanPause ? (

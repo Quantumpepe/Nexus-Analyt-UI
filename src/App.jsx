@@ -7099,20 +7099,56 @@ useEffect(() => {
     return q.reduce((sum, slot) => sum + getTradingSlotAmountUsd(slot), 0);
   }, [getTradingSlotAmountUsd]);
 
-  const getTradingSessionAssets = useCallback((sess = {}) => {
-    const out = [];
-    const add = (value) => {
-      const v = String(value || "").trim().toUpperCase();
-      if (v && v !== "ASSET" && !out.includes(v)) out.push(v);
-    };
-    (Array.isArray(sess.assets) ? sess.assets : []).forEach(add);
-    (Array.isArray(sess.queue) ? sess.queue : []).forEach((slot) => {
-      const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
-      add(slot?.symbol || slot?.asset || meta.asset || slot?.chain || meta.chain);
-    });
-    (Array.isArray(sess.chains) ? sess.chains : []).forEach(add);
-    return out;
+  const normalizeTradingAssetToken = useCallback((value = "") => {
+    const raw = String(value || "").trim().toUpperCase();
+    if (!raw || raw === "ASSET") return "";
+    // Some old persisted sessions contain polluted labels like "BNB,POL" or "ETH,POL".
+    // For display/control a Trading session must show exactly one primary chain/asset.
+    const parts = raw.split(/[\s,|/+]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+    const allowed = ["ETH", "BNB", "POL"];
+    return parts.find((x) => allowed.includes(x)) || parts[0] || "";
   }, []);
+
+  const getTradingSessionPrimaryAsset = useCallback((sess = {}) => {
+    const q = Array.isArray(sess.queue) ? sess.queue : [];
+    const counts = new Map();
+    const addCount = (value, weight = 1) => {
+      const token = normalizeTradingAssetToken(value);
+      if (!token) return;
+      counts.set(token, (counts.get(token) || 0) + weight);
+    };
+
+    // Prefer the actual runtime queue because old session-level assets/chains can be polluted.
+    q.forEach((slot) => {
+      const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+      addCount(slot?.chain || slot?.chain_key || slot?.network || meta.chain, 4);
+      addCount(slot?.symbol || slot?.asset || meta.asset, 3);
+    });
+
+    if (counts.size) {
+      return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0][0];
+    }
+
+    const candidates = [
+      sess.chain,
+      sess.chain_key,
+      sess.network,
+      sess.asset,
+      sess.symbol,
+      ...(Array.isArray(sess.assets) ? sess.assets : []),
+      ...(Array.isArray(sess.chains) ? sess.chains : []),
+    ];
+    for (const candidate of candidates) {
+      const token = normalizeTradingAssetToken(candidate);
+      if (token) return token;
+    }
+    return "ASSET";
+  }, [normalizeTradingAssetToken]);
+
+  const getTradingSessionAssets = useCallback((sess = {}) => {
+    const primary = getTradingSessionPrimaryAsset(sess);
+    return primary && primary !== "ASSET" ? [primary] : [];
+  }, [getTradingSessionPrimaryAsset]);
 
   const getTradingSessionSlotCount = useCallback((sess = {}) => {
     const q = Array.isArray(sess.queue) ? sess.queue : [];
@@ -18088,7 +18124,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     </div>
                                     {(Number.isFinite(entryPx) || Number.isFinite(markPx) || Number.isFinite(exitPx)) ? (
                                       <div className="muted tiny">
-                                        Entry: {Number.isFinite(entryPx) ? fmtUsd(entryPx) : "—"} · Current: {Number.isFinite(markPx) ? fmtUsd(markPx) : "—"}{Number.isFinite(exitPx) ? ` · Exit: ${fmtUsd(exitPx)}` : ""}
+                                        Paper price / Kurs: Entry {Number.isFinite(entryPx) ? fmtUsd(entryPx) : "—"} · Current {Number.isFinite(markPx) ? fmtUsd(markPx) : "—"}{Number.isFinite(exitPx) ? ` · Exit ${fmtUsd(exitPx)}` : ""}
+                                        <span style={{ opacity: 0.72 }}> · not slot capital</span>
                                       </div>
                                     ) : null}
                                   </div>
@@ -18215,7 +18252,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         >
                           {openTradingSessions.slice(0, 20).map((sess) => {
                             const sid = String(sess?.id || "");
-                            const label = `${getTradingSessionAssets(sess).join(",") || "ASSET"} · ${fmtUsd(getTradingSessionBudgetUsd(sess))} · ${getTradingSessionSlotCount(sess)} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
+                            const primaryAsset = getTradingSessionPrimaryAsset(sess);
+                            const label = `${primaryAsset || "ASSET"} · ${fmtUsd(getTradingSessionBudgetUsd(sess))} · ${getTradingSessionSlotCount(sess)} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
                             return <option key={sid || `session-${sess?.createdAt || Math.random()}`} value={sid}>{label}</option>;
                           })}
                         </select>
@@ -18230,7 +18268,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               gap: 3,
                             }}
                           >
-                            <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{getTradingSessionAssets(selectedTradingSession).join(",") || "ASSET"} · {fmtUsd(getTradingSessionBudgetUsd(selectedTradingSession))} · {getTradingSessionSlotCount(selectedTradingSession)} slots</div>
+                            <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{getTradingSessionPrimaryAsset(selectedTradingSession) || "ASSET"} · {fmtUsd(getTradingSessionBudgetUsd(selectedTradingSession))} · {getTradingSessionSlotCount(selectedTradingSession)} slots</div>
                             <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                               {tradingCanPause ? (

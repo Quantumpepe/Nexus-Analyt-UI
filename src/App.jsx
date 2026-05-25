@@ -17918,8 +17918,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 6 }}>
                           <input value={tradingRuntimeHours} onChange={(e) => setTradingRuntimeHours(e.target.value)} placeholder="24" />
                           <select value={tradingRuntimeUnit} onChange={(e) => setTradingRuntimeUnit(e.target.value)} title="Runtime unit">
-                            <option value="hours">hours</option>
-                            <option value="days">day</option>
+                            <option value="hours">Stunden</option>
+                            <option value="days">Tage</option>
                           </select>
                         </div>
                       </div>

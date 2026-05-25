@@ -7100,69 +7100,14 @@ useEffect(() => {
   }, [dedupeTradingQueue, setTradingExecutionQueue]);
 
   // Backend-first Trading hydration: backend queue/hold/risk state is authoritative across devices.
-  // Every approved budget is treated as its own Trading session. The UI dropdown
-  // is rebuilt from backend queue/session state so new budgets never mix with old
-  // Shadow/Trader runtime rows after refresh or across devices.
   useEffect(() => {
-    const exec = nexusBackendState?.execution || {};
-    const execQueue = exec?.queue;
+    const execQueue = nexusBackendState?.execution?.queue;
     if (Array.isArray(execQueue)) {
-      const nextQueue = dedupeTradingQueue(execQueue);
-      setTradingExecutionQueue(nextQueue);
-
-      const backendSessions = Array.isArray(exec?.sessions) && exec.sessions.length
-        ? exec.sessions
-        : (() => {
-            const byId = new Map();
-            nextQueue.forEach((slot) => {
-              const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
-              const sid = String(getTradingSlotSessionId(slot) || meta.session_id || "").trim();
-              if (!sid) return;
-              const amount = Number(slot.amountUsd ?? slot.reserved_capital_usd ?? slot.amount_usd ?? 0) || 0;
-              const chain = String(slot.chain || slot.chain_key || "").toUpperCase().trim();
-              const asset = String(slot.symbol || slot.asset || "").toUpperCase().trim();
-              const state = String(slot.status || slot.state || "WAIT").toUpperCase();
-              const prev = byId.get(sid) || { id: sid, type: "TRADING", budgetUsd: 0, assets: [], chains: [], slots: 0, status: "WAIT", createdAt: slot.created_ts || Date.now(), updatedAt: 0, paperPnlUsd: 0, runtime: {} };
-              prev.budgetUsd += amount;
-              prev.slots += 1;
-              if (asset && !prev.assets.includes(asset)) prev.assets.push(asset);
-              if (chain && !prev.chains.includes(chain)) prev.chains.push(chain);
-              prev.updatedAt = Math.max(Number(prev.updatedAt || 0), Number(slot.updated_ts || 0) * 1000 || Number(slot.updatedAt || 0) || 0);
-              prev.createdAt = Math.min(Number(prev.createdAt || Date.now()), Number(slot.created_ts || 0) * 1000 || Number(slot.createdAt || Date.now()));
-              const pnl = Number(meta.shadow_pnl_usd ?? meta.paper_pnl_usd ?? slot.shadow_pnl_usd ?? 0);
-              if (Number.isFinite(pnl)) prev.paperPnlUsd += pnl;
-              if (meta.shadow_runtime_status) prev.runtime.status = meta.shadow_runtime_status;
-              if (state === "PROTECT") prev.status = "PROTECT";
-              else if (state === "ACTIVE" && prev.status !== "PROTECT") prev.status = "ACTIVE";
-              else if (state === "READY" && !["PROTECT", "ACTIVE"].includes(prev.status)) prev.status = "READY";
-              else if (["PAUSED", "HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(state) && !["PROTECT", "ACTIVE", "READY"].includes(prev.status)) prev.status = state;
-              byId.set(sid, prev);
-            });
-            return Array.from(byId.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-          })();
-
-      if (backendSessions.length) {
-        setTradingSessions((prev) => {
-          const local = Array.isArray(prev) ? prev : [];
-          const closed = local.filter((sess) => ["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(String(sess?.status || "").toUpperCase()));
-          const byId = new Map();
-          [...backendSessions, ...closed].forEach((sess) => {
-            const sid = String(sess?.id || "").trim();
-            if (!sid) return;
-            byId.set(sid, { ...(byId.get(sid) || {}), ...sess, updatedAt: sess.updatedAt || Date.now() });
-          });
-          return Array.from(byId.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)).slice(0, 50);
-        });
-
-        const openIds = new Set(backendSessions
-          .filter((sess) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(String(sess?.status || "").toUpperCase()))
-          .map((sess) => String(sess?.id || "")));
-        setActiveTradingSessionId((prev) => openIds.has(String(prev || "")) ? prev : String(backendSessions?.[0]?.id || prev || ""));
-      }
+      setTradingExecutionQueue(dedupeTradingQueue(execQueue));
     }
     const holdStatus = String(nexusBackendState?.hold_state?.status || "").toUpperCase();
     if (holdStatus) setTradingSessionStatus(holdStatus);
-  }, [nexusBackendState, dedupeTradingQueue, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessions, setActiveTradingSessionId]);
+  }, [nexusBackendState, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus]);
 
   const openTradingSessions = useMemo(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
@@ -7337,12 +7282,12 @@ useEffect(() => {
 
   const tradingQueueSummary = useMemo(() => {
     const queue = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [];
-    const active = queue.filter((s) => ["ACTIVE", "PROTECT"].includes(String(s.status || "").toUpperCase()));
-    const ready = queue.filter((s) => s.status === "READY");
-    const blocked = queue.filter((s) => s.status === "BLOCKED");
-    const wait = queue.filter((s) => s.status === "WAIT");
-    const hold = queue.filter((s) => ["HOLD", "OBSERVE"].includes(String(s.status || "").toUpperCase()));
-    const releaseRequired = queue.filter((s) => String(s.status || "").toUpperCase() === "RELEASE_REQUIRED");
+    const active = queue.filter((s) => ["ACTIVE", "PROTECT"].includes(String(s.status || s.state || "").toUpperCase()));
+    const ready = queue.filter((s) => String(s.status || s.state || "").toUpperCase() === "READY");
+    const blocked = queue.filter((s) => String(s.status || s.state || "").toUpperCase() === "BLOCKED");
+    const wait = queue.filter((s) => String(s.status || s.state || "").toUpperCase() === "WAIT");
+    const hold = queue.filter((s) => ["HOLD", "OBSERVE"].includes(String(s.status || s.state || "").toUpperCase()));
+    const releaseRequired = queue.filter((s) => String(s.status || s.state || "").toUpperCase() === "RELEASE_REQUIRED");
     const total = queue.reduce((sum, s) => sum + (Number(s.amountUsd) || 0), 0);
     return { queue, active, ready, blocked, wait, hold, releaseRequired, total };
   }, [tradingExecutionQueue]);
@@ -7359,17 +7304,13 @@ useEffect(() => {
       queue = selectedTradingSession.queue;
     }
 
-    queue = dedupeTradingQueue(queue).slice().sort((a, b) => {
-      const slotNo = (x) => { const m = String(x?.slot || x?.slot_id || "0").match(/\d+/); return m ? Number(m[0]) : 0; };
-      return slotNo(a) - slotNo(b);
-    });
-    const active = queue.filter((slot) => ["ACTIVE", "PROTECT"].includes(String(slot.status || slot.state || "").toUpperCase()));
-    const ready = queue.filter((slot) => String(slot.status || slot.state || "").toUpperCase() === "READY");
-    const blocked = queue.filter((slot) => String(slot.status || slot.state || "").toUpperCase() === "BLOCKED");
-    const wait = queue.filter((slot) => String(slot.status || slot.state || "").toUpperCase() === "WAIT");
-    const hold = queue.filter((slot) => ["HOLD", "OBSERVE"].includes(String(slot.status || slot.state || "").toUpperCase()));
-    const releaseRequired = queue.filter((slot) => String(slot.status || slot.state || "").toUpperCase() === "RELEASE_REQUIRED");
-    const total = queue.reduce((sum, slot) => sum + (Number(slot.amountUsd ?? slot.reserved_capital_usd ?? slot.amount_usd ?? 0) || 0), 0);
+    const active = queue.filter((slot) => ["ACTIVE", "PROTECT"].includes(String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase()));
+    const ready = queue.filter((slot) => String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "READY");
+    const blocked = queue.filter((slot) => String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "BLOCKED");
+    const wait = queue.filter((slot) => String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "WAIT");
+    const hold = queue.filter((slot) => ["HOLD", "OBSERVE"].includes(String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase()));
+    const releaseRequired = queue.filter((slot) => String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "RELEASE_REQUIRED");
+    const total = queue.reduce((sum, slot) => sum + (Number(slot.amountUsd) || 0), 0);
     return { queue, active, ready, blocked, wait, hold, releaseRequired, total };
   }, [tradingExecutionQueue, selectedTradingSessionId, selectedTradingSession, getTradingSlotSessionId]);
 
@@ -7377,12 +7318,12 @@ useEffect(() => {
     const raw = String(selectedTradingSession?.status || "").toUpperCase();
     if (raw) return raw;
     const q = tradingVisibleQueueSummary.queue || [];
-    if (q.some((slot) => String(slot.status || "").toUpperCase() === "PROTECT")) return "PROTECT";
-    if (q.some((slot) => String(slot.status || "").toUpperCase() === "ACTIVE")) return "ACTIVE";
-    if (q.some((slot) => String(slot.status || "").toUpperCase() === "HOLD")) return "HOLD";
-    if (q.some((slot) => String(slot.status || "").toUpperCase() === "OBSERVE")) return "OBSERVE";
-    if (q.some((slot) => String(slot.status || "").toUpperCase() === "WAIT")) return "WAIT";
-    if (q.some((slot) => String(slot.status || "").toUpperCase() === "BLOCKED")) return "WAIT";
+    if (q.some((slot) => String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "PROTECT")) return "PROTECT";
+    if (q.some((slot) => String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "ACTIVE")) return "ACTIVE";
+    if (q.some((slot) => String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "HOLD")) return "HOLD";
+    if (q.some((slot) => String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "OBSERVE")) return "OBSERVE";
+    if (q.some((slot) => String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "WAIT")) return "WAIT";
+    if (q.some((slot) => String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "BLOCKED")) return "WAIT";
     return tradingSessionLabel;
   }, [selectedTradingSession, tradingVisibleQueueSummary.queue, tradingSessionLabel]);
 
@@ -7588,6 +7529,7 @@ useEffect(() => {
         ...row,
         status: nextStatus,
         state: nextStatus,
+        shadow_display_state: nextStatus,
         chain: rowChain,
         chain_key: rowChain,
         session_id: rowSession,
@@ -7648,14 +7590,18 @@ useEffect(() => {
           ...slot,
           status: nextStatus,
           state: nextStatus,
+          shadow_display_state: nextStatus,
           chain: slotChain || chain,
           chain_key: slotChain || chain,
+          // Preserve UI/session fields, but copy all runtime output that drives display.
+          meta: preview.meta && typeof preview.meta === "object" ? { ...(slot.meta || {}), ...preview.meta } : slot.meta,
           priority: Number.isFinite(Number(preview.priority)) ? Number(preview.priority) : Number(slot.priority || 0),
           confidence: Number.isFinite(Number(preview.confidence)) ? Number(preview.confidence) : (preview.confidence_score ?? slot.confidence),
           confidence_score: Number.isFinite(Number(preview.confidence_score)) ? Number(preview.confidence_score) : (preview.confidence ?? slot.confidence_score),
           risk_score: Number.isFinite(Number(preview.risk_score)) ? Number(preview.risk_score) : Number(slot.risk_score || 0),
           condition: reason,
           shadowTransition: transition,
+          shadow_transition: transition,
           shadowLastRunId: runId,
           shadowUpdatedAt: now,
         };
@@ -7737,9 +7683,7 @@ useEffect(() => {
         source: "frontend_trading_panel_test_only",
         config: {
           session_id: selectedTradingSessionId || "",
-          // Use the selected session's own chain first. The visible market/grid chain
-          // may differ, and filtering by that caused runtime/no-queue or mixed-session views.
-          chain: (Array.isArray(selectedTradingSession?.chains) && selectedTradingSession.chains[0]) || activeGridChainKey || gridChain || "",
+          chain: activeGridChainKey || gridChain || "",
           runtime_hours: tradingRuntimeHours,
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
@@ -7761,7 +7705,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, selectedTradingSession, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState]);
 
   const runShadowRuntimeAction = useCallback(async (action = "tick") => {
     if (!wallet) {
@@ -7778,9 +7722,7 @@ useEffect(() => {
         config: {
           action,
           session_id: selectedTradingSessionId || "",
-          // Use the selected session's own chain first. The visible market/grid chain
-          // may differ, and filtering by that caused runtime/no-queue or mixed-session views.
-          chain: (Array.isArray(selectedTradingSession?.chains) && selectedTradingSession.chains[0]) || activeGridChainKey || gridChain || "",
+          chain: activeGridChainKey || gridChain || "",
           runtime_hours: tradingRuntimeHours,
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
@@ -7797,6 +7739,17 @@ useEffect(() => {
       const shadowQueue = Array.isArray(shadowRun?.queue) ? shadowRun.queue : [];
       applyShadowQueuePreview(shadowQueue, shadowRun);
       const runtimeStatus = String(res?.runtime_status || shadowRun?.summary?.runtime_status || shadowRun?.summary?.runtime?.status || action || "updated").toUpperCase();
+      if (String(action || "").toLowerCase() === "stop") {
+        const sid = String(selectedTradingSessionId || "").trim();
+        if (sid) {
+          setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).filter((slot) => String(getTradingSlotSessionId(slot) || "").trim() !== sid));
+          setTradingSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => String(sess?.id || "") === sid ? { ...sess, status: "STOPPED", stoppedAt: Date.now(), updatedAt: Date.now(), active: false } : sess));
+          updateTradingSessionMeta(sid, { status: "STOPPED", stoppedAt: Date.now(), active: false });
+          if (activeTradingSessionId === sid) setActiveTradingSessionId("");
+        }
+        setTradingSessionStatus("STOPPED");
+        setTradingSessionUpdatedTs(Date.now());
+      }
       setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun });
       const strategist = shadowRun?.summary?.runtime?.strategist || {};
       const extra = strategist?.driver ? ` Strategist: ${strategist.active_slots ?? 0} active, ${strategist.ready_slots ?? 0} ready, ${strategist.simulated_exits ?? 0} exited.` : "";
@@ -7807,7 +7760,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, selectedTradingSession, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessions, updateTradingSessionMeta, setActiveTradingSessionId, setTradingSessionStatus, setTradingSessionUpdatedTs]);
 
   useEffect(() => {
     const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
@@ -7964,7 +7917,7 @@ useEffect(() => {
       if (slot.status === "READY") {
         activatedOne = true;
         next = { ...next, status: "ACTIVE", activatedAt: now };
-      } else if (!activatedOne && idx === 0 && ["WAIT", "BLOCKED"].includes(String(slot.status || "").toUpperCase()) && Number(slot.priority || 0) >= 50) {
+      } else if (!activatedOne && idx === 0 && ["WAIT", "BLOCKED"].includes(String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase()) && Number(slot.priority || 0) >= 50) {
         // User-approved sessions must enter active monitoring instead of staying idle forever.
         // Risk decisions can still move the slot back to PROTECT/HOLD/BLOCKED afterwards.
         activatedOne = true;
@@ -7989,7 +7942,7 @@ useEffect(() => {
           budgetUsd: Number(String(tradingBudgetUsd || "").replace(",", ".")) || 0,
           assets,
           chains,
-          status: activeQueue.some((s) => String(s.status || "").toUpperCase() === "ACTIVE") ? "ACTIVE" : "WAIT",
+          status: activeQueue.some((s) => String(s.status || s.state || "").toUpperCase() === "ACTIVE") ? "ACTIVE" : "WAIT",
           slots: activeQueue.length,
           createdAt: now,
           updatedAt: now,
@@ -8058,7 +8011,7 @@ useEffect(() => {
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;
     const now = Date.now();
-    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => s.status === "READY" ? { ...s, status: "EXECUTED", executedAt: now } : s));
+    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => String(s.status || s.state || "").toUpperCase() === "READY" ? { ...s, status: "EXECUTED", executedAt: now } : s));
     setTradingSessionStatus("ACTIVE");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, executionQueue: tradingExecutionQueue, userAction: { started: true } });
@@ -8070,7 +8023,7 @@ useEffect(() => {
     const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
     setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => {
       const sameSession = !sid || String(getTradingSlotSessionId(s) || "") === sid;
-      return sameSession && ["ACTIVE", "READY"].includes(String(s.status || "").toUpperCase())
+      return sameSession && ["ACTIVE", "READY"].includes(String(s.status || s.state || "").toUpperCase())
         ? { ...s, status: "WAIT", pausedAt: now }
         : s;
     }));
@@ -8088,7 +8041,7 @@ useEffect(() => {
       let activated = false;
       return (Array.isArray(prev) ? prev : []).map((s) => {
         const sameSession = !sid || String(getTradingSlotSessionId(s) || "") === sid;
-        if (sameSession && !activated && String(s.status || "").toUpperCase() === "WAIT" && Number(s.priority || 0) >= 50) {
+        if (sameSession && !activated && String(s.status || s.state || "").toUpperCase() === "WAIT" && Number(s.priority || 0) >= 50) {
           activated = true;
           return { ...s, status: "ACTIVE", resumedAt: now };
         }
@@ -17976,9 +17929,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ display: "grid", gap: 6 }}>
                           {tradingVisibleQueueSummary.queue.map((slot) => (
                             <div
-                              key={slot.id || slot.queue_id || `${selectedTradingSessionId}-${slot.slot || slot.slot_id}-${slot.amountUsd ?? slot.reserved_capital_usd}`}
+                              key={slot.id || `${slot.slot}-${slot.amountUsd}`}
                               style={(() => {
-                                const st = String(slot.status || slot.state || "").toUpperCase();
+                                const st = String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase();
                                 const isGreen = ["ACTIVE", "READY", "EXECUTED"].includes(st);
                                 const isProtect = st === "PROTECT";
                                 const isWait = st === "WAIT";
@@ -17996,29 +17949,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               })()}
                             >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                <b style={{ color: "#eafff5" }}>Slot {slot.slot || slot.slot_id} · {fmtUsd(Number(slot.amountUsd ?? slot.reserved_capital_usd ?? slot.amount_usd ?? 0))}</b>
+                                <b style={{ color: "#eafff5" }}>Slot {slot.slot} · {fmtUsd(Number(slot.amountUsd || 0))}</b>
                                 <span
                                   className="tiny"
                                   style={{
-                                    color: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.status || "").toUpperCase()) ? "#7cf7a2" : String(slot.status || "").toUpperCase() === "PROTECT" ? "#ffd166" : String(slot.status || "").toUpperCase() === "WAIT" ? "#ffc107" : ["HOLD", "OBSERVE"].includes(String(slot.status || "").toUpperCase()) ? "#8bdcff" : String(slot.status || "").toUpperCase() === "RELEASE_REQUIRED" ? "#ffd166" : String(slot.status || "").toUpperCase() === "BLOCKED" ? "#ff6b6b" : "rgba(235,255,247,.72)",
+                                    color: ["ACTIVE", "READY", "EXECUTED"].includes(String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase()) ? "#7cf7a2" : String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "PROTECT" ? "#ffd166" : String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "WAIT" ? "#ffc107" : ["HOLD", "OBSERVE"].includes(String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase()) ? "#8bdcff" : String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "RELEASE_REQUIRED" ? "#ffd166" : String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "BLOCKED" ? "#ff6b6b" : "rgba(235,255,247,.72)",
                                     fontWeight: 900,
                                   }}
-                                >{String(slot.status || "WAIT").toUpperCase()} · priority {Math.round(Number(slot.priority || 0))}</span>
+                                >{String(slot.shadow_display_state || slot.status || slot.state || "WAIT").toUpperCase()} · priority {Math.round(Number(slot.priority || 0))}</span>
                               </div>
-                              <div className="muted tiny">{slot.symbol || slot.asset || "asset pending"} · {slot.riskMode || slot.risk_mode || ""} · {slot.confidence ?? slot.confidence_score ?? ""} · {slot.condition || slot.reason || ""}</div>
-                              {(() => {
-                                const meta = slot.meta && typeof slot.meta === "object" ? slot.meta : {};
-                                const pnlUsd = Number(meta.shadow_pnl_usd ?? meta.paper_pnl_usd ?? slot.shadow_pnl_usd);
-                                const pnlPct = Number(meta.shadow_pnl_pct ?? meta.paper_pnl_pct ?? slot.shadow_pnl_pct);
-                                const totalPnl = Number(meta.shadow_total_pnl_usd ?? meta.paper_total_pnl_usd ?? slot.shadow_total_pnl_usd ?? pnlUsd);
-                                if (!Number.isFinite(pnlUsd) && !Number.isFinite(pnlPct) && !Number.isFinite(totalPnl)) return null;
-                                const tone = (Number.isFinite(totalPnl) ? totalPnl : pnlUsd) >= 0 ? "#7cf7a2" : "#ff6b6b";
-                                return <div className="muted tiny" style={{ color: tone, fontWeight: 950 }}>Paper PnL: {Number.isFinite(pnlPct) ? `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : "—"} · {Number.isFinite(pnlUsd) ? `${pnlUsd >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlUsd))}` : "—"} · total {Number.isFinite(totalPnl) ? `${totalPnl >= 0 ? "+" : ""}${fmtUsd(Math.abs(totalPnl))}` : "—"}</div>;
-                              })()}
-                              {["PROTECT", "HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(String(slot.status || "").toUpperCase()) ? (
+                              <div className="muted tiny">{slot.symbol || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition}</div>
+                              {["PROTECT", "HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase()) ? (
                                 <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
                                   <div>
-                                    {String(slot.status || "").toUpperCase() === "PROTECT" ? "Protect mode active" : <>HOLD until {slot.holdUntil ? new Date(Number(slot.holdUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"} · max observe until {slot.observeUntil ? new Date(Number(slot.observeUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"}</>}
+                                    {String(slot.shadow_display_state || slot.status || slot.state || "").toUpperCase() === "PROTECT" ? "Protect mode active" : <>HOLD until {slot.holdUntil ? new Date(Number(slot.holdUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"} · max observe until {slot.observeUntil ? new Date(Number(slot.observeUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"}</>}
                                   </div>
                                   <details style={{ border: "1px solid rgba(139,220,255,.18)", borderRadius: 8, padding: "4px 6px", background: "rgba(64,196,255,.045)" }}>
                                     <summary style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}>Observe info</summary>
@@ -18136,10 +18080,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         >
                           {openTradingSessions.slice(0, 20).map((sess) => {
                             const sid = String(sess?.id || "");
-                            const pnl = Number(sess.paperPnlUsd || 0);
-                            const pnlText = Number.isFinite(pnl) && Math.abs(pnl) > 0.0001 ? ` · PnL ${pnl >= 0 ? "+" : "-"}${fmtUsd(Math.abs(pnl))}` : "";
-                            const rt = sess?.runtime?.status ? ` · ${String(sess.runtime.status).toUpperCase()}` : "";
-                            const label = `${(sess.assets || []).join(",") || "ASSET"} · ${fmtUsd(Number(sess.budgetUsd || 0))} · ${sess.slots || 0} slots · ${String(sess.status || "ACTIVE").toUpperCase()}${rt}${pnlText} · ${sid.slice(0, 18)}`;
+                            const label = `${(sess.assets || []).join(",") || "ASSET"} · ${fmtUsd(Number(sess.budgetUsd || 0))} · ${sess.slots || 0} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
                             return <option key={sid || `session-${sess?.createdAt || Math.random()}`} value={sid}>{label}</option>;
                           })}
                         </select>
@@ -18155,7 +18096,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }}
                           >
                             <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{(selectedTradingSession.assets || []).join(",") || "ASSET"} · {fmtUsd(Number(selectedTradingSession.budgetUsd || 0))} · {selectedTradingSession.slots || 0} slots</div>
-                            <div className="muted tiny" style={{ color: Number(selectedTradingSession.paperPnlUsd || 0) >= 0 ? "#7cf7a2" : "#ff6b6b", fontWeight: 900 }}>Session Paper PnL: {(Number(selectedTradingSession.paperPnlUsd || 0) >= 0 ? "+" : "-")}{fmtUsd(Math.abs(Number(selectedTradingSession.paperPnlUsd || 0)))} {selectedTradingSession?.runtime?.status ? `· Runtime ${String(selectedTradingSession.runtime.status).toUpperCase()}` : ""}</div>
                             <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                               {tradingCanPause ? (

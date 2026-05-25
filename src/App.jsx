@@ -7501,6 +7501,27 @@ useEffect(() => {
     const chain = String(preferredChain || "").toUpperCase().trim();
     const runId = String(shadowRun?.run_id || shadowRun?.id || "").trim();
 
+    const shadowPaperFields = (row = {}) => {
+      const meta = row && typeof row.meta === "object" ? row.meta : {};
+      const pickNum = (...values) => {
+        for (const value of values) {
+          const n = Number(value);
+          if (Number.isFinite(n)) return n;
+        }
+        return null;
+      };
+      return {
+        meta,
+        shadowEntryPrice: pickNum(row.shadow_entry_price, row.shadowEntryPrice, meta.shadow_entry_price),
+        shadowMarkPrice: pickNum(row.shadow_mark_price, row.shadowMarkPrice, meta.shadow_mark_price),
+        shadowPnlPct: pickNum(row.shadow_pnl_pct, row.shadowPnlPct, meta.shadow_last_pnl_pct, meta.shadow_unrealized_pnl_pct),
+        shadowPnlUsd: pickNum(row.shadow_pnl_usd, row.shadowPnlUsd, meta.shadow_last_pnl_usd, meta.shadow_unrealized_pnl_usd),
+        shadowTotalPnlUsd: pickNum(row.shadow_total_pnl_usd, row.shadowTotalPnlUsd, meta.shadow_total_pnl_usd),
+        shadowCycles: pickNum(row.shadow_cycles, row.shadowCycles, meta.shadow_cycles),
+        shadowStrategy: String(row.shadow_strategy || row.shadowStrategy || meta.shadow_strategy || ""),
+      };
+    };
+
     const keysFor = (slot = {}, idx = 0) => {
       const slotSession = String(getTradingSlotSessionId(slot) || sid || "").trim();
       const slotChain = String(slot?.chain || slot?.chain_key || slot?.network || chain || "").toUpperCase().trim();
@@ -7525,8 +7546,10 @@ useEffect(() => {
       const transition = row.shadow_transition && typeof row.shadow_transition === "object" ? row.shadow_transition : {};
       const rowChain = String(row?.chain || row?.chain_key || row?.network || chain || "").toUpperCase().trim();
       const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || sid || "").trim();
+      const paper = shadowPaperFields(row);
       return {
         ...row,
+        meta: { ...(paper.meta || {}) },
         status: nextStatus,
         state: nextStatus,
         chain: rowChain,
@@ -7536,6 +7559,13 @@ useEffect(() => {
         confidence: Number.isFinite(Number(row.confidence)) ? Number(row.confidence) : row.confidence_score,
         confidence_score: Number.isFinite(Number(row.confidence_score)) ? Number(row.confidence_score) : row.confidence,
         risk_score: Number.isFinite(Number(row.risk_score)) ? Number(row.risk_score) : 0,
+        shadowEntryPrice: paper.shadowEntryPrice,
+        shadowMarkPrice: paper.shadowMarkPrice,
+        shadowPnlPct: paper.shadowPnlPct,
+        shadowPnlUsd: paper.shadowPnlUsd,
+        shadowTotalPnlUsd: paper.shadowTotalPnlUsd,
+        shadowCycles: paper.shadowCycles,
+        shadowStrategy: paper.shadowStrategy,
         condition: String(transition.reason || row.condition || row.reason || "Shadow updated this slot."),
         shadowTransition: transition,
         shadowLastRunId: runId,
@@ -7585,8 +7615,10 @@ useEffect(() => {
         if (nextStatus === "READY") hasReady = true;
         if (nextStatus === "PROTECT") hasProtect = true;
 
+        const paper = shadowPaperFields(preview);
         return {
           ...slot,
+          meta: { ...(slot.meta || {}), ...(paper.meta || {}) },
           status: nextStatus,
           state: nextStatus,
           chain: slotChain || chain,
@@ -7595,6 +7627,13 @@ useEffect(() => {
           confidence: Number.isFinite(Number(preview.confidence)) ? Number(preview.confidence) : (preview.confidence_score ?? slot.confidence),
           confidence_score: Number.isFinite(Number(preview.confidence_score)) ? Number(preview.confidence_score) : (preview.confidence ?? slot.confidence_score),
           risk_score: Number.isFinite(Number(preview.risk_score)) ? Number(preview.risk_score) : Number(slot.risk_score || 0),
+          shadowEntryPrice: paper.shadowEntryPrice ?? slot.shadowEntryPrice,
+          shadowMarkPrice: paper.shadowMarkPrice ?? slot.shadowMarkPrice,
+          shadowPnlPct: paper.shadowPnlPct ?? slot.shadowPnlPct,
+          shadowPnlUsd: paper.shadowPnlUsd ?? slot.shadowPnlUsd,
+          shadowTotalPnlUsd: paper.shadowTotalPnlUsd ?? slot.shadowTotalPnlUsd,
+          shadowCycles: paper.shadowCycles ?? slot.shadowCycles,
+          shadowStrategy: paper.shadowStrategy || slot.shadowStrategy,
           condition: reason,
           shadowTransition: transition,
           shadowLastRunId: runId,
@@ -7722,6 +7761,9 @@ useEffect(() => {
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
           max_slippage_pct: tradingMaxSlippagePct,
+          tick_sec: 180,
+          shadow_active_slots: 1,
+          shadow_ready_slots: 2,
           persist_state: true,
         },
       };
@@ -17911,7 +17953,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         }}
                       >
                         <div style={{ display: "grid", gap: 6 }}>
-                          {tradingVisibleQueueSummary.queue.map((slot) => (
+                          {tradingVisibleQueueSummary.queue.map((slot) => {
+                            const shadowMeta = slot && typeof slot.meta === "object" ? slot.meta : {};
+                            const shadowPnlPct = Number(slot.shadowPnlPct ?? shadowMeta.shadow_last_pnl_pct ?? shadowMeta.shadow_unrealized_pnl_pct);
+                            const shadowPnlUsd = Number(slot.shadowPnlUsd ?? shadowMeta.shadow_last_pnl_usd ?? shadowMeta.shadow_unrealized_pnl_usd);
+                            const shadowTotalPnlUsd = Number(slot.shadowTotalPnlUsd ?? shadowMeta.shadow_total_pnl_usd);
+                            const hasShadowPnl = Number.isFinite(shadowPnlPct) || Number.isFinite(shadowPnlUsd) || Number.isFinite(shadowTotalPnlUsd);
+                            const pnlColor = Number.isFinite(shadowPnlUsd) && shadowPnlUsd < 0 ? "#ff6b6b" : Number.isFinite(shadowPnlPct) && shadowPnlPct < 0 ? "#ff6b6b" : "#7cf7a2";
+                            return (
                             <div
                               key={slot.id || `${slot.slot}-${slot.amountUsd}`}
                               style={(() => {
@@ -17943,6 +17992,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 >{String(slot.status || "WAIT").toUpperCase()} · priority {Math.round(Number(slot.priority || 0))}</span>
                               </div>
                               <div className="muted tiny">{slot.symbol || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition}</div>
+                              {hasShadowPnl ? (
+                                <div className="tiny" style={{ color: pnlColor, fontWeight: 950 }}>
+                                  Paper PnL: {Number.isFinite(shadowPnlPct) ? `${shadowPnlPct >= 0 ? "+" : ""}${shadowPnlPct.toFixed(2)}%` : "—"}
+                                  {Number.isFinite(shadowPnlUsd) ? ` · ${shadowPnlUsd >= 0 ? "+" : ""}${fmtUsd(shadowPnlUsd)}` : ""}
+                                  {Number.isFinite(shadowTotalPnlUsd) ? ` · total ${shadowTotalPnlUsd >= 0 ? "+" : ""}${fmtUsd(shadowTotalPnlUsd)}` : ""}
+                                </div>
+                              ) : null}
                               {["PROTECT", "HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(String(slot.status || "").toUpperCase()) ? (
                                 <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
                                   <div>
@@ -17957,7 +18013,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 </div>
                               ) : null}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ) : null}

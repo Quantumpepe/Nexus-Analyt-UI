@@ -7102,6 +7102,40 @@ useEffect(() => {
     return 0;
   }, []);
 
+  const getTradingSlotCollectedProfitUsd = useCallback((slot = {}) => {
+    const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+    const candidates = [
+      slot.paper_collected_profit_usd,
+      slot.collected_profit_usd,
+      slot.paper_realized_total_usd,
+      meta.paper_collected_profit_usd,
+      meta.collected_profit_usd,
+      meta.paper_realized_total_usd,
+    ];
+    for (const value of candidates) {
+      const n = Number(String(value ?? "").replace(",", "."));
+      if (Number.isFinite(n)) return n;
+    }
+    return 0;
+  }, []);
+
+  const getTradingSessionProfitUsd = useCallback((sess = {}) => {
+    const explicit = [
+      sess.collectedProfitUsd,
+      sess.collected_profit_usd,
+      sess.paperCollectedProfitUsd,
+      sess.paper_collected_profit_usd,
+      sess.realizedProfitUsd,
+      sess.realized_profit_usd,
+    ];
+    for (const value of explicit) {
+      const n = Number(String(value ?? "").replace(",", "."));
+      if (Number.isFinite(n)) return n;
+    }
+    const q = Array.isArray(sess.queue) ? sess.queue : [];
+    return Number(q.reduce((sum, slot) => sum + getTradingSlotCollectedProfitUsd(slot), 0).toFixed(4));
+  }, [getTradingSlotCollectedProfitUsd]);
+
   const getTradingSessionBudgetUsd = useCallback((sess = {}) => {
     const explicit = [sess.budgetUsd, sess.approvedBudgetUsd, sess.reservedCapitalUsd, sess.allocatedUsd, sess.amountUsd];
     for (const value of explicit) {
@@ -7278,12 +7312,14 @@ useEffect(() => {
         chains: asset ? [asset] : (chain ? [chain] : []),
         queue: [],
         approvedBudgetUsd: 0,
+        collectedProfitUsd: 0,
         approvedAt: Number(slot?.created_ts || 0) ? Number(slot.created_ts) * 1000 : Date.now(),
         updatedAt: Number(slot?.updated_ts || 0) ? Number(slot.updated_ts) * 1000 : Date.now(),
         restoredFromBackend: true,
       };
       if (asset && !existing.chains.includes(asset)) existing.chains.push(asset);
       existing.approvedBudgetUsd = Number((Number(existing.approvedBudgetUsd || 0) + amount).toFixed(2));
+      existing.collectedProfitUsd = Number((Number(existing.collectedProfitUsd || 0) + getTradingSlotCollectedProfitUsd(slot)).toFixed(4));
       existing.updatedAt = Math.max(Number(existing.updatedAt || 0), Number(slot?.updated_ts || 0) ? Number(slot.updated_ts) * 1000 : Date.now());
       existing.queue.push({
         ...slot,
@@ -7301,7 +7337,7 @@ useEffect(() => {
     });
 
     return Array.from(bySession.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-  }, [getTradingSlotSessionId, activeGridChainKey, getTradingSlotAmountUsd, getTradingSlotDisplayAsset]);
+  }, [getTradingSlotSessionId, activeGridChainKey, getTradingSlotAmountUsd, getTradingSlotDisplayAsset, getTradingSlotCollectedProfitUsd]);
 
   // One-time/local cleanup for queues that were polluted by an older Shadow preview merge.
   // This removes duplicated slot cards from localStorage without touching stopped sessions.
@@ -17945,11 +17981,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const px = Number(activeGridNativeUsd || 0);
                           const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
                           const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
-                          const tradingAllocatedUsd = (Array.isArray(openTradingSessions) ? openTradingSessions : []).reduce((sum, sess) => {
+                          const activeTradingSessions = (Array.isArray(openTradingSessions) ? openTradingSessions : []);
+                          const tradingAllocatedUsd = activeTradingSessions.reduce((sum, sess) => {
                             const st = String(sess?.status || "").toUpperCase();
                             if (["RELEASED", "CLOSED", "EXPIRED"].includes(st)) return sum;
                             return sum + getTradingSessionBudgetUsd(sess);
                           }, 0);
+                          const tradingCollectedProfitUsd = activeTradingSessions.reduce((sum, sess) => sum + getTradingSessionProfitUsd(sess), 0);
                           const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - tradingAllocatedUsd);
                           const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + tradingAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
                           return (
@@ -17958,7 +17996,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Grid allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div><b>Trading allocated:</b> {tradingAllocatedUsd ? fmtUsd(tradingAllocatedUsd) : "$0.00"}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
-                              <div style={{ gridColumn: isCompactMobile ? "auto" : "1 / -1" }}><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
+                              <div style={{ color: tradingCollectedProfitUsd >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}><b>Collected Profit:</b> {`${tradingCollectedProfitUsd >= 0 ? "+" : "-"}${fmtUsd(Math.abs(tradingCollectedProfitUsd))}`}</div>
+                              <div><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
                             </>
                           );
                         })()}
@@ -18322,7 +18361,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           {openTradingSessions.slice(0, 20).map((sess) => {
                             const sid = String(sess?.id || "");
                             const primaryAsset = getTradingSessionPrimaryAsset(sess);
-                            const label = `${primaryAsset || "ASSET"} · ${fmtUsd(getTradingSessionBudgetUsd(sess))} · ${getTradingSessionSlotCount(sess)} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
+                            const sessionProfit = getTradingSessionProfitUsd(sess);
+                            const profitLabel = `${sessionProfit >= 0 ? "+" : "-"}${fmtUsd(Math.abs(sessionProfit))}`;
+                            const label = `${primaryAsset || "ASSET"} · ${fmtUsd(getTradingSessionBudgetUsd(sess))} · Profit ${profitLabel} · ${getTradingSessionSlotCount(sess)} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
                             return <option key={sid || `session-${sess?.createdAt || Math.random()}`} value={sid}>{label}</option>;
                           })}
                         </select>
@@ -18338,6 +18379,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }}
                           >
                             <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{getTradingSessionPrimaryAsset(selectedTradingSession) || "ASSET"} · {fmtUsd(getTradingSessionBudgetUsd(selectedTradingSession))} · {getTradingSessionSlotCount(selectedTradingSession)} slots</div>
+                            <div className="muted tiny" style={{ color: getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}>Session Profit: {`${getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "+" : "-"}${fmtUsd(Math.abs(getTradingSessionProfitUsd(selectedTradingSession)))}`}</div>
                             <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                               {tradingCanPause ? (

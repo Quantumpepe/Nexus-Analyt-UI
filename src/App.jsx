@@ -7408,26 +7408,22 @@ useEffect(() => {
       return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st);
     });
 
-    // UI safety: one active Trading/Shadow session per chain/asset. If an old
-    // browser-stopped POL session is still present in local/backend hydration, keep
-    // the newest current POL budget and hide the stale duplicate from Active sessions.
-    const byAsset = new Map();
-    active.forEach((sess) => {
-      const key = String(
-        sess?.asset ||
-        sess?.symbol ||
-        (Array.isArray(sess?.chains) ? sess.chains[0] : "") ||
-        "ASSET"
-      ).toUpperCase().trim();
-      const prev = byAsset.get(key);
-      const score = [Number(sess?.updatedAt || 0), Number(sess?.approvedBudgetUsd || 0), Number(sess?.approvedAt || 0)];
-      const prevScore = prev ? [Number(prev?.updatedAt || 0), Number(prev?.approvedBudgetUsd || 0), Number(prev?.approvedAt || 0)] : null;
-      if (!prev || score[0] > prevScore[0] || (score[0] === prevScore[0] && (score[1] > prevScore[1] || (score[1] === prevScore[1] && score[2] >= prevScore[2])))) {
-        byAsset.set(key, sess);
+    // IMPORTANT: multiple independent budgets/sessions per chain/asset are allowed.
+    // Do NOT dedupe by asset/chain here. A user can start ETH 500$ + ETH 500$
+    // as two separate signed/approved Trading sessions, and both must remain visible.
+    // Old POL duplicate bugs must be prevented by proper session_id/runtime_id matching
+    // in the queue layer, not by hiding valid sessions with the same asset.
+    const bySessionId = new Map();
+    active.forEach((sess, idx) => {
+      const sid = String(sess?.id || sess?.session_id || sess?.sessionId || sess?.baseSessionId || `SESSION-${idx}`).trim();
+      if (!sid) return;
+      const prev = bySessionId.get(sid);
+      if (!prev || Number(sess?.updatedAt || 0) >= Number(prev?.updatedAt || 0)) {
+        bySessionId.set(sid, sess);
       }
     });
 
-    return Array.from(byAsset.values()).sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
+    return Array.from(bySessionId.values()).sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
   }, [tradingSessions]);
 
   const stoppedTradingSessions = useMemo(() => {

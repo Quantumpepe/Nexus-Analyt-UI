@@ -18397,19 +18397,33 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
                                 const pnlPct = Number(slot.paper_pnl_pct ?? meta.paper_pnl_pct);
                                 const pnlUsd = Number(slot.paper_pnl_usd ?? meta.paper_pnl_usd);
+                                const grossPnl = Number(slot.paper_gross_pnl_usd ?? meta.paper_gross_pnl_usd ?? pnlUsd);
+                                const netPnl = Number(slot.paper_net_pnl_usd ?? meta.paper_net_pnl_usd);
+                                const estCosts = Number(slot.paper_estimated_costs_usd ?? meta.paper_estimated_costs_usd);
+                                const estGas = Number(slot.paper_estimated_gas_usd ?? meta.paper_estimated_gas_usd);
+                                const estDex = Number(slot.paper_estimated_dex_fee_usd ?? meta.paper_estimated_dex_fee_usd);
+                                const estSlip = Number(slot.paper_estimated_slippage_usd ?? meta.paper_estimated_slippage_usd);
                                 const pnlTotal = Number(slot.paper_cycle_realized_usd ?? meta.paper_cycle_realized_usd ?? slot.paper_pnl_total_usd ?? meta.paper_pnl_total_usd);
                                 const entryPx = Number(slot.paper_entry_price ?? meta.paper_entry_price);
                                 const markPx = Number(slot.paper_mark_price ?? meta.paper_mark_price);
                                 const exitPx = Number(slot.paper_exit_price ?? meta.paper_exit_price);
                                 if (!Number.isFinite(pnlPct) && !Number.isFinite(pnlUsd) && !Number.isFinite(pnlTotal) && !Number.isFinite(entryPx) && !Number.isFinite(markPx) && !Number.isFinite(exitPx)) return null;
-                                const positive = (Number.isFinite(pnlUsd) ? pnlUsd : pnlPct) >= 0;
+                                const effectivePnl = Number.isFinite(netPnl) ? netPnl : (Number.isFinite(pnlUsd) ? pnlUsd : pnlPct);
+                                const positive = effectivePnl >= 0;
                                 return (
                                   <div style={{ display: "grid", gap: 2 }}>
                                     <div className="tiny" style={{ color: positive ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
                                       Paper PnL: {Number.isFinite(pnlPct) ? `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : "—"}
-                                      {Number.isFinite(pnlUsd) ? ` · ${pnlUsd >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlUsd))}` : ""}
+                                      {Number.isFinite(grossPnl) ? ` · gross ${grossPnl >= 0 ? "+" : ""}${fmtUsd(Math.abs(grossPnl))}` : ""}
+                                      {Number.isFinite(estCosts) && estCosts > 0 ? ` · costs -${fmtUsd(estCosts)}` : ""}
+                                      {Number.isFinite(netPnl) ? ` · net ${netPnl >= 0 ? "+" : ""}${fmtUsd(Math.abs(netPnl))}` : ""}
                                       {Number.isFinite(pnlTotal) ? ` · cycle ${pnlTotal >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlTotal))}` : ""}
                                     </div>
+                                    {Number.isFinite(estCosts) && estCosts > 0 ? (
+                                      <div className="muted tiny" style={{ color: "#ffd166" }}>
+                                        Estimated costs: Gas {Number.isFinite(estGas) ? fmtUsd(estGas) : "—"} · DEX {Number.isFinite(estDex) ? fmtUsd(estDex) : "—"} · Slippage {Number.isFinite(estSlip) ? fmtUsd(estSlip) : "—"}
+                                      </div>
+                                    ) : null}
                                     {(Number.isFinite(entryPx) || Number.isFinite(markPx) || Number.isFinite(exitPx)) ? (
                                       <div className="muted tiny">
                                         Paper price / Kurs: Entry {Number.isFinite(entryPx) ? fmtUsd(entryPx) : "—"} · Current {Number.isFinite(markPx) ? fmtUsd(markPx) : "—"}{Number.isFinite(exitPx) ? ` · Exit ${fmtUsd(exitPx)}` : ""}

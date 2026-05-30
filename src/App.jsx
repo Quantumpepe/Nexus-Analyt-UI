@@ -7115,16 +7115,21 @@ useEffect(() => {
     const candidates = [
       slot.paper_collected_profit_usd,
       slot.collected_profit_usd,
+      slot.realized_profit_usd,
       slot.paper_realized_total_usd,
       meta.paper_collected_profit_usd,
       meta.collected_profit_usd,
+      meta.realized_profit_usd,
       meta.paper_realized_total_usd,
     ];
-    for (const value of candidates) {
-      const n = Number(String(value ?? "").replace(",", "."));
-      if (Number.isFinite(n)) return n;
-    }
-    return 0;
+    const nums = candidates
+      .map((value) => Number(String(value ?? "").replace(",", ".")))
+      .filter((n) => Number.isFinite(n));
+    if (!nums.length) return 0;
+    const nonZero = nums.filter((n) => Math.abs(n) > 0.0001);
+    if (!nonZero.length) return 0;
+    // Avoid stale top-level 0 hiding the real value inside meta.
+    return nonZero.reduce((best, n) => Math.abs(n) > Math.abs(best) ? n : best, nonZero[0]);
   }, []);
 
   const getTradingSessionProfitUsd = useCallback((sess = {}) => {
@@ -7835,8 +7840,17 @@ useEffect(() => {
       if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED"].includes(st)) return;
       const symbol = String(row.symbol || row.asset || meta.asset || "").toUpperCase();
       const amountUsd = Number(row.amountUsd ?? row.reserved_capital_usd ?? row.amount_usd ?? meta.amountUsd ?? 0);
+      const paperCollected = getTradingSlotCollectedProfitUsd(row);
+      const nextMeta = {
+        ...meta,
+        paper_collected_profit_usd: Math.abs(paperCollected) > 0.0001 ? paperCollected : meta.paper_collected_profit_usd,
+        collected_profit_usd: Math.abs(paperCollected) > 0.0001 ? paperCollected : meta.collected_profit_usd,
+        realized_profit_usd: Math.abs(paperCollected) > 0.0001 ? paperCollected : meta.realized_profit_usd,
+        paper_realized_total_usd: Math.abs(paperCollected) > 0.0001 ? paperCollected : meta.paper_realized_total_usd,
+      };
       const normalized = {
         ...row,
+        meta: nextMeta,
         id: row.id || row.queue_id || `${rowSession || sid || "SESSION"}-${rowChain || chain || "CHAIN"}-${slotNo}-${symbol || "ASSET"}`,
         queue_id: row.queue_id || row.id || `${rowSession || sid || "SESSION"}-${rowChain || chain || "CHAIN"}-${slotNo}-${symbol || "ASSET"}`,
         status: st,
@@ -7858,6 +7872,10 @@ useEffect(() => {
         risk_score: Number.isFinite(Number(row.risk_score)) ? Number(row.risk_score) : 0,
         condition: String(transition.reason || row.condition || row.reason || "Strategist updated this slot."),
         shadowTransition: transition,
+        paper_collected_profit_usd: paperCollected,
+        collected_profit_usd: paperCollected,
+        realized_profit_usd: paperCollected,
+        paper_realized_total_usd: paperCollected,
         shadowLastRunId: runId,
         shadowUpdatedAt: now,
       };
@@ -7886,8 +7904,13 @@ useEffect(() => {
 
     setTradingSessionStatus(nextSessionStatus);
     setTradingSessionUpdatedTs(now);
+    const replacementCollectedProfitUsd = Number(replacement.reduce((sum, slot) => sum + getTradingSlotCollectedProfitUsd(slot), 0).toFixed(4));
     updateTradingSessionMeta(sid, {
       status: nextSessionStatus,
+      collectedProfitUsd: replacementCollectedProfitUsd,
+      collected_profit_usd: replacementCollectedProfitUsd,
+      paperCollectedProfitUsd: replacementCollectedProfitUsd,
+      paper_collected_profit_usd: replacementCollectedProfitUsd,
       shadowLastRunId: runId,
       shadowAppliedAt: now,
       shadowAppliedSlots: replacement.length,
@@ -7916,7 +7939,7 @@ useEffect(() => {
     });
 
     return true;
-  }, [selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, tradingVisibleQueueSummary, getTradingSlotSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingPreparedSetup]);
+  }, [selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, tradingVisibleQueueSummary, getTradingSlotSessionId, getTradingSlotCollectedProfitUsd, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingPreparedSetup]);
 
   const runShadowExecutorValidation = useCallback(async () => {
     if (!wallet) {

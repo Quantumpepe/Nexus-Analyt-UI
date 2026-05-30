@@ -7895,8 +7895,9 @@ useEffect(() => {
 
     const hasActive = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "ACTIVE");
     const hasReady = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "READY");
+    const hasPaused = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "PAUSED");
     const hasProtect = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "PROTECT");
-    const nextSessionStatus = hasProtect ? "PROTECT" : hasActive ? "ACTIVE" : hasReady ? "ACTIVE" : "WAIT";
+    const nextSessionStatus = hasPaused ? "PAUSED" : hasProtect ? "PROTECT" : hasActive ? "ACTIVE" : hasReady ? "ACTIVE" : "WAIT";
 
     setTradingSessionStatus(nextSessionStatus);
     setTradingSessionUpdatedTs(now);
@@ -7986,6 +7987,9 @@ useEffect(() => {
     setShadowExecutorMsg("");
     try {
       const currentQueue = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+      const sessionMeta = selectedTradingSession && typeof selectedTradingSession === "object" ? selectedTradingSession : {};
+      const sessionExpiresTs = Number(sessionMeta.expires_ts || sessionMeta.session_expires_ts || (sessionMeta.expiresAt ? Math.floor(Number(sessionMeta.expiresAt) / 1000) : 0)) || 0;
+      const sessionRuntimeHours = Number(sessionMeta.runtime_hours || sessionMeta.runtimeHours || normalizeTradingRuntimeHours()) || normalizeTradingRuntimeHours();
       const body = {
         action,
         source: "frontend_shadow_runtime",
@@ -7994,8 +7998,10 @@ useEffect(() => {
           session_id: selectedTradingSessionId || "",
           base_session_id: normalizeTradingSessionBaseId(selectedTradingSessionId || ""),
           chain: activeGridChainKey || gridChain || "",
-          runtime_hours: normalizeTradingRuntimeHours(),
+          runtime_hours: sessionRuntimeHours,
           runtime_unit: tradingRuntimeUnit,
+          expires_ts: sessionExpiresTs || undefined,
+          session_expires_ts: sessionExpiresTs || undefined,
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
           max_slippage_pct: tradingMaxSlippagePct,
@@ -8033,7 +8039,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingSessionIdMatches, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSession, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingSessionIdMatches, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
 
   useEffect(() => {
     const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
@@ -8182,11 +8188,35 @@ useEffect(() => {
     }
     const now = Date.now();
     const sessionId = makeNexusSessionId("TRD");
+    const runtimeHoursNum = normalizeTradingRuntimeHours();
+    const sessionStartedAt = now;
+    const sessionExpiresAt = now + Math.round(runtimeHoursNum * 3600 * 1000);
+    const sessionExpiresTs = Math.floor(sessionExpiresAt / 1000);
     setActiveTradingSessionId(sessionId);
     const queue = buildTradingQueue();
     let activatedOne = false;
     const activeQueue = (Array.isArray(queue) ? queue : []).map((slot, idx) => {
-      let next = { ...slot, session_id: sessionId, sessionId, trade_session_id: sessionId };
+      const slotMeta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+      let next = {
+        ...slot,
+        session_id: sessionId,
+        sessionId,
+        trade_session_id: sessionId,
+        runtime_hours: runtimeHoursNum,
+        session_started_ts: Math.floor(sessionStartedAt / 1000),
+        session_expires_ts: sessionExpiresTs,
+        expires_ts: sessionExpiresTs,
+        expiresAt: sessionExpiresAt,
+        meta: {
+          ...slotMeta,
+          session_id: sessionId,
+          trade_session_id: sessionId,
+          runtime_hours: runtimeHoursNum,
+          session_started_ts: Math.floor(sessionStartedAt / 1000),
+          session_expires_ts: sessionExpiresTs,
+          expires_ts: sessionExpiresTs,
+        },
+      };
       if (slot.status === "READY") {
         activatedOne = true;
         next = { ...next, status: "ACTIVE", activatedAt: now };
@@ -8217,6 +8247,10 @@ useEffect(() => {
           chains,
           status: activeQueue.some((s) => String(s.status || "").toUpperCase() === "ACTIVE") ? "ACTIVE" : "WAIT",
           slots: activeQueue.length,
+          runtimeHours: runtimeHoursNum,
+          runtime_hours: runtimeHoursNum,
+          expiresAt: sessionExpiresAt,
+          expires_ts: sessionExpiresTs,
           createdAt: now,
           updatedAt: now,
         },
@@ -8231,6 +8265,10 @@ useEffect(() => {
       approvedBudgetUsd: tradingBudgetUsd,
       approvedAt: now,
       startedAt: now,
+      runtimeHours: runtimeHoursNum,
+      runtime_hours: runtimeHoursNum,
+      expiresAt: sessionExpiresAt,
+      expires_ts: sessionExpiresTs,
       holdHours: clampTradingHoldHours(tradingHoldHours),
       observeMaxHours: 12,
       preflight: tradingPreflight,
@@ -8268,7 +8306,11 @@ useEffect(() => {
             reserved_capital_usd: Number(slot?.reserved_capital_usd || slot?.amountUsd || 0),
             session_id: sessionId,
             trade_session_id: sessionId,
-            meta: { ...(slot?.meta || {}), session_id: sessionId, source: "frontend_budget_approval" },
+            runtime_hours: runtimeHoursNum,
+            session_started_ts: Math.floor(sessionStartedAt / 1000),
+            session_expires_ts: sessionExpiresTs,
+            expires_ts: sessionExpiresTs,
+            meta: { ...(slot?.meta || {}), session_id: sessionId, trade_session_id: sessionId, runtime_hours: runtimeHoursNum, session_started_ts: Math.floor(sessionStartedAt / 1000), session_expires_ts: sessionExpiresTs, expires_ts: sessionExpiresTs, source: "frontend_budget_approval" },
             signals: slot?.signals || {},
             reason: slot?.condition || slot?.reason || "Created from approved Trading session.",
           },
@@ -8279,7 +8321,7 @@ useEffect(() => {
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
     setErrorMsg(`Trading session created: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Enter the next budget and approve/sign again when you want another independent session.`);
-  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, normalizeTradingRuntimeHours, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
 
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;

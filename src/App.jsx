@@ -7120,6 +7120,12 @@ useEffect(() => {
   }, []);
 
   const getTradingSessionProfitUsd = useCallback((sess = {}) => {
+    // Backend slot meta is the most reliable source after Shadow recycle:
+    // each slot keeps its protected/collected profit separately while the
+    // current cycle PnL resets to zero.
+    const q = Array.isArray(sess.queue) ? sess.queue : [];
+    const queueProfit = Number(q.reduce((sum, slot) => sum + getTradingSlotCollectedProfitUsd(slot), 0).toFixed(4));
+
     const explicit = [
       sess.collectedProfitUsd,
       sess.collected_profit_usd,
@@ -7128,12 +7134,18 @@ useEffect(() => {
       sess.realizedProfitUsd,
       sess.realized_profit_usd,
     ];
+    let explicitProfit = 0;
     for (const value of explicit) {
       const n = Number(String(value ?? "").replace(",", "."));
-      if (Number.isFinite(n)) return n;
+      if (Number.isFinite(n)) {
+        explicitProfit = n;
+        break;
+      }
     }
-    const q = Array.isArray(sess.queue) ? sess.queue : [];
-    return Number(q.reduce((sum, slot) => sum + getTradingSlotCollectedProfitUsd(slot), 0).toFixed(4));
+
+    // Avoid a stale explicit 0 hiding real collected slot profit.
+    if (Math.abs(queueProfit) > 0.0001) return queueProfit;
+    return explicitProfit;
   }, [getTradingSlotCollectedProfitUsd]);
 
   const getTradingSessionBudgetUsd = useCallback((sess = {}) => {
@@ -18217,7 +18229,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
                                 const pnlPct = Number(slot.paper_pnl_pct ?? meta.paper_pnl_pct);
                                 const pnlUsd = Number(slot.paper_pnl_usd ?? meta.paper_pnl_usd);
-                                const pnlTotal = Number(slot.paper_pnl_total_usd ?? meta.paper_pnl_total_usd);
+                                const pnlTotal = Number(slot.paper_cycle_realized_usd ?? meta.paper_cycle_realized_usd ?? slot.paper_pnl_total_usd ?? meta.paper_pnl_total_usd);
                                 const entryPx = Number(slot.paper_entry_price ?? meta.paper_entry_price);
                                 const markPx = Number(slot.paper_mark_price ?? meta.paper_mark_price);
                                 const exitPx = Number(slot.paper_exit_price ?? meta.paper_exit_price);
@@ -18228,7 +18240,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     <div className="tiny" style={{ color: positive ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
                                       Paper PnL: {Number.isFinite(pnlPct) ? `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : "—"}
                                       {Number.isFinite(pnlUsd) ? ` · ${pnlUsd >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlUsd))}` : ""}
-                                      {Number.isFinite(pnlTotal) ? ` · total ${pnlTotal >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlTotal))}` : ""}
+                                      {Number.isFinite(pnlTotal) ? ` · cycle ${pnlTotal >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlTotal))}` : ""}
                                     </div>
                                     {(Number.isFinite(entryPx) || Number.isFinite(markPx) || Number.isFinite(exitPx)) ? (
                                       <div className="muted tiny">

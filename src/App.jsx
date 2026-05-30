@@ -7049,6 +7049,7 @@ useEffect(() => {
   const [tradingCautionDrawdownPct, setTradingCautionDrawdownPct] = useState("3");
   const [tradingHardStopPct, setTradingHardStopPct] = useState("12");
   const [tradingProfitLockPct, setTradingProfitLockPct] = useState("20");
+  const [tradingReuseProfitPct, setTradingReuseProfitPct] = useState("0");
   const [tradingMaxSlippagePct, setTradingMaxSlippagePct] = useState("1.2");
   const [tradingMaxTrades, setTradingMaxTrades] = useState("6");
   const [tradingConfidenceMin, setTradingConfidenceMin] = useState("MEDIUM");
@@ -7089,6 +7090,12 @@ useEffect(() => {
     const hours = u.startsWith("day") || u === "tage" || u === "days" ? safe * 24 : safe;
     return Math.max(1, Math.min(24 * 30, Math.round(hours * 100) / 100));
   }, [tradingRuntimeHours, tradingRuntimeUnit]);
+
+  const normalizeTradingReuseProfitPct = useCallback((value = tradingReuseProfitPct) => {
+    const n = Number(String(value ?? "0").replace(",", "."));
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, Math.round(n * 100) / 100));
+  }, [tradingReuseProfitPct]);
 
   const getTradingSlotAmountUsd = useCallback((slot = {}) => {
     const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
@@ -7959,6 +7966,8 @@ useEffect(() => {
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
           max_slippage_pct: tradingMaxSlippagePct,
+          reuse_profit_pct: normalizeTradingReuseProfitPct(),
+          profit_reuse_pct: normalizeTradingReuseProfitPct(),
           // Important: Test is only a read-only validation. It must never rewrite
           // visible slots or clear the live-like Shadow queue.
           persist_state: false,
@@ -7976,7 +7985,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, shadowExecutorState]);
 
   const runShadowRuntimeAction = useCallback(async (action = "tick") => {
     if (!wallet) {
@@ -8005,6 +8014,8 @@ useEffect(() => {
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
           max_slippage_pct: tradingMaxSlippagePct,
+          reuse_profit_pct: normalizeTradingReuseProfitPct(),
+          profit_reuse_pct: normalizeTradingReuseProfitPct(),
           persist_state: true,
         },
       };
@@ -8039,7 +8050,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSession, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingSessionIdMatches, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSession, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingSessionIdMatches, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
 
   useEffect(() => {
     const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
@@ -8189,6 +8200,7 @@ useEffect(() => {
     const now = Date.now();
     const sessionId = makeNexusSessionId("TRD");
     const runtimeHoursNum = normalizeTradingRuntimeHours();
+    const reuseProfitPctNum = normalizeTradingReuseProfitPct();
     const sessionStartedAt = now;
     const sessionExpiresAt = now + Math.round(runtimeHoursNum * 3600 * 1000);
     const sessionExpiresTs = Math.floor(sessionExpiresAt / 1000);
@@ -8203,6 +8215,8 @@ useEffect(() => {
         sessionId,
         trade_session_id: sessionId,
         runtime_hours: runtimeHoursNum,
+        reuse_profit_pct: reuseProfitPctNum,
+        profit_reuse_pct: reuseProfitPctNum,
         session_started_ts: Math.floor(sessionStartedAt / 1000),
         session_expires_ts: sessionExpiresTs,
         expires_ts: sessionExpiresTs,
@@ -8212,6 +8226,8 @@ useEffect(() => {
           session_id: sessionId,
           trade_session_id: sessionId,
           runtime_hours: runtimeHoursNum,
+          reuse_profit_pct: reuseProfitPctNum,
+          profit_reuse_pct: reuseProfitPctNum,
           session_started_ts: Math.floor(sessionStartedAt / 1000),
           session_expires_ts: sessionExpiresTs,
           expires_ts: sessionExpiresTs,
@@ -8249,6 +8265,10 @@ useEffect(() => {
           slots: activeQueue.length,
           runtimeHours: runtimeHoursNum,
           runtime_hours: runtimeHoursNum,
+          reuseProfitPct: reuseProfitPctNum,
+          reuse_profit_pct: reuseProfitPctNum,
+          profitReusePct: reuseProfitPctNum,
+          profit_reuse_pct: reuseProfitPctNum,
           expiresAt: sessionExpiresAt,
           expires_ts: sessionExpiresTs,
           createdAt: now,
@@ -8267,6 +8287,10 @@ useEffect(() => {
       startedAt: now,
       runtimeHours: runtimeHoursNum,
       runtime_hours: runtimeHoursNum,
+      reuseProfitPct: reuseProfitPctNum,
+      reuse_profit_pct: reuseProfitPctNum,
+      profitReusePct: reuseProfitPctNum,
+      profit_reuse_pct: reuseProfitPctNum,
       expiresAt: sessionExpiresAt,
       expires_ts: sessionExpiresTs,
       holdHours: clampTradingHoldHours(tradingHoldHours),
@@ -8307,10 +8331,12 @@ useEffect(() => {
             session_id: sessionId,
             trade_session_id: sessionId,
             runtime_hours: runtimeHoursNum,
+            reuse_profit_pct: reuseProfitPctNum,
+            profit_reuse_pct: reuseProfitPctNum,
             session_started_ts: Math.floor(sessionStartedAt / 1000),
             session_expires_ts: sessionExpiresTs,
             expires_ts: sessionExpiresTs,
-            meta: { ...(slot?.meta || {}), session_id: sessionId, trade_session_id: sessionId, runtime_hours: runtimeHoursNum, session_started_ts: Math.floor(sessionStartedAt / 1000), session_expires_ts: sessionExpiresTs, expires_ts: sessionExpiresTs, source: "frontend_budget_approval" },
+            meta: { ...(slot?.meta || {}), session_id: sessionId, trade_session_id: sessionId, runtime_hours: runtimeHoursNum, reuse_profit_pct: reuseProfitPctNum, profit_reuse_pct: reuseProfitPctNum, session_started_ts: Math.floor(sessionStartedAt / 1000), session_expires_ts: sessionExpiresTs, expires_ts: sessionExpiresTs, source: "frontend_budget_approval" },
             signals: slot?.signals || {},
             reason: slot?.condition || slot?.reason || "Created from approved Trading session.",
           },
@@ -8321,7 +8347,7 @@ useEffect(() => {
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
     setErrorMsg(`Trading session created: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Enter the next budget and approve/sign again when you want another independent session.`);
-  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, normalizeTradingRuntimeHours, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, normalizeTradingRuntimeHours, normalizeTradingReuseProfitPct, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
 
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;
@@ -9059,6 +9085,7 @@ useEffect(() => {
         if (serverUi.tradingCautionDrawdownPct != null) setTradingCautionDrawdownPct(String(serverUi.tradingCautionDrawdownPct));
         if (serverUi.tradingHardStopPct != null) setTradingHardStopPct(String(serverUi.tradingHardStopPct));
         if (serverUi.tradingProfitLockPct != null) setTradingProfitLockPct(String(serverUi.tradingProfitLockPct));
+        if (serverUi.tradingReuseProfitPct != null) setTradingReuseProfitPct(String(serverUi.tradingReuseProfitPct));
         if (serverUi.tradingMaxSlippagePct != null) setTradingMaxSlippagePct(String(serverUi.tradingMaxSlippagePct));
         if (serverUi.tradingMaxTrades != null) setTradingMaxTrades(String(serverUi.tradingMaxTrades));
         if (serverUi.tradingConfidenceMin != null) setTradingConfidenceMin(String(serverUi.tradingConfidenceMin));
@@ -9111,6 +9138,7 @@ useEffect(() => {
         tradingCautionDrawdownPct,
         tradingHardStopPct,
         tradingProfitLockPct,
+        tradingReuseProfitPct,
         tradingMaxSlippagePct,
         tradingMaxTrades,
         tradingConfidenceMin,
@@ -9135,7 +9163,7 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -18113,6 +18141,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
                       <div className="formRow">
+                        <label>Reuse Profit %</label>
+                        <input
+                          value={tradingReuseProfitPct}
+                          onChange={(e) => setTradingReuseProfitPct(e.target.value)}
+                          onBlur={() => setTradingReuseProfitPct(String(normalizeTradingReuseProfitPct()))}
+                          placeholder="0"
+                          title="How much collected profit may be reused by the Strategist. 0% protects all profit; 100% compounds all profit."
+                        />
+                      </div>
+                      <div className="formRow">
                         <label>Capital HOLD (1-12h)</label>
                         <input
                           value={tradingHoldHours}
@@ -18461,6 +18499,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           >
                             <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{getTradingSessionPrimaryAsset(selectedTradingSession) || "ASSET"} · {fmtUsd(getTradingSessionBudgetUsd(selectedTradingSession))} · {getTradingSessionSlotCount(selectedTradingSession)} slots</div>
                             <div className="muted tiny" style={{ color: getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}>Session Profit: {`${getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "+" : "-"}${fmtUsd(Math.abs(getTradingSessionProfitUsd(selectedTradingSession)))}`}</div>
+                            <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Reuse Profit: {Number(selectedTradingSession?.reuseProfitPct ?? selectedTradingSession?.reuse_profit_pct ?? selectedTradingSession?.profitReusePct ?? selectedTradingSession?.profit_reuse_pct ?? 0).toFixed(0)}% allowed</div>
                             <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                               {tradingCanPause ? (

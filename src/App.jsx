@@ -7355,8 +7355,44 @@ useEffect(() => {
         approvedAt: Number(slot?.created_ts || 0) ? Number(slot.created_ts) * 1000 : Date.now(),
         updatedAt: Number(slot?.updated_ts || 0) ? Number(slot.updated_ts) * 1000 : Date.now(),
         restoredFromBackend: true,
+        runtimeHours: Number(slot?.runtime_hours ?? slot?.runtimeHours ?? meta.runtime_hours ?? meta.runtimeHours ?? 0) || undefined,
+        runtime_hours: Number(slot?.runtime_hours ?? slot?.runtimeHours ?? meta.runtime_hours ?? meta.runtimeHours ?? 0) || undefined,
+        reuseProfitPct: Number(slot?.reuseProfitPct ?? slot?.reuse_profit_pct ?? slot?.profitReusePct ?? slot?.profit_reuse_pct ?? meta.reuseProfitPct ?? meta.reuse_profit_pct ?? meta.profitReusePct ?? meta.profit_reuse_pct ?? 0) || 0,
+        reuse_profit_pct: Number(slot?.reuse_profit_pct ?? slot?.reuseProfitPct ?? slot?.profit_reuse_pct ?? slot?.profitReusePct ?? meta.reuse_profit_pct ?? meta.reuseProfitPct ?? meta.profit_reuse_pct ?? meta.profitReusePct ?? 0) || 0,
+        profitReusePct: Number(slot?.profitReusePct ?? slot?.profit_reuse_pct ?? slot?.reuseProfitPct ?? slot?.reuse_profit_pct ?? meta.profitReusePct ?? meta.profit_reuse_pct ?? meta.reuseProfitPct ?? meta.reuse_profit_pct ?? 0) || 0,
+        profit_reuse_pct: Number(slot?.profit_reuse_pct ?? slot?.profitReusePct ?? slot?.reuse_profit_pct ?? slot?.reuseProfitPct ?? meta.profit_reuse_pct ?? meta.profitReusePct ?? meta.reuse_profit_pct ?? meta.reuseProfitPct ?? 0) || 0,
+        maxCombinedSlots: Number(slot?.maxCombinedSlots ?? slot?.max_combined_slots ?? slot?.slotDonorCap ?? slot?.slot_donor_cap ?? meta.maxCombinedSlots ?? meta.max_combined_slots ?? meta.slotDonorCap ?? meta.slot_donor_cap ?? 0) || 0,
+        max_combined_slots: Number(slot?.max_combined_slots ?? slot?.maxCombinedSlots ?? slot?.slot_donor_cap ?? slot?.slotDonorCap ?? meta.max_combined_slots ?? meta.maxCombinedSlots ?? meta.slot_donor_cap ?? meta.slotDonorCap ?? 0) || 0,
+        slotDonorCap: Number(slot?.slotDonorCap ?? slot?.slot_donor_cap ?? slot?.maxCombinedSlots ?? slot?.max_combined_slots ?? meta.slotDonorCap ?? meta.slot_donor_cap ?? meta.maxCombinedSlots ?? meta.max_combined_slots ?? 0) || 0,
+        slot_donor_cap: Number(slot?.slot_donor_cap ?? slot?.slotDonorCap ?? slot?.max_combined_slots ?? slot?.maxCombinedSlots ?? meta.slot_donor_cap ?? meta.slotDonorCap ?? meta.max_combined_slots ?? meta.maxCombinedSlots ?? 0) || 0,
+        expiresAt: (Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts ?? 0) ? Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts) * 1000 : undefined),
+        expires_ts: Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts ?? 0) || undefined,
       };
       if (asset && !existing.chains.includes(asset)) existing.chains.push(asset);
+      const slotReusePct = Number(slot?.reuseProfitPct ?? slot?.reuse_profit_pct ?? slot?.profitReusePct ?? slot?.profit_reuse_pct ?? meta.reuseProfitPct ?? meta.reuse_profit_pct ?? meta.profitReusePct ?? meta.profit_reuse_pct ?? NaN);
+      if (Number.isFinite(slotReusePct)) {
+        existing.reuseProfitPct = slotReusePct;
+        existing.reuse_profit_pct = slotReusePct;
+        existing.profitReusePct = slotReusePct;
+        existing.profit_reuse_pct = slotReusePct;
+      }
+      const slotMaxCombined = Number(slot?.maxCombinedSlots ?? slot?.max_combined_slots ?? slot?.slotDonorCap ?? slot?.slot_donor_cap ?? meta.maxCombinedSlots ?? meta.max_combined_slots ?? meta.slotDonorCap ?? meta.slot_donor_cap ?? NaN);
+      if (Number.isFinite(slotMaxCombined)) {
+        existing.maxCombinedSlots = slotMaxCombined;
+        existing.max_combined_slots = slotMaxCombined;
+        existing.slotDonorCap = slotMaxCombined;
+        existing.slot_donor_cap = slotMaxCombined;
+      }
+      const slotRuntimeHours = Number(slot?.runtimeHours ?? slot?.runtime_hours ?? meta.runtimeHours ?? meta.runtime_hours ?? NaN);
+      if (Number.isFinite(slotRuntimeHours) && slotRuntimeHours > 0) {
+        existing.runtimeHours = slotRuntimeHours;
+        existing.runtime_hours = slotRuntimeHours;
+      }
+      const slotExpiresTs = Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts ?? NaN);
+      if (Number.isFinite(slotExpiresTs) && slotExpiresTs > 0) {
+        existing.expires_ts = slotExpiresTs;
+        existing.expiresAt = slotExpiresTs * 1000;
+      }
       existing.approvedBudgetUsd = Number((Number(existing.approvedBudgetUsd || 0) + amount).toFixed(2));
       existing.collectedProfitUsd = Number((Number(existing.collectedProfitUsd || 0) + getTradingSlotCollectedProfitUsd(slot)).toFixed(4));
       existing.updatedAt = Math.max(Number(existing.updatedAt || 0), Number(slot?.updated_ts || 0) ? Number(slot.updated_ts) * 1000 : Date.now());
@@ -8008,6 +8044,8 @@ useEffect(() => {
       const sessionMeta = selectedTradingSession && typeof selectedTradingSession === "object" ? selectedTradingSession : {};
       const sessionExpiresTs = Number(sessionMeta.expires_ts || sessionMeta.session_expires_ts || (sessionMeta.expiresAt ? Math.floor(Number(sessionMeta.expiresAt) / 1000) : 0)) || 0;
       const sessionRuntimeHours = Number(sessionMeta.runtime_hours || sessionMeta.runtimeHours || normalizeTradingRuntimeHours()) || normalizeTradingRuntimeHours();
+      const sessionReuseProfitPct = Number(sessionMeta.reuseProfitPct ?? sessionMeta.reuse_profit_pct ?? sessionMeta.profitReusePct ?? sessionMeta.profit_reuse_pct ?? normalizeTradingReuseProfitPct()) || 0;
+      const sessionMaxCombinedSlots = Number(sessionMeta.maxCombinedSlots ?? sessionMeta.max_combined_slots ?? sessionMeta.slotDonorCap ?? sessionMeta.slot_donor_cap ?? normalizeTradingMaxCombinedSlots()) || 0;
       const body = {
         action,
         source: "frontend_shadow_runtime",
@@ -8023,10 +8061,10 @@ useEffect(() => {
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
           max_slippage_pct: tradingMaxSlippagePct,
-          reuse_profit_pct: normalizeTradingReuseProfitPct(),
-          profit_reuse_pct: normalizeTradingReuseProfitPct(),
-          max_combined_slots: normalizeTradingMaxCombinedSlots(),
-          maxCombinedSlots: normalizeTradingMaxCombinedSlots(),
+          reuse_profit_pct: sessionReuseProfitPct,
+          profit_reuse_pct: sessionReuseProfitPct,
+          max_combined_slots: sessionMaxCombinedSlots,
+          maxCombinedSlots: sessionMaxCombinedSlots,
           persist_state: true,
         },
       };
@@ -8061,7 +8099,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSession, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingSessionIdMatches, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSession, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingSessionIdMatches, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
 
   useEffect(() => {
     const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;

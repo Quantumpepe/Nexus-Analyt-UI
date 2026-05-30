@@ -7050,6 +7050,7 @@ useEffect(() => {
   const [tradingHardStopPct, setTradingHardStopPct] = useState("12");
   const [tradingProfitLockPct, setTradingProfitLockPct] = useState("20");
   const [tradingReuseProfitPct, setTradingReuseProfitPct] = useState("0");
+  const [tradingMaxCombinedSlots, setTradingMaxCombinedSlots] = useState("2");
   const [tradingMaxSlippagePct, setTradingMaxSlippagePct] = useState("1.2");
   const [tradingMaxTrades, setTradingMaxTrades] = useState("6");
   const [tradingConfidenceMin, setTradingConfidenceMin] = useState("MEDIUM");
@@ -7096,6 +7097,12 @@ useEffect(() => {
     if (!Number.isFinite(n)) return 0;
     return Math.max(0, Math.min(100, Math.round(n * 100) / 100));
   }, [tradingReuseProfitPct]);
+
+  const normalizeTradingMaxCombinedSlots = useCallback((value = tradingMaxCombinedSlots) => {
+    const n = Number(String(value ?? "2").replace(",", "."));
+    if (!Number.isFinite(n)) return 2;
+    return Math.max(0, Math.min(3, Math.round(n)));
+  }, [tradingMaxCombinedSlots]);
 
   const getTradingSlotAmountUsd = useCallback((slot = {}) => {
     const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
@@ -7968,6 +7975,8 @@ useEffect(() => {
           max_slippage_pct: tradingMaxSlippagePct,
           reuse_profit_pct: normalizeTradingReuseProfitPct(),
           profit_reuse_pct: normalizeTradingReuseProfitPct(),
+          max_combined_slots: normalizeTradingMaxCombinedSlots(),
+          maxCombinedSlots: normalizeTradingMaxCombinedSlots(),
           // Important: Test is only a read-only validation. It must never rewrite
           // visible slots or clear the live-like Shadow queue.
           persist_state: false,
@@ -7985,7 +7994,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, shadowExecutorState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState]);
 
   const runShadowRuntimeAction = useCallback(async (action = "tick") => {
     if (!wallet) {
@@ -8016,6 +8025,8 @@ useEffect(() => {
           max_slippage_pct: tradingMaxSlippagePct,
           reuse_profit_pct: normalizeTradingReuseProfitPct(),
           profit_reuse_pct: normalizeTradingReuseProfitPct(),
+          max_combined_slots: normalizeTradingMaxCombinedSlots(),
+          maxCombinedSlots: normalizeTradingMaxCombinedSlots(),
           persist_state: true,
         },
       };
@@ -8201,6 +8212,7 @@ useEffect(() => {
     const sessionId = makeNexusSessionId("TRD");
     const runtimeHoursNum = normalizeTradingRuntimeHours();
     const reuseProfitPctNum = normalizeTradingReuseProfitPct();
+    const maxCombinedSlotsNum = normalizeTradingMaxCombinedSlots();
     const sessionStartedAt = now;
     const sessionExpiresAt = now + Math.round(runtimeHoursNum * 3600 * 1000);
     const sessionExpiresTs = Math.floor(sessionExpiresAt / 1000);
@@ -8217,6 +8229,9 @@ useEffect(() => {
         runtime_hours: runtimeHoursNum,
         reuse_profit_pct: reuseProfitPctNum,
         profit_reuse_pct: reuseProfitPctNum,
+        max_combined_slots: maxCombinedSlotsNum,
+        maxCombinedSlots: maxCombinedSlotsNum,
+        slot_donor_cap: maxCombinedSlotsNum,
         session_started_ts: Math.floor(sessionStartedAt / 1000),
         session_expires_ts: sessionExpiresTs,
         expires_ts: sessionExpiresTs,
@@ -8228,6 +8243,9 @@ useEffect(() => {
           runtime_hours: runtimeHoursNum,
           reuse_profit_pct: reuseProfitPctNum,
           profit_reuse_pct: reuseProfitPctNum,
+          max_combined_slots: maxCombinedSlotsNum,
+          maxCombinedSlots: maxCombinedSlotsNum,
+          slot_donor_cap: maxCombinedSlotsNum,
           session_started_ts: Math.floor(sessionStartedAt / 1000),
           session_expires_ts: sessionExpiresTs,
           expires_ts: sessionExpiresTs,
@@ -8269,6 +8287,10 @@ useEffect(() => {
           reuse_profit_pct: reuseProfitPctNum,
           profitReusePct: reuseProfitPctNum,
           profit_reuse_pct: reuseProfitPctNum,
+          maxCombinedSlots: maxCombinedSlotsNum,
+          max_combined_slots: maxCombinedSlotsNum,
+          slotDonorCap: maxCombinedSlotsNum,
+          slot_donor_cap: maxCombinedSlotsNum,
           expiresAt: sessionExpiresAt,
           expires_ts: sessionExpiresTs,
           createdAt: now,
@@ -8291,6 +8313,10 @@ useEffect(() => {
       reuse_profit_pct: reuseProfitPctNum,
       profitReusePct: reuseProfitPctNum,
       profit_reuse_pct: reuseProfitPctNum,
+      maxCombinedSlots: maxCombinedSlotsNum,
+      max_combined_slots: maxCombinedSlotsNum,
+      slotDonorCap: maxCombinedSlotsNum,
+      slot_donor_cap: maxCombinedSlotsNum,
       expiresAt: sessionExpiresAt,
       expires_ts: sessionExpiresTs,
       holdHours: clampTradingHoldHours(tradingHoldHours),
@@ -8333,10 +8359,13 @@ useEffect(() => {
             runtime_hours: runtimeHoursNum,
             reuse_profit_pct: reuseProfitPctNum,
             profit_reuse_pct: reuseProfitPctNum,
+            max_combined_slots: maxCombinedSlotsNum,
+            maxCombinedSlots: maxCombinedSlotsNum,
+            slot_donor_cap: maxCombinedSlotsNum,
             session_started_ts: Math.floor(sessionStartedAt / 1000),
             session_expires_ts: sessionExpiresTs,
             expires_ts: sessionExpiresTs,
-            meta: { ...(slot?.meta || {}), session_id: sessionId, trade_session_id: sessionId, runtime_hours: runtimeHoursNum, reuse_profit_pct: reuseProfitPctNum, profit_reuse_pct: reuseProfitPctNum, session_started_ts: Math.floor(sessionStartedAt / 1000), session_expires_ts: sessionExpiresTs, expires_ts: sessionExpiresTs, source: "frontend_budget_approval" },
+            meta: { ...(slot?.meta || {}), session_id: sessionId, trade_session_id: sessionId, runtime_hours: runtimeHoursNum, reuse_profit_pct: reuseProfitPctNum, profit_reuse_pct: reuseProfitPctNum, max_combined_slots: maxCombinedSlotsNum, maxCombinedSlots: maxCombinedSlotsNum, slot_donor_cap: maxCombinedSlotsNum, session_started_ts: Math.floor(sessionStartedAt / 1000), session_expires_ts: sessionExpiresTs, expires_ts: sessionExpiresTs, source: "frontend_budget_approval" },
             signals: slot?.signals || {},
             reason: slot?.condition || slot?.reason || "Created from approved Trading session.",
           },
@@ -8803,6 +8832,7 @@ useEffect(() => {
     setTradingProfitLockPct(String(clamp(base.profit + adj.profit, 8, 40)));
     setTradingMaxSlippagePct(String(clamp(Number((base.slip + adj.slip).toFixed(1)), 0.3, 3)));
     setTradingMaxTrades(String(clamp(base.trades + adj.trades, 1, 15)));
+    setTradingMaxCombinedSlots(String(risk === "DYNAMIC" ? 3 : risk === "DEFENSIVE" ? 1 : 2));
   }, [
     tradingConfidenceMin,
     setTradingRiskMode,
@@ -8812,6 +8842,7 @@ useEffect(() => {
     setTradingProfitLockPct,
     setTradingMaxSlippagePct,
     setTradingMaxTrades,
+    setTradingMaxCombinedSlots,
   ]);
 
   const handleTradingRiskModeChange = useCallback((value) => {
@@ -9086,6 +9117,7 @@ useEffect(() => {
         if (serverUi.tradingHardStopPct != null) setTradingHardStopPct(String(serverUi.tradingHardStopPct));
         if (serverUi.tradingProfitLockPct != null) setTradingProfitLockPct(String(serverUi.tradingProfitLockPct));
         if (serverUi.tradingReuseProfitPct != null) setTradingReuseProfitPct(String(serverUi.tradingReuseProfitPct));
+        if (serverUi.tradingMaxCombinedSlots != null) setTradingMaxCombinedSlots(String(serverUi.tradingMaxCombinedSlots));
         if (serverUi.tradingMaxSlippagePct != null) setTradingMaxSlippagePct(String(serverUi.tradingMaxSlippagePct));
         if (serverUi.tradingMaxTrades != null) setTradingMaxTrades(String(serverUi.tradingMaxTrades));
         if (serverUi.tradingConfidenceMin != null) setTradingConfidenceMin(String(serverUi.tradingConfidenceMin));
@@ -9139,6 +9171,7 @@ useEffect(() => {
         tradingHardStopPct,
         tradingProfitLockPct,
         tradingReuseProfitPct,
+        tradingMaxCombinedSlots,
         tradingMaxSlippagePct,
         tradingMaxTrades,
         tradingConfidenceMin,
@@ -9163,7 +9196,7 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -18166,6 +18199,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         />
                       </div>
                       <div className="formRow">
+                        <label>Max Combined Slots</label>
+                        <select
+                          value={tradingMaxCombinedSlots}
+                          onChange={(e) => setTradingMaxCombinedSlots(e.target.value)}
+                          title="Maximum number of other slots whose capital the Strategist may combine into one stronger slot. 0 disables internal slot-capital rotation."
+                        >
+                          <option value="0">0 - off</option>
+                          <option value="1">1 slot</option>
+                          <option value="2">2 slots</option>
+                          <option value="3">3 slots</option>
+                        </select>
+                      </div>
+                      <div className="formRow">
                         <label>Capital HOLD (1-12h)</label>
                         <input
                           value={tradingHoldHours}
@@ -18515,6 +18561,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{getTradingSessionPrimaryAsset(selectedTradingSession) || "ASSET"} · {fmtUsd(getTradingSessionBudgetUsd(selectedTradingSession))} · {getTradingSessionSlotCount(selectedTradingSession)} slots</div>
                             <div className="muted tiny" style={{ color: getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}>Session Profit: {`${getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "+" : "-"}${fmtUsd(Math.abs(getTradingSessionProfitUsd(selectedTradingSession)))}`}</div>
                             <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Reuse Profit: {Number(selectedTradingSession?.reuseProfitPct ?? selectedTradingSession?.reuse_profit_pct ?? selectedTradingSession?.profitReusePct ?? selectedTradingSession?.profit_reuse_pct ?? 0).toFixed(0)}% allowed</div>
+                            <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Max Combined Slots: {Number(selectedTradingSession?.maxCombinedSlots ?? selectedTradingSession?.max_combined_slots ?? selectedTradingSession?.slotDonorCap ?? selectedTradingSession?.slot_donor_cap ?? 0).toFixed(0)}</div>
                             <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                               {tradingCanPause ? (

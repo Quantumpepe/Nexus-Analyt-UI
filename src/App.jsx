@@ -15094,7 +15094,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 position: "absolute",
                 top: 52,
                 right: 0,
-                width: 340,
+                width: "min(340px, calc(100vw - 24px))",
+                maxHeight: "min(84vh, 760px)",
+                overflowY: "auto",
+                overscrollBehavior: "contain",
+                WebkitOverflowScrolling: "touch",
                 background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
                 border: "none",
                 borderRadius: 14,
@@ -15307,7 +15311,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>{"Could not load balances."}</div>
               )}
 
-              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+              <div
+                style={{
+                  marginTop: 10,
+                  display: "grid",
+                  gap: 8,
+                  maxHeight: showAllWalletChains ? "36vh" : "none",
+                  overflowY: showAllWalletChains ? "auto" : "visible",
+                  paddingRight: showAllWalletChains ? 4 : 0,
+                  overscrollBehavior: "contain",
+                  WebkitOverflowScrolling: "touch",
+                }}
+              >
                 {(showAllWalletChains ? walletChainKeys : [balActiveChain || DEFAULT_CHAIN]).map((chainRaw) => {
                   const c = normalizeWalletChainKey(chainRaw);
                   const row = balByChain?.[c] || {};

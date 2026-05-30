@@ -5070,7 +5070,7 @@ const byChain = {};
 
     const nowMs = Date.now();
     const cacheKey = onchainWatchSymbolsKey;
-    const minAgeMs = 10 * 60 * 1000; // 10 minutes
+    const minAgeMs = 60 * 60 * 1000; // 60 minutes: market-condition uses 20d daily data; protect CoinGecko credits
     if (marketConditionFetchRef.current?.key === cacheKey && (nowMs - Number(marketConditionFetchRef.current?.ts || 0)) < minAgeMs) {
       return;
     }
@@ -5081,14 +5081,22 @@ const byChain = {};
     let cancelled = false;
     const t = setTimeout(() => {
       marketConditionFetchRef.current = { key: cacheKey, ts: nowMs, inflight: true };
-      Promise.all(symbols.map(async (sym) => {
-        try {
-          const r = await api(`/api/market-condition?symbol=${encodeURIComponent(sym)}`, { method: "GET", token, wallet });
-          return [sym, r || null];
-        } catch {
-          return [sym, null];
+      (async () => {
+        const entries = [];
+        // Fetch sequentially instead of firing a parallel burst. Backend cache still
+        // keeps Strategist data fresh, but this avoids request storms on refresh.
+        for (const sym of symbols) {
+          try {
+            const r = await api(`/api/market-condition?symbol=${encodeURIComponent(sym)}`, { method: "GET", token, wallet });
+            entries.push([sym, r || null]);
+          } catch {
+            entries.push([sym, null]);
+          }
+          if (cancelled) break;
+          await sleep(120);
         }
-      })).then((entries) => {
+        return entries;
+      })().then((entries) => {
         if (cancelled) return;
         setMarketConditionBySymbol((prev) => {
           const next = { ...(prev || {}) };
@@ -5120,7 +5128,7 @@ const byChain = {};
     // changes or when the cache is old. AI Insight still uses the latest cached signals.
     const nowMs = Date.now();
     const cacheKey = `${String(wallet || "").toLowerCase()}|${onchainWatchSymbolsKey}`;
-    const minAgeMs = 10 * 60 * 1000; // 10 minutes
+    const minAgeMs = 60 * 60 * 1000; // 60 minutes: market-condition uses 20d daily data; protect CoinGecko credits
     if (onchainFetchRef.current?.key === cacheKey && (nowMs - Number(onchainFetchRef.current?.ts || 0)) < minAgeMs) {
       return;
     }

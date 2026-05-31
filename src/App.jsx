@@ -6725,6 +6725,15 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationShadowSnapshot, setRotationShadowSnapshot] = useState(null);
   const [rotationShadowEvents, setRotationShadowEvents] = useState([]);
   const [rotationShadowEventsOpen, setRotationShadowEventsOpen] = useState(false);
+  const rotationAutoShadowRef = useRef(0);
+
+  const isRotationSessionRunnable = useCallback((sess, now = Date.now()) => {
+    if (!sess || typeof sess !== "object") return false;
+    const st = String(sess?.status || "APPROVED").toUpperCase();
+    if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st)) return false;
+    const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
+    return !exp || exp > now;
+  }, []);
 
   // Multi-session support: each later budget approval becomes an independent user-bounded session.
   // Existing sessions are preserved; new Trading/Rotation sessions get their own session_id.
@@ -6971,10 +6980,21 @@ useEffect(() => {
           maxSlippagePct: rotationMaxSlippage,
           maxActiveRotations: activeLimit,
           payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+          baseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+          workingCapitalUsd: amount,
+          sessionCapitalUsd: amount,
+          collectedProfitUsd: 0,
+          rotationEvents: [],
+          openRotation: null,
+          engineMode: "shadow_capital_manager_v1",
+          liveVaultReady: false,
           createdAt: now,
           updatedAt: now,
           meta: {
             source: "rotation_budget_approval",
+            capital_flow: "BASE_TO_TARGET_TO_BASE",
+            base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
+            live_vault_ready: false,
             runtime_hours: runtimeHours,
             expires_at: expiresAt,
             max_active_rotations: activeLimit,
@@ -9541,13 +9561,33 @@ const [aiLoading, setAiLoading] = useState(false);
 
     try {
       const sessions = Array.isArray(rotationSessions) ? rotationSessions : [];
-      const firstActive = sessions.find((s) => !["STOPPED", "PAUSED"].includes(String(s?.status || "").toUpperCase())) || sessions[0] || null;
+      const nowStart = Date.now();
+      const firstActive = sessions.find((s) => String(s?.id || "") === String(activeRotationSessionId || "") && isRotationSessionRunnable(s, nowStart))
+        || sessions.find((s) => isRotationSessionRunnable(s, nowStart))
+        || null;
+      if (sessions.length && !firstActive) {
+        setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
+          const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
+          const st = String(sess?.status || "APPROVED").toUpperCase();
+          if (exp && exp <= nowStart && !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st)) {
+            return { ...sess, status: "EXPIRED", expiredAt: nowStart, updatedAt: nowStart };
+          }
+          return sess;
+        }));
+        setRotationBackendMsg("Rotation Shadow waiting: no active Rotation session inside its runtime window.");
+        return;
+      }
       const typedBudget = Number(String(rotationBudgetRelease || "").replace(",", "."));
-      const budgetUsd = Number(firstActive?.budgetUsd || 0) > 0
+      const baseBudgetUsd = Number(firstActive?.budgetUsd || 0) > 0
         ? Number(firstActive.budgetUsd)
         : Number.isFinite(typedBudget) && typedBudget > 0
           ? typedBudget
           : 100;
+      const workingCapitalUsd = Number(firstActive?.workingCapitalUsd ?? firstActive?.sessionCapitalUsd ?? firstActive?.budgetUsd ?? 0) > 0
+        ? Number(firstActive?.workingCapitalUsd ?? firstActive?.sessionCapitalUsd ?? firstActive?.budgetUsd)
+        : baseBudgetUsd;
+      const budgetUsd = workingCapitalUsd;
+      const baseAsset = String(firstActive?.baseAsset || firstActive?.payoutAsset || firstActive?.meta?.base_asset || manualPayoutAsset || "USDC").toUpperCase();
       const chain = String(firstActive?.chain || rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
       const slippageSource = firstActive?.maxSlippagePct ?? firstActive?.meta?.max_slippage_pct ?? rotationMaxSlippage ?? "1";
       const riskLimitSource = firstActive?.riskLimitPct ?? firstActive?.meta?.risk_limit_pct ?? rotationRiskLimit;
@@ -9564,6 +9604,8 @@ const [aiLoading, setAiLoading] = useState(false);
       const body = {
         wallet,
         chain,
+        baseAsset,
+        base_asset: baseAsset,
         budgetUsd,
         budget_usd: budgetUsd,
         assets,
@@ -9598,13 +9640,35 @@ const [aiLoading, setAiLoading] = useState(false);
       const netUsd = grossUsd - costsUsd;
       const minNetAdv = Number(String(minNetSource || "0.5").replace(",", "."));
       const netPct = targetUsd > 0 ? (netUsd / targetUsd) * 100 : 0;
-      const action = netPct >= (Number.isFinite(minNetAdv) ? minNetAdv : 0.5) ? "SIMULATED_READY" : "WAIT_NET_EDGE";
+      const isExecutableShadowEdge = netPct >= (Number.isFinite(minNetAdv) ? minNetAdv : 0.5);
+      const action = isExecutableShadowEdge ? "SIMULATED_ROTATION_CLOSED" : "WAIT_NET_EDGE";
       const now = Date.now();
+      const completedEvent = isExecutableShadowEdge ? {
+        id: `ROT-EVT-${now}`,
+        ts: now,
+        mode: "shadow",
+        status: "CLOSED",
+        baseAsset,
+        fromAsset: baseAsset,
+        targetAsset: bestSymbol,
+        backToAsset: baseAsset,
+        chain: bestChain,
+        buyUsd: Number(targetUsd.toFixed(4)),
+        sellUsd: Number((targetUsd + netUsd).toFixed(4)),
+        grossUsd: Number(grossUsd.toFixed(4)),
+        costsUsd: Number(costsUsd.toFixed(4)),
+        netUsd: Number(netUsd.toFixed(4)),
+        netPct: Number(netPct.toFixed(4)),
+        confidence: bestScore,
+        flow: `${baseAsset} → ${bestSymbol} → ${baseAsset}`,
+        liveVaultTx: null,
+      } : null;
 
       setRotationShadowSnapshot({
         status: "ok",
         chain,
         budgetUsd,
+        baseAsset,
         assets,
         plan,
         previews,
@@ -9624,24 +9688,40 @@ const [aiLoading, setAiLoading] = useState(false);
       setRotationShadowEvents((prev) => [{
         id: `ROT-SHADOW-${now}`,
         ts: now,
-        text: `${bestSymbol}/${bestChain}: ${action} · score ${bestScore || "—"}/100 · gross ${fmtUsd(grossUsd)} · costs ${fmtUsd(costsUsd)} · net ${fmtUsd(netUsd)}`,
+        text: `${baseAsset} → ${bestSymbol} → ${baseAsset}: ${action} · score ${bestScore || "—"}/100 · gross ${fmtUsd(grossUsd)} · costs ${fmtUsd(costsUsd)} · net ${fmtUsd(netUsd)}`,
       }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
 
       if (sessions.length) {
         setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess, idx) => {
           if (idx !== 0 && sess?.id !== firstActive?.id) return sess;
+          const prevEvents = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [];
+          const nextEvents = completedEvent ? [completedEvent, ...prevEvents].slice(0, 50) : prevEvents;
+          const prevCollected = Number(sess?.collectedProfitUsd ?? sess?.meta?.collectedProfitUsd ?? 0) || 0;
+          const addCollected = completedEvent ? Math.max(0, Number(netUsd) || 0) : 0;
+          const nextCollected = prevCollected + addCollected;
+          const prevGross = Number(sess?.grossProfitUsd ?? 0) || 0;
+          const prevCosts = Number(sess?.costsUsd ?? 0) || 0;
+          const prevNet = Number(sess?.netProfitUsd ?? sess?.rotationProfitUsd ?? sess?.profitUsd ?? 0) || 0;
           return {
             ...sess,
-            status: action === "SIMULATED_READY" ? "ACTIVE" : "READY",
+            status: action === "SIMULATED_ROTATION_CLOSED" ? "ACTIVE" : "READY",
             symbol: bestSymbol,
             chain: bestChain,
+            baseAsset,
+            payoutAsset: baseAsset,
             confidence: bestScore,
             score: bestScore,
-            profitUsd: Number(netUsd.toFixed(4)),
-            rotationProfitUsd: Number(netUsd.toFixed(4)),
-            grossProfitUsd: Number(grossUsd.toFixed(4)),
-            costsUsd: Number(costsUsd.toFixed(4)),
-            netProfitUsd: Number(netUsd.toFixed(4)),
+            workingCapitalUsd: Number((Number(sess?.budgetUsd || baseBudgetUsd) || baseBudgetUsd).toFixed(4)),
+            sessionCapitalUsd: Number((Number(sess?.budgetUsd || baseBudgetUsd) || baseBudgetUsd).toFixed(4)),
+            collectedProfitUsd: Number(nextCollected.toFixed(4)),
+            profitUsd: Number(nextCollected.toFixed(4)),
+            rotationProfitUsd: Number(nextCollected.toFixed(4)),
+            grossProfitUsd: Number((prevGross + (completedEvent ? grossUsd : 0)).toFixed(4)),
+            costsUsd: Number((prevCosts + (completedEvent ? costsUsd : 0)).toFixed(4)),
+            netProfitUsd: Number((prevNet + (completedEvent ? netUsd : 0)).toFixed(4)),
+            lastRotationEvent: completedEvent || sess?.lastRotationEvent || null,
+            rotationEvents: nextEvents,
+            openRotation: null,
             riskLimitPct: riskLimitSource,
             minNetAdvantagePct: minNetSource,
             maxSlippagePct: slippageSource,
@@ -9650,18 +9730,24 @@ const [aiLoading, setAiLoading] = useState(false);
               ...(sess?.meta || {}),
               rotation_shadow: true,
               rotation_action: action,
+              capital_flow: "BASE_TO_TARGET_TO_BASE",
+              base_asset: baseAsset,
+              collectedProfitUsd: Number(nextCollected.toFixed(4)),
               target_weight_pct: bestWeight,
               target_usd: targetUsd,
               raw_edge_pct: Number(rawEdgePct.toFixed(4)),
               net_edge_pct: Number(netPct.toFixed(4)),
               market_change_24h: change24h,
               backend_plan_ts: preview?.ts || null,
+              live_vault_ready: false,
             },
           };
         }));
       }
 
-      setRotationBackendMsg(`${action === "SIMULATED_READY" ? "Rotation Shadow ready" : "Rotation Shadow waiting"}: ${bestSymbol}/${bestChain} · net ${fmtUsd(netUsd)} (${netPct.toFixed(2)}%). Paper-only; no Vault swap triggered.`);
+      if (!silent) {
+        setRotationBackendMsg(`${action === "SIMULATED_ROTATION_CLOSED" ? "Rotation event closed" : "Rotation Shadow waiting"}: ${baseAsset} → ${bestSymbol} → ${baseAsset} · net ${fmtUsd(netUsd)} (${netPct.toFixed(2)}%). Paper-only; no Vault swap triggered.`);
+      }
     } catch (e) {
       console.error("ROTATION SHADOW SIM FAILED", e);
       setRotationBackendMsg(`Rotation Shadow failed: ${e?.message || e}`);
@@ -9669,7 +9755,17 @@ const [aiLoading, setAiLoading] = useState(false);
     } finally {
       setRotationShadowBusy(false);
     }
-  }, [rotationShadowBusy, rotationSessions, rotationBudgetRelease, rotationSelectedPick, activeGridChainKey, gridItem, rotationMaxSlippage, buildRotationShadowAssets, wallet, token, rotationMinNetAdvantage, rotationRiskLimit]);
+  }, [rotationShadowBusy, rotationSessions, activeRotationSessionId, rotationBudgetRelease, rotationSelectedPick, activeGridChainKey, gridItem, rotationMaxSlippage, buildRotationShadowAssets, wallet, token, rotationMinNetAdvantage, rotationRiskLimit, isRotationSessionRunnable, manualPayoutAsset]);
+
+  useInterval(() => {
+    const now = Date.now();
+    const sessions = Array.isArray(rotationSessions) ? rotationSessions : [];
+    const hasRunnable = sessions.some((sess) => isRotationSessionRunnable(sess, now));
+    if (!hasRunnable || rotationShadowBusy) return;
+    if (now - Number(rotationAutoShadowRef.current || 0) < 90_000) return;
+    rotationAutoShadowRef.current = now;
+    runRotationShadowSimulation({ silent: true });
+  }, 30_000, Boolean(Array.isArray(rotationSessions) && rotationSessions.length));
 
 
   // watch snapshot polling
@@ -18279,7 +18375,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
                               <div><b>Rotation allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
                               <div><b>Grid allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
-                              <div><b>Rotation Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
+                              <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               <div><b>Active Rotations:</b> {activeRotations} / {rotationMaxActive}</div>
                               <div><b>Leader:</b> <span style={{ color: "#8bdcff", fontWeight: 900 }}>{leader}</span></div>
                               <div><b>Target / Scope:</b> {targetChain}</div>
@@ -18326,7 +18422,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const expiresTs = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0) || 0;
                                 const runtimeText = fmtRotationDuration(rotationNow - startTs);
                                 const leftText = expiresTs ? (expiresTs > rotationNow ? fmtRotationDuration(expiresTs - rotationNow) : "expired") : "—";
-                                const profit = Number(sess?.profitUsd ?? sess?.sessionProfitUsd ?? sess?.rotationProfitUsd ?? sess?.collectedProfitUsd ?? 0) || 0;
+                                const baseAsset = String(sess?.baseAsset || sess?.payoutAsset || sess?.meta?.base_asset || manualPayoutAsset || "USDC").toUpperCase();
+                                const workingCapital = Number(sess?.workingCapitalUsd ?? sess?.sessionCapitalUsd ?? budget) || budget;
+                                const eventsCount = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents.length : 0;
+                                const lastEvent = sess?.lastRotationEvent || (Array.isArray(sess?.rotationEvents) ? sess.rotationEvents[0] : null) || null;
+                                const profit = Number(sess?.collectedProfitUsd ?? sess?.profitUsd ?? sess?.sessionProfitUsd ?? sess?.rotationProfitUsd ?? 0) || 0;
                                 const gross = Number(sess?.grossProfitUsd ?? sess?.meta?.grossProfitUsd ?? profit) || 0;
                                 const costs = Number(sess?.costsUsd ?? sess?.meta?.costsUsd ?? 0) || 0;
                                 const net = Number(sess?.netProfitUsd ?? sess?.meta?.netProfitUsd ?? profit) || 0;
@@ -18350,10 +18450,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   >
                                     <div style={{ minWidth: 0 }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                        <b style={{ fontSize: 16, color: "#eafff5" }}>{sym} → {chain}</b>
+                                        <b style={{ fontSize: 16, color: "#eafff5" }}>{baseAsset} → {sym} → {baseAsset}</b>
                                         <span className={`pill ${status === "ACTIVE" ? "green" : status === "PAUSED" ? "silver" : "green"}`}>{status}</span>
                                       </div>
-                                      <div className="muted tiny" style={{ marginTop: 5 }}>Budget: {fmtUsd(budget)} · Rotation #{idx + 1}</div>
+                                      <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Base: {baseAsset} · Rotation #{idx + 1}</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}>Risk {sess?.riskLimitPct || sess?.meta?.risk_limit_pct || rotationRiskLimit || "—"}% · Slippage {sess?.maxSlippagePct || sess?.meta?.max_slippage_pct || rotationMaxSlippage || "—"}% · Min Net {sess?.minNetAdvantagePct || sess?.meta?.min_net_advantage_pct || rotationMinNetAdvantage || "—"}%</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}>ID: {String(sess?.id || "").slice(0, 28)}</div>
                                     </div>
@@ -18362,11 +18462,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <div><b style={{ color: "#8bdcff" }}>Runtime:</b> {runtimeText}</div>
                                       <div><b style={{ color: "#8bdcff" }}>Left:</b> {leftText}</div>
                                       <div><b style={{ color: "#ffd166" }}>Confidence:</b> {Number.isFinite(confidence) && confidence > 0 ? `${confidence}/100` : "waiting"}</div>
+                                      <div><b style={{ color: "#8bdcff" }}>Events:</b> {eventsCount}</div>
                                     </div>
 
                                     <div className="muted tiny" style={{ display: "grid", gap: 5 }}>
-                                      <div><b style={{ color: profit >= 0 ? "#86efac" : "#ff8a8a" }}>Rotation Profit:</b> {profit >= 0 ? "+" : ""}{fmtUsd(profit)} {budget > 0 ? `(${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%)` : ""}</div>
+                                      <div><b style={{ color: profit >= 0 ? "#86efac" : "#ff8a8a" }}>Collected Profit:</b> {profit >= 0 ? "+" : ""}{fmtUsd(profit)} {budget > 0 ? `(${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%)` : ""}</div>
                                       <div><b style={{ color: "#86efac" }}>Gross:</b> {gross >= 0 ? "+" : ""}{fmtUsd(gross)} · <b style={{ color: "#ffd166" }}>Costs:</b> {costs ? fmtUsd(costs) : "$0"} · <b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
+                                      {lastEvent?.flow ? <div><b style={{ color: "#8bdcff" }}>Last:</b> {lastEvent.flow} · {fmtUsd(Number(lastEvent.netUsd || 0))}</div> : null}
                                       <div style={{ height: 6, borderRadius: 99, background: "rgba(255,255,255,.11)", overflow: "hidden", marginTop: 2 }}>
                                         <div style={{ width: `${progress}%`, height: "100%", background: "linear-gradient(90deg, rgba(34,197,94,.95), rgba(134,239,172,.75))" }} />
                                       </div>
@@ -18856,7 +18958,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 </button>
                               </div>
                             </div>
-                            <div className="muted tiny">Paper rotation only: simulated capital flow, live market context, backend route/edge/cost preview. No Vault swap is triggered here.</div>
+                            <div className="muted tiny">Paper rotation only: capital manager flow is Base → Target → Base. Profit is collected, working capital stays controlled, and no Vault swap is triggered here.</div>
                             <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                               <b style={{ color: rotationShadowSnapshot?.status === "error" ? "#ff8a8a" : "#86efac" }}>Runtime: {rotationShadowBusy ? "READING LIVE DATA" : rotationShadowSnapshot?.status === "ok" ? "SHADOW ACTIVE" : "READY"}</b>
                               <b style={{ color: "#ffd166" }}>Simulated rotations: {rotationRows.length}</b>
@@ -18866,7 +18968,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                             {rotationShadowSnapshot?.bestSymbol ? (
                               <div className="muted tiny" style={{ display: "grid", gap: 4, padding: "7px 8px", borderRadius: 10, background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.07)" }}>
-                                <div><b style={{ color: "#8bdcff" }}>Current shadow target:</b> {rotationShadowSnapshot.bestSymbol}/{rotationShadowSnapshot.bestChain} · action {rotationShadowSnapshot.action || "WAIT"}</div>
+                                <div><b style={{ color: "#8bdcff" }}>Current shadow target:</b> {rotationShadowSnapshot.baseAsset || manualPayoutAsset || "USDC"} → {rotationShadowSnapshot.bestSymbol} → {rotationShadowSnapshot.baseAsset || manualPayoutAsset || "USDC"} · action {rotationShadowSnapshot.action || "WAIT"}</div>
                                 <div>Gross {fmtUsd(Number(rotationShadowSnapshot.grossUsd || 0))} · Costs {fmtUsd(Number(rotationShadowSnapshot.costsUsd || 0))} · Net {fmtUsd(Number(rotationShadowSnapshot.netUsd || 0))} {Number.isFinite(Number(rotationShadowSnapshot.netPct)) ? `(${Number(rotationShadowSnapshot.netPct).toFixed(2)}%)` : ""}</div>
                               </div>
                             ) : null}

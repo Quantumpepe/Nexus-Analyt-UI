@@ -17879,7 +17879,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : null}
 
               {String(gridMode || "normal") === "rotation" ? (
-                <div className="gridWrap rotationDesktopWrap">
+                <div className="gridWrap rotationDesktopWrap" style={{ gridTemplateColumns: "1fr", width: "100%" }}>
                   <div className="gridControls" style={{ display: "grid", gap: 10 }}>
                     {(() => {
                       const rotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
@@ -18046,6 +18046,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }}
                           >
                             <summary
+                              onMouseDown={(e) => { e.stopPropagation(); }}
+                              onClick={(e) => { e.stopPropagation(); }}
                               style={{
                                 cursor: "pointer",
                                 padding: "9px 10px",
@@ -18060,9 +18062,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <span>Rotation Setup & Presets</span>
                               <span className="muted tiny">Show ▼</span>
                             </summary>
-                            <div style={{ padding: "0 0 8px" }}>
-                              <div className="gridWrap">
-                  <div className="gridControls" style={{ display: "grid", gap: 12 }}>
+                            <div style={{ padding: "10px", display: "grid", gap: 12 }}>
+                              <div style={{ display: "grid", gap: 12, width: "100%" }}>
                     <div
                       style={{
                         padding: "8px 10px",
@@ -18479,7 +18480,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     ) : null}
                   </div>
-                </div>
                             </div>
                           </details>
 

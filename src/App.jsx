@@ -6935,6 +6935,7 @@ useEffect(() => {
   }, [gridWalletCoinsByChain]);
 
   const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
+  const [strategistRotationCandidates, setStrategistRotationCandidates] = useState([]);
 
   const releaseRotationBudget = useCallback(() => {
     const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
@@ -9596,7 +9597,6 @@ const [aiQuestion, setAiQuestion] = useState("");
 const [aiLoading, setAiLoading] = useState(false);
   const [aiOutput, setAiOutput] = useState("");
   const [strategistBridge, setStrategistBridge] = useState(null);
-  const [strategistRotationCandidates, setStrategistRotationCandidates] = useState([]);
   const [strategistAppliedOpen, setStrategistAppliedOpen] = useState(false);
 
   const buildRotationShadowAssets = useCallback(() => {

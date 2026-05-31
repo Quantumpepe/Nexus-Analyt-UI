@@ -17879,7 +17879,189 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : null}
 
               {String(gridMode || "normal") === "rotation" ? (
-                <div className="gridWrap">
+                <div className="gridWrap rotationDesktopWrap">
+                  <div className="gridControls" style={{ display: "grid", gap: 10 }}>
+                    {(() => {
+                      const rotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
+                      const rotationAllocatedUsd = rotationRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
+                      const rotationProfitUsd = rotationRows.reduce((sum, sess) => {
+                        const candidates = [
+                          sess?.profitUsd,
+                          sess?.sessionProfitUsd,
+                          sess?.rotationProfitUsd,
+                          sess?.collectedProfitUsd,
+                          sess?.meta?.profitUsd,
+                          sess?.meta?.sessionProfitUsd,
+                          sess?.meta?.rotationProfitUsd,
+                          sess?.meta?.collectedProfitUsd,
+                        ];
+                        const v = candidates.map(Number).find((n) => Number.isFinite(n));
+                        return sum + (Number.isFinite(v) ? v : 0);
+                      }, 0);
+                      const activeRotations = rotationRows.filter((s) => String(s?.status || "").toUpperCase() !== "STOPPED" && String(s?.status || "").toUpperCase() !== "PAUSED").length;
+                      const firstRotation = rotationRows[0] || null;
+                      const leader = String(firstRotation?.symbol || rotationSelectedPick?.sym || manualCoin || gridItem || "—").toUpperCase();
+                      const targetChain = String(firstRotation?.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
+
+                      return (
+                        <>
+                          <div
+                            style={{
+                              padding: "8px 10px",
+                              borderRadius: 12,
+                              background: "rgba(0,0,0,.18)",
+                              border: "1px solid rgba(34,197,94,.22)",
+                              display: "grid",
+                              gap: 8,
+                            }}
+                          >
+                            <div className="label" style={{ marginBottom: 0 }}>Rotation overview</div>
+                            <div
+                              className="muted tiny"
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+                                gap: 8,
+                                lineHeight: 1.45,
+                              }}
+                            >
+                              <div><b>Rotation Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
+                              <div><b>Allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
+                              <div><b>Active Rotations:</b> {activeRotations} / {rotationRows.length || 0}</div>
+                              <div><b>Leader:</b> <span style={{ color: "#8bdcff", fontWeight: 900 }}>{leader}</span></div>
+                              <div><b>Target / Scope:</b> {targetChain}</div>
+                              <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
+                              <div><b>Mode:</b> {String(rotationMode || "RECOMMENDATION").replaceAll("_", " ")}</div>
+                              <div><b>Status:</b> <span style={{ color: "#22c55e", fontWeight: 900 }}>{rotationRows.length ? "ACTIVE" : "WAITING"}</span></div>
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              padding: "8px 10px",
+                              borderRadius: 12,
+                              background: "rgba(0,0,0,.14)",
+                              border: "1px solid rgba(34,197,94,.18)",
+                              display: "grid",
+                              gap: 8,
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                              <div>
+                                <div className="label" style={{ marginBottom: 0 }}>Active Rotation Sessions</div>
+                                <div className="muted tiny">full rotation cards · first sessions visible · scroll for more</div>
+                              </div>
+                              <span className="pill silver">{rotationRows.length} rotations</span>
+                            </div>
+
+                            <div
+                              style={{
+                                display: "grid",
+                                gap: 10,
+                                maxHeight: isCompactMobile ? "none" : 390,
+                                overflowY: isCompactMobile ? "visible" : "auto",
+                                paddingRight: isCompactMobile ? 0 : 5,
+                              }}
+                            >
+                              {rotationRows.length ? rotationRows.map((sess, idx) => {
+                                const sym = String(sess?.symbol || "ASSET").toUpperCase();
+                                const chain = String(sess?.chain || "CHAIN").toUpperCase();
+                                const budget = Number(sess?.budgetUsd || 0);
+                                const status = String(sess?.status || "APPROVED").toUpperCase();
+                                const profit = Number(sess?.profitUsd ?? sess?.sessionProfitUsd ?? sess?.rotationProfitUsd ?? sess?.collectedProfitUsd ?? 0) || 0;
+                                const gross = Number(sess?.grossProfitUsd ?? sess?.meta?.grossProfitUsd ?? profit) || 0;
+                                const costs = Number(sess?.costsUsd ?? sess?.meta?.costsUsd ?? 0) || 0;
+                                const net = Number(sess?.netProfitUsd ?? sess?.meta?.netProfitUsd ?? profit) || 0;
+                                const confidence = Number(sess?.confidence ?? sess?.score ?? rotationSelectedPick?.score ?? 0);
+                                const roi = budget > 0 ? (profit / budget) * 100 : 0;
+                                const progress = Math.max(0, Math.min(100, Math.abs(roi) * 20));
+
+                                return (
+                                  <div
+                                    key={sess?.id || `rotation-${idx}-${sym}-${chain}`}
+                                    style={{
+                                      border: `1px solid ${status === "ACTIVE" || status === "APPROVED" ? "rgba(34,197,94,.38)" : "rgba(255,255,255,.12)"}`,
+                                      borderRadius: 14,
+                                      background: status === "ACTIVE" ? "rgba(34,197,94,.08)" : "rgba(255,255,255,.025)",
+                                      padding: "10px 12px",
+                                      display: "grid",
+                                      gridTemplateColumns: isCompactMobile ? "1fr" : "1.35fr 1.25fr 1.25fr auto",
+                                      gap: 12,
+                                      alignItems: "center",
+                                    }}
+                                  >
+                                    <div style={{ minWidth: 0 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                        <b style={{ fontSize: 16, color: "#eafff5" }}>{sym} → {chain}</b>
+                                        <span className={`pill ${status === "ACTIVE" ? "green" : status === "PAUSED" ? "silver" : "green"}`}>{status}</span>
+                                      </div>
+                                      <div className="muted tiny" style={{ marginTop: 5 }}>Budget: {fmtUsd(budget)} · Rotation #{idx + 1}</div>
+                                      <div className="muted tiny" style={{ marginTop: 4 }}>ID: {String(sess?.id || "").slice(0, 28)}</div>
+                                    </div>
+
+                                    <div className="muted tiny" style={{ display: "grid", gap: 5 }}>
+                                      <div><b style={{ color: "#8bdcff" }}>Runtime:</b> {sess?.runtimeLabel || sess?.runtime || "—"}</div>
+                                      <div><b style={{ color: "#8bdcff" }}>Left:</b> {sess?.leftLabel || sess?.timeLeft || "—"}</div>
+                                      <div><b style={{ color: "#ffd166" }}>Confidence:</b> {Number.isFinite(confidence) && confidence > 0 ? `${confidence}/100` : "waiting"}</div>
+                                    </div>
+
+                                    <div className="muted tiny" style={{ display: "grid", gap: 5 }}>
+                                      <div><b style={{ color: profit >= 0 ? "#86efac" : "#ff8a8a" }}>Rotation Profit:</b> {profit >= 0 ? "+" : ""}{fmtUsd(profit)} {budget > 0 ? `(${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%)` : ""}</div>
+                                      <div><b style={{ color: "#86efac" }}>Gross:</b> {gross >= 0 ? "+" : ""}{fmtUsd(gross)} · <b style={{ color: "#ffd166" }}>Costs:</b> {costs ? fmtUsd(costs) : "$0"} · <b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
+                                      <div style={{ height: 6, borderRadius: 99, background: "rgba(255,255,255,.11)", overflow: "hidden", marginTop: 2 }}>
+                                        <div style={{ width: `${progress}%`, height: "100%", background: "linear-gradient(90deg, rgba(34,197,94,.95), rgba(134,239,172,.75))" }} />
+                                      </div>
+                                    </div>
+
+                                    <div style={{ display: "grid", gap: 6, minWidth: 112 }}>
+                                      <button className="miniBtn" type="button">Details</button>
+                                      <button className="miniBtn" type="button">Pause</button>
+                                      <button className="miniBtn danger" type="button">Protect / Stop</button>
+                                      <button className="miniBtn" type="button">Show Routes ▾</button>
+                                    </div>
+                                  </div>
+                                );
+                              }) : (
+                                <div
+                                  className="muted"
+                                  style={{
+                                    padding: "16px 12px",
+                                    borderRadius: 12,
+                                    border: "1px dashed rgba(255,255,255,.16)",
+                                    background: "rgba(255,255,255,.025)",
+                                  }}
+                                >
+                                  No active rotation sessions yet. Approve a Rotation budget and select a target to start tracking.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <details
+                            style={{
+                              borderRadius: 12,
+                              border: "1px solid rgba(34,197,94,.24)",
+                              background: "rgba(0,0,0,.16)",
+                              overflow: "hidden",
+                            }}
+                          >
+                            <summary
+                              style={{
+                                cursor: "pointer",
+                                padding: "9px 10px",
+                                fontWeight: 950,
+                                color: "#eafff5",
+                                listStyle: "none",
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                              }}
+                            >
+                              <span>Rotation Setup & Presets</span>
+                              <span className="muted tiny">Show ▼</span>
+                            </summary>
+                            <div style={{ padding: "0 0 8px" }}>
+                              <div className="gridWrap">
                   <div className="gridControls" style={{ display: "grid", gap: 12 }}>
                     <div
                       style={{
@@ -18296,6 +18478,55 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {rotationBackendMsg}
                       </div>
                     ) : null}
+                  </div>
+                </div>
+                            </div>
+                          </details>
+
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: 12,
+                              background: "rgba(14,165,233,.08)",
+                              border: "1px solid rgba(14,165,233,.24)",
+                              display: "grid",
+                              gap: 7,
+                            }}
+                          >
+                            <div style={{ color: "#8bdcff", fontWeight: 950 }}>Rotation Shadow Executor</div>
+                            <div className="muted tiny">Paper rotation only: simulated capital flow, route validation, edge/cost observation. No Vault swap is triggered here.</div>
+                            <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                              <b style={{ color: "#86efac" }}>Runtime: READY</b>
+                              <b style={{ color: "#ffd166" }}>Simulated rotations: {rotationRows.length}</b>
+                              <b>Best edge: {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "—"}</b>
+                              <b>Safety: paper-only</b>
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: 12,
+                              background: "rgba(34,197,94,.08)",
+                              border: "1px solid rgba(34,197,94,.22)",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: 12,
+                              flexWrap: "wrap",
+                              alignItems: "center",
+                            }}
+                          >
+                            <div>
+                              <b style={{ color: "#eafff5" }}>Rotation Status: {rotationRows.length ? "Active" : "Waiting"}</b>
+                              <div className="muted tiny">Rotation system uses recommendation-first setup. Live Vault rebalancing is not executed from this Shadow panel.</div>
+                            </div>
+                            <div className="muted tiny">
+                              Risk limit: {rotationRiskLimitPct || "—"}% · Max slippage: {rotationMaxSlippagePct || "—"}% · Min net advantage: {rotationMinNetAdvantagePct || "—"}%
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               ) : String(gridMode || "normal") === "trading" ? (

@@ -9230,6 +9230,17 @@ useEffect(() => {
       const serverActiveTradingSessionId = String(serverUi.activeTradingSessionId || "").trim();
       const serverRotationSessions = Array.isArray(serverUi.rotationSessions) ? serverUi.rotationSessions.filter((x) => x && typeof x === "object") : [];
       const serverActiveRotationSessionId = String(serverUi.activeRotationSessionId || "").trim();
+      let localRotationBackup = {};
+      try {
+        const rawRotationBackup = localStorage.getItem(`nexus_rotation_state_v1_${String(wa || "").toLowerCase()}`);
+        localRotationBackup = rawRotationBackup ? JSON.parse(rawRotationBackup) : {};
+        if (!localRotationBackup || typeof localRotationBackup !== "object") localRotationBackup = {};
+      } catch {
+        localRotationBackup = {};
+      }
+      const localRotationSessions = Array.isArray(localRotationBackup.rotationSessions) ? localRotationBackup.rotationSessions.filter((x) => x && typeof x === "object") : [];
+      const hydratedRotationSessions = serverRotationSessions.length ? serverRotationSessions : localRotationSessions;
+      const hydratedActiveRotationSessionId = serverActiveRotationSessionId || String(localRotationBackup.activeRotationSessionId || "").trim();
       const neverSynced = String(appStateSyncedWallet || "").toLowerCase() !== String(wa || "").toLowerCase();
       const localCompare = Array.isArray(compareSet) ? compareSet.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
       const localAi = Array.isArray(aiSelected) ? aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
@@ -9273,19 +9284,20 @@ useEffect(() => {
         if (serverUi.tradingStyle != null) setTradingStyle(String(serverUi.tradingStyle));
         if (serverUi.tradingBudgetUsd != null) setTradingBudgetUsd(String(serverUi.tradingBudgetUsd));
         if (serverUi.tradingBudgetSplitInput != null) setTradingBudgetSplitInput(String(serverUi.tradingBudgetSplitInput));
-        if (serverUi.rotationRuntimeHours != null) setRotationRuntimeHours(String(serverUi.rotationRuntimeHours));
-        if (serverUi.rotationMaxActiveSessions != null) setRotationMaxActiveSessions(String(serverUi.rotationMaxActiveSessions));
-        if (serverUi.rotationRiskLimit != null) setRotationRiskLimit(String(serverUi.rotationRiskLimit));
-        if (serverUi.rotationMaxSlippage != null) setRotationMaxSlippage(String(serverUi.rotationMaxSlippage));
-        if (serverUi.rotationMinNetAdvantage != null) setRotationMinNetAdvantage(String(serverUi.rotationMinNetAdvantage));
-        if (serverUi.rotationMode != null) setRotationMode(String(serverUi.rotationMode));
-        if (serverUi.rotationNetworkScope != null) setRotationNetworkScope(String(serverUi.rotationNetworkScope));
+        const rotationSettingsSource = serverRotationSessions.length ? serverUi : localRotationBackup;
+        if (rotationSettingsSource.rotationRuntimeHours != null) setRotationRuntimeHours(String(rotationSettingsSource.rotationRuntimeHours));
+        if (rotationSettingsSource.rotationMaxActiveSessions != null) setRotationMaxActiveSessions(String(rotationSettingsSource.rotationMaxActiveSessions));
+        if (rotationSettingsSource.rotationRiskLimit != null) setRotationRiskLimit(String(rotationSettingsSource.rotationRiskLimit));
+        if (rotationSettingsSource.rotationMaxSlippage != null) setRotationMaxSlippage(String(rotationSettingsSource.rotationMaxSlippage));
+        if (rotationSettingsSource.rotationMinNetAdvantage != null) setRotationMinNetAdvantage(String(rotationSettingsSource.rotationMinNetAdvantage));
+        if (rotationSettingsSource.rotationMode != null) setRotationMode(String(rotationSettingsSource.rotationMode));
+        if (rotationSettingsSource.rotationNetworkScope != null) setRotationNetworkScope(String(rotationSettingsSource.rotationNetworkScope));
         if (serverTradingSessions.length) {
           setTradingSessions(serverTradingSessions);
           if (serverActiveTradingSessionId) setActiveTradingSessionId(serverActiveTradingSessionId);
         }
-        setRotationSessions(serverRotationSessions);
-        if (serverActiveRotationSessionId) setActiveRotationSessionId(serverActiveRotationSessionId);
+        setRotationSessions(hydratedRotationSessions);
+        if (hydratedActiveRotationSessionId) setActiveRotationSessionId(hydratedActiveRotationSessionId);
       }
       if (serverUpdatedTs) storeAppStateServerTs(serverUpdatedTs);
       setAppStateSyncedWallet(wa);
@@ -9356,6 +9368,14 @@ useEffect(() => {
         const saved = await api("/api/app-state", { method: "POST", token, wallet: wa, body: payload });
         storeAppStateServerTs(saved?.updated_ts);
         setAppStateSyncedWallet(wa);
+        try {
+          const savedUi = saved?.state?.ui && typeof saved.state.ui === "object" ? saved.state.ui : {};
+          const savedRot = Array.isArray(savedUi.rotationSessions) ? savedUi.rotationSessions : [];
+          const localRot = Array.isArray(payload?.ui?.rotationSessions) ? payload.ui.rotationSessions : [];
+          if (localRot.length && !savedRot.length) {
+            console.warn("rotation app-state save did not echo rotationSessions; keep wallet-bound backup until backend is updated");
+          }
+        } catch {}
       } catch (e) {
         console.warn("app-state save failed", e);
       } finally {
@@ -9364,6 +9384,30 @@ useEffect(() => {
     }, 300);
     return () => clearTimeout(t);
   }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, rotationNetworkScope, rotationSessions, activeRotationSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
+
+  // Rotation safety persistence: DB via /api/app-state is the source of truth.
+  // This wallet-bound local backup prevents accidental empty-state overwrite during refresh
+  // and lets the next app-state save rehydrate the DB if an older backend filtered rotation keys.
+  useEffect(() => {
+    const wa = resolveWalletAddress(wallet);
+    if (!wa || !appStateHydratedRef.current || appStateApplyingServerRef.current) return;
+    const sessions = Array.isArray(rotationSessions) ? rotationSessions.filter((x) => x && typeof x === "object") : [];
+    if (!sessions.length && !activeRotationSessionId) return;
+    try {
+      localStorage.setItem(`nexus_rotation_state_v1_${wa.toLowerCase()}`, JSON.stringify({
+        rotationSessions: sessions.slice(0, 30),
+        activeRotationSessionId: String(activeRotationSessionId || ""),
+        rotationRuntimeHours,
+        rotationMaxActiveSessions,
+        rotationRiskLimit,
+        rotationMaxSlippage,
+        rotationMinNetAdvantage,
+        rotationMode,
+        rotationNetworkScope,
+        savedAt: Date.now(),
+      }));
+    } catch {}
+  }, [wallet, rotationSessions, activeRotationSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, rotationNetworkScope]);
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -18425,8 +18469,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <input
                           value={rotationRiskLimit}
                           onChange={(e) => { setRotationRiskLimit(e.target.value); setRotationBudgetReleased(false); }}
-                          disabled={!rotationSelectedPick?.ok}
-                          placeholder={rotationSelectedPick?.ok ? "Max loss for this Rotation" : "Select first"}
+                          placeholder="Max loss for this Rotation"
                         />
                       </div>
                       <div className="formRow">
@@ -18442,7 +18485,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <input
                           value={rotationMinNetAdvantage}
                           onChange={(e) => { setRotationMinNetAdvantage(e.target.value); setRotationBudgetReleased(false); }}
-                          disabled={!rotationSelectedPick?.ok}
                           placeholder="e.g. 0.5"
                         />
                       </div>
@@ -18451,7 +18493,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <input
                           value={rotationMaxSlippage}
                           onChange={(e) => { setRotationMaxSlippage(e.target.value); setRotationBudgetReleased(false); }}
-                          disabled={!rotationSelectedPick?.ok}
                           placeholder="e.g. 1"
                         />
                       </div>

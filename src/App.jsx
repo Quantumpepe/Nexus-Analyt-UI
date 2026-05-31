@@ -6941,15 +6941,27 @@ useEffect(() => {
           chain: fallbackChain,
           symbol: fallbackSymbol,
           status: "APPROVED",
+          mode: rotationMode,
+          networkScope: rotationNetworkScope,
+          riskLimitPct: rotationRiskLimit,
+          minNetAdvantagePct: rotationMinNetAdvantage,
+          maxSlippagePct: rotationMaxSlippage,
+          payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
           createdAt: now,
           updatedAt: now,
+          meta: {
+            source: "rotation_budget_approval",
+            risk_limit_pct: rotationRiskLimit,
+            min_net_advantage_pct: rotationMinNetAdvantage,
+            max_slippage_pct: rotationMaxSlippage,
+            payout_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
+          },
         },
         ...existing,
       ].slice(0, 20);
     });
-    setRotationBudgetRelease("");
-    setRotationBackendMsg(`Rotation session approved ✓ ${sessionId}. Enter the next Rotation budget and approve/sign again when needed.`);
-  }, [rotationBudgetRelease, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, gridItem, setRotationBudgetRelease]);
+    setRotationBackendMsg(`Rotation session approved ✓ ${sessionId}. The approved budget and risk settings are now active for Rotation Shadow.`);
+  }, [rotationBudgetRelease, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, gridItem, rotationMode, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -6959,9 +6971,14 @@ useEffect(() => {
       const chain = String(rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
       const native = chain === "BNB" ? "BNB" : chain === "ETH" ? "ETH" : "POL";
       const symbol = String(rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || native).toUpperCase();
+      const activeRotationSession = (Array.isArray(rotationSessions) ? rotationSessions : []).find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || (Array.isArray(rotationSessions) ? rotationSessions : [])[0] || null;
       let amountUsd = Number(String(rotationBudgetRelease || "").replace(",", "."));
+      if (!Number.isFinite(amountUsd) || amountUsd <= 0) amountUsd = Number(activeRotationSession?.budgetUsd || 0);
       if (!Number.isFinite(amountUsd) || amountUsd <= 0) amountUsd = 1; // tiny test amount for preview/check
-      const slippagePct = Number(String(rotationMaxSlippage || "1").replace(",", "."));
+      const slippageSource = activeRotationSession?.maxSlippagePct ?? activeRotationSession?.meta?.max_slippage_pct ?? rotationMaxSlippage ?? "1";
+      const riskLimitSource = activeRotationSession?.riskLimitPct ?? activeRotationSession?.meta?.risk_limit_pct ?? rotationRiskLimit;
+      const minNetSource = activeRotationSession?.minNetAdvantagePct ?? activeRotationSession?.meta?.min_net_advantage_pct ?? rotationMinNetAdvantage;
+      const slippagePct = Number(String(slippageSource || "1").replace(",", "."));
 
       const body = {
         wallet,
@@ -6976,8 +6993,8 @@ useEffect(() => {
         token_out: symbol,
         slippageBps: Number.isFinite(slippagePct) ? Math.round(slippagePct * 100) : 100,
         slippage_bps: Number.isFinite(slippagePct) ? Math.round(slippagePct * 100) : 100,
-        riskLimitPct: rotationRiskLimit,
-        minNetAdvantagePct: rotationMinNetAdvantage,
+        riskLimitPct: riskLimitSource,
+        minNetAdvantagePct: minNetSource,
         safeMode: true,
       };
 
@@ -6999,7 +7016,7 @@ useEffect(() => {
     } finally {
       setRotationBackendLoading(false);
     }
-  }, [rotationSelectedPick, activeGridChainKey, gridItem, rotationBudgetRelease, rotationMaxSlippage, rotationRiskLimit, rotationMinNetAdvantage, token, wallet]);
+  }, [rotationSelectedPick, activeGridChainKey, gridItem, rotationBudgetRelease, rotationMaxSlippage, rotationRiskLimit, rotationMinNetAdvantage, rotationSessions, activeRotationSessionId, token, wallet]);
 
 
   const resetRotationBudgetRelease = useCallback(() => {
@@ -9436,7 +9453,10 @@ const [aiLoading, setAiLoading] = useState(false);
           ? typedBudget
           : 100;
       const chain = String(firstActive?.chain || rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-      const slippagePct = Number(String(rotationMaxSlippage || "1").replace(",", "."));
+      const slippageSource = firstActive?.maxSlippagePct ?? firstActive?.meta?.max_slippage_pct ?? rotationMaxSlippage ?? "1";
+      const riskLimitSource = firstActive?.riskLimitPct ?? firstActive?.meta?.risk_limit_pct ?? rotationRiskLimit;
+      const minNetSource = firstActive?.minNetAdvantagePct ?? firstActive?.meta?.min_net_advantage_pct ?? rotationMinNetAdvantage;
+      const slippagePct = Number(String(slippageSource || "1").replace(",", "."));
       const assets = buildRotationShadowAssets();
 
       if (!assets.length) {
@@ -9453,8 +9473,8 @@ const [aiLoading, setAiLoading] = useState(false);
         assets,
         slippageBps: Number.isFinite(slippagePct) ? Math.round(slippagePct * 100) : 100,
         slippage_bps: Number.isFinite(slippagePct) ? Math.round(slippagePct * 100) : 100,
-        minNetAdvantagePct: rotationMinNetAdvantage,
-        riskLimitPct: rotationRiskLimit,
+        minNetAdvantagePct: minNetSource,
+        riskLimitPct: riskLimitSource,
         safeMode: true,
         shadowOnly: true,
       };
@@ -9480,7 +9500,7 @@ const [aiLoading, setAiLoading] = useState(false);
       const grossUsd = targetUsd * (rawEdgePct / 100);
       const costsUsd = gasUsd + targetUsd * ((slipCostPct + dexCostPct) / 100);
       const netUsd = grossUsd - costsUsd;
-      const minNetAdv = Number(String(rotationMinNetAdvantage || "0.5").replace(",", "."));
+      const minNetAdv = Number(String(minNetSource || "0.5").replace(",", "."));
       const netPct = targetUsd > 0 ? (netUsd / targetUsd) * 100 : 0;
       const action = netPct >= (Number.isFinite(minNetAdv) ? minNetAdv : 0.5) ? "SIMULATED_READY" : "WAIT_NET_EDGE";
       const now = Date.now();
@@ -9528,6 +9548,9 @@ const [aiLoading, setAiLoading] = useState(false);
             netProfitUsd: Number(netUsd.toFixed(4)),
             runtimeLabel: "SHADOW LIVE DATA",
             leftLabel: "paper-only",
+            riskLimitPct: riskLimitSource,
+            minNetAdvantagePct: minNetSource,
+            maxSlippagePct: slippageSource,
             updatedAt: now,
             meta: {
               ...(sess?.meta || {}),
@@ -10810,8 +10833,10 @@ setGridBusy((s) => ({ ...s, stop: true }));
   }, [fundingPrompt, continueWithFundingSuggestion]);
 
   const getRotationPreflight = useCallback(() => {
-    const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
-    const fallbackChain = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+    const activeRotationSession = (Array.isArray(rotationSessions) ? rotationSessions : []).find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || (Array.isArray(rotationSessions) ? rotationSessions : [])[0] || null;
+    const typedAmount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+    const amount = Number.isFinite(typedAmount) && typedAmount > 0 ? typedAmount : Number(activeRotationSession?.budgetUsd || 0);
+    const fallbackChain = String(activeRotationSession?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
     const native = fallbackChain === "BNB" ? "BNB" : fallbackChain === "ETH" ? "ETH" : "POL";
 
     const pick = rotationSelectedPick && typeof rotationSelectedPick === "object" ? rotationSelectedPick : {};
@@ -10844,8 +10869,8 @@ setGridBusy((s) => ({ ...s, stop: true }));
       return null;
     };
 
-    let resolvedChain = String(pick.chain || "").toUpperCase();
-    let resolvedSymbol = String(pick.coin || "").toUpperCase();
+    let resolvedChain = String(pick.chain || activeRotationSession?.chain || "").toUpperCase();
+    let resolvedSymbol = String(pick.coin || activeRotationSession?.symbol || "").toUpperCase();
 
     if (!resolvedSymbol && sourceSymbol === "BTC") {
       const resolved = chooseFirstAvailable([
@@ -10894,7 +10919,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
           ? `Ready: ${resolvedSymbol} on ${resolvedChain}.`
           : `Ready with fallback: ${resolvedSymbol} on ${resolvedChain}. You can still select a recommendation for more precision.`,
     };
-  }, [rotationBudgetRelease, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, gridWalletCoinsByChain]);
+  }, [rotationBudgetRelease, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, gridWalletCoinsByChain, rotationSessions, activeRotationSessionId]);
 
   const addRotationOrder = useCallback(async () => {
     const pick = rotationSelectedPick || {};
@@ -10910,7 +10935,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
       chain,
       symbol,
       side: "BUY",
-      budgetUsd: rotationBudgetRelease,
+      budgetUsd: preflight.amount,
       priceUsd: getNexusOrderPriceUsd(symbol),
       meta: {
         strategy_id: `rotation_${chain}_${symbol}`,
@@ -18098,7 +18123,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return sum + (Number.isFinite(v) ? v : 0);
                       }, 0);
                       const activeRotations = rotationRows.filter((s) => String(s?.status || "").toUpperCase() !== "STOPPED" && String(s?.status || "").toUpperCase() !== "PAUSED").length;
-                      const firstRotation = rotationRows[0] || null;
+                      const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
                       const leader = String(firstRotation?.symbol || rotationSelectedPick?.sym || gridItem || "—").toUpperCase();
                       const targetChain = String(firstRotation?.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
                       const vaultTotalNative = Number(manualVaultTotalQty || 0);
@@ -18206,6 +18231,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <span className={`pill ${status === "ACTIVE" ? "green" : status === "PAUSED" ? "silver" : "green"}`}>{status}</span>
                                       </div>
                                       <div className="muted tiny" style={{ marginTop: 5 }}>Budget: {fmtUsd(budget)} · Rotation #{idx + 1}</div>
+                                      <div className="muted tiny" style={{ marginTop: 4 }}>Risk {sess?.riskLimitPct || sess?.meta?.risk_limit_pct || rotationRiskLimit || "—"}% · Slippage {sess?.maxSlippagePct || sess?.meta?.max_slippage_pct || rotationMaxSlippage || "—"}% · Min Net {sess?.minNetAdvantagePct || sess?.meta?.min_net_advantage_pct || rotationMinNetAdvantage || "—"}%</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}>ID: {String(sess?.id || "").slice(0, 28)}</div>
                                     </div>
 
@@ -18728,7 +18754,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div className="muted tiny">Rotation system uses recommendation-first setup. Live Vault rebalancing is not executed from this Shadow panel.</div>
                             </div>
                             <div className="muted tiny">
-                              Risk limit: {"—"}% · Max slippage: {rotationMaxSlippage || "—"}% · Min net advantage: {rotationMinNetAdvantage || "—"}%
+                              Risk limit: {firstRotation?.riskLimitPct || firstRotation?.meta?.risk_limit_pct || rotationRiskLimit || "—"}% · Max slippage: {firstRotation?.maxSlippagePct || firstRotation?.meta?.max_slippage_pct || rotationMaxSlippage || "—"}% · Min net advantage: {firstRotation?.minNetAdvantagePct || firstRotation?.meta?.min_net_advantage_pct || rotationMinNetAdvantage || "—"}%
                             </div>
                           </div>
                         </>

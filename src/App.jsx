@@ -18721,46 +18721,94 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             return <option key={sid || `session-${sess?.createdAt || Math.random()}`} value={sid}>{label}</option>;
                           })}
                         </select>
-                        {selectedTradingSession ? (
+                        {selectedTradingSession ? (() => {
+                          const sessionSlots = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+                          const sessionAsset = getTradingSessionPrimaryAsset(selectedTradingSession) || "ASSET";
+                          const sessionBudget = getTradingSessionBudgetUsd(selectedTradingSession);
+                          const sessionProfit = getTradingSessionProfitUsd(selectedTradingSession);
+                          const sessionProfitPct = sessionBudget > 0 ? (sessionProfit / sessionBudget) * 100 : 0;
+                          const reusePct = Number(selectedTradingSession?.reuseProfitPct ?? selectedTradingSession?.reuse_profit_pct ?? selectedTradingSession?.profitReusePct ?? selectedTradingSession?.profit_reuse_pct ?? 0);
+                          const maxCombined = Number(selectedTradingSession?.maxCombinedSlots ?? selectedTradingSession?.max_combined_slots ?? selectedTradingSession?.slotDonorCap ?? selectedTradingSession?.slot_donor_cap ?? 0);
+                          const timing = getTradingSessionTiming(selectedTradingSession);
+                          const counts = sessionSlots.reduce((acc, slot) => {
+                            const st = String(slot?.status || "WAIT").toUpperCase();
+                            acc[st] = (acc[st] || 0) + 1;
+                            return acc;
+                          }, {});
+                          const activeSlot = sessionSlots.find((slot) => String(slot?.status || "").toUpperCase() === "ACTIVE") || sessionSlots.find((slot) => ["READY", "WAIT", "SIMULATED_EXIT"].includes(String(slot?.status || "").toUpperCase())) || null;
+                          const aggregate = sessionSlots.reduce((acc, slot) => {
+                            const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+                            const gross = Number(slot.paper_gross_pnl_usd ?? meta.paper_gross_pnl_usd ?? 0);
+                            const costs = Number(slot.paper_estimated_costs_usd ?? meta.paper_estimated_costs_usd ?? 0);
+                            const net = Number(slot.paper_net_pnl_usd ?? meta.paper_net_pnl_usd ?? slot.paper_pnl_usd ?? meta.paper_pnl_usd ?? 0);
+                            const cycle = Number(slot.paper_cycle_realized_usd ?? meta.paper_cycle_realized_usd ?? 0);
+                            if (Number.isFinite(gross)) acc.gross += gross;
+                            if (Number.isFinite(costs)) acc.costs += costs;
+                            if (Number.isFinite(net)) acc.net += net;
+                            if (Number.isFinite(cycle)) acc.cycle += cycle;
+                            return acc;
+                          }, { gross: 0, costs: 0, net: 0, cycle: 0 });
+                          const progressPct = sessionBudget > 0 ? Math.max(0, Math.min(200, 100 + sessionProfitPct)) : 0;
+                          const stateLabel = String(selectedTradingSession?.status || selectedTradingSessionLabel || "ACTIVE").toUpperCase();
+                          return (
                           <div
                             style={{
-                              border: "1px solid rgba(34,197,94,.30)",
-                              borderRadius: 10,
-                              background: "rgba(34,197,94,.07)",
-                              padding: "7px 8px",
+                              border: "1px solid rgba(34,197,94,.32)",
+                              borderRadius: 14,
+                              background: "linear-gradient(135deg, rgba(34,197,94,.10), rgba(0,0,0,.18))",
+                              padding: "10px 12px",
                               display: "grid",
-                              gap: 3,
+                              gap: 10,
+                              boxShadow: "0 0 0 1px rgba(255,255,255,.025) inset",
                             }}
                           >
-                            <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{getTradingSessionPrimaryAsset(selectedTradingSession) || "ASSET"} · {fmtUsd(getTradingSessionBudgetUsd(selectedTradingSession))} · {getTradingSessionSlotCount(selectedTradingSession)} slots</div>
-                            <div className="muted tiny" style={{ color: getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}>Session Profit: {`${getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "+" : "-"}${fmtUsd(Math.abs(getTradingSessionProfitUsd(selectedTradingSession)))}`}</div>
-                            <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Reuse Profit: {Number(selectedTradingSession?.reuseProfitPct ?? selectedTradingSession?.reuse_profit_pct ?? selectedTradingSession?.profitReusePct ?? selectedTradingSession?.profit_reuse_pct ?? 0).toFixed(0)}% allowed</div>
-                            <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Max Combined Slots: {Number(selectedTradingSession?.maxCombinedSlots ?? selectedTradingSession?.max_combined_slots ?? selectedTradingSession?.slotDonorCap ?? selectedTradingSession?.slot_donor_cap ?? 0).toFixed(0)}</div>
-                            {(() => {
-                              const timing = getTradingSessionTiming(selectedTradingSession);
-                              return (
-                                <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>
-                                  Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}
+                            <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1.1fr 1.1fr 1.1fr auto", gap: 12, alignItems: "center" }}>
+                              <div style={{ display: "grid", gap: 6 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 14 }}>{sessionAsset} · {fmtUsd(sessionBudget)} · {getTradingSessionSlotCount(selectedTradingSession)} slots</div>
+                                  <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                 </div>
-                              );
-                            })()}
-                            <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-                              {tradingCanPause ? (
-                                <button className="miniBtn" type="button" onClick={handleTradingPauseSession} title="Pause only this selected Trading session">Pause</button>
-                              ) : null}
-                              {tradingCanResume ? (
-                                <button className="miniBtn" type="button" onClick={handleTradingResumeSession} title="Resume only this selected Trading session">Resume</button>
-                              ) : null}
-                              {tradingCanStop ? (
-                                <button className="miniBtn" type="button" onClick={handleTradingStopSession} title="Protect / stop only this selected Trading session">Protect / Stop</button>
-                              ) : null}
-                              {tradingCanReleaseCapital ? (
-                                <button className="miniBtn" type="button" onClick={handleTradingReleaseCapital} title="Release capital for this selected Trading session">Release Capital</button>
-                              ) : null}
+                                <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
+                                <div className="muted tiny">Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exited {counts.SIMULATED_EXIT || 0}</div>
+                              </div>
+
+                              <div style={{ display: "grid", gap: 5 }}>
+                                <div className="muted tiny" style={{ color: sessionProfit >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}>Session Profit: {`${sessionProfit >= 0 ? "+" : "-"}${fmtUsd(Math.abs(sessionProfit))}`} {sessionBudget > 0 ? `(${sessionProfitPct >= 0 ? "+" : ""}${sessionProfitPct.toFixed(2)}%)` : ""}</div>
+                                <div className="muted tiny" style={{ color: "#7cf7a2", fontWeight: 900 }}>Gross: {aggregate.gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(aggregate.gross))} · Net: {aggregate.net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(aggregate.net))}</div>
+                                <div className="muted tiny" style={{ color: aggregate.costs > 0 ? "#ffd166" : "rgba(216,255,241,.68)", fontWeight: 850 }}>Costs: {aggregate.costs > 0 ? `-${fmtUsd(aggregate.costs)}` : fmtUsd(0)} · Cycle: {aggregate.cycle >= 0 ? "+" : "-"}{fmtUsd(Math.abs(aggregate.cycle))}</div>
+                              </div>
+
+                              <div style={{ display: "grid", gap: 5 }}>
+                                <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Reuse Profit: {Number.isFinite(reusePct) ? reusePct.toFixed(0) : "0"}% allowed</div>
+                                <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Max Combined Slots: {Number.isFinite(maxCombined) ? maxCombined.toFixed(0) : "0"}</div>
+                                <div className="muted tiny">Current slot: {activeSlot ? `#${activeSlot.slot || activeSlot.slot_id || "—"} · ${String(activeSlot.status || "WAIT").toUpperCase()} · ${fmtUsd(getTradingSlotAmountUsd(activeSlot))}` : "—"}</div>
+                                <div style={{ height: 6, borderRadius: 999, background: "rgba(255,255,255,.10)", overflow: "hidden", marginTop: 2 }}>
+                                  <div style={{ height: "100%", width: `${Math.max(0, Math.min(100, progressPct))}%`, background: sessionProfit >= 0 ? "linear-gradient(90deg, #22c55e, #7cf7a2)" : "linear-gradient(90deg, #ff6b6b, #ffd166)" }} />
+                                </div>
+                              </div>
+
+                              <div style={{ display: "grid", gap: 7, minWidth: 116 }}>
+                                <button className="miniBtn" type="button" title="Open detailed session view">Details</button>
+                                {tradingCanPause ? (
+                                  <button className="miniBtn" type="button" onClick={handleTradingPauseSession} title="Pause only this selected Trading session">Pause</button>
+                                ) : null}
+                                {tradingCanResume ? (
+                                  <button className="miniBtn" type="button" onClick={handleTradingResumeSession} title="Resume only this selected Trading session">Resume</button>
+                                ) : null}
+                                {tradingCanStop ? (
+                                  <button className="miniBtn" type="button" onClick={handleTradingStopSession} title="Protect / stop only this selected Trading session" style={{ color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}>Protect / Stop</button>
+                                ) : null}
+                                {tradingCanReleaseCapital ? (
+                                  <button className="miniBtn" type="button" onClick={handleTradingReleaseCapital} title="Release capital for this selected Trading session">Release Capital</button>
+                                ) : null}
+                              </div>
+                            </div>
+                            <div className="muted tiny" style={{ color: "#8bdcff", borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 6 }}>
+                              Viewing: {selectedTradingSessionId}. Strategy: {selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical"} · Risk: {selectedTradingSession?.riskMode || selectedTradingSession?.risk_mode || tradingRiskMode || "Balanced"} · Payout: {selectedTradingSession?.payoutAsset || selectedTradingSession?.payout_asset || tradingPayoutAsset || "USDC"}
                             </div>
                           </div>
-                        ) : null}
+                          );
+                        })() : null}
                       </div>
                     ) : Array.isArray(stoppedTradingSessions) && stoppedTradingSessions.length ? (
                       <div className="muted tiny" style={{ padding: "8px 10px", borderRadius: 12, background: "rgba(0,0,0,.12)", border: "1px solid rgba(255,255,255,.08)", color: "rgba(216,255,241,.68)" }}>

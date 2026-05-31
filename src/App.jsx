@@ -17572,9 +17572,54 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
         {/* Grid */}
         <section className={`card section-grid dashboardPanel ${activePanel === "vault" ? "panelActive" : ""}`} onClick={handlePanelActivate("vault")}>
-          <div className="cardHead">
-            <div className="cardTitle">Grid Trader</div>
-            <div className="cardActions" style={{ alignItems: "center" }}>
+          <div className="cardHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div className="cardTitle" style={{ flex: "0 0 auto" }}>Grid Trader</div>
+
+            {!isCompactMobile && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gap: 8,
+                  flex: "1 1 auto",
+                  maxWidth: 760,
+                  minWidth: 420,
+                  padding: 4,
+                  borderRadius: 14,
+                  background: "rgba(255,255,255,.04)",
+                  border: "1px solid rgba(255,255,255,.08)",
+                }}
+              >
+                {[
+                  ["normal", "Nexus Grid"],
+                  ["rotation", "Nexus Rotation"],
+                  ["trading", "Nexus Trading"],
+                ].map(([mode, label]) => {
+                  const active = String(gridMode || "normal") === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setGridMode(mode)}
+                      style={{
+                        height: 36,
+                        borderRadius: 12,
+                        border: active ? "1px solid rgba(0,255,136,.45)" : "1px solid rgba(255,255,255,.10)",
+                        background: active ? "linear-gradient(180deg, rgba(34,197,94,.95), rgba(22,163,74,.88))" : "rgba(255,255,255,.04)",
+                        color: active ? "#02130a" : "rgba(235,255,247,.92)",
+                        fontWeight: 950,
+                        cursor: "pointer",
+                        boxShadow: active ? "0 0 18px rgba(34,197,94,.18)" : "none",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="cardActions" style={{ alignItems: "center", flex: "0 0 auto" }}>
              
               <span className="pill silver">Price: {shownGridPrice ? fmtUsd(shownGridPrice) : "—"}</span>
               <InfoButton title="Grid Trader – Info">
@@ -17640,6 +17685,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           <div className="panelScroll"><div className={`gridLayout ${String(gridMode || "normal") === "trading" ? "tradingDesktopLayout" : ""}`}>
             <div className="gridLeft">
+              {isCompactMobile && (
               <div
                 style={{
                   display: "grid",
@@ -17679,6 +17725,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   );
                 })}
               </div>
+              )}
 
               {strategistBridge ? (
                 <div

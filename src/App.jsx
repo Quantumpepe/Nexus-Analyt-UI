@@ -18268,7 +18268,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         className="muted tiny"
                         style={{
                           display: "grid",
-                          gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
+                          gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
                           gap: 6,
                           lineHeight: 1.45,
                         }}
@@ -18302,6 +18302,106 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         })()}
                       </div>
                     </div>
+
+                    {!isCompactMobile && Array.isArray(openTradingSessions) && openTradingSessions.length ? (
+                      <div
+                        style={{
+                          padding: "9px 10px",
+                          borderRadius: 14,
+                          background: "rgba(0,0,0,.16)",
+                          border: "1px solid rgba(139,220,255,.14)",
+                          display: "grid",
+                          gap: 9,
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <div className="muted tiny" style={{ fontWeight: 950, color: "#8bdcff" }}>Active Trading Sessions</div>
+                          <div className="muted tiny" style={{ color: "rgba(216,255,241,.72)", fontWeight: 850 }}>
+                            first 3 visible · scroll for more
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                            gap: 10,
+                            maxHeight: 282,
+                            overflowY: "auto",
+                            paddingRight: 4,
+                          }}
+                        >
+                          {openTradingSessions.map((sess) => {
+                            const sid = String(sess?.id || sess?.session_id || "");
+                            const primaryAsset = getTradingSessionPrimaryAsset(sess);
+                            const budget = getTradingSessionBudgetUsd(sess);
+                            const profit = getTradingSessionProfitUsd(sess);
+                            const slotCount = getTradingSessionSlotCount(sess);
+                            const timing = getTradingSessionTiming(sess);
+                            const q = Array.isArray(sess?.queue) ? sess.queue : [];
+                            const activeCount = q.filter((slot) => String(slot?.status || slot?.state || "").toUpperCase() === "ACTIVE").length;
+                            const readyCount = q.filter((slot) => String(slot?.status || slot?.state || "").toUpperCase() === "READY").length;
+                            const waitCount = q.filter((slot) => String(slot?.status || slot?.state || "").toUpperCase() === "WAIT").length;
+                            const aggregate = q.reduce((acc, slot) => {
+                              const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+                              const gross = Number(slot.paper_gross_pnl_usd ?? meta.paper_gross_pnl_usd ?? 0);
+                              const costs = Number(slot.paper_estimated_costs_usd ?? meta.paper_estimated_costs_usd ?? 0);
+                              const net = Number(slot.paper_net_pnl_usd ?? meta.paper_net_pnl_usd ?? slot.paper_pnl_usd ?? meta.paper_pnl_usd ?? 0);
+                              if (Number.isFinite(gross)) acc.gross += gross;
+                              if (Number.isFinite(costs)) acc.costs += Math.abs(costs);
+                              if (Number.isFinite(net)) acc.net += net;
+                              return acc;
+                            }, { gross: 0, costs: 0, net: 0 });
+                            const selected = sid && sid === selectedTradingSessionId;
+                            const status = String(sess?.status || "ACTIVE").toUpperCase();
+                            const reusePct = Number(sess?.reuseProfitPct ?? sess?.reuse_profit_pct ?? sess?.profitReusePct ?? sess?.profit_reuse_pct ?? 0);
+                            const maxCombined = Number(sess?.maxCombinedSlots ?? sess?.max_combined_slots ?? 0);
+                            const profitPct = budget > 0 ? (profit / budget) * 100 : 0;
+                            return (
+                              <div
+                                key={sid || `${primaryAsset}-${budget}`}
+                                onClick={() => sid && selectTradingSession(sid)}
+                                style={{
+                                  border: selected ? "1px solid rgba(34,197,94,.62)" : "1px solid rgba(139,220,255,.16)",
+                                  background: selected ? "rgba(34,197,94,.10)" : "rgba(255,255,255,.035)",
+                                  borderRadius: 14,
+                                  padding: "10px 11px",
+                                  display: "grid",
+                                  gap: 8,
+                                  cursor: sid ? "pointer" : "default",
+                                  minHeight: 170,
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                                  <div>
+                                    <div style={{ fontWeight: 950, color: "#eafff5", fontSize: 15 }}>{primaryAsset || "ASSET"}</div>
+                                    <div className="muted tiny">{status} · {slotCount} slots · {fmtUsd(budget)}</div>
+                                  </div>
+                                  <div className="tiny" style={{ color: selected ? "#7cf7a2" : "#8bdcff", fontWeight: 950 }}>{selected ? "SELECTED" : "OPEN"}</div>
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                                  <div className="muted tiny"><b>Runtime:</b> {timing.elapsedLabel}</div>
+                                  <div className="muted tiny"><b>Left:</b> {timing.remainingLabel}</div>
+                                  <div className="muted tiny"><b>Reuse:</b> {Number.isFinite(reusePct) ? `${reusePct}%` : "0%"}</div>
+                                  <div className="muted tiny"><b>Combine:</b> {Number.isFinite(maxCombined) ? maxCombined : 0}</div>
+                                </div>
+                                <div className="tiny" style={{ color: profit >= 0 ? "#7cf7a2" : "#ff8a8a", fontWeight: 950 }}>
+                                  Collected {profit >= 0 ? "+" : "-"}{fmtUsd(Math.abs(profit))} {Number.isFinite(profitPct) ? `(${profitPct >= 0 ? "+" : ""}${profitPct.toFixed(2)}%)` : ""}
+                                </div>
+                                <div className="muted tiny" style={{ color: "rgba(216,255,241,.78)" }}>
+                                  gross {aggregate.gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(aggregate.gross))} · costs -{fmtUsd(Math.abs(aggregate.costs))} · net {aggregate.net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(aggregate.net))}
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                  <span className="tiny" style={{ color: "#7cf7a2", fontWeight: 900 }}>ACTIVE {activeCount}</span>
+                                  <span className="tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>READY {readyCount}</span>
+                                  <span className="tiny" style={{ color: "#ffd166", fontWeight: 900 }}>WAIT {waitCount}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
 
                     <button
                       type="button"
@@ -18696,7 +18796,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     {renderFundingPrompt("TRADING")}
 
                     {Array.isArray(openTradingSessions) && openTradingSessions.length ? (
-                      <div style={{ display: "grid", gap: 8, padding: "8px 10px", borderRadius: 12, background: "rgba(0,0,0,.14)", border: "1px solid rgba(139,220,255,.12)" }}>
+                      <div style={{ display: isCompactMobile ? "grid" : "none", gap: 8, padding: "8px 10px", borderRadius: 12, background: "rgba(0,0,0,.14)", border: "1px solid rgba(139,220,255,.12)" }}>
                         <div className="muted tiny" style={{ fontWeight: 950, color: "#8bdcff" }}>Active Trading sessions</div>
                         <select
                           value={selectedTradingSessionId || String(openTradingSessions?.[0]?.id || "")}

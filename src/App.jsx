@@ -9128,7 +9128,9 @@ useEffect(() => {
   }, [payoutMenuOpen]);
 
 
-  const renderPayoutAssetSelector = (label = "Payout asset") => (
+  const renderPayoutAssetSelector = (label = "Payout asset", options = {}) => {
+    const allowExtraAssets = options?.allowExtraAssets !== false;
+    return (
     <div className="formRow">
       <label>{label}</label>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -9154,7 +9156,7 @@ useEffect(() => {
             </button>
           );
         })}
-        {extraPayoutAssets.length > 0 && (
+        {allowExtraAssets && extraPayoutAssets.length > 0 && (
           <div ref={payoutMenuRef} style={{ position: "relative", minWidth: 220 }}>
             <button
               type="button"
@@ -9226,6 +9228,7 @@ useEffect(() => {
       </div>
     </div>
   );
+  };
   const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
 
   // AI
@@ -18348,6 +18351,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
                       const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
                       const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
+                      const rotationShadowRuntimeStatus = rotationShadowBusy ? "READING LIVE DATA" : activeRotations > 0 ? "RUNNING" : "READY";
+                      const rotationShadowWorkStatus = rotationShadowBusy ? "SCANNING" : activeRotations > 0 ? "RUNNING" : "WAITING";
+                      const rotationShadowReadiness = rotationShadowBusy
+                        ? "SCANNING_MARKET"
+                        : rotationShadowSnapshot?.action
+                          ? String(rotationShadowSnapshot.action).toUpperCase()
+                          : activeRotations > 0
+                            ? "SEARCHING"
+                            : "WAITING_FOR_SESSION";
 
                       return (
                         <>
@@ -18625,7 +18637,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     </div>
 
-                    {renderPayoutAssetSelector("Payout asset")}
+                    {renderPayoutAssetSelector("Payout asset", { allowExtraAssets: false })}
 
                     <div
                       className="muted tiny"
@@ -18960,7 +18972,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                             <div className="muted tiny">Paper rotation only: capital manager flow is Base → Target → Base. Profit is collected, working capital stays controlled, and no Vault swap is triggered here.</div>
                             <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                              <b style={{ color: rotationShadowSnapshot?.status === "error" ? "#ff8a8a" : "#86efac" }}>Runtime: {rotationShadowBusy ? "READING LIVE DATA" : rotationShadowSnapshot?.status === "ok" ? "SHADOW ACTIVE" : "READY"}</b>
+                              <b style={{ color: rotationShadowSnapshot?.status === "error" ? "#ff8a8a" : "#86efac" }}>Runtime: {rotationShadowRuntimeStatus}</b>
+                              <b style={{ color: rotationShadowWorkStatus === "RUNNING" ? "#86efac" : "#ffd166" }}>Status: {rotationShadowWorkStatus}</b>
+                              <b style={{ color: "#8bdcff" }}>Readiness: {rotationShadowReadiness}</b>
                               <b style={{ color: "#ffd166" }}>Simulated rotations: {rotationRows.length}</b>
                               <b>Best edge: {rotationShadowSnapshot?.bestScore ? `${rotationShadowSnapshot.bestScore}/100` : rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "—"}</b>
                               <b>Net: {Number.isFinite(Number(rotationShadowSnapshot?.netUsd)) ? fmtUsd(Number(rotationShadowSnapshot.netUsd)) : "—"}</b>
@@ -19021,8 +19035,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }}
                           >
                             <div>
-                              <b style={{ color: "#eafff5" }}>Rotation Status: {rotationRows.length ? "Active" : "Waiting"}</b>
-                              <div className="muted tiny">Rotation system uses recommendation-first setup. Live Vault rebalancing is not executed from this Shadow panel.</div>
+                              <b style={{ color: "#eafff5" }}>Rotation Status: Session {rotationRows.length ? "Active" : "Waiting"} · Shadow {rotationShadowWorkStatus}</b>
+                              <div className="muted tiny">Rotation system uses recommendation-first setup. Shadow can keep searching during the active runtime; Live Vault rebalancing is not executed from this Shadow panel.</div>
                             </div>
                             <div className="muted tiny">
                               Risk limit: {firstRotation?.riskLimitPct || firstRotation?.meta?.risk_limit_pct || rotationRiskLimit || "—"}% · Max slippage: {firstRotation?.maxSlippagePct || firstRotation?.meta?.max_slippage_pct || rotationMaxSlippage || "—"}% · Min net advantage: {firstRotation?.minNetAdvantagePct || firstRotation?.meta?.min_net_advantage_pct || rotationMinNetAdvantage || "—"}%

@@ -17900,7 +17900,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }, 0);
                       const activeRotations = rotationRows.filter((s) => String(s?.status || "").toUpperCase() !== "STOPPED" && String(s?.status || "").toUpperCase() !== "PAUSED").length;
                       const firstRotation = rotationRows[0] || null;
-                      const leader = String(firstRotation?.symbol || rotationSelectedPick?.sym || manualCoin || gridItem || "—").toUpperCase();
+                      const leader = String(firstRotation?.symbol || rotationSelectedPick?.sym || gridItem || "—").toUpperCase();
                       const targetChain = String(firstRotation?.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
 
                       return (

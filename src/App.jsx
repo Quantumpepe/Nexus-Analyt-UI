@@ -17879,7 +17879,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : null}
 
               {String(gridMode || "normal") === "rotation" ? (
-                <div className="rotationDesktopWrap" style={{ display: "grid", gap: 10, gridColumn: "1 / -1", width: "100%" }}>
+                <div className="gridWrap rotationDesktopWrap">
+                  <div className="gridControls" style={{ display: "grid", gap: 10 }}>
                     {(() => {
                       const rotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
                       const rotationAllocatedUsd = rotationRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
@@ -17948,15 +17949,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                               <div>
                                 <div className="label" style={{ marginBottom: 0 }}>Active Rotation Sessions</div>
-                                <div className="muted tiny">full-width rotation cards · first sessions visible · scroll for more</div>
+                                <div className="muted tiny">full rotation cards · first sessions visible · scroll for more</div>
                               </div>
                               <span className="pill silver">{rotationRows.length} rotations</span>
-                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                <button className="miniBtn" type="button" onClick={() => {}}>Details</button>
-                                <button className="miniBtn" type="button" onClick={() => {}}>Pause</button>
-                                <button className="miniBtn danger" type="button" onClick={() => {}}>Protect / Stop</button>
-                                <button className="miniBtn" type="button" onClick={() => {}}>Show Routes ▾</button>
-                              </div>
                             </div>
 
                             <div
@@ -18042,20 +18037,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                           </div>
 
-                          <div
+                          <details
                             style={{
                               borderRadius: 12,
                               border: "1px solid rgba(34,197,94,.24)",
                               background: "rgba(0,0,0,.16)",
                               overflow: "hidden",
-                              width: "100%",
                             }}
                           >
-                            <div
+                            <summary
                               style={{
+                                cursor: "pointer",
                                 padding: "9px 10px",
                                 fontWeight: 950,
                                 color: "#eafff5",
+                                listStyle: "none",
                                 display: "flex",
                                 justifyContent: "space-between",
                                 alignItems: "center",
@@ -18063,8 +18059,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               <span>Rotation Setup & Presets</span>
                               <span className="muted tiny">Show ▼</span>
-                            </div>
-                            <div style={{ padding: "8px 10px", maxHeight: 420, overflowY: "auto" }}>
+                            </summary>
+                            <div style={{ padding: "0 0 8px" }}>
                               <div className="gridWrap">
                   <div className="gridControls" style={{ display: "grid", gap: 12 }}>
                     <div
@@ -18482,9 +18478,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {rotationBackendMsg}
                       </div>
                     ) : null}
+                  </div>
                 </div>
                             </div>
-                          </div>
+                          </details>
 
                           <div
                             style={{
@@ -18530,6 +18527,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </>
                       );
                     })()}
+                  </div>
                 </div>
               ) : String(gridMode || "normal") === "trading" ? (
                 <div className="gridWrap tradingDesktopWrap">
@@ -19120,11 +19118,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     {String(slot.status || "").toUpperCase() === "PROTECT" ? "Protect mode active" : <>HOLD until {slot.holdUntil ? new Date(Number(slot.holdUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"} · max observe until {slot.observeUntil ? new Date(Number(slot.observeUntil)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "n/a"}</>}
                                   </div>
                                   <details style={{ border: "1px solid rgba(139,220,255,.18)", borderRadius: 8, padding: "4px 6px", background: "rgba(64,196,255,.045)" }}>
-                                    <summary style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}>Observe info</div>
+                                    <summary style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}>Observe info</summary>
                                     <div style={{ marginTop: 4, lineHeight: 1.45 }}>
                                       {slot.observeReason || slot.condition || "The Strategist is still observing market structure, liquidity, RVOL and risk. Capital will not be reallocated until market quality is clean."}
                                     </div>
-                                  </div>
+                                  </details>
                                 </div>
                               ) : null}
                             </div>
@@ -19199,13 +19197,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   onMouseDown={(e) => e.stopPropagation()}
                                   onTouchStart={(e) => e.stopPropagation()}
                                   style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}
-                                >Latest shadow events</div>
+                                >Latest shadow events</summary>
                                 <div style={{ marginTop: 5, display: "grid", gap: 4 }}>
                                   {run.events.slice(0, 5).map((ev, idx) => (
                                     <div key={`${ev?.type || "event"}-${idx}`} className="muted tiny">{ev?.type || "EVENT"}: {ev?.message || "Shadow event recorded."}</div>
                                   ))}
                                 </div>
-                              </div>
+                              </details>
                             ) : null}
                           </div>
                         );

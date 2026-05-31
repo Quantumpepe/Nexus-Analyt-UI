@@ -17879,8 +17879,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : null}
 
               {String(gridMode || "normal") === "rotation" ? (
-                <div className="gridWrap rotationDesktopWrap">
-                  <div className="gridControls" style={{ display: "grid", gap: 10 }}>
+                <div className="rotationDesktopWrap" style={{ display: "grid", gap: 10, gridColumn: "1 / -1", width: "100%" }}>
                     {(() => {
                       const rotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
                       const rotationAllocatedUsd = rotationRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
@@ -17949,9 +17948,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                               <div>
                                 <div className="label" style={{ marginBottom: 0 }}>Active Rotation Sessions</div>
-                                <div className="muted tiny">full rotation cards · first sessions visible · scroll for more</div>
+                                <div className="muted tiny">full-width rotation cards · first sessions visible · scroll for more</div>
                               </div>
                               <span className="pill silver">{rotationRows.length} rotations</span>
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <button className="miniBtn" type="button" onClick={() => {}}>Details</button>
+                                <button className="miniBtn" type="button" onClick={() => {}}>Pause</button>
+                                <button className="miniBtn danger" type="button" onClick={() => {}}>Protect / Stop</button>
+                                <button className="miniBtn" type="button" onClick={() => {}}>Show Routes ▾</button>
+                              </div>
                             </div>
 
                             <div
@@ -18043,6 +18048,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               border: "1px solid rgba(34,197,94,.24)",
                               background: "rgba(0,0,0,.16)",
                               overflow: "hidden",
+                              width: "100%",
                             }}
                           >
                             <summary
@@ -18060,7 +18066,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <span>Rotation Setup & Presets</span>
                               <span className="muted tiny">Show ▼</span>
                             </summary>
-                            <div style={{ padding: "0 0 8px" }}>
+                            <div style={{ padding: "8px 10px", maxHeight: 420, overflowY: "auto" }}>
                               <div className="gridWrap">
                   <div className="gridControls" style={{ display: "grid", gap: 12 }}>
                     <div
@@ -18478,7 +18484,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {rotationBackendMsg}
                       </div>
                     ) : null}
-                  </div>
                 </div>
                             </div>
                           </details>

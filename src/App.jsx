@@ -7114,6 +7114,7 @@ useEffect(() => {
   const [tradingRiskExpanded, setTradingRiskExpanded] = useState(false);
   const [tradingSetupExpanded, setTradingSetupExpanded] = useState(false);
   const [tradingSessionSlotsExpanded, setTradingSessionSlotsExpanded] = useState(false);
+  const [tradingQueueSlotsExpanded, setTradingQueueSlotsExpanded] = useState(false);
   const [expandedTradingSessionSlots, setExpandedTradingSessionSlots] = useState({});
   const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useState(false);
   const [tradingSessionStatus, setTradingSessionStatus] = useState("PREPARED");
@@ -19440,6 +19441,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           gap: 8,
                         }}
                       >
+                        <button
+                          className="miniBtn"
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setTradingQueueSlotsExpanded((v) => !v);
+                          }}
+                          style={{
+                            justifySelf: "start",
+                            minHeight: 28,
+                            paddingInline: 10,
+                            fontWeight: 900,
+                            color: "#8bdcff",
+                          }}
+                          title="Show or hide the compact Trading slot list"
+                        >
+                          {tradingQueueSlotsExpanded ? "Hide Trading Slots ▲" : `Show Trading Slots (${tradingVisibleQueueSummary.queue.length}) ▼`}
+                        </button>
+
+                        {(!isCompactMobile || tradingQueueSlotsExpanded) ? (
                         <div style={{ display: "grid", gap: 6 }}>
                           {tradingVisibleQueueSummary.queue.map((slot) => (
                             <div
@@ -19529,6 +19551,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                           ))}
                         </div>
+                        ) : null}
                       </div>
                     ) : null}
 

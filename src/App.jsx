@@ -7031,7 +7031,10 @@ useEffect(() => {
           symbol: candidateSymbol,
           sourceSymbol,
           targetAsset: candidateSymbol,
-          status: "APPROVED",
+          status: "WAITING",
+          lifecycleState: "WAITING",
+          positionState: "WAITING",
+          executionMode: "shadow",
           mode: rotationMode,
           networkScope: rotationNetworkScope,
           runtimeHours,
@@ -7043,9 +7046,16 @@ useEffect(() => {
           maxActiveRotations: activeLimit,
           payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
           baseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+          lockedTargetSymbol: sourceSymbol,
+          lockedChain: candidateChain,
+          lockedBaseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
           workingCapitalUsd: amount,
           sessionCapitalUsd: amount,
+          reservedUsd: amount,
           collectedProfitUsd: 0,
+          grossProfitUsd: 0,
+          costsUsd: 0,
+          netProfitUsd: 0,
           rotationEvents: [],
           openRotation: null,
           engineMode: "shadow_capital_manager_v1",
@@ -7063,6 +7073,12 @@ useEffect(() => {
             capital_flow: "BASE_TO_TARGET_TO_BASE",
             base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
             live_vault_ready: false,
+            execution_mode: "shadow",
+            lifecycle_state: "WAITING",
+            position_state: "WAITING",
+            locked_target_symbol: sourceSymbol,
+            locked_chain: candidateChain,
+            locked_base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
             runtime_hours: runtimeHours,
             expires_at: expiresAt,
             max_active_rotations: activeLimit,
@@ -9839,6 +9855,9 @@ const [aiLoading, setAiLoading] = useState(false);
           return {
             ...sess,
             status: action === "SIMULATED_ROTATION_CLOSED" ? "ACTIVE" : "WAITING",
+            lifecycleState: action === "SIMULATED_ROTATION_CLOSED" ? "ACTIVE" : "WAITING",
+            positionState: action === "SIMULATED_ROTATION_CLOSED" ? "CLOSED" : "WAITING",
+            executionMode: "shadow",
             symbol: bestSymbol,
             sourceSymbol: bestSymbol,
             targetAsset: bestSymbol,
@@ -9849,6 +9868,7 @@ const [aiLoading, setAiLoading] = useState(false);
             score: bestScore,
             workingCapitalUsd: Number((Number(sess?.budgetUsd || baseBudgetUsd) || baseBudgetUsd).toFixed(4)),
             sessionCapitalUsd: Number((Number(sess?.budgetUsd || baseBudgetUsd) || baseBudgetUsd).toFixed(4)),
+            reservedUsd: Number((Number(sess?.budgetUsd || baseBudgetUsd) || baseBudgetUsd).toFixed(4)),
             collectedProfitUsd: Number(nextCollected.toFixed(4)),
             profitUsd: Number(nextCollected.toFixed(4)),
             rotationProfitUsd: Number(nextCollected.toFixed(4)),
@@ -9876,6 +9896,10 @@ const [aiLoading, setAiLoading] = useState(false);
               market_change_24h: change24h,
               backend_plan_ts: preview?.ts || null,
               live_vault_ready: false,
+              execution_mode: "shadow",
+              lifecycle_state: action === "SIMULATED_ROTATION_CLOSED" ? "ACTIVE" : "WAITING",
+              position_state: action === "SIMULATED_ROTATION_CLOSED" ? "CLOSED" : "WAITING",
+              reserved_usd: Number((Number(sess?.budgetUsd || baseBudgetUsd) || baseBudgetUsd).toFixed(4)),
             },
           };
         }));
@@ -18697,7 +18721,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             type="button"
                                             onClick={() => {
                                               const sid = String(sess?.id || "");
-                                              setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === sid ? { ...x, status: "STOPPED", updatedAt: Date.now(), stoppedAt: Date.now(), active: false } : x));
+                                              setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === sid ? { ...x, status: "STOPPED", lifecycleState: "STOPPED", positionState: "STOPPED", reservedUsd: 0, updatedAt: Date.now(), stoppedAt: Date.now(), active: false, meta: { ...(x?.meta || {}), lifecycle_state: "STOPPED", position_state: "STOPPED", reserved_usd: 0 } } : x));
                                               setActiveRotationSessionId((cur) => String(cur || "") === sid ? "" : cur);
                                             }}
                                           >Protect / Stop</button>

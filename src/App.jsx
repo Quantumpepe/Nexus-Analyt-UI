@@ -20273,6 +20273,65 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
             </div>
 
+            {gridOrders.length && gridOrdersOpen ? (
+              <div className="gridOrders" style={{ border: "1px solid rgba(46,204,113,.16)", borderRadius: 14, padding: "10px 12px", background: "rgba(0,0,0,.10)", display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                  <b style={{ color: "#eafff5" }}>Grid Orders</b>
+                  <span className="pill silver">{gridOrders.length} order{gridOrders.length === 1 ? "" : "s"}</span>
+                </div>
+                <div style={{ display: "grid", gap: 8, maxHeight: isCompactMobile ? 420 : 320, overflowY: "auto", paddingRight: 4 }}>
+                  {gridOrders.map((o, idx) => {
+                    const oid = idOf(o);
+                    const side = String(o?.side || "ORDER").toUpperCase();
+                    const statusTxt = inferOrderStatus(o);
+                    const payout = inferOrderPayoutAsset(o);
+                    const qty = Number(o?.qty ?? o?.amount ?? o?.quantity ?? 0);
+                    const price = Number(o?.price ?? o?.target_price ?? 0);
+                    const investedUsd = Number(o?.investedUsd ?? o?.invested_usd ?? o?.invested ?? o?.cost_basis ?? (qty * price)) || 0;
+                    const atTargetUsd = Number(o?.targetValue ?? o?.target_value ?? o?.expectedOutUsd ?? o?.expected_out_usd ?? o?.expectedPayoutUsd ?? o?.expected_payout_usd ?? (qty * price)) || 0;
+                    return (
+                      <div key={oid || `grid-order-${idx}`} className="orderRow" style={{ padding: "10px 12px", border: "1px solid rgba(255,255,255,.08)", borderRadius: 13, background: "rgba(255,255,255,.035)", display: "grid", gap: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", minWidth: 0 }}>
+                            <b style={{ color: "#eafff5" }}>Order #{idx + 1}</b>
+                            <span className={`pill ${side === "BUY" ? "good" : "bad"}`}>{side}</span>
+                            <span className="pill silver">{statusTxt}</span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <button
+                              type="button"
+                              className="miniBtn"
+                              disabled={!oid || !["OPEN", "PAUSED"].includes(statusTxt) || gridBusy.stopOrderId === String(oid)}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); (statusTxt === "PAUSED" ? resumeGridOrder(oid) : stopGridOrder(oid)); }}
+                              style={{ height: 28, paddingInline: 9 }}
+                            >
+                              {gridBusy.stopOrderId === String(oid) ? (statusTxt === "PAUSED" ? "Resuming..." : "Pausing...") : (statusTxt === "PAUSED" ? "Resume" : "Stop")}
+                            </button>
+                            <button
+                              type="button"
+                              className="miniBtn"
+                              disabled={!oid || gridBusy.deleteOrderId === String(oid)}
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteGridOrder(oid); }}
+                              style={{ height: 28, paddingInline: 9, color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}
+                            >
+                              {gridBusy.deleteOrderId === String(oid) ? "Deleting..." : "Delete"}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="muted tiny" style={{ display: "flex", gap: "5px 14px", flexWrap: "wrap" }}>
+                          <span>Price: <b>{Number.isFinite(price) && price > 0 ? fmtUsd(price) : "—"}</b></span>
+                          <span>Qty: <b>{Number.isFinite(qty) && qty > 0 ? fmtQty(qty, 6) : "—"}</b></span>
+                          <span>Payout: <b>{payout}</b></span>
+                          <span>Invested: <b>{fmtUsd(investedUsd)}</b></span>
+                          <span>At target: <b>{fmtUsd(atTargetUsd)}</b></span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
             <div className="gridCompactSummary" style={{ padding: "8px 10px", borderRadius: 12, border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.035)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <b style={{ color: "#eafff5" }}>Grid Setup & Presets</b>
@@ -20387,42 +20446,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
               ) : null}
 </div>
-
-              <div
-                className="gridCompactSummary"
-                style={{
-                  display: "none",
-                  marginTop: 8,
-                  padding: "8px 10px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,.08)",
-                  background: "rgba(255,255,255,.035)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  <b style={{ color: "#eafff5" }}>Grid Setup & Presets</b>
-                  <span className="pill silver">{manualSide}</span>
-                  <span className="muted tiny">Price <b>{manualPrice || (shownGridPrice ? fmtUsd(Number(shownGridPrice)) : "—")}</b></span>
-                  <span className="muted tiny">Orders <b>{gridOrders.length}</b></span>
-                </div>
-                <button
-                  type="button"
-                  className="btnGhost"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setGridSetupOpen((v) => !v);
-                  }}
-                  style={{ height: 30, paddingInline: 10, fontSize: 12 }}
-                >
-                  {gridSetupOpen ? "Hide ▲" : "Show ▼"}
-                </button>
-              </div>
 
               {gridSetupOpen ? (
                 <div className="gridSetupAccordion" style={{ display: "grid", gap: isCompactMobile ? 8 : 10, marginTop: 8 }}>
@@ -20765,150 +20788,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             </div>
 
-            {gridOrders.length ? (
-            <div className="gridRight" style={{ border: "1px solid rgba(46,204,113,.16)", borderRadius: 14, padding: "10px 12px", background: "rgba(0,0,0,.10)", minWidth: 0 }}>
-              <div className="gridOrders">
-              <div className="ordersHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  className="btnGhost"
-                  onClick={() => gridOrders.length && setGridOrdersOpen((v) => !v)}
-                  style={{ height: 32, paddingInline: 12, fontSize: 13 }}
-                  title={gridOrders.length ? (gridOrdersOpen ? "Hide orders" : "Show orders") : "No orders"}
-                >
-                  Show Orders {gridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
-                </button>
-                <span className="pill silver">{gridOrders.length} orders</span>
-              </div>
-
-              {gridOrders.length ? (
-                gridOrdersOpen ? (
-                  <div className="ordersList" style={{ maxHeight: 320, overflowY: "auto", paddingRight: 4, display: "grid", gap: 8 }}>
-                    {gridOrdersGroupedByChain.map(([chainKey, chainOrders]) => {
-                      const totalExposure = chainOrders.reduce((sum, o) => sum + orderNotionalUsd(o), 0);
-                      const isExpanded = !!gridOrderChainOpen[chainKey];
-                      const visibleOrders = isExpanded ? chainOrders : chainOrders.slice(0, 2);
-                      const hiddenCount = Math.max(0, chainOrders.length - visibleOrders.length);
-
-                      return (
-                        <div
-                          key={chainKey}
-                          style={{
-                            border: "1px solid rgba(255,255,255,.06)",
-                            borderRadius: 12,
-                            padding: "8px 10px",
-                            background: "rgba(255,255,255,.03)",
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <span className="pill silver">{chainKey}</span>
-                              <span className="muted tiny">{chainOrders.length} open</span>
-                              <span className="muted tiny">Exposure {fmtUsd(totalExposure)}</span>
-                            </div>
-                            {chainOrders.length > 2 ? (
-                              <button
-                                type="button"
-                                className="btnGhost"
-                                onClick={() => setGridOrderChainOpen((prev) => ({ ...prev, [chainKey]: !prev?.[chainKey] }))}
-                                style={{ height: 30, paddingInline: 10, fontSize: 12 }}
-                              >
-                                {isExpanded ? "Show less" : `+${chainOrders.length - 2} more`}
-                              </button>
-                            ) : null}
-                          </div>
-
-                          <div style={{ display: "grid", gap: 8 }}>
-                            {visibleOrders.map((o) => {
-                              const currentPrice = Number(shownGridPrice || 0);
-                              let estProfit = null;
-                              if (Number.isFinite(currentPrice) && currentPrice > 0) {
-                                if (String(o?.side || "").toUpperCase() === "BUY") estProfit = (currentPrice - Number(o?.price || 0)) * Number(o?.qty || 0);
-                                else if (String(o?.side || "").toUpperCase() === "SELL") estProfit = (Number(o?.price || 0) - currentPrice) * Number(o?.qty || 0);
-                              }
-                              const profitColor = estProfit == null ? "rgba(232,242,240,.7)" : (estProfit >= 0 ? "#39d98a" : "#ff6b6b");
-                              const profitText = estProfit == null ? "" : `${estProfit >= 0 ? "+" : ""}${Math.abs(estProfit).toFixed(4)} $`;
-                              const payout = inferOrderPayoutAsset(o);
-                              const statusTxt = inferOrderStatus(o);
-
-                              const investedUsd = Number(
-                                o?.investedUsd ??
-                                o?.invested_usd ??
-                                o?.invested ??
-                                o?.cost_basis ??
-                                ((Number(o?.qty || 0) || 0) * (Number(o?.price || 0) || 0))
-                              ) || 0;
-                              const atTargetUsd = Number(
-                                o?.targetValue ??
-                                o?.target_value ??
-                                o?.expectedOutUsd ??
-                                o?.expected_out_usd ??
-                                o?.expectedPayoutUsd ??
-                                o?.expected_payout_usd ??
-                                ((Number(o?.qty || 0) || 0) * (Number(o?.price || 0) || 0))
-                              ) || 0;
-
-                              return (
-                                <div
-                                  key={idOf(o) || `${chainKey}-${o.side}-${o.price}-${o.created_ts}`}
-                                  className="orderRow"
-                                  style={{ padding: "9px 10px", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, background: "rgba(255,255,255,.035)", display: "grid", gap: 8 }}
-                                >
-                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0, flex: "1 1 460px", fontSize: 12 }}>
-                                      <span className={`pill ${o.side === "BUY" ? "good" : "bad"}`} style={{ fontSize: 10, padding: "4px 7px" }}>{o.side}</span>
-                                      <span className="orderPx" style={{ whiteSpace: "nowrap", fontSize: 12 }}>{fmtUsd(Number(o?.price || 0))}</span>
-                                      <span className="muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}>{o?.qty ? `qty ${fmtQty(Number(o.qty), 4)}` : ""}</span>
-                                      <span className="pill silver" style={{ fontSize: 10, padding: "4px 7px" }}>{statusTxt}</span>
-                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>Payout:</b> {payout}</span>
-                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>Inv:</b> {fmtUsd(investedUsd)}</span>
-                                      <span className="muted tiny" style={{ whiteSpace: "nowrap", fontSize: 10 }}><b>At target:</b> {fmtUsd(atTargetUsd)}</span>
-                                      {profitText ? (
-                                        <span style={{ color: profitColor, fontWeight: 800, whiteSpace: "nowrap", fontSize: 12 }}>{profitText}</span>
-                                      ) : null}
-                                    </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", flex: "0 0 auto" }}>
-                                      <button
-                                        type="button"
-                                        className="btn ghost"
-                                        style={{ height: 26, paddingInline: 9, fontSize: 12 }}
-                                        disabled={!idOf(o) || !["OPEN","PAUSED"].includes(statusTxt) || gridBusy.stopOrderId === String(idOf(o))}
-                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); (statusTxt === "PAUSED" ? resumeGridOrder(idOf(o)) : stopGridOrder(idOf(o))); }}
-                                        title={statusTxt === "PAUSED" ? "Resume this paused order." : "Pause this order without deleting it."}
-                                      >
-                                        {gridBusy.stopOrderId === String(idOf(o)) ? (statusTxt === "PAUSED" ? "Resuming..." : "Pausing...") : (statusTxt === "PAUSED" ? "Resume" : "Stop")}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn ghost"
-                                        style={{ height: 26, paddingInline: 9, fontSize: 12 }}
-                                        disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
-                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteGridOrder(idOf(o)); }}
-                                        title="Delete this order from DB (only if backend supports it)."
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {hiddenCount > 0 ? (
-                            <div className="muted tiny" style={{ marginTop: 8 }}>+{hiddenCount} more hidden in this chain</div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="muted tiny" style={{ marginTop: 8 }}>Orders hidden. Use Show Orders on the Grid session card.</div>
-                )
-              ) : null}
-            </div>
-            </div>
-            ) : null}
           </div></div>
         </section>
 

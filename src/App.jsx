@@ -9707,7 +9707,7 @@ const [aiLoading, setAiLoading] = useState(false);
           const prevNet = Number(sess?.netProfitUsd ?? sess?.rotationProfitUsd ?? sess?.profitUsd ?? 0) || 0;
           return {
             ...sess,
-            status: action === "SIMULATED_ROTATION_CLOSED" ? "ACTIVE" : "READY",
+            status: action === "SIMULATED_ROTATION_CLOSED" ? "ACTIVE" : "WAITING",
             symbol: bestSymbol,
             chain: bestChain,
             baseAsset,
@@ -18321,8 +18321,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const getRotationDerivedStatus = (sess) => {
                         const st = String(sess?.status || "APPROVED").toUpperCase();
                         const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
-                        if (!["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st) && exp && exp <= rotationNow) return "EXPIRED";
+                        if (!["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE"].includes(st) && exp && exp <= rotationNow) return "EXPIRED";
                         return st;
+                      };
+                      const getRotationDisplayStatus = (sess) => {
+                        const derived = getRotationDerivedStatus(sess);
+                        if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "PROTECTED"].includes(derived)) {
+                          return derived === "CLOSED" ? "COMPLETE" : derived;
+                        }
+                        const action = String(sess?.meta?.rotation_action || sess?.rotationAction || rotationShadowSnapshot?.action || "").toUpperCase();
+                        if (["WAIT_NET_EDGE", "SEARCHING", "READY", "WAIT"].includes(action)) return "WAITING";
+                        if (["ROTATION_OPEN", "POSITION_OPEN", "OPEN"].includes(action)) return "OPEN";
+                        if (["EXIT_PENDING", "EXITING"].includes(action)) return "EXITING";
+                        if (["USER_PAUSED"].includes(action)) return "PAUSED";
+                        if (["SESSION_COMPLETE"].includes(action)) return "COMPLETE";
+                        if (["PROTECTED"].includes(action)) return "PROTECTED";
+                        if (["ACTIVE", "APPROVED"].includes(derived)) return "WAITING";
+                        return derived || "WAITING";
+                      };
+                      const getRotationStatusTone = (status) => {
+                        const st = String(status || "").toUpperCase();
+                        if (["OPEN", "ACTIVE", "RUNNING"].includes(st)) return { border: "rgba(34,197,94,.38)", bg: "rgba(34,197,94,.08)", pill: "green", color: "#86efac" };
+                        if (["WAITING", "WAIT_NET_EDGE", "SEARCHING"].includes(st)) return { border: "rgba(255,209,102,.34)", bg: "rgba(255,209,102,.07)", pill: "silver", color: "#ffd166" };
+                        if (["EXITING"].includes(st)) return { border: "rgba(139,220,255,.34)", bg: "rgba(139,220,255,.07)", pill: "silver", color: "#8bdcff" };
+                        if (["PAUSED"].includes(st)) return { border: "rgba(255,193,7,.32)", bg: "rgba(255,193,7,.07)", pill: "silver", color: "#ffc107" };
+                        if (["PROTECTED", "STOPPED"].includes(st)) return { border: "rgba(255,107,107,.36)", bg: "rgba(255,107,107,.07)", pill: "silver", color: "#ff8a8a" };
+                        return { border: "rgba(255,255,255,.12)", bg: "rgba(255,255,255,.025)", pill: "silver", color: "rgba(235,255,247,.78)" };
                       };
                       const rotationMaxActive = Math.max(1, Math.min(12, Math.floor(Number(String(rotationMaxActiveSessions || "3").replace(",", ".")) || 3)));
                       const rotationAllocatedUsd = rotationRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
@@ -18429,7 +18453,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const sym = String(sess?.symbol || "ASSET").toUpperCase();
                                 const chain = String(sess?.chain || "CHAIN").toUpperCase();
                                 const budget = Number(sess?.budgetUsd || 0);
-                                const status = getRotationDerivedStatus(sess);
+                                const sessionStatus = getRotationDerivedStatus(sess);
+                                const status = getRotationDisplayStatus(sess);
+                                const statusTone = getRotationStatusTone(status);
                                 const startTs = Number(sess?.startedAt || sess?.started_at || sess?.createdAt || 0) || rotationNow;
                                 const expiresTs = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0) || 0;
                                 const runtimeText = fmtRotationDuration(rotationNow - startTs);
@@ -18450,9 +18476,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <div
                                     key={sess?.id || `rotation-${idx}-${sym}-${chain}`}
                                     style={{
-                                      border: `1px solid ${status === "ACTIVE" || status === "APPROVED" ? "rgba(34,197,94,.38)" : "rgba(255,255,255,.12)"}`,
+                                      border: `1px solid ${statusTone.border}`,
                                       borderRadius: 14,
-                                      background: status === "ACTIVE" ? "rgba(34,197,94,.08)" : "rgba(255,255,255,.025)",
+                                      background: statusTone.bg,
                                       padding: "10px 12px",
                                       display: "grid",
                                       gridTemplateColumns: isCompactMobile ? "1fr" : "1.35fr 1.25fr 1.25fr auto",
@@ -18463,7 +18489,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     <div style={{ minWidth: 0 }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                                         <b style={{ fontSize: 16, color: "#eafff5" }}>{baseAsset} → {sym} → {baseAsset}</b>
-                                        <span className={`pill ${status === "ACTIVE" ? "green" : status === "PAUSED" ? "silver" : "green"}`}>{status}</span>
+                                        <span className={`pill ${statusTone.pill}`} style={{ color: statusTone.color, fontWeight: 950 }}>{status}</span>
                                       </div>
                                       <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Base: {baseAsset} · Rotation #{idx + 1}</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}>Risk {sess?.riskLimitPct || sess?.meta?.risk_limit_pct || rotationRiskLimit || "—"}% · Slippage {sess?.maxSlippagePct || sess?.meta?.max_slippage_pct || rotationMaxSlippage || "—"}% · Min Net {sess?.minNetAdvantagePct || sess?.meta?.min_net_advantage_pct || rotationMinNetAdvantage || "—"}%</div>
@@ -18493,7 +18519,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         type="button"
                                         onClick={() => setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === String(sess?.id || "") ? { ...x, status: String(x?.status || "").toUpperCase() === "PAUSED" ? "ACTIVE" : "PAUSED", updatedAt: Date.now() } : x))}
                                       >
-                                        {status === "PAUSED" ? "Resume" : "Pause"}
+                                        {sessionStatus === "PAUSED" ? "Resume" : "Pause"}
                                       </button>
                                       <button
                                         className="miniBtn danger"

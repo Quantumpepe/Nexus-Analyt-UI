@@ -6919,6 +6919,8 @@ useEffect(() => {
     setRotationBudgetReleased(false);
   }, [gridWalletCoinsByChain]);
 
+  const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
+
   const releaseRotationBudget = useCallback(() => {
     const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
     if (!Number.isFinite(amount) || amount <= 0) return;
@@ -9045,7 +9047,6 @@ useEffect(() => {
     return Array.isArray(arr) ? arr : [0.5, 1, 2];
   }, [GRID_PRICE_PRESETS, manualPricePreset]);
   const [manualQty, setManualQty] = useState("");
-  const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
   const currentPayoutAssets = useMemo(() => {
     const ck = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
     const base = ["USDC", "USDT", ck];

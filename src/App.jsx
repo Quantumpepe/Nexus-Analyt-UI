@@ -6955,10 +6955,64 @@ useEffect(() => {
       return;
     }
 
-    // Must not call getRotationPreflight here because that callback is declared later in the component.
-    // Use a safe local fallback so React never hits a before-initialization crash.
-    const fallbackChain = String(rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-    const fallbackSymbol = String(rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || fallbackChain).toUpperCase();
+    // Pick the next Rotation target from the same pipeline that the Strategist uses.
+    // Important: do not create duplicate active sessions for the same target while other
+    // Strategist candidates are available. The visible session target must match the
+    // candidate that will be sent into Shadow/Vault-preview.
+    const activeTargetSet = new Set((Array.isArray(rotationSessions) ? rotationSessions : [])
+      .filter((s) => {
+        const st = String(s?.status || "").toUpperCase();
+        const exp = Number(s?.expiresAt || s?.expires_at || 0);
+        return !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st) && (!exp || exp > now);
+      })
+      .map((s) => String(s?.sourceSymbol || s?.symbol || s?.targetAsset || s?.meta?.source_symbol || "").toUpperCase())
+      .filter(Boolean));
+
+    const normalizeCandidateSym = (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
+    const candidatePool = [];
+    const pushCandidate = (sym, meta = {}) => {
+      const raw = normalizeCandidateSym(sym);
+      if (!raw) return;
+      if (["USDC", "USDT", "USD", "EUR"].includes(raw)) return;
+      if (candidatePool.some((c) => c.rawSymbol === raw)) return;
+      candidatePool.push({ rawSymbol: raw, ...meta });
+    };
+
+    if (rotationSelectedPick?.source || rotationSelectedPick?.coin) {
+      pushCandidate(rotationSelectedPick?.source || rotationSelectedPick?.coin, {
+        chain: rotationSelectedPick?.chain,
+        coin: rotationSelectedPick?.coin,
+        score: rotationSelectedPick?.score,
+        rank: rotationSelectedPick?.rank,
+        source: "selected_rotation_target",
+        ok: rotationSelectedPick?.ok,
+      });
+    }
+    for (const cand of Array.isArray(strategistRotationCandidates) ? strategistRotationCandidates : []) {
+      if (String(cand?.rank || "").toUpperCase() === "AVOID") continue;
+      pushCandidate(cand?.sym || cand?.symbol, {
+        chain: cand?.chain,
+        coin: cand?.coin,
+        score: cand?.score ?? cand?.strategistScore,
+        rank: cand?.rank,
+        source: "strategist_candidate",
+        strategistScore: cand?.strategistScore,
+      });
+    }
+    for (const row of Array.isArray(watchRows) ? watchRows : []) {
+      pushCandidate(row?.symbol || row?.sym, {
+        chain: row?.chain,
+        score: row?.score,
+        source: "watchlist_fallback",
+      });
+      if (candidatePool.length >= 12) break;
+    }
+    pushCandidate(gridItem, { source: "grid_fallback" });
+
+    const pickedCandidate = candidatePool.find((c) => !activeTargetSet.has(c.rawSymbol)) || candidatePool[0] || {};
+    const fallbackChain = String(pickedCandidate.chain || rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+    const fallbackSymbol = String(pickedCandidate.coin || pickedCandidate.rawSymbol || rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || fallbackChain).toUpperCase();
+    const sourceSymbol = String(pickedCandidate.rawSymbol || fallbackSymbol).toUpperCase();
     const sessionId = makeNexusSessionId("ROT");
     const expiresAt = now + runtimeHours * 60 * 60 * 1000;
     setRotationBudgetReleased(true);
@@ -6972,6 +7026,8 @@ useEffect(() => {
           budgetUsd: amount,
           chain: fallbackChain,
           symbol: fallbackSymbol,
+          sourceSymbol,
+          targetAsset: fallbackSymbol,
           status: "APPROVED",
           mode: rotationMode,
           networkScope: rotationNetworkScope,
@@ -6995,6 +7051,12 @@ useEffect(() => {
           updatedAt: now,
           meta: {
             source: "rotation_budget_approval",
+            candidate_source: pickedCandidate.source || "fallback",
+            source_symbol: sourceSymbol,
+            selected_symbol: fallbackSymbol,
+            strategist_score: pickedCandidate.strategistScore ?? pickedCandidate.score ?? null,
+            strategist_rank: pickedCandidate.rank || "",
+            vault_asset_ok: pickedCandidate.ok !== false,
             capital_flow: "BASE_TO_TARGET_TO_BASE",
             base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
             live_vault_ready: false,
@@ -7011,7 +7073,7 @@ useEffect(() => {
       ].slice(0, 20);
     });
     setRotationBackendMsg(`Rotation session approved ✓ ${sessionId}. Runtime ${runtimeHours}h, max active rotations ${activeLimit}. Paper-only until live Vault permissions are connected.`);
-  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, gridItem, rotationMode, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset]);
+  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -9555,6 +9617,9 @@ const [aiLoading, setAiLoading] = useState(false);
         change24h: Number(row?.change24h ?? row?.ch ?? row?.change_24h ?? 0) || 0,
         volume24h: Number(row?.volume24h ?? row?.total_volume ?? row?.volume_24h ?? 0) || 0,
         marketCap: Number(row?.marketCap ?? row?.market_cap ?? row?.mcap ?? 0) || 0,
+        scoreHint: Number(row?.scoreHint ?? row?.strategistScore ?? row?.score ?? extra?.score ?? extra?.strategistScore ?? 0) || 0,
+        strategistScore: Number(row?.strategistScore ?? extra?.strategistScore ?? row?.score ?? extra?.score ?? 0) || 0,
+        rank: row?.rank || extra?.rank || "",
         source: extra?.source || "watchlist_live",
       });
     };
@@ -9565,21 +9630,32 @@ const [aiLoading, setAiLoading] = useState(false);
       addAsset({ ...row, symbol: sym }, { chain: rotationSelectedPick?.chain || preferredChain, source: "selected_rotation_target" });
     }
 
-    for (const row of Array.isArray(watchRows) ? watchRows : []) {
-      addAsset(row, { source: "watchlist_live" });
-      if (bySymbol.size >= 12) break;
-    }
-
+    // Strategist candidates must be added before the broad watchlist fallback.
+    // Otherwise a long watchlist can fill the asset map before candidates like CC reach Shadow.
     for (const cand of Array.isArray(strategistRotationCandidates) ? strategistRotationCandidates : []) {
       const sym = String(cand?.sym || cand?.symbol || "").toUpperCase();
-      if (!sym) continue;
+      if (!sym || String(cand?.rank || "").toUpperCase() === "AVOID") continue;
       const row = (watchRows || []).find((r) => String(r?.symbol || "").toUpperCase() === sym) || {};
-      addAsset({ ...row, ...cand, symbol: sym, change24h: cand?.ch ?? row?.change24h }, { chain: preferredChain, source: "strategist_recommendation" });
+      addAsset(
+        { ...row, ...cand, symbol: sym, change24h: cand?.ch ?? row?.change24h },
+        { chain: cand?.chain || preferredChain, source: "strategist_recommendation", score: cand?.score, strategistScore: cand?.strategistScore, rank: cand?.rank }
+      );
+      if (bySymbol.size >= 8) break;
+    }
+
+    for (const sess of Array.isArray(rotationSessions) ? rotationSessions : []) {
+      const sym = String(sess?.sourceSymbol || sess?.symbol || sess?.targetAsset || "").toUpperCase();
+      if (!sym) continue;
+      addAsset({ symbol: sym, score: sess?.score, strategistScore: sess?.meta?.strategist_score }, { chain: sess?.chain || preferredChain, source: "active_rotation_session", score: sess?.score, strategistScore: sess?.meta?.strategist_score });
+    }
+
+    for (const row of Array.isArray(watchRows) ? watchRows : []) {
+      addAsset(row, { source: "watchlist_live" });
       if (bySymbol.size >= 16) break;
     }
 
     return Array.from(bySymbol.values()).filter((a) => a.symbol).slice(0, 16);
-  }, [rotationSelectedPick, activeGridChainKey, watchRows, strategistRotationCandidates]);
+  }, [rotationSelectedPick, activeGridChainKey, watchRows, strategistRotationCandidates, rotationSessions]);
 
   const runRotationShadowSimulation = useCallback(async ({ silent = false } = {}) => {
     if (rotationShadowBusy) return;
@@ -9649,7 +9725,7 @@ const [aiLoading, setAiLoading] = useState(false);
       const previews = Array.isArray(preview?.previews) ? preview.previews : [];
       const candidateRows = plan.filter((row) => ["INCREASE", "HOLD"].includes(String(row?.action || "").toUpperCase()));
       const best = candidateRows[0] || plan[0] || null;
-      const bestSymbol = String(best?.symbol || firstActive?.symbol || rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || "ASSET").toUpperCase();
+      const bestSymbol = String(best?.symbol || firstActive?.sourceSymbol || firstActive?.symbol || rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || "ASSET").toUpperCase();
       const bestChain = String(best?.chain || chain).toUpperCase();
       const bestScore = Number(best?.score || rotationSelectedPick?.score || 0) || 0;
       const bestWeight = Number(best?.target_weight_pct || 0) || 0;
@@ -9718,9 +9794,13 @@ const [aiLoading, setAiLoading] = useState(false);
         text: `${baseAsset} → ${bestSymbol} → ${baseAsset}: ${action} · score ${bestScore || "—"}/100 · gross ${fmtUsd(grossUsd)} · costs ${fmtUsd(costsUsd)} · net ${fmtUsd(netUsd)}`,
       }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
 
-      if (sessions.length) {
-        setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess, idx) => {
-          if (idx !== 0 && sess?.id !== firstActive?.id) return sess;
+      if (sessions.length && firstActive?.id) {
+        setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
+          // Critical: only the actually runnable active session may be updated by the Shadow loop.
+          // A STOPPED/closed session must never be revived back into WAITING by a later Shadow tick.
+          if (String(sess?.id || "") !== String(firstActive?.id || "")) return sess;
+          const currentStatus = String(sess?.status || "").toUpperCase();
+          if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED", "ARCHIVED"].includes(currentStatus)) return sess;
           const prevEvents = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [];
           const nextEvents = completedEvent ? [completedEvent, ...prevEvents].slice(0, 50) : prevEvents;
           const prevCollected = Number(sess?.collectedProfitUsd ?? sess?.meta?.collectedProfitUsd ?? 0) || 0;
@@ -9733,6 +9813,8 @@ const [aiLoading, setAiLoading] = useState(false);
             ...sess,
             status: action === "SIMULATED_ROTATION_CLOSED" ? "ACTIVE" : "WAITING",
             symbol: bestSymbol,
+            sourceSymbol: bestSymbol,
+            targetAsset: bestSymbol,
             chain: bestChain,
             baseAsset,
             payoutAsset: baseAsset,
@@ -18373,7 +18455,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return { border: "rgba(255,255,255,.12)", bg: "rgba(255,255,255,.025)", pill: "silver", color: "rgba(235,255,247,.78)" };
                       };
                       const rotationMaxActive = Math.max(1, Math.min(12, Math.floor(Number(String(rotationMaxActiveSessions || "3").replace(",", ".")) || 3)));
-                      const rotationAllocatedUsd = rotationRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
+                      const rotationAllocatableRows = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s)));
+                      const rotationAllocatedUsd = rotationAllocatableRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
                       const rotationProfitUsd = rotationRows.reduce((sum, sess) => {
                         const candidates = [
                           sess?.profitUsd,
@@ -18390,7 +18473,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }, 0);
                       const activeRotations = rotationRows.filter((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(getRotationDerivedStatus(s))).length;
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
-                      const leader = String(firstRotation?.symbol || rotationSelectedPick?.sym || gridItem || "—").toUpperCase();
+                      const leader = String(firstRotation?.sourceSymbol || firstRotation?.symbol || rotationSelectedPick?.sym || gridItem || "—").toUpperCase();
                       const targetChain = String(firstRotation?.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
                       const vaultTotalNative = Number(manualVaultTotalQty || 0);
                       const gridAllocatedNative = Number(manualVaultAllocatedQty || 0);
@@ -18538,19 +18621,48 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                                     <div style={{ display: "grid", gap: 6, minWidth: 112 }}>
                                       <button className="miniBtn" type="button">Details</button>
-                                      <button
-                                        className="miniBtn"
-                                        type="button"
-                                        onClick={() => setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === String(sess?.id || "") ? { ...x, status: String(x?.status || "").toUpperCase() === "PAUSED" ? "ACTIVE" : "PAUSED", updatedAt: Date.now() } : x))}
-                                      >
-                                        {sessionStatus === "PAUSED" ? "Resume" : "Pause"}
-                                      </button>
-                                      <button
-                                        className="miniBtn danger"
-                                        type="button"
-                                        onClick={() => setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === String(sess?.id || "") ? { ...x, status: "STOPPED", updatedAt: Date.now(), stoppedAt: Date.now() } : x))}
-                                      >Protect / Stop</button>
-                                      <button className="miniBtn" type="button">Show Routes ▾</button>
+                                      {sessionStatus === "STOPPED" ? (
+                                        <button
+                                          className="miniBtn danger"
+                                          type="button"
+                                          title="Delete this stopped Rotation session from the wallet-bound Rotation DB"
+                                          onClick={() => {
+                                            const sid = String(sess?.id || "");
+                                            setRotationSessions((prev) => {
+                                              const rows = Array.isArray(prev) ? prev : [];
+                                              const next = rows.filter((x) => String(x?.id || "") !== sid);
+                                              setActiveRotationSessionId((cur) => {
+                                                if (String(cur || "") !== sid) return cur;
+                                                const fallback = next.find((x) => isRotationSessionRunnable(x, Date.now())) || next[0] || null;
+                                                return fallback?.id ? String(fallback.id) : "";
+                                              });
+                                              return next;
+                                            });
+                                          }}
+                                        >
+                                          Delete
+                                        </button>
+                                      ) : (
+                                        <>
+                                          <button
+                                            className="miniBtn"
+                                            type="button"
+                                            onClick={() => setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === String(sess?.id || "") ? { ...x, status: String(x?.status || "").toUpperCase() === "PAUSED" ? "ACTIVE" : "PAUSED", updatedAt: Date.now() } : x))}
+                                          >
+                                            {sessionStatus === "PAUSED" ? "Resume" : "Pause"}
+                                          </button>
+                                          <button
+                                            className="miniBtn danger"
+                                            type="button"
+                                            onClick={() => {
+                                              const sid = String(sess?.id || "");
+                                              setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === sid ? { ...x, status: "STOPPED", updatedAt: Date.now(), stoppedAt: Date.now(), active: false } : x));
+                                              setActiveRotationSessionId((cur) => String(cur || "") === sid ? "" : cur);
+                                            }}
+                                          >Protect / Stop</button>
+                                          <button className="miniBtn" type="button">Show Routes ▾</button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 );

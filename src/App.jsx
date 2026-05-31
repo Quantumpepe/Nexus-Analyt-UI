@@ -7066,6 +7066,7 @@ useEffect(() => {
   const [tradingRiskExpanded, setTradingRiskExpanded] = useState(false);
   const [tradingSetupExpanded, setTradingSetupExpanded] = useState(false);
   const [tradingSessionSlotsExpanded, setTradingSessionSlotsExpanded] = useState(false);
+  const [expandedTradingSessionSlots, setExpandedTradingSessionSlots] = useState({});
   const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useState(false);
   const [tradingSessionStatus, setTradingSessionStatus] = useState("PREPARED");
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useState(0);
@@ -18306,94 +18307,150 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     {!isCompactMobile && Array.isArray(openTradingSessions) && openTradingSessions.length ? (
                       <div
                         style={{
-                          padding: "9px 10px",
+                          padding: "10px 10px",
                           borderRadius: 14,
                           background: "rgba(0,0,0,.16)",
                           border: "1px solid rgba(139,220,255,.14)",
                           display: "grid",
-                          gap: 9,
+                          gap: 10,
                         }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                           <div className="muted tiny" style={{ fontWeight: 950, color: "#8bdcff" }}>Active Trading Sessions</div>
                           <div className="muted tiny" style={{ color: "rgba(216,255,241,.72)", fontWeight: 850 }}>
-                            first 3 visible · scroll for more
+                            full cards · first sessions visible · scroll for more
                           </div>
                         </div>
                         <div
                           style={{
                             display: "grid",
-                            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
                             gap: 10,
-                            maxHeight: 282,
+                            maxHeight: 430,
                             overflowY: "auto",
-                            paddingRight: 4,
+                            paddingRight: 5,
                           }}
                         >
                           {openTradingSessions.map((sess) => {
-                            const sid = String(sess?.id || sess?.session_id || "");
-                            const primaryAsset = getTradingSessionPrimaryAsset(sess);
-                            const budget = getTradingSessionBudgetUsd(sess);
-                            const profit = getTradingSessionProfitUsd(sess);
-                            const slotCount = getTradingSessionSlotCount(sess);
+                            const sid = String(sess?.id || sess?.session_id || "").trim();
+                            const sessionSlots = Array.isArray(sess?.queue)
+                              ? sess.queue
+                              : (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue.filter((slot) => {
+                                  const slotSid = String(getTradingSlotSessionId(slot) || "").trim();
+                                  return sid && slotSid === sid;
+                                }) : []);
+                            const sessionAsset = getTradingSessionPrimaryAsset(sess) || "ASSET";
+                            const sessionBudget = getTradingSessionBudgetUsd(sess);
+                            const sessionProfit = getTradingSessionProfitUsd(sess);
+                            const sessionProfitPct = sessionBudget > 0 ? (sessionProfit / sessionBudget) * 100 : 0;
+                            const reusePct = Number(sess?.reuseProfitPct ?? sess?.reuse_profit_pct ?? sess?.profitReusePct ?? sess?.profit_reuse_pct ?? 0);
+                            const maxCombined = Number(sess?.maxCombinedSlots ?? sess?.max_combined_slots ?? sess?.slotDonorCap ?? sess?.slot_donor_cap ?? 0);
                             const timing = getTradingSessionTiming(sess);
-                            const q = Array.isArray(sess?.queue) ? sess.queue : [];
-                            const activeCount = q.filter((slot) => String(slot?.status || slot?.state || "").toUpperCase() === "ACTIVE").length;
-                            const readyCount = q.filter((slot) => String(slot?.status || slot?.state || "").toUpperCase() === "READY").length;
-                            const waitCount = q.filter((slot) => String(slot?.status || slot?.state || "").toUpperCase() === "WAIT").length;
-                            const aggregate = q.reduce((acc, slot) => {
+                            const counts = sessionSlots.reduce((acc, slot) => {
+                              const st = String(slot?.status || slot?.state || "WAIT").toUpperCase();
+                              acc[st] = (acc[st] || 0) + 1;
+                              return acc;
+                            }, {});
+                            const activeSlot = sessionSlots.find((slot) => String(slot?.status || slot?.state || "").toUpperCase() === "ACTIVE") || sessionSlots.find((slot) => ["READY", "WAIT", "SIMULATED_EXIT"].includes(String(slot?.status || slot?.state || "").toUpperCase())) || null;
+                            const aggregate = sessionSlots.reduce((acc, slot) => {
                               const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
                               const gross = Number(slot.paper_gross_pnl_usd ?? meta.paper_gross_pnl_usd ?? 0);
                               const costs = Number(slot.paper_estimated_costs_usd ?? meta.paper_estimated_costs_usd ?? 0);
                               const net = Number(slot.paper_net_pnl_usd ?? meta.paper_net_pnl_usd ?? slot.paper_pnl_usd ?? meta.paper_pnl_usd ?? 0);
+                              const cycle = Number(slot.paper_cycle_realized_usd ?? meta.paper_cycle_realized_usd ?? 0);
                               if (Number.isFinite(gross)) acc.gross += gross;
                               if (Number.isFinite(costs)) acc.costs += Math.abs(costs);
                               if (Number.isFinite(net)) acc.net += net;
+                              if (Number.isFinite(cycle)) acc.cycle += cycle;
                               return acc;
-                            }, { gross: 0, costs: 0, net: 0 });
+                            }, { gross: 0, costs: 0, net: 0, cycle: 0 });
+                            const progressPct = sessionBudget > 0 ? Math.max(0, Math.min(100, 50 + (sessionProfitPct * 8))) : 0;
+                            const stateLabel = String(sess?.status || "ACTIVE").toUpperCase();
                             const selected = sid && sid === selectedTradingSessionId;
-                            const status = String(sess?.status || "ACTIVE").toUpperCase();
-                            const reusePct = Number(sess?.reuseProfitPct ?? sess?.reuse_profit_pct ?? sess?.profitReusePct ?? sess?.profit_reuse_pct ?? 0);
-                            const maxCombined = Number(sess?.maxCombinedSlots ?? sess?.max_combined_slots ?? 0);
-                            const profitPct = budget > 0 ? (profit / budget) * 100 : 0;
+                            const slotsOpen = !!expandedTradingSessionSlots?.[sid];
                             return (
                               <div
-                                key={sid || `${primaryAsset}-${budget}`}
+                                key={sid || `${sessionAsset}-${sessionBudget}`}
                                 onClick={() => sid && selectTradingSession(sid)}
                                 style={{
-                                  border: selected ? "1px solid rgba(34,197,94,.62)" : "1px solid rgba(139,220,255,.16)",
-                                  background: selected ? "rgba(34,197,94,.10)" : "rgba(255,255,255,.035)",
+                                  border: selected ? "1px solid rgba(34,197,94,.55)" : "1px solid rgba(139,220,255,.16)",
                                   borderRadius: 14,
-                                  padding: "10px 11px",
+                                  background: selected ? "linear-gradient(135deg, rgba(34,197,94,.11), rgba(0,0,0,.18))" : "linear-gradient(135deg, rgba(255,255,255,.035), rgba(0,0,0,.16))",
+                                  padding: "10px 12px",
                                   display: "grid",
-                                  gap: 8,
+                                  gap: 10,
+                                  boxShadow: "0 0 0 1px rgba(255,255,255,.025) inset",
                                   cursor: sid ? "pointer" : "default",
-                                  minHeight: 170,
                                 }}
                               >
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-                                  <div>
-                                    <div style={{ fontWeight: 950, color: "#eafff5", fontSize: 15 }}>{primaryAsset || "ASSET"}</div>
-                                    <div className="muted tiny">{status} · {slotCount} slots · {fmtUsd(budget)}</div>
+                                <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.1fr 1.1fr auto", gap: 12, alignItems: "center" }}>
+                                  <div style={{ display: "grid", gap: 6 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                      <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 14 }}>{sessionAsset} · {fmtUsd(sessionBudget)} · {getTradingSessionSlotCount(sess)} slots</div>
+                                      <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
+                                      {selected ? <span className="tiny" style={{ color: "#7cf7a2", fontWeight: 950 }}>SELECTED</span> : null}
+                                    </div>
+                                    <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
+                                    <div className="muted tiny">Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exited {counts.SIMULATED_EXIT || 0}</div>
                                   </div>
-                                  <div className="tiny" style={{ color: selected ? "#7cf7a2" : "#8bdcff", fontWeight: 950 }}>{selected ? "SELECTED" : "OPEN"}</div>
+
+                                  <div style={{ display: "grid", gap: 5 }}>
+                                    <div className="muted tiny" style={{ color: sessionProfit >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}>Session Profit: {`${sessionProfit >= 0 ? "+" : "-"}${fmtUsd(Math.abs(sessionProfit))}`} {sessionBudget > 0 ? `(${sessionProfitPct >= 0 ? "+" : ""}${sessionProfitPct.toFixed(2)}%)` : ""}</div>
+                                    <div className="muted tiny" style={{ color: "#7cf7a2", fontWeight: 900 }}>Gross: {aggregate.gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(aggregate.gross))} · Net: {aggregate.net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(aggregate.net))}</div>
+                                    <div className="muted tiny" style={{ color: aggregate.costs > 0 ? "#ffd166" : "rgba(216,255,241,.68)", fontWeight: 850 }}>Costs: {aggregate.costs > 0 ? `-${fmtUsd(aggregate.costs)}` : fmtUsd(0)} · Cycle: {aggregate.cycle >= 0 ? "+" : "-"}{fmtUsd(Math.abs(aggregate.cycle))}</div>
+                                  </div>
+
+                                  <div style={{ display: "grid", gap: 5 }}>
+                                    <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Reuse Profit: {Number.isFinite(reusePct) ? reusePct.toFixed(0) : "0"}% allowed</div>
+                                    <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Max Combined Slots: {Number.isFinite(maxCombined) ? maxCombined.toFixed(0) : "0"}</div>
+                                    <div className="muted tiny">Current slot: {activeSlot ? `#${activeSlot.slot || activeSlot.slot_id || "—"} · ${String(activeSlot.status || activeSlot.state || "WAIT").toUpperCase()} · ${fmtUsd(getTradingSlotAmountUsd(activeSlot))}` : "—"}</div>
+                                    <div style={{ height: 6, borderRadius: 999, background: "rgba(255,255,255,.10)", overflow: "hidden", marginTop: 2 }}>
+                                      <div style={{ height: "100%", width: `${Math.max(0, Math.min(100, progressPct))}%`, background: sessionProfit >= 0 ? "linear-gradient(90deg, #22c55e, #7cf7a2)" : "linear-gradient(90deg, #ff6b6b, #ffd166)" }} />
+                                    </div>
+                                  </div>
+
+                                  <div style={{ display: "grid", gap: 7, minWidth: 116 }}>
+                                    <button className="miniBtn" type="button" onClick={(e) => { e.stopPropagation(); sid && selectTradingSession(sid); }} title="Select this session for detailed controls">Details</button>
+                                    <button className="miniBtn" type="button" onClick={(e) => { e.stopPropagation(); sid && selectTradingSession(sid); }} title="Select this session first, then use Pause below">Select</button>
+                                    <button className="miniBtn" type="button" onClick={(e) => { e.stopPropagation(); setExpandedTradingSessionSlots((prev) => ({ ...(prev || {}), [sid]: !prev?.[sid] })); }} style={{ color: "#8bdcff", borderColor: "rgba(139,220,255,.25)" }} title="Show or hide this session's slots">
+                                      {slotsOpen ? "Hide Slots ▲" : `Show Slots (${sessionSlots.length}) ▼`}
+                                    </button>
+                                  </div>
                                 </div>
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                                  <div className="muted tiny"><b>Runtime:</b> {timing.elapsedLabel}</div>
-                                  <div className="muted tiny"><b>Left:</b> {timing.remainingLabel}</div>
-                                  <div className="muted tiny"><b>Reuse:</b> {Number.isFinite(reusePct) ? `${reusePct}%` : "0%"}</div>
-                                  <div className="muted tiny"><b>Combine:</b> {Number.isFinite(maxCombined) ? maxCombined : 0}</div>
-                                </div>
-                                <div className="tiny" style={{ color: profit >= 0 ? "#7cf7a2" : "#ff8a8a", fontWeight: 950 }}>
-                                  Collected {profit >= 0 ? "+" : "-"}{fmtUsd(Math.abs(profit))} {Number.isFinite(profitPct) ? `(${profitPct >= 0 ? "+" : ""}${profitPct.toFixed(2)}%)` : ""}
-                                </div>
-                                <div className="muted tiny" style={{ color: "rgba(216,255,241,.78)" }}>
-                                  gross {aggregate.gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(aggregate.gross))} · costs -{fmtUsd(Math.abs(aggregate.costs))} · net {aggregate.net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(aggregate.net))}
-                                </div>
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                  <span className="tiny" style={{ color: "#7cf7a2", fontWeight: 900 }}>ACTIVE {activeCount}</span>
-                                  <span className="tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>READY {readyCount}</span>
-                                  <span className="tiny" style={{ color: "#ffd166", fontWeight: 900 }}>WAIT {waitCount}</span>
+
+                                {slotsOpen ? (
+                                  <div style={{ borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 8, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+                                    {sessionSlots.map((slot, idx) => {
+                                      const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+                                      const st = String(slot.status || slot.state || "WAIT").toUpperCase();
+                                      const gross = Number(slot.paper_gross_pnl_usd ?? meta.paper_gross_pnl_usd ?? 0);
+                                      const costs = Math.abs(Number(slot.paper_estimated_costs_usd ?? meta.paper_estimated_costs_usd ?? 0));
+                                      const net = Number(slot.paper_net_pnl_usd ?? meta.paper_net_pnl_usd ?? slot.paper_pnl_usd ?? meta.paper_pnl_usd ?? 0);
+                                      const cycle = Number(slot.paper_cycle_realized_usd ?? meta.paper_cycle_realized_usd ?? 0);
+                                      const isActive = st === "ACTIVE";
+                                      const isReady = st === "READY";
+                                      const isWait = st === "WAIT";
+                                      const isExit = st === "SIMULATED_EXIT";
+                                      const border = isActive ? "rgba(34,197,94,.42)" : isReady ? "rgba(34,197,94,.30)" : isWait ? "rgba(255,193,7,.28)" : isExit ? "rgba(139,220,255,.24)" : "rgba(255,255,255,.10)";
+                                      const bg = isActive ? "rgba(34,197,94,.09)" : isReady ? "rgba(34,197,94,.055)" : isWait ? "rgba(255,193,7,.06)" : isExit ? "rgba(139,220,255,.055)" : "rgba(255,255,255,.025)";
+                                      return (
+                                        <div key={`${getTradingSlotSessionId(slot) || sid || "session"}-${slot.slot || slot.slot_id || idx}`} style={{ border: `1px solid ${border}`, background: bg, borderRadius: 10, padding: "8px 9px", display: "grid", gap: 5 }}>
+                                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                            <b style={{ color: "#eafff5" }}>Slot {slot.slot || slot.slot_id || idx + 1} · {fmtUsd(getTradingSlotAmountUsd(slot))}</b>
+                                            <span className="tiny" style={{ color: isActive || isReady ? "#7cf7a2" : isWait ? "#ffc107" : isExit ? "#8bdcff" : "rgba(235,255,247,.72)", fontWeight: 950 }}>{st} · priority {Math.round(Number(slot.priority || 0))}</span>
+                                          </div>
+                                          <div className="muted tiny">{slot.symbol || slot.asset || sessionAsset} · {slot.reason || slot.message || slot.note || "Strategist slot state"}</div>
+                                          <div className="tiny" style={{ color: net >= 0 ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
+                                            gross {gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(gross))} · costs {costs > 0 ? `-${fmtUsd(costs)}` : fmtUsd(0)} · net {net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(net))} · cycle {cycle >= 0 ? "+" : "-"}{fmtUsd(Math.abs(cycle))}
+                                          </div>
+                                          <div className="muted tiny">Entry {fmtUsd(Number(slot.paper_entry_price ?? meta.paper_entry_price ?? 0))} · Current {fmtUsd(Number(slot.paper_mark_price ?? meta.paper_mark_price ?? 0))} · Exit {fmtUsd(Number(slot.paper_exit_price ?? meta.paper_exit_price ?? 0))}</div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : null}
+
+                                <div className="muted tiny" style={{ color: "#8bdcff", borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 6 }}>
+                                  Viewing: {sid}. Strategy: {sess?.style || sess?.strategy || "Tactical"} · Risk: {sess?.riskMode || sess?.risk_mode || tradingRiskMode || "Balanced"} · Payout: {sess?.payoutAsset || sess?.payout_asset || manualPayoutAsset || "USDC"}
                                 </div>
                               </div>
                             );
@@ -18401,7 +18458,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
                     ) : null}
-
 
                     <button
                       type="button"
@@ -18822,7 +18878,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             return <option key={sid || `session-${sess?.createdAt || Math.random()}`} value={sid}>{label}</option>;
                           })}
                         </select>
-                        {selectedTradingSession ? (() => {
+                        {(isCompactMobile && selectedTradingSession) ? (() => {
                           const sessionSlots = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
                           const sessionAsset = getTradingSessionPrimaryAsset(selectedTradingSession) || "ASSET";
                           const sessionBudget = getTradingSessionBudgetUsd(selectedTradingSession);

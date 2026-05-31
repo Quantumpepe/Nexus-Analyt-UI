@@ -18408,9 +18408,93 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     </div>
                                   </div>
 
-                                  <div style={{ display: "grid", gap: 7, minWidth: 116 }}>
-                                    <button className="miniBtn" type="button" onClick={(e) => { e.stopPropagation(); sid && selectTradingSession(sid); }} title="Select this session for detailed controls">Details</button>
-                                    <button className="miniBtn" type="button" onClick={(e) => { e.stopPropagation(); sid && selectTradingSession(sid); }} title="Select this session first, then use Pause below">Select</button>
+                                  <div style={{ display: "grid", gap: 7, minWidth: 126 }}>
+                                    <button
+                                      className="miniBtn"
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        sid && selectTradingSession(sid);
+                                      }}
+                                      title="Open this session's detailed runtime view"
+                                    >
+                                      Details
+                                    </button>
+                                    <button
+                                      className="miniBtn"
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!sid) return;
+                                        const now = Date.now();
+                                        setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => {
+                                          const sameSession = tradingSessionIdMatches(getTradingSlotSessionId(s), sid);
+                                          return sameSession && ["ACTIVE", "READY"].includes(String(s.status || "").toUpperCase())
+                                            ? { ...s, status: "WAIT", pausedAt: now }
+                                            : s;
+                                        }));
+                                        setTradingSessionStatus("PAUSED");
+                                        setTradingSessionUpdatedTs(now);
+                                        setActiveTradingSessionId(sid);
+                                        updateTradingSessionMeta(sid, { status: "PAUSED", pausedAt: now });
+                                        updateTradingPreparedSession({ status: "PAUSED", pausedAt: now, userAction: { paused: true, sessionId: sid } });
+                                      }}
+                                      disabled={!sid || stateLabel === "PAUSED" || stateLabel === "STOPPED"}
+                                      title="Pause only this Trading session"
+                                    >
+                                      Pause
+                                    </button>
+                                    <button
+                                      className="miniBtn"
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (!sid) return;
+                                        const now = Date.now();
+                                        let stoppedQueue = [];
+                                        setTradingExecutionQueue((prev) => {
+                                          const all = Array.isArray(prev) ? prev : [];
+                                          stoppedQueue = all
+                                            .filter((slot) => tradingSessionIdMatches(getTradingSlotSessionId(slot), sid))
+                                            .map((slot) => ({ ...slot, status: "STOPPED", stoppedAt: now, closedAt: now }));
+                                          return all.filter((slot) => !tradingSessionIdMatches(getTradingSlotSessionId(slot), sid));
+                                        });
+                                        setTradingSessionStatus("PREPARED");
+                                        setTradingSessionUpdatedTs(now);
+                                        updateTradingSessionMeta(sid, { status: "STOPPED", stoppedAt: now, closedAt: now, active: false });
+                                        const remainingOpen = (Array.isArray(openTradingSessions) ? openTradingSessions : [])
+                                          .filter((openSess) => !tradingSessionIdMatches(openSess?.id, sid));
+                                        setActiveTradingSessionId(String(remainingOpen?.[0]?.id || ""));
+                                        updateTradingPreparedSession({
+                                          status: "PREPARED",
+                                          sessionId: sid,
+                                          stoppedAt: now,
+                                          closedAt: now,
+                                          executionQueue: [],
+                                          stoppedQueue,
+                                          userAction: { stopped: true, closedSession: true, sessionId: sid },
+                                          outcome: { status: "session_stopped_by_user" },
+                                          note: "Selected Trading session stopped from the runtime card.",
+                                        });
+                                        api("/api/nexus/trading/hold-state", {
+                                          method: "POST",
+                                          body: {
+                                            action: "stop",
+                                            queue: [],
+                                            stopped_queue: stoppedQueue,
+                                            reason: "user_stop_session_card",
+                                            session_id: sid,
+                                            base_session_id: normalizeTradingSessionBaseId(sid),
+                                            chain: sessionChain || activeGridChainKey || DEFAULT_CHAIN || "",
+                                          },
+                                        }).catch(() => {});
+                                      }}
+                                      disabled={!sid || stateLabel === "STOPPED"}
+                                      style={{ color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}
+                                      title="Protect / stop only this Trading session"
+                                    >
+                                      Protect / Stop
+                                    </button>
                                     <button className="miniBtn" type="button" onClick={(e) => { e.stopPropagation(); setExpandedTradingSessionSlots((prev) => ({ ...(prev || {}), [sid]: !prev?.[sid] })); }} style={{ color: "#8bdcff", borderColor: "rgba(139,220,255,.25)" }} title="Show or hide this session's slots">
                                       {slotsOpen ? "Hide Slots ▲" : `Show Slots (${sessionSlots.length}) ▼`}
                                     </button>

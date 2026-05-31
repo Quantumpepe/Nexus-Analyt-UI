@@ -14473,6 +14473,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .gridLayout.rotationDesktopLayout .gridControls > *{
             width: 100% !important;
           }
+          .gridLayout.gridDesktopLayout{
+            grid-template-columns: 1fr !important;
+          }
+          .gridLayout.gridDesktopLayout .gridRight{
+            display: none !important;
+          }
+          .gridLayout.gridDesktopLayout .gridLeft,
+          .gridLayout.gridDesktopLayout .gridWrap,
+          .gridLayout.gridDesktopLayout .gridControls{
+            width: 100% !important;
+            max-width: none !important;
+            justify-self: stretch !important;
+            align-items: stretch !important;
+          }
+          .gridLayout.gridDesktopLayout .gridControls > *{
+            width: 100% !important;
+          }
         }
         /* Keep inline rows (slippage/deadline/quick steps) anchored left */
         .gridLeft .row {
@@ -18158,7 +18175,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         {/* Grid */}
         <section className={`card section-grid dashboardPanel ${activePanel === "vault" ? "panelActive" : ""}`} onClick={handlePanelActivate("vault")}>
           <div className="cardHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <div className="cardTitle" style={{ flex: "0 0 auto" }}>Grid Trader</div>
+            <div className="cardTitle" style={{ flex: "0 0 auto" }}>Nexus Grid</div>
 
             {!isCompactMobile && (
               <div
@@ -18268,7 +18285,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="panelScroll"><div className={`gridLayout ${String(gridMode || "normal") === "trading" ? "tradingDesktopLayout" : String(gridMode || "normal") === "rotation" ? "rotationDesktopLayout" : ""}`}>
+          <div className="panelScroll"><div className={`gridLayout ${String(gridMode || "normal") === "trading" ? "tradingDesktopLayout" : String(gridMode || "normal") === "rotation" ? "rotationDesktopLayout" : "gridDesktopLayout"}`}>
             <div className="gridLeft">
               {isCompactMobile && (
               <div
@@ -20215,7 +20232,59 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <>
 
           <div className="gridWrap" style={{ gridTemplateColumns: "1fr", gap: 12 }}>
-            <div className="gridControls" style={{ border: "1px solid rgba(46,204,113,.18)", borderRadius: 14, padding: "10px 12px", background: "rgba(0,0,0,.10)", minWidth: 0 }}>              <div
+            <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr 1fr" : "repeat(6, minmax(0, 1fr))", gap: 8 }}>
+              {[
+                ["Network", activeGridChainKey || "—"],
+                ["Coin", gridItem || "—"],
+                ["Budget", `${gridInvestQty || "—"} ${activeGridChainSymbol || ""}`],
+                ["Price", shownGridPrice ? fmtUsd(shownGridPrice) : "—"],
+                ["Available", `${manualVaultAvailableQty.toFixed(4)} ${activeGridChainSymbol}`],
+                ["Orders", String(gridOrders.length || 0)],
+              ].map(([label, value]) => (
+                <div key={label} style={{ border: "1px solid rgba(46,204,113,.14)", borderRadius: 12, padding: "9px 10px", background: "rgba(0,0,0,.12)", minWidth: 0 }}>
+                  <div className="muted tiny" style={{ fontWeight: 850, textTransform: "uppercase", letterSpacing: .25 }}>{label}</div>
+                  <div style={{ fontWeight: 950, color: "#eafff5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ border: "1px solid rgba(139,220,255,.16)", borderRadius: 14, padding: "10px 12px", background: "rgba(0,0,0,.10)", display: "grid", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <b style={{ color: "#eafff5" }}>Active Grid Session</b>
+                  <span className={`pill ${isGridReady ? "good" : "silver"}`}>{isGridReady ? "ACTIVE" : "WAITING"}</span>
+                  <span className="muted tiny">{activeGridChainKey} · {gridItem} · {gridOrders.length} order{gridOrders.length === 1 ? "" : "s"}</span>
+                </div>
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
+                  {gridOrders.length ? (
+                    <button type="button" className="miniBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setGridOrdersOpen((v) => !v); }} style={{ height: 30, paddingInline: 10 }}>
+                      {gridOrdersOpen ? "Hide Orders ▲" : `Show Orders (${gridOrders.length}) ▼`}
+                    </button>
+                  ) : null}
+                  <button className="miniBtn" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start} style={{ height: 30, paddingInline: 10, color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}>
+                    {gridBusy.stop ? "Stopping..." : "Protect / Reset"}
+                  </button>
+                </div>
+              </div>
+              <div className="muted tiny" style={{ display: "flex", gap: "6px 12px", flexWrap: "wrap" }}>
+                <span>Allocated: <b>{fmtUsd(Number(manualVaultAllocatedQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
+                <span>Settled: <b>{fmtUsd(Number(manualVaultSettledQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
+                <span>Available: <b>{fmtUsd(Number(manualVaultAvailableQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
+              </div>
+            </div>
+
+            <div className="gridCompactSummary" style={{ padding: "8px 10px", borderRadius: 12, border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.035)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <b style={{ color: "#eafff5" }}>Grid Setup & Presets</b>
+                <span className="pill silver">{manualSide}</span>
+                <span className="muted tiny">Price <b>{manualPrice || (shownGridPrice ? fmtUsd(Number(shownGridPrice)) : "—")}</b></span>
+                <span className="muted tiny">Manual Grid · no Shadow Executor</span>
+              </div>
+              <button type="button" className="btnGhost" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setGridSetupOpen((v) => !v); }} style={{ height: 30, paddingInline: 10, fontSize: 12 }}>
+                {gridSetupOpen ? "Hide ▲" : "Show ▼"}
+              </button>
+            </div>
+            <div className="gridControls" style={{ display: gridSetupOpen ? "block" : "none", border: "1px solid rgba(46,204,113,.18)", borderRadius: 14, padding: "10px 12px", background: "rgba(0,0,0,.10)", minWidth: 0 }}>              <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr",
@@ -20322,6 +20391,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div
                 className="gridCompactSummary"
                 style={{
+                  display: "none",
                   marginTop: 8,
                   padding: "8px 10px",
                   borderRadius: 12,
@@ -20350,11 +20420,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   }}
                   style={{ height: 30, paddingInline: 10, fontSize: 12 }}
                 >
-                  {gridSetupOpen || !isCompactMobile ? "Hide ▲" : "Show ▼"}
+                  {gridSetupOpen ? "Hide ▲" : "Show ▼"}
                 </button>
               </div>
 
-              {(gridSetupOpen || !isCompactMobile) ? (
+              {gridSetupOpen ? (
                 <div className="gridSetupAccordion" style={{ display: "grid", gap: isCompactMobile ? 8 : 10, marginTop: 8 }}>
               <div
                 style={{
@@ -20706,7 +20776,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   style={{ height: 32, paddingInline: 12, fontSize: 13 }}
                   title={gridOrders.length ? (gridOrdersOpen ? "Hide orders" : "Show orders") : "No orders"}
                 >
-                  Orders {gridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
+                  Show Orders {gridOrders.length ? (gridOrdersOpen ? "▲" : "▼") : ""}
                 </button>
                 <span className="pill silver">{gridOrders.length} orders</span>
               </div>
@@ -20782,7 +20852,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div
                                   key={idOf(o) || `${chainKey}-${o.side}-${o.price}-${o.created_ts}`}
                                   className="orderRow"
-                                  style={{ padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,.06)" }}
+                                  style={{ padding: "9px 10px", border: "1px solid rgba(255,255,255,.08)", borderRadius: 12, background: "rgba(255,255,255,.035)", display: "grid", gap: 8 }}
                                 >
                                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0, flex: "1 1 460px", fontSize: 12 }}>
@@ -20803,7 +20873,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         className="btn ghost"
                                         style={{ height: 26, paddingInline: 9, fontSize: 12 }}
                                         disabled={!idOf(o) || !["OPEN","PAUSED"].includes(statusTxt) || gridBusy.stopOrderId === String(idOf(o))}
-                                        onClick={() => (statusTxt === "PAUSED" ? resumeGridOrder(idOf(o)) : stopGridOrder(idOf(o)))}
+                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); (statusTxt === "PAUSED" ? resumeGridOrder(idOf(o)) : stopGridOrder(idOf(o))); }}
                                         title={statusTxt === "PAUSED" ? "Resume this paused order." : "Pause this order without deleting it."}
                                       >
                                         {gridBusy.stopOrderId === String(idOf(o)) ? (statusTxt === "PAUSED" ? "Resuming..." : "Pausing...") : (statusTxt === "PAUSED" ? "Resume" : "Stop")}
@@ -20813,7 +20883,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         className="btn ghost"
                                         style={{ height: 26, paddingInline: 9, fontSize: 12 }}
                                         disabled={!idOf(o) || gridBusy.deleteOrderId === String(idOf(o))}
-                                        onClick={() => deleteGridOrder(idOf(o))}
+                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteGridOrder(idOf(o)); }}
                                         title="Delete this order from DB (only if backend supports it)."
                                       >
                                         Delete
@@ -20833,7 +20903,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     })}
                   </div>
                 ) : (
-                  <div className="muted tiny" style={{ marginTop: 8 }}>Orders hidden. Tap Orders to open.</div>
+                  <div className="muted tiny" style={{ marginTop: 8 }}>Orders hidden. Use Show Orders on the Grid session card.</div>
                 )
               ) : null}
             </div>

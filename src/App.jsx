@@ -18530,7 +18530,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </>
                       );
                     })()}
-                  </div>
                 </div>
               ) : String(gridMode || "normal") === "trading" ? (
                 <div className="gridWrap tradingDesktopWrap">

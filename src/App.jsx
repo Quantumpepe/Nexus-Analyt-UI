@@ -6709,6 +6709,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationRiskLimit, setRotationRiskLimit] = useState("");
   const [rotationMinNetAdvantage, setRotationMinNetAdvantage] = useState("0.5");
   const [rotationMaxSlippage, setRotationMaxSlippage] = useState("1");
+  const [rotationRuntimeHours, setRotationRuntimeHours] = useState("24");
+  const [rotationMaxActiveSessions, setRotationMaxActiveSessions] = useState("3");
   const [rotationAllowDexSpread, setRotationAllowDexSpread] = useState(true);
   const [rotationAllowCexDexSpread, setRotationAllowCexDexSpread] = useState(false);
   const [rotationRouters, setRotationRouters] = useState({ QuickSwap: true, Uniswap: true, PancakeSwap: true, "1inch": true, "0x": false, SushiSwap: false });
@@ -6925,12 +6927,27 @@ useEffect(() => {
     const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
     if (!Number.isFinite(amount) || amount <= 0) return;
 
+    const activeLimitRaw = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));
+    const activeLimit = Math.max(1, Math.min(12, Number.isFinite(activeLimitRaw) ? Math.floor(activeLimitRaw) : 3));
+    const runtimeRaw = Number(String(rotationRuntimeHours || "24").replace(",", "."));
+    const runtimeHours = Math.max(1, Math.min(168, Number.isFinite(runtimeRaw) ? runtimeRaw : 24));
+    const now = Date.now();
+    const activeExisting = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((s) => {
+      const st = String(s?.status || "").toUpperCase();
+      const exp = Number(s?.expiresAt || s?.expires_at || 0);
+      return !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st) && (!exp || exp > now);
+    }).length;
+    if (activeExisting >= activeLimit) {
+      setRotationBackendMsg(`Max Active Rotations reached (${activeExisting}/${activeLimit}). Pause/stop one rotation or increase the limit.`);
+      return;
+    }
+
     // Must not call getRotationPreflight here because that callback is declared later in the component.
     // Use a safe local fallback so React never hits a before-initialization crash.
     const fallbackChain = String(rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
     const fallbackSymbol = String(rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || fallbackChain).toUpperCase();
-    const now = Date.now();
     const sessionId = makeNexusSessionId("ROT");
+    const expiresAt = now + runtimeHours * 60 * 60 * 1000;
     setRotationBudgetReleased(true);
     setActiveRotationSessionId(sessionId);
     setRotationSessions((prev) => {
@@ -6945,14 +6962,21 @@ useEffect(() => {
           status: "APPROVED",
           mode: rotationMode,
           networkScope: rotationNetworkScope,
+          runtimeHours,
+          startedAt: now,
+          expiresAt,
           riskLimitPct: rotationRiskLimit,
           minNetAdvantagePct: rotationMinNetAdvantage,
           maxSlippagePct: rotationMaxSlippage,
+          maxActiveRotations: activeLimit,
           payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
           createdAt: now,
           updatedAt: now,
           meta: {
             source: "rotation_budget_approval",
+            runtime_hours: runtimeHours,
+            expires_at: expiresAt,
+            max_active_rotations: activeLimit,
             risk_limit_pct: rotationRiskLimit,
             min_net_advantage_pct: rotationMinNetAdvantage,
             max_slippage_pct: rotationMaxSlippage,
@@ -6962,8 +6986,8 @@ useEffect(() => {
         ...existing,
       ].slice(0, 20);
     });
-    setRotationBackendMsg(`Rotation session approved ✓ ${sessionId}. The approved budget and risk settings are now active for Rotation Shadow.`);
-  }, [rotationBudgetRelease, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, gridItem, rotationMode, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset]);
+    setRotationBackendMsg(`Rotation session approved ✓ ${sessionId}. Runtime ${runtimeHours}h, max active rotations ${activeLimit}. Paper-only until live Vault permissions are connected.`);
+  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, gridItem, rotationMode, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -9247,10 +9271,19 @@ useEffect(() => {
         if (serverUi.tradingStyle != null) setTradingStyle(String(serverUi.tradingStyle));
         if (serverUi.tradingBudgetUsd != null) setTradingBudgetUsd(String(serverUi.tradingBudgetUsd));
         if (serverUi.tradingBudgetSplitInput != null) setTradingBudgetSplitInput(String(serverUi.tradingBudgetSplitInput));
+        if (serverUi.rotationRuntimeHours != null) setRotationRuntimeHours(String(serverUi.rotationRuntimeHours));
+        if (serverUi.rotationMaxActiveSessions != null) setRotationMaxActiveSessions(String(serverUi.rotationMaxActiveSessions));
+        if (serverUi.rotationRiskLimit != null) setRotationRiskLimit(String(serverUi.rotationRiskLimit));
+        if (serverUi.rotationMaxSlippage != null) setRotationMaxSlippage(String(serverUi.rotationMaxSlippage));
+        if (serverUi.rotationMinNetAdvantage != null) setRotationMinNetAdvantage(String(serverUi.rotationMinNetAdvantage));
+        if (serverUi.rotationMode != null) setRotationMode(String(serverUi.rotationMode));
+        if (serverUi.rotationNetworkScope != null) setRotationNetworkScope(String(serverUi.rotationNetworkScope));
         if (serverTradingSessions.length) {
           setTradingSessions(serverTradingSessions);
           if (serverActiveTradingSessionId) setActiveTradingSessionId(serverActiveTradingSessionId);
         }
+        setRotationSessions(serverRotationSessions);
+        if (serverActiveRotationSessionId) setActiveRotationSessionId(serverActiveRotationSessionId);
       }
       if (serverUpdatedTs) storeAppStateServerTs(serverUpdatedTs);
       setAppStateSyncedWallet(wa);
@@ -9303,6 +9336,15 @@ useEffect(() => {
         tradingBudgetSplitInput,
         tradingSessions: (Array.isArray(tradingSessions) ? tradingSessions : []).slice(0, 30),
         activeTradingSessionId,
+        rotationRuntimeHours,
+        rotationMaxActiveSessions,
+        rotationRiskLimit,
+        rotationMaxSlippage,
+        rotationMinNetAdvantage,
+        rotationMode,
+        rotationNetworkScope,
+        rotationSessions: (Array.isArray(rotationSessions) ? rotationSessions : []).slice(0, 30),
+        activeRotationSessionId,
       },
     };
     const t = setTimeout(async () => {
@@ -9319,7 +9361,7 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, rotationNetworkScope, rotationSessions, activeRotationSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -9348,6 +9390,10 @@ useEffect(() => {
     try { setGridMeta({ tick: null, price: null }); } catch {}
     try { setGridVaultStats({ vault: 0, reserved: 0, free: 0 }); } catch {}
     try { setGridUiHydrated(false); } catch {}
+    try { setRotationSessions([]); } catch {}
+    try { setActiveRotationSessionId(""); } catch {}
+    try { setRotationShadowSnapshot(null); } catch {}
+    try { setRotationShadowEvents([]); } catch {}
     if (clearAuth) {
       try { setWallet(""); } catch {}
       try { setToken(""); } catch {}
@@ -9372,7 +9418,7 @@ useEffect(() => {
     for (const key of keys) {
       try { localStorage.removeItem(key); } catch {}
     }
-  }, [setWatchItems, setWatchRows, setCompareSet, setTimeframe, setIndexMode, setAiSelected, setCompareSeries, setWatchSyncedWallet, setAppStateSyncedWallet, setGridOrders, setGridMeta, setGridVaultStats, setGridUiHydrated, setWallet, setToken, setPrivyJwt]);
+  }, [setWatchItems, setWatchRows, setCompareSet, setTimeframe, setIndexMode, setAiSelected, setCompareSeries, setWatchSyncedWallet, setAppStateSyncedWallet, setGridOrders, setGridMeta, setGridVaultStats, setGridUiHydrated, setRotationSessions, setActiveRotationSessionId, setRotationShadowSnapshot, setRotationShadowEvents, setWallet, setToken, setPrivyJwt]);
 
   useEffect(() => {
     const prev = prevWalletRef.current || "";
@@ -9547,8 +9593,6 @@ const [aiLoading, setAiLoading] = useState(false);
             grossProfitUsd: Number(grossUsd.toFixed(4)),
             costsUsd: Number(costsUsd.toFixed(4)),
             netProfitUsd: Number(netUsd.toFixed(4)),
-            runtimeLabel: "SHADOW LIVE DATA",
-            leftLabel: "paper-only",
             riskLimitPct: riskLimitSource,
             minNetAdvantagePct: minNetSource,
             maxSlippagePct: slippageSource,
@@ -18108,6 +18152,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="gridControls" style={{ display: "grid", gap: 10 }}>
                     {(() => {
                       const rotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
+                      const rotationNow = Number(tradingRuntimeNowMs || Date.now());
+                      const fmtRotationDuration = (ms) => {
+                        const totalMin = Math.max(0, Math.floor(Number(ms || 0) / 60000));
+                        const h = Math.floor(totalMin / 60);
+                        const m = totalMin % 60;
+                        if (h >= 24) {
+                          const d = Math.floor(h / 24);
+                          const rh = h % 24;
+                          return `${d}d ${rh}h`;
+                        }
+                        return `${h}h ${m}m`;
+                      };
+                      const getRotationDerivedStatus = (sess) => {
+                        const st = String(sess?.status || "APPROVED").toUpperCase();
+                        const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
+                        if (!["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st) && exp && exp <= rotationNow) return "EXPIRED";
+                        return st;
+                      };
+                      const rotationMaxActive = Math.max(1, Math.min(12, Math.floor(Number(String(rotationMaxActiveSessions || "3").replace(",", ".")) || 3)));
                       const rotationAllocatedUsd = rotationRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
                       const rotationProfitUsd = rotationRows.reduce((sum, sess) => {
                         const candidates = [
@@ -18123,7 +18186,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const v = candidates.map(Number).find((n) => Number.isFinite(n));
                         return sum + (Number.isFinite(v) ? v : 0);
                       }, 0);
-                      const activeRotations = rotationRows.filter((s) => String(s?.status || "").toUpperCase() !== "STOPPED" && String(s?.status || "").toUpperCase() !== "PAUSED").length;
+                      const activeRotations = rotationRows.filter((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(getRotationDerivedStatus(s))).length;
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
                       const leader = String(firstRotation?.symbol || rotationSelectedPick?.sym || gridItem || "—").toUpperCase();
                       const targetChain = String(firstRotation?.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
@@ -18162,7 +18225,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Rotation allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
                               <div><b>Grid allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div><b>Rotation Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
-                              <div><b>Active Rotations:</b> {activeRotations} / {rotationRows.length || 0}</div>
+                              <div><b>Active Rotations:</b> {activeRotations} / {rotationMaxActive}</div>
                               <div><b>Leader:</b> <span style={{ color: "#8bdcff", fontWeight: 900 }}>{leader}</span></div>
                               <div><b>Target / Scope:</b> {targetChain}</div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
@@ -18203,7 +18266,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const sym = String(sess?.symbol || "ASSET").toUpperCase();
                                 const chain = String(sess?.chain || "CHAIN").toUpperCase();
                                 const budget = Number(sess?.budgetUsd || 0);
-                                const status = String(sess?.status || "APPROVED").toUpperCase();
+                                const status = getRotationDerivedStatus(sess);
+                                const startTs = Number(sess?.startedAt || sess?.started_at || sess?.createdAt || 0) || rotationNow;
+                                const expiresTs = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0) || 0;
+                                const runtimeText = fmtRotationDuration(rotationNow - startTs);
+                                const leftText = expiresTs ? (expiresTs > rotationNow ? fmtRotationDuration(expiresTs - rotationNow) : "expired") : "—";
                                 const profit = Number(sess?.profitUsd ?? sess?.sessionProfitUsd ?? sess?.rotationProfitUsd ?? sess?.collectedProfitUsd ?? 0) || 0;
                                 const gross = Number(sess?.grossProfitUsd ?? sess?.meta?.grossProfitUsd ?? profit) || 0;
                                 const costs = Number(sess?.costsUsd ?? sess?.meta?.costsUsd ?? 0) || 0;
@@ -18237,8 +18304,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     </div>
 
                                     <div className="muted tiny" style={{ display: "grid", gap: 5 }}>
-                                      <div><b style={{ color: "#8bdcff" }}>Runtime:</b> {sess?.runtimeLabel || sess?.runtime || "—"}</div>
-                                      <div><b style={{ color: "#8bdcff" }}>Left:</b> {sess?.leftLabel || sess?.timeLeft || "—"}</div>
+                                      <div><b style={{ color: "#8bdcff" }}>Runtime:</b> {runtimeText}</div>
+                                      <div><b style={{ color: "#8bdcff" }}>Left:</b> {leftText}</div>
                                       <div><b style={{ color: "#ffd166" }}>Confidence:</b> {Number.isFinite(confidence) && confidence > 0 ? `${confidence}/100` : "waiting"}</div>
                                     </div>
 
@@ -18252,8 +18319,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                                     <div style={{ display: "grid", gap: 6, minWidth: 112 }}>
                                       <button className="miniBtn" type="button">Details</button>
-                                      <button className="miniBtn" type="button">Pause</button>
-                                      <button className="miniBtn danger" type="button">Protect / Stop</button>
+                                      <button
+                                        className="miniBtn"
+                                        type="button"
+                                        onClick={() => setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === String(sess?.id || "") ? { ...x, status: String(x?.status || "").toUpperCase() === "PAUSED" ? "ACTIVE" : "PAUSED", updatedAt: Date.now() } : x))}
+                                      >
+                                        {status === "PAUSED" ? "Resume" : "Pause"}
+                                      </button>
+                                      <button
+                                        className="miniBtn danger"
+                                        type="button"
+                                        onClick={() => setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === String(sess?.id || "") ? { ...x, status: "STOPPED", updatedAt: Date.now(), stoppedAt: Date.now() } : x))}
+                                      >Protect / Stop</button>
                                       <button className="miniBtn" type="button">Show Routes ▾</button>
                                     </div>
                                   </div>
@@ -18374,6 +18451,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           onChange={(e) => { setRotationMaxSlippage(e.target.value); setRotationBudgetReleased(false); }}
                           disabled={!rotationSelectedPick?.ok}
                           placeholder="e.g. 1"
+                        />
+                      </div>
+                      <div className="formRow">
+                        <label>Rotation Runtime (hours)</label>
+                        <input
+                          value={rotationRuntimeHours}
+                          onChange={(e) => { setRotationRuntimeHours(e.target.value); setRotationBudgetReleased(false); }}
+                          placeholder="e.g. 24"
+                        />
+                      </div>
+                      <div className="formRow">
+                        <label>Max Active Rotations</label>
+                        <input
+                          value={rotationMaxActiveSessions}
+                          onChange={(e) => { setRotationMaxActiveSessions(e.target.value); setRotationBudgetReleased(false); }}
+                          placeholder="e.g. 3"
                         />
                       </div>
                     </div>

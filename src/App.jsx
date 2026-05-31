@@ -6724,6 +6724,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationShadowBusy, setRotationShadowBusy] = useState(false);
   const [rotationShadowSnapshot, setRotationShadowSnapshot] = useState(null);
   const [rotationShadowEvents, setRotationShadowEvents] = useState([]);
+  const [rotationShadowEventsOpen, setRotationShadowEventsOpen] = useState(false);
 
   // Multi-session support: each later budget approval becomes an independent user-bounded session.
   // Existing sessions are preserved; new Trading/Rotation sessions get their own session_id.
@@ -18862,14 +18863,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
                             ) : null}
                             {Array.isArray(rotationShadowEvents) && rotationShadowEvents.length ? (
-                              <details style={{ borderRadius: 10, border: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.10)", padding: "6px 8px" }}>
-                                <summary className="muted tiny" style={{ cursor: "pointer", fontWeight: 900, color: "#8bdcff" }}>Latest rotation shadow events</summary>
-                                <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
-                                  {rotationShadowEvents.slice(0, 5).map((ev) => (
-                                    <div key={ev.id} className="muted tiny">{new Date(ev.ts).toLocaleTimeString()} · {ev.text}</div>
-                                  ))}
-                                </div>
-                              </details>
+                              <div
+                                style={{ borderRadius: 10, border: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.10)", padding: "6px 8px" }}
+                                onMouseDown={(e) => { e.stopPropagation(); }}
+                                onClick={(e) => { e.stopPropagation(); }}
+                              >
+                                <button
+                                  type="button"
+                                  className="muted tiny"
+                                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRotationShadowEventsOpen((v) => !v); }}
+                                  style={{
+                                    width: "100%",
+                                    cursor: "pointer",
+                                    fontWeight: 900,
+                                    color: "#8bdcff",
+                                    background: "transparent",
+                                    border: 0,
+                                    padding: 0,
+                                    textAlign: "left",
+                                  }}
+                                >
+                                  {rotationShadowEventsOpen ? "▼" : "▶"} Latest rotation shadow events
+                                </button>
+                                {rotationShadowEventsOpen ? (
+                                  <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
+                                    {rotationShadowEvents.slice(0, 5).map((ev) => (
+                                      <div key={ev.id} className="muted tiny">{new Date(ev.ts).toLocaleTimeString()} · {ev.text}</div>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
                             ) : null}
                           </div>
 

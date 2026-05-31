@@ -4761,6 +4761,9 @@ const byChain = {};
     if (!watchApplyingServerRef.current) watchDirtyRef.current = true;
   }, []);
   const appStateHydratedRef = useRef(false);
+  const rotationBackendHydratedRef = useRef(false);
+  const rotationBackendSyncBusyRef = useRef(false);
+  const rotationBackendApplyingRef = useRef(false);
   const prevWalletRef = useRef(String(wallet || "").toLowerCase());
   const appStateSyncBusyRef = useRef(false);
   const appStateApplyingServerRef = useRef(false);
@@ -9254,19 +9257,9 @@ useEffect(() => {
       const serverUi = state?.ui && typeof state.ui === "object" ? state.ui : {};
       const serverTradingSessions = Array.isArray(serverUi.tradingSessions) ? serverUi.tradingSessions.filter((x) => x && typeof x === "object") : [];
       const serverActiveTradingSessionId = String(serverUi.activeTradingSessionId || "").trim();
-      const serverRotationSessions = Array.isArray(serverUi.rotationSessions) ? serverUi.rotationSessions.filter((x) => x && typeof x === "object") : [];
-      const serverActiveRotationSessionId = String(serverUi.activeRotationSessionId || "").trim();
-      let localRotationBackup = {};
-      try {
-        const rawRotationBackup = localStorage.getItem(`nexus_rotation_state_v1_${String(wa || "").toLowerCase()}`);
-        localRotationBackup = rawRotationBackup ? JSON.parse(rawRotationBackup) : {};
-        if (!localRotationBackup || typeof localRotationBackup !== "object") localRotationBackup = {};
-      } catch {
-        localRotationBackup = {};
-      }
-      const localRotationSessions = Array.isArray(localRotationBackup.rotationSessions) ? localRotationBackup.rotationSessions.filter((x) => x && typeof x === "object") : [];
-      const hydratedRotationSessions = serverRotationSessions.length ? serverRotationSessions : localRotationSessions;
-      const hydratedActiveRotationSessionId = serverActiveRotationSessionId || String(localRotationBackup.activeRotationSessionId || "").trim();
+      // Rotation runtime sessions are loaded from /api/rotation-sessions, not from ui_state_json.
+      // ui_state_json only keeps display/settings values; the lifecycle itself is Trading-style backend state.
+      const serverRotationSessions = [];
       const neverSynced = String(appStateSyncedWallet || "").toLowerCase() !== String(wa || "").toLowerCase();
       const localCompare = Array.isArray(compareSet) ? compareSet.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
       const localAi = Array.isArray(aiSelected) ? aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
@@ -9310,7 +9303,7 @@ useEffect(() => {
         if (serverUi.tradingStyle != null) setTradingStyle(String(serverUi.tradingStyle));
         if (serverUi.tradingBudgetUsd != null) setTradingBudgetUsd(String(serverUi.tradingBudgetUsd));
         if (serverUi.tradingBudgetSplitInput != null) setTradingBudgetSplitInput(String(serverUi.tradingBudgetSplitInput));
-        const rotationSettingsSource = serverRotationSessions.length ? serverUi : localRotationBackup;
+        const rotationSettingsSource = serverUi;
         if (rotationSettingsSource.rotationRuntimeHours != null) setRotationRuntimeHours(String(rotationSettingsSource.rotationRuntimeHours));
         if (rotationSettingsSource.rotationMaxActiveSessions != null) setRotationMaxActiveSessions(String(rotationSettingsSource.rotationMaxActiveSessions));
         if (rotationSettingsSource.rotationRiskLimit != null) setRotationRiskLimit(String(rotationSettingsSource.rotationRiskLimit));
@@ -9322,8 +9315,7 @@ useEffect(() => {
           setTradingSessions(serverTradingSessions);
           if (serverActiveTradingSessionId) setActiveTradingSessionId(serverActiveTradingSessionId);
         }
-        setRotationSessions(hydratedRotationSessions);
-        if (hydratedActiveRotationSessionId) setActiveRotationSessionId(hydratedActiveRotationSessionId);
+        // Rotation sessions are hydrated separately from /api/rotation-sessions.
       }
       if (serverUpdatedTs) storeAppStateServerTs(serverUpdatedTs);
       setAppStateSyncedWallet(wa);
@@ -9383,8 +9375,6 @@ useEffect(() => {
         rotationMinNetAdvantage,
         rotationMode,
         rotationNetworkScope,
-        rotationSessions: (Array.isArray(rotationSessions) ? rotationSessions : []).slice(0, 30),
-        activeRotationSessionId,
       },
     };
     const t = setTimeout(async () => {
@@ -9394,14 +9384,6 @@ useEffect(() => {
         const saved = await api("/api/app-state", { method: "POST", token, wallet: wa, body: payload });
         storeAppStateServerTs(saved?.updated_ts);
         setAppStateSyncedWallet(wa);
-        try {
-          const savedUi = saved?.state?.ui && typeof saved.state.ui === "object" ? saved.state.ui : {};
-          const savedRot = Array.isArray(savedUi.rotationSessions) ? savedUi.rotationSessions : [];
-          const localRot = Array.isArray(payload?.ui?.rotationSessions) ? payload.ui.rotationSessions : [];
-          if (localRot.length && !savedRot.length) {
-            console.warn("rotation app-state save did not echo rotationSessions; keep wallet-bound backup until backend is updated");
-          }
-        } catch {}
       } catch (e) {
         console.warn("app-state save failed", e);
       } finally {
@@ -9409,31 +9391,70 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, rotationNetworkScope, rotationSessions, activeRotationSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, rotationNetworkScope, setAppStateSyncedWallet, storeAppStateServerTs]);
 
-  // Rotation safety persistence: DB via /api/app-state is the source of truth.
-  // This wallet-bound local backup prevents accidental empty-state overwrite during refresh
-  // and lets the next app-state save rehydrate the DB if an older backend filtered rotation keys.
+  // Rotation runtime persistence: backend-first, wallet-bound, Trading-style.
+  // The Rotation lifecycle is stored through /api/rotation-sessions. /api/app-state only keeps settings/display state.
+  const syncRotationSessionsFromServer = useCallback(async () => {
+    const wa = resolveWalletAddress(wallet);
+    if (!wa) {
+      rotationBackendHydratedRef.current = true;
+      return;
+    }
+    if (rotationBackendSyncBusyRef.current) return;
+    rotationBackendSyncBusyRef.current = true;
+    rotationBackendApplyingRef.current = true;
+    try {
+      const r = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, { method: "GET", token, wallet: wa });
+      const sessions = Array.isArray(r?.sessions) ? r.sessions.filter((x) => x && typeof x === "object") : [];
+      const activeId = String(r?.activeRotationSessionId || "").trim();
+      setRotationSessions(sessions);
+      setActiveRotationSessionId(activeId || (sessions[0]?.id ? String(sessions[0].id) : ""));
+    } catch (e) {
+      console.warn("rotation session sync failed", e);
+    } finally {
+      rotationBackendHydratedRef.current = true;
+      rotationBackendSyncBusyRef.current = false;
+      setTimeout(() => { rotationBackendApplyingRef.current = false; }, 0);
+    }
+  }, [wallet, token]);
+
+  useEffect(() => {
+    rotationBackendHydratedRef.current = false;
+    syncRotationSessionsFromServer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet]);
+
   useEffect(() => {
     const wa = resolveWalletAddress(wallet);
-    if (!wa || !appStateHydratedRef.current || appStateApplyingServerRef.current) return;
+    if (!wa || !appStateHydratedRef.current || !rotationBackendHydratedRef.current) return;
+    if (rotationBackendApplyingRef.current || appStateApplyingServerRef.current) return;
     const sessions = Array.isArray(rotationSessions) ? rotationSessions.filter((x) => x && typeof x === "object") : [];
-    if (!sessions.length && !activeRotationSessionId) return;
-    try {
-      localStorage.setItem(`nexus_rotation_state_v1_${wa.toLowerCase()}`, JSON.stringify({
-        rotationSessions: sessions.slice(0, 30),
-        activeRotationSessionId: String(activeRotationSessionId || ""),
-        rotationRuntimeHours,
-        rotationMaxActiveSessions,
-        rotationRiskLimit,
-        rotationMaxSlippage,
-        rotationMinNetAdvantage,
-        rotationMode,
-        rotationNetworkScope,
-        savedAt: Date.now(),
-      }));
-    } catch {}
-  }, [wallet, rotationSessions, activeRotationSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, rotationNetworkScope]);
+    const body = {
+      wallet: wa,
+      wallet_address: wa,
+      sessions: sessions.slice(0, 30),
+      activeRotationSessionId: String(activeRotationSessionId || ""),
+    };
+    const t = setTimeout(async () => {
+      if (rotationBackendSyncBusyRef.current || rotationBackendApplyingRef.current) return;
+      rotationBackendSyncBusyRef.current = true;
+      try {
+        const saved = await api("/api/rotation-sessions", { method: "POST", token, wallet: wa, body });
+        const savedSessions = Array.isArray(saved?.sessions) ? saved.sessions.filter((x) => x && typeof x === "object") : sessions;
+        const savedActiveId = String(saved?.activeRotationSessionId || activeRotationSessionId || "").trim();
+        rotationBackendApplyingRef.current = true;
+        setRotationSessions(savedSessions);
+        if (savedActiveId) setActiveRotationSessionId(savedActiveId);
+        setTimeout(() => { rotationBackendApplyingRef.current = false; }, 0);
+      } catch (e) {
+        console.warn("rotation session save failed", e);
+      } finally {
+        rotationBackendSyncBusyRef.current = false;
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [wallet, token, rotationSessions, activeRotationSessionId]);
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -9445,6 +9466,9 @@ useEffect(() => {
     watchSyncBusyRef.current = false;
     appStateSyncBusyRef.current = false;
     appStateHydratedRef.current = false;
+    rotationBackendSyncBusyRef.current = false;
+    rotationBackendHydratedRef.current = false;
+    rotationBackendApplyingRef.current = false;
     inflightWatch.current = false;
     watchRefreshQueued.current = false;
 

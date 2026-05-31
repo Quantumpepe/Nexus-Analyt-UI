@@ -9014,6 +9014,7 @@ useEffect(() => {
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
   const [gridOrdersOpen, setGridOrdersOpen] = useState(false);
+  const [gridSetupOpen, setGridSetupOpen] = useState(false);
   const [gridVaultStats, setGridVaultStats] = useState({ vault: 0, reserved: 0, free: 0 });
   // Helper: extract order id from different backend schemas
   const idOf = (o) => o?.order_id ?? o?.orderId ?? o?.id ?? o?._id ?? o?.uuid ?? null;
@@ -9026,10 +9027,10 @@ useEffect(() => {
       setGridOrdersOpen(false);
       return;
     }
-    if (gridOrders.length <= 3) {
+    if (gridOrders.length <= 3 && !isCompactMobile) {
       setGridOrdersOpen(true);
     }
-  }, [gridOrders.length]);
+  }, [gridOrders.length, isCompactMobile]);
 
   const normalizeGridOrders = useCallback(
     (arr) => {
@@ -19940,6 +19941,42 @@ const handlePanelActivate = useCallback((name) => (e) => {
 </div>
 
               <div
+                className="gridCompactSummary"
+                style={{
+                  marginTop: 8,
+                  padding: "8px 10px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,.08)",
+                  background: "rgba(255,255,255,.035)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <span className="pill silver">{manualSide}</span>
+                  <span className="muted tiny">Price <b>{manualPrice || (shownGridPrice ? fmtUsd(Number(shownGridPrice)) : "—")}</b></span>
+                  <span className="muted tiny">Orders <b>{gridOrders.length}</b></span>
+                </div>
+                <button
+                  type="button"
+                  className="btnGhost"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setGridSetupOpen((v) => !v);
+                  }}
+                  style={{ height: 30, paddingInline: 10, fontSize: 12 }}
+                >
+                  {gridSetupOpen || !isCompactMobile ? "Hide Grid Setup" : "Show Grid Setup"}
+                </button>
+              </div>
+
+              {(gridSetupOpen || !isCompactMobile) ? (
+                <div className="gridSetupAccordion" style={{ display: "grid", gap: isCompactMobile ? 8 : 10, marginTop: 8 }}>
+              <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
@@ -20269,6 +20306,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </button>
 
               {!token && <div className="muted tiny">Wallet connected. First protected action may require one signature.</div>}
+                </div>
+              ) : null}
 </div>
 
                 </>

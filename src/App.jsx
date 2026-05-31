@@ -20214,8 +20214,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : (
                 <>
 
-          <div className="gridWrap">
-            <div className="gridControls">              <div
+          <div className="gridWrap" style={{ gridTemplateColumns: "1fr", gap: 12 }}>
+            <div className="gridControls" style={{ border: "1px solid rgba(46,204,113,.18)", borderRadius: 14, padding: "10px 12px", background: "rgba(0,0,0,.10)", minWidth: 0 }}>              <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr",
@@ -20335,6 +20335,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 }}
               >
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <b style={{ color: "#eafff5" }}>Grid Setup & Presets</b>
                   <span className="pill silver">{manualSide}</span>
                   <span className="muted tiny">Price <b>{manualPrice || (shownGridPrice ? fmtUsd(Number(shownGridPrice)) : "—")}</b></span>
                   <span className="muted tiny">Orders <b>{gridOrders.length}</b></span>
@@ -20349,7 +20350,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   }}
                   style={{ height: 30, paddingInline: 10, fontSize: 12 }}
                 >
-                  {gridSetupOpen || !isCompactMobile ? "Hide Grid Setup" : "Show Grid Setup"}
+                  {gridSetupOpen || !isCompactMobile ? "Hide ▲" : "Show ▼"}
                 </button>
               </div>
 
@@ -20694,7 +20695,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             </div>
 
-            <div className="gridRight">
+            {gridOrders.length ? (
+            <div className="gridRight" style={{ border: "1px solid rgba(46,204,113,.16)", borderRadius: 14, padding: "10px 12px", background: "rgba(0,0,0,.10)", minWidth: 0 }}>
               <div className="gridOrders">
               <div className="ordersHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                 <button
@@ -20833,11 +20835,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 ) : (
                   <div className="muted tiny" style={{ marginTop: 8 }}>Orders hidden. Tap Orders to open.</div>
                 )
-              ) : (
-                <div className="muted">No orders yet. Approve Budget then Add Order.</div>
-              )}
+              ) : null}
             </div>
             </div>
+            ) : null}
           </div></div>
         </section>
 

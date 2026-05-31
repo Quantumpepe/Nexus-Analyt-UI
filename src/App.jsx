@@ -14170,6 +14170,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
           display: grid;
           gap: 10px;
         }
+        .gridLayout.tradingDesktopLayout .tradingSetupBody.isCollapsed{
+          display: none !important;
+        }
         @media (min-width: 821px){
           .gridLayout.tradingDesktopLayout{
             grid-template-columns: 1fr !important;
@@ -14229,6 +14232,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
           }
           .gridRight{
             position: static;
+          }
+          .section-grid .gridRight{
+            display: none !important;
           }
         }
 
@@ -19228,11 +19234,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     >
                       <span>Trading Setup & Presets</span>
                       <span className="muted tiny" style={{ color: "#8bdcff", fontWeight: 950 }}>
-                        {tradingSetupExpanded || isCompactMobile ? "Hide ▲" : "Show ▼"}
+                        {tradingSetupExpanded ? "Hide ▲" : "Show ▼"}
                       </span>
                     </button>
 
-                    <div className={`tradingSetupBody ${!isCompactMobile && !tradingSetupExpanded ? "isCollapsed" : ""}`}>
+                    <div className={`tradingSetupBody ${!tradingSetupExpanded ? "isCollapsed" : ""}`}>
                     <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10, alignItems: "end" }}>
                       <div className="formRow">
                         <label>{Array.isArray(openTradingSessions) && openTradingSessions.length ? "Next Budget ($)" : "Budget ($)"}</label>

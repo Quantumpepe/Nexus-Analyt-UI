@@ -9115,7 +9115,7 @@ useEffect(() => {
 
   const isEthChain = String(uiChainKey || "").toUpperCase().includes("ETH");
 
-  const [gridInvestQty, setGridInvestQty] = useState(250);
+  const [gridInvestQty, setGridInvestQty] = useState("");
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const [gridOrders, setGridOrders] = useState([]);
   const [gridOrdersOpen, setGridOrdersOpen] = useState(false);
@@ -9123,6 +9123,22 @@ useEffect(() => {
   const [gridVaultStats, setGridVaultStats] = useState({ vault: 0, reserved: 0, free: 0 });
   // Helper: extract order id from different backend schemas
   const idOf = (o) => o?.order_id ?? o?.orderId ?? o?.id ?? o?._id ?? o?.uuid ?? null;
+
+  const patchGridOrderStatusLocal = useCallback((orderId, nextStatus) => {
+    const oid = String(orderId || "");
+    if (!oid) return;
+    const status = String(nextStatus || "").toUpperCase();
+    setGridOrders((prev) => (Array.isArray(prev) ? prev : []).map((o) => {
+      const currentId = String(idOf(o) || "");
+      if (currentId !== oid) return o;
+      return {
+        ...o,
+        status,
+        state: status,
+        updated_ts: Math.floor(Date.now() / 1000),
+      };
+    }));
+  }, []);
 
   // Normalize orders coming from backend/polling so the UI can't show duplicates.
   // (Some backend revisions may return the same order twice during eventual consistency.)
@@ -11441,18 +11457,19 @@ if (!manualFundingOk) {
       return;
     }
     setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
+    patchGridOrderStatusLocal(_oid, "CANCELLED");
 
     const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
 
-    // Try several known endpoints/methods (backend revisions differ)
+    // Try several known endpoints/methods (backend revisions differ). Include chain/id variants so stop works on the first click.
     const addrPayload = walletAddress || undefined;
+    const baseBody = { item: gridItemId, item_id: gridItemId, chain: chainKey, addr: addrPayload, wallet: addrPayload };
     const attempts = [
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/cancel", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
-      { url: "/api/grid/order/stop", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
+      { url: "/api/grid/order/stop", method: "POST", body: { ...baseBody, order_id: orderId, id: orderId, orderId } },
+      { url: "/api/grid/order/pause", method: "POST", body: { ...baseBody, order_id: orderId, id: orderId, orderId } },
+      { url: "/api/grid/order/cancel", method: "POST", body: { ...baseBody, order_id: orderId, id: orderId, orderId } },
+      { url: "/api/grid/stop", method: "POST", body: { ...baseBody, order_id: orderId, id: orderId, orderId } },
     ];
 
     let lastErr = null;
@@ -11466,16 +11483,20 @@ if (!manualFundingOk) {
         }
         setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         applyGridMetaResponse(r, gridItemId);
-        fetchGridOrders();
+        patchGridOrderStatusLocal(_oid, "CANCELLED");
+        setTimeout(() => { try { fetchGridOrders({ force: true }); } catch (_) {} }, 350);
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;
       } catch (e) {
         lastErr = e;
         const msg = String(e?.message || "");
-        if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) throw e;
+        if (!(msg.includes("404") || msg.toLowerCase().includes("not found") || msg.includes("405") || msg.toLowerCase().includes("method not allowed"))) {
+          // keep trying aliases; older deployments may expose only one route but return a non-standard error body
+        }
       }
     }
 
+    patchGridOrderStatusLocal(_oid, "OPEN");
     setGridBusy((s) => ({ ...s, stopOrderId: null }));
     setErrorMsg(`Stop order: ${lastErr?.message || "failed"}`);
   }
@@ -11491,16 +11512,16 @@ if (!manualFundingOk) {
       return;
     }
     setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
+    patchGridOrderStatusLocal(_oid, "OPEN");
 
     const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
     const addrPayload = walletAddress || undefined;
+    const baseBody = { item: gridItemId, item_id: gridItemId, chain: chainKey, addr: addrPayload, wallet: addrPayload };
     const attempts = [
-      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/start", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/restart", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, order_id: orderId } },
-      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, id: orderId } },
-      { url: "/api/grid/order/resume", method: "POST", body: { item: gridItemId, addr: addrPayload, wallet: addrPayload, orderId } },
+      { url: "/api/grid/order/resume", method: "POST", body: { ...baseBody, order_id: orderId, id: orderId, orderId } },
+      { url: "/api/grid/order/start", method: "POST", body: { ...baseBody, order_id: orderId, id: orderId, orderId } },
+      { url: "/api/grid/order/restart", method: "POST", body: { ...baseBody, order_id: orderId, id: orderId, orderId } },
     ];
 
     let lastErr = null;
@@ -11514,16 +11535,20 @@ if (!manualFundingOk) {
         }
         setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         applyGridMetaResponse(r, gridItemId);
-        fetchGridOrders();
+        patchGridOrderStatusLocal(_oid, "OPEN");
+        setTimeout(() => { try { fetchGridOrders({ force: true }); } catch (_) {} }, 350);
         setGridBusy((s) => ({ ...s, stopOrderId: null }));
         return;
       } catch (e) {
         lastErr = e;
         const msg = String(e?.message || "");
-        if (!(msg.includes("404") || msg.toLowerCase().includes("not found"))) break;
+        if (!(msg.includes("404") || msg.toLowerCase().includes("not found") || msg.includes("405") || msg.toLowerCase().includes("method not allowed"))) {
+          // keep trying aliases; if all fail, the error below explains it
+        }
       }
     }
 
+    patchGridOrderStatusLocal(_oid, "CANCELLED");
     setGridBusy((s) => ({ ...s, stopOrderId: null }));
     setErrorMsg(`Resume order: ${lastErr?.message || "failed"}`);
   }
@@ -20375,7 +20400,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 <div className="formRow">
                   <label>Budget (Qty)</label>
-                  <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="250" />
+                  <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="e.g. 10" />
                 </div>
               </div>
 <div className="hint" style={{ marginTop: 4, marginBottom: 4, opacity: 0.95 }}>

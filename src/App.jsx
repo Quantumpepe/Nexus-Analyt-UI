@@ -7042,6 +7042,12 @@ useEffect(() => {
   const [tradingExecutionQueue, setTradingExecutionQueue] = useState([]);
   const [tradingRuntimeHours, setTradingRuntimeHours] = useState("24");
   const [tradingRuntimeUnit, setTradingRuntimeUnit] = useState("hours");
+  const [tradingRuntimeNowMs, setTradingRuntimeNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setTradingRuntimeNowMs(Date.now()), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
   const [tradingHoldHours, setTradingHoldHours] = useState("1");
   const [tradingAllowedAssets, setTradingAllowedAssets] = useState("");
   const [tradingAllowedChains, setTradingAllowedChains] = useState("POL,BNB,ETH");
@@ -7503,6 +7509,60 @@ useEffect(() => {
   }, [openTradingSessions, activeTradingSessionId, activeGridChainKey]);
 
   const selectedTradingSessionId = String(selectedTradingSession?.id || activeTradingSessionId || "").trim();
+
+  const normalizeSessionTimeMs = useCallback((value) => {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n < 1_000_000_000_000 ? n * 1000 : n;
+  }, []);
+
+  const formatTradingDuration = useCallback((ms) => {
+    const totalMin = Math.max(0, Math.floor(Number(ms || 0) / 60000));
+    const days = Math.floor(totalMin / 1440);
+    const hours = Math.floor((totalMin % 1440) / 60);
+    const minutes = totalMin % 60;
+    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    return `${minutes}m`;
+  }, []);
+
+  const getTradingSessionTiming = useCallback((sess) => {
+    const meta = sess?.meta || {};
+    const startedMs = normalizeSessionTimeMs(
+      sess?.sessionStartedAt ?? sess?.startedAt ?? sess?.createdAt ?? sess?.approvedAt ??
+      sess?.session_started_ts ?? sess?.started_ts ?? sess?.created_ts ??
+      meta.sessionStartedAt ?? meta.startedAt ?? meta.createdAt ?? meta.approvedAt ??
+      meta.session_started_ts ?? meta.started_ts ?? meta.created_ts
+    );
+    const expiresMs = normalizeSessionTimeMs(
+      sess?.expiresAt ?? sess?.expires_at ?? sess?.sessionExpiresAt ?? sess?.session_expires_ts ?? sess?.expires_ts ??
+      meta.expiresAt ?? meta.expires_at ?? meta.sessionExpiresAt ?? meta.session_expires_ts ?? meta.expires_ts
+    );
+    const now = Number(tradingRuntimeNowMs || Date.now());
+    const elapsedMs = startedMs > 0 ? Math.max(0, now - startedMs) : 0;
+    const remainingMs = expiresMs > 0 ? Math.max(0, expiresMs - now) : 0;
+    return {
+      startedMs,
+      expiresMs,
+      elapsedMs,
+      remainingMs,
+      elapsedLabel: startedMs > 0 ? formatTradingDuration(elapsedMs) : "—",
+      remainingLabel: expiresMs > 0 ? formatTradingDuration(remainingMs) : "—",
+      isExpired: expiresMs > 0 && now >= expiresMs,
+    };
+  }, [normalizeSessionTimeMs, formatTradingDuration, tradingRuntimeNowMs]);
+
+  const getTradingVaultRuntimeLabel = useCallback((sessions = []) => {
+    const activeSessions = (Array.isArray(sessions) ? sessions : []).filter((sess) => {
+      const st = String(sess?.status || "").toUpperCase();
+      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st);
+    });
+    const startedTimes = activeSessions
+      .map((sess) => getTradingSessionTiming(sess).startedMs)
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (!startedTimes.length) return "—";
+    return formatTradingDuration(Math.max(0, Number(tradingRuntimeNowMs || Date.now()) - Math.min(...startedTimes)));
+  }, [getTradingSessionTiming, formatTradingDuration, tradingRuntimeNowMs]);
 
 
 
@@ -18192,6 +18252,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Trading allocated:</b> {tradingAllocatedUsd ? fmtUsd(tradingAllocatedUsd) : "$0.00"}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
                               <div style={{ color: tradingCollectedProfitUsd >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}><b>Collected Profit:</b> {`${tradingCollectedProfitUsd >= 0 ? "+" : "-"}${fmtUsd(Math.abs(tradingCollectedProfitUsd))}`}</div>
+                              <div style={{ color: "#8bdcff", fontWeight: 900 }}><b>Runtime:</b> {getTradingVaultRuntimeLabel(activeTradingSessions)}</div>
                               <div><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
                             </>
                           );
@@ -18614,6 +18675,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div className="muted tiny" style={{ color: getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}>Session Profit: {`${getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "+" : "-"}${fmtUsd(Math.abs(getTradingSessionProfitUsd(selectedTradingSession)))}`}</div>
                             <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Reuse Profit: {Number(selectedTradingSession?.reuseProfitPct ?? selectedTradingSession?.reuse_profit_pct ?? selectedTradingSession?.profitReusePct ?? selectedTradingSession?.profit_reuse_pct ?? 0).toFixed(0)}% allowed</div>
                             <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Max Combined Slots: {Number(selectedTradingSession?.maxCombinedSlots ?? selectedTradingSession?.max_combined_slots ?? selectedTradingSession?.slotDonorCap ?? selectedTradingSession?.slot_donor_cap ?? 0).toFixed(0)}</div>
+                            {(() => {
+                              const timing = getTradingSessionTiming(selectedTradingSession);
+                              return (
+                                <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>
+                                  Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}
+                                </div>
+                              );
+                            })()}
                             <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                               {tradingCanPause ? (

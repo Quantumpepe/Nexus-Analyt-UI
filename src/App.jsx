@@ -13891,6 +13891,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .gridLayout.tradingDesktopLayout .tradingSetupBody.isCollapsed{
             display: none !important;
           }
+          .gridLayout.rotationDesktopLayout{
+            grid-template-columns: 1fr !important;
+          }
+          .gridLayout.rotationDesktopLayout .gridRight{
+            display: none !important;
+          }
+          .gridLayout.rotationDesktopLayout .gridLeft,
+          .gridLayout.rotationDesktopLayout .gridWrap,
+          .gridLayout.rotationDesktopLayout .gridControls{
+            width: 100% !important;
+            max-width: none !important;
+            justify-self: stretch !important;
+            align-items: stretch !important;
+          }
+          .gridLayout.rotationDesktopLayout .gridControls > *{
+            width: 100% !important;
+          }
         }
         /* Keep inline rows (slippage/deadline/quick steps) anchored left */
         .gridLeft .row {
@@ -17683,7 +17700,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="panelScroll"><div className={`gridLayout ${String(gridMode || "normal") === "trading" ? "tradingDesktopLayout" : ""}`}>
+          <div className="panelScroll"><div className={`gridLayout ${String(gridMode || "normal") === "trading" ? "tradingDesktopLayout" : String(gridMode || "normal") === "rotation" ? "rotationDesktopLayout" : ""}`}>
             <div className="gridLeft">
               {isCompactMobile && (
               <div
@@ -17902,6 +17919,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const firstRotation = rotationRows[0] || null;
                       const leader = String(firstRotation?.symbol || rotationSelectedPick?.sym || gridItem || "—").toUpperCase();
                       const targetChain = String(firstRotation?.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
+                      const vaultTotalNative = Number(manualVaultTotalQty || 0);
+                      const gridAllocatedNative = Number(manualVaultAllocatedQty || 0);
+                      const px = Number(activeGridNativeUsd || 0);
+                      const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
+                      const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
+                      const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
+                      const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
 
                       return (
                         <>
@@ -17925,13 +17949,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 lineHeight: 1.45,
                               }}
                             >
+                              <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
+                              <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
+                              <div><b>Rotation allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
+                              <div><b>Grid allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div><b>Rotation Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
-                              <div><b>Allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
                               <div><b>Active Rotations:</b> {activeRotations} / {rotationRows.length || 0}</div>
                               <div><b>Leader:</b> <span style={{ color: "#8bdcff", fontWeight: 900 }}>{leader}</span></div>
                               <div><b>Target / Scope:</b> {targetChain}</div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
                               <div><b>Mode:</b> {String(rotationMode || "RECOMMENDATION").replaceAll("_", " ")}</div>
+                              <div><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
                               <div><b>Status:</b> <span style={{ color: "#22c55e", fontWeight: 900 }}>{rotationRows.length ? "ACTIVE" : "WAITING"}</span></div>
                             </div>
                           </div>
@@ -18064,48 +18092,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </summary>
                             <div style={{ padding: "10px", display: "grid", gap: 12 }}>
                               <div style={{ display: "grid", gap: 12, width: "100%" }}>
-                    <div
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        background: "rgba(0,0,0,.18)",
-                        border: "1px solid rgba(34,197,94,.22)",
-                        display: "grid",
-                        gap: 8,
-                      }}
-                    >
-                      <div className="label" style={{ marginBottom: 0 }}>Vault overview</div>
-                      <div
-                        className="muted tiny"
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
-                          gap: 6,
-                          lineHeight: 1.45,
-                        }}
-                      >
-                        {(() => {
-                          const vaultTotalNative = Number(manualVaultTotalQty || 0);
-                          const gridAllocatedNative = Number(manualVaultAllocatedQty || 0);
-                          const px = Number(activeGridNativeUsd || 0);
-                          const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
-                          const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
-                          const rotationAllocatedUsd = (Array.isArray(rotationSessions) ? rotationSessions : []).reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
-                          const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
-                          const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
-                          return (
-                            <>
-                              <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
-                              <div><b>Grid allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
-                              <div><b>Rotation allocated:</b> {rotationAllocatedUsd ? fmtUsd(rotationAllocatedUsd) : "$0.00"}</div>
-                              <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
-                              <div style={{ gridColumn: isCompactMobile ? "auto" : "1 / -1" }}><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-
                     <div
                       style={{
                         display: "grid",

@@ -7065,6 +7065,7 @@ useEffect(() => {
   const [tradingLearningSetups, setTradingLearningSetups] = useState([]);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useState(false);
   const [tradingSetupExpanded, setTradingSetupExpanded] = useState(false);
+  const [tradingSessionSlotsExpanded, setTradingSessionSlotsExpanded] = useState(false);
   const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useState(false);
   const [tradingSessionStatus, setTradingSessionStatus] = useState("PREPARED");
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useState(0);
@@ -18509,7 +18510,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     </div>
 
-                    {tradingVisibleQueueSummary.queue.length ? (
+                    {((isCompactMobile || String(gridMode || "normal") !== "trading") && tradingVisibleQueueSummary.queue.length) ? (
                       <div
                         style={{
                           padding: "8px 10px",
@@ -18803,6 +18804,50 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 ) : null}
                               </div>
                             </div>
+                            <div style={{ borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 8, display: "grid", gap: 8 }}>
+                              <button
+                                className="miniBtn"
+                                type="button"
+                                onClick={() => setTradingSessionSlotsExpanded((v) => !v)}
+                                style={{ justifySelf: "start", height: 28, paddingInline: 10 }}
+                                title="Show or hide the detailed slots for this selected Trading session"
+                              >
+                                {tradingSessionSlotsExpanded ? "Hide Slots ▲" : `Show Slots (${sessionSlots.length}) ▼`}
+                              </button>
+
+                              {tradingSessionSlotsExpanded ? (
+                                <div style={{ display: "grid", gap: 7, maxHeight: isCompactMobile ? 360 : 420, overflowY: "auto", paddingRight: 4 }}>
+                                  {sessionSlots.map((slot, idx) => {
+                                    const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+                                    const st = String(slot?.status || "WAIT").toUpperCase();
+                                    const gross = Number(slot.paper_gross_pnl_usd ?? meta.paper_gross_pnl_usd ?? 0);
+                                    const costs = Number(slot.paper_estimated_costs_usd ?? meta.paper_estimated_costs_usd ?? 0);
+                                    const net = Number(slot.paper_net_pnl_usd ?? meta.paper_net_pnl_usd ?? slot.paper_pnl_usd ?? meta.paper_pnl_usd ?? 0);
+                                    const cycle = Number(slot.paper_cycle_realized_usd ?? meta.paper_cycle_realized_usd ?? 0);
+                                    const isActive = st === "ACTIVE";
+                                    const isReady = st === "READY";
+                                    const isWait = st === "WAIT";
+                                    const isExit = st === "SIMULATED_EXIT";
+                                    const border = isActive ? "rgba(34,197,94,.48)" : isReady ? "rgba(34,197,94,.32)" : isWait ? "rgba(255,193,7,.30)" : isExit ? "rgba(139,220,255,.28)" : "rgba(255,255,255,.10)";
+                                    const bg = isActive ? "rgba(34,197,94,.10)" : isReady ? "rgba(34,197,94,.065)" : isWait ? "rgba(255,193,7,.06)" : isExit ? "rgba(139,220,255,.055)" : "rgba(255,255,255,.025)";
+                                    return (
+                                      <div key={`${getTradingSlotSessionId(slot) || selectedTradingSessionId || "session"}-${slot.slot || slot.slot_id || idx}`} style={{ border: `1px solid ${border}`, background: bg, borderRadius: 10, padding: "8px 9px", display: "grid", gap: 5 }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                          <b style={{ color: "#eafff5" }}>Slot {slot.slot || slot.slot_id || idx + 1} · {fmtUsd(getTradingSlotAmountUsd(slot))}</b>
+                                          <span className="tiny" style={{ color: isActive || isReady ? "#7cf7a2" : isWait ? "#ffc107" : isExit ? "#8bdcff" : "rgba(235,255,247,.72)", fontWeight: 950 }}>{st} · priority {Math.round(Number(slot.priority || 0))}</span>
+                                        </div>
+                                        <div className="muted tiny">{slot.symbol || slot.asset || sessionAsset} · {slot.reason || slot.message || slot.note || "Strategist slot state"}</div>
+                                        <div className="tiny" style={{ color: net >= 0 ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
+                                          gross {gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(gross))} · costs {costs > 0 ? `-${fmtUsd(costs)}` : fmtUsd(0)} · net {net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(net))} · cycle {cycle >= 0 ? "+" : "-"}{fmtUsd(Math.abs(cycle))}
+                                        </div>
+                                        <div className="muted tiny">Entry {fmtUsd(Number(slot.paper_entry_price ?? meta.paper_entry_price ?? 0))} · Current {fmtUsd(Number(slot.paper_mark_price ?? meta.paper_mark_price ?? 0))} · Exit {fmtUsd(Number(slot.paper_exit_price ?? meta.paper_exit_price ?? 0))}</div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                            </div>
+
                             <div className="muted tiny" style={{ color: "#8bdcff", borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 6 }}>
                               Viewing: {selectedTradingSessionId}. Strategy: {selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical"} · Risk: {selectedTradingSession?.riskMode || selectedTradingSession?.risk_mode || tradingRiskMode || "Balanced"} · Payout: {selectedTradingSession?.payoutAsset || selectedTradingSession?.payout_asset || manualPayoutAsset || "USDC"}
                             </div>

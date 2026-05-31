@@ -7003,20 +7003,19 @@ useEffect(() => {
         strategistScore: cand?.strategistScore,
       });
     }
-    for (const row of Array.isArray(watchRows) ? watchRows : []) {
-      pushCandidate(row?.symbol || row?.sym, {
-        chain: row?.chain,
-        score: row?.score,
-        source: "watchlist_fallback",
-      });
-      if (candidatePool.length >= 12) break;
-    }
-    pushCandidate(gridItem, { source: "grid_fallback" });
+    // Live-vault safety: no automatic fallback targets.
+    // Rotation may only create a session from an explicit user pick or a real Strategist candidate.
+    // Never use watchlist/grid/native chain as an execution target fallback.
 
-    const pickedCandidate = candidatePool.find((c) => !activeTargetSet.has(c.rawSymbol)) || candidatePool[0] || {};
-    const fallbackChain = String(pickedCandidate.chain || rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-    const fallbackSymbol = String(pickedCandidate.coin || pickedCandidate.rawSymbol || rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || fallbackChain).toUpperCase();
-    const sourceSymbol = String(pickedCandidate.rawSymbol || fallbackSymbol).toUpperCase();
+    const pickedCandidate = candidatePool.find((c) => !activeTargetSet.has(c.rawSymbol)) || null;
+    if (!pickedCandidate?.rawSymbol) {
+      setRotationBackendMsg("No strategist target selected. Open Watchlist recommendations or let Nexus Strategist prepare a Rotation target first.");
+      return;
+    }
+
+    const candidateChain = String(pickedCandidate.chain || rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
+    const candidateSymbol = String(pickedCandidate.coin || pickedCandidate.rawSymbol).toUpperCase();
+    const sourceSymbol = String(pickedCandidate.rawSymbol).toUpperCase();
     const sessionId = makeNexusSessionId("ROT");
     const expiresAt = now + runtimeHours * 60 * 60 * 1000;
     setRotationBudgetReleased(true);
@@ -7028,10 +7027,10 @@ useEffect(() => {
           id: sessionId,
           type: "ROTATION",
           budgetUsd: amount,
-          chain: fallbackChain,
-          symbol: fallbackSymbol,
+          chain: candidateChain,
+          symbol: candidateSymbol,
           sourceSymbol,
-          targetAsset: fallbackSymbol,
+          targetAsset: candidateSymbol,
           status: "APPROVED",
           mode: rotationMode,
           networkScope: rotationNetworkScope,
@@ -7055,9 +7054,9 @@ useEffect(() => {
           updatedAt: now,
           meta: {
             source: "rotation_budget_approval",
-            candidate_source: pickedCandidate.source || "fallback",
+            candidate_source: pickedCandidate.source || "strategist_candidate",
             source_symbol: sourceSymbol,
-            selected_symbol: fallbackSymbol,
+            selected_symbol: candidateSymbol,
             strategist_score: pickedCandidate.strategistScore ?? pickedCandidate.score ?? null,
             strategist_rank: pickedCandidate.rank || "",
             vault_asset_ok: pickedCandidate.ok !== false,
@@ -11170,18 +11169,13 @@ setGridBusy((s) => ({ ...s, stop: true }));
     const candidate = Array.isArray(strategistRotationCandidates)
       ? strategistRotationCandidates.find((c) => String(c?.rank || "").toUpperCase() !== "AVOID")
       : null;
-    const watchFallback = Array.isArray(watchRows)
-      ? watchRows.find((r) => String(r?.symbol || "").trim())
-      : null;
 
     const sourceSymbol = String(
       pick.coin ||
       pick.source ||
       candidate?.sym ||
       candidate?.symbol ||
-      watchFallback?.symbol ||
-      gridItem ||
-      native
+      ""
     ).toUpperCase().trim();
 
     const coinsByChain = gridWalletCoinsByChain || {};
@@ -11218,7 +11212,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
       resolvedSymbol = resolved?.coin || "WSOL";
     }
 
-    if (!resolvedSymbol) resolvedSymbol = sourceSymbol || native;
+    if (!resolvedSymbol) resolvedSymbol = sourceSymbol;
     if (!resolvedChain) {
       for (const chain of Object.keys(coinsByChain || {}).map((x) => String(x || "").toUpperCase())) {
         if (hasCoinOnChain(chain, resolvedSymbol)) {
@@ -11227,26 +11221,29 @@ setGridBusy((s) => ({ ...s, stop: true }));
         }
       }
     }
-    if (!resolvedChain) resolvedChain = fallbackChain;
+    // Do not use a fallback chain/asset for Rotation. Missing chain is allowed only for UI readiness,
+    // but order/session creation must require a real selected/recommended target.
+    if (!resolvedChain && resolvedSymbol) resolvedChain = String(pick.chain || candidate?.chain || "").toUpperCase();
 
     const amountOk = Number.isFinite(amount) && amount > 0;
     const symbolOk = Boolean(resolvedSymbol);
+    const hasRealTarget = Boolean(pick?.ok || candidate?.sym || candidate?.symbol || pick?.coin || pick?.source);
     return {
-      ok: amountOk && symbolOk,
+      ok: amountOk && symbolOk && hasRealTarget,
       amount,
       amountOk,
       chain: resolvedChain,
       symbol: resolvedSymbol,
-      source: pick.source || candidate?.sym || watchFallback?.symbol || gridItem || native,
-      selected: Boolean(pick?.ok),
-      score: pick.score ?? candidate?.score ?? watchFallback?.score,
+      source: pick.source || candidate?.sym || candidate?.symbol || "",
+      selected: Boolean(pick?.ok || candidate?.sym || candidate?.symbol),
+      score: pick.score ?? candidate?.score,
       message: !amountOk
         ? "Enter a Rotation budget first."
-        : pick?.ok
-          ? `Ready: ${resolvedSymbol} on ${resolvedChain}.`
-          : `Ready with fallback: ${resolvedSymbol} on ${resolvedChain}. You can still select a recommendation for more precision.`,
+        : !hasRealTarget
+          ? "Waiting for recommendation. No fallback target is allowed."
+          : `Ready: ${resolvedSymbol}${resolvedChain ? ` on ${resolvedChain}` : ""}.`,
     };
-  }, [rotationBudgetRelease, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, gridWalletCoinsByChain, rotationSessions, activeRotationSessionId]);
+  }, [rotationBudgetRelease, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, gridWalletCoinsByChain, rotationSessions, activeRotationSessionId]);
 
   const addRotationOrder = useCallback(async () => {
     const pick = rotationSelectedPick || {};
@@ -11272,7 +11269,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         min_net_advantage_pct: rotationMinNetAdvantage,
         session_id: activeRotationSessionId || makeNexusSessionId("ROT"),
         rotation_session_id: activeRotationSessionId || "",
-        preflight_fallback_used: !preflight.selected,
+        preflight_fallback_used: false,
         preflight_source: preflight.source,
       },
     });
@@ -18867,7 +18864,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <span style={{ opacity: 0.75 }}>
                         {(() => {
                           const preflight = getRotationPreflight();
-                          return preflight.symbol ? `${preflight.symbol} / ${preflight.chain}${preflight.selected ? "" : " · fallback"}` : "No selection";
+                          return preflight.ok && preflight.symbol ? `${preflight.symbol}${preflight.chain ? ` / ${preflight.chain}` : ""}` : "Waiting for recommendation";
                         })()}
                       </span>
                     </div>
@@ -19127,7 +19124,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div className="muted tiny" style={{ fontWeight: 900, color: "#8bdcff" }}>Rotation sessions</div>
                         {rotationSessions.slice(0, 4).map((sess) => (
                           <div key={sess.id} className="muted tiny" style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                            <span>{sess.symbol || "ASSET"} / {sess.chain || "CHAIN"} · {fmtUsd(Number(sess.budgetUsd || 0))}</span>
+                            <span>{sess.symbol ? `${sess.symbol}${sess.chain ? ` / ${sess.chain}` : ""}` : "No target selected"} · {fmtUsd(Number(sess.budgetUsd || 0))}</span>
                             <span>{String(sess.status || "APPROVED")} · {String(sess.id || "").slice(0, 18)}</span>
                           </div>
                         ))}

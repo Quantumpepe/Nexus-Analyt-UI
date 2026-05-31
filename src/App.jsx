@@ -18521,7 +18521,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div className="muted tiny">Rotation system uses recommendation-first setup. Live Vault rebalancing is not executed from this Shadow panel.</div>
                             </div>
                             <div className="muted tiny">
-                              Risk limit: {"—"}% · Max slippage: {rotationSlippage || rotationMaxSlippage || "—"}% · Min net advantage: {rotationMinNetAdvantage || "—"}%
+                              Risk limit: {"—"}% · Max slippage: {rotationMaxSlippage || "—"}% · Min net advantage: {rotationMinNetAdvantage || "—"}%
                             </div>
                           </div>
                         </>

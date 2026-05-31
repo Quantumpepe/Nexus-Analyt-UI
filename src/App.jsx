@@ -9228,6 +9228,8 @@ useEffect(() => {
       const serverUi = state?.ui && typeof state.ui === "object" ? state.ui : {};
       const serverTradingSessions = Array.isArray(serverUi.tradingSessions) ? serverUi.tradingSessions.filter((x) => x && typeof x === "object") : [];
       const serverActiveTradingSessionId = String(serverUi.activeTradingSessionId || "").trim();
+      const serverRotationSessions = Array.isArray(serverUi.rotationSessions) ? serverUi.rotationSessions.filter((x) => x && typeof x === "object") : [];
+      const serverActiveRotationSessionId = String(serverUi.activeRotationSessionId || "").trim();
       const neverSynced = String(appStateSyncedWallet || "").toLowerCase() !== String(wa || "").toLowerCase();
       const localCompare = Array.isArray(compareSet) ? compareSet.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
       const localAi = Array.isArray(aiSelected) ? aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];

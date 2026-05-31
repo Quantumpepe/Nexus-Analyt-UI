@@ -7064,6 +7064,7 @@ useEffect(() => {
   const [tradingPreparedSetup, setTradingPreparedSetup] = useState(null);
   const [tradingLearningSetups, setTradingLearningSetups] = useState([]);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useState(false);
+  const [tradingSetupExpanded, setTradingSetupExpanded] = useState(false);
   const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useState(false);
   const [tradingSessionStatus, setTradingSessionStatus] = useState("PREPARED");
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useState(0);
@@ -13848,6 +13849,47 @@ const handlePanelActivate = useCallback((name) => (e) => {
           width: 100%;
           max-width: 560px;
         }
+        .gridLayout.tradingDesktopLayout .tradingSetupToggle{
+          width: 100%;
+          border: 1px solid rgba(34,197,94,.26);
+          background: linear-gradient(180deg, rgba(34,197,94,.09), rgba(0,0,0,.18));
+          color: #dfffee;
+          border-radius: 12px;
+          padding: 9px 11px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          cursor: pointer;
+          font-weight: 950;
+        }
+        .gridLayout.tradingDesktopLayout .tradingSetupBody{
+          width: 100%;
+          display: grid;
+          gap: 10px;
+        }
+        @media (min-width: 821px){
+          .gridLayout.tradingDesktopLayout{
+            grid-template-columns: 1fr !important;
+          }
+          .gridLayout.tradingDesktopLayout .gridRight{
+            display: none !important;
+          }
+          .gridLayout.tradingDesktopLayout .gridLeft,
+          .gridLayout.tradingDesktopLayout .gridWrap,
+          .gridLayout.tradingDesktopLayout .gridControls{
+            width: 100% !important;
+            max-width: none !important;
+            justify-self: stretch !important;
+            align-items: stretch !important;
+          }
+          .gridLayout.tradingDesktopLayout .gridControls > *{
+            width: 100% !important;
+          }
+          .gridLayout.tradingDesktopLayout .tradingSetupBody.isCollapsed{
+            display: none !important;
+          }
+        }
         /* Keep inline rows (slippage/deadline/quick steps) anchored left */
         .gridLeft .row {
           justify-content: flex-start !important;
@@ -17594,7 +17636,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="panelScroll"><div className="gridLayout">
+          <div className="panelScroll"><div className={`gridLayout ${String(gridMode || "normal") === "trading" ? "tradingDesktopLayout" : ""}`}>
             <div className="gridLeft">
               <div
                 style={{
@@ -18208,7 +18250,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 </div>
               ) : String(gridMode || "normal") === "trading" ? (
-                <div className="gridWrap">
+                <div className="gridWrap tradingDesktopWrap">
                   <div className="gridControls" style={{ display: "grid", gap: 10 }}>
                     <div
                       style={{
@@ -18260,6 +18302,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     </div>
 
+                    <button
+                      type="button"
+                      className="tradingSetupToggle"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setTradingSetupExpanded((v) => !v);
+                      }}
+                      title="Show or hide Nexus Trading setup and presets"
+                    >
+                      <span>Trading Setup & Presets</span>
+                      <span className="muted tiny" style={{ color: "#8bdcff", fontWeight: 950 }}>
+                        {tradingSetupExpanded || isCompactMobile ? "Hide ▲" : "Show ▼"}
+                      </span>
+                    </button>
+
+                    <div className={`tradingSetupBody ${!isCompactMobile && !tradingSetupExpanded ? "isCollapsed" : ""}`}>
                     <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10, alignItems: "end" }}>
                       <div className="formRow">
                         <label>{Array.isArray(openTradingSessions) && openTradingSessions.length ? "Next Budget ($)" : "Budget ($)"}</label>
@@ -18446,6 +18505,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         </div>
                       ) : null}
+                    </div>
+
                     </div>
 
                     {tradingVisibleQueueSummary.queue.length ? (

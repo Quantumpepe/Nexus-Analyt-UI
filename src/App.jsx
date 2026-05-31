@@ -6729,6 +6729,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationShadowEvents, setRotationShadowEvents] = useState([]);
   const [rotationShadowEventsOpen, setRotationShadowEventsOpen] = useState(false);
   const rotationAutoShadowRef = useRef(0);
+  // Wallet-bound delete tombstones: prevents a just-deleted Rotation session from
+  // being resurrected by a delayed GET/POST sync or by the auto Shadow loop.
+  const rotationDeletedSessionIdsRef = useRef(new Set());
 
   const isRotationSessionRunnable = useCallback((sess, now = Date.now()) => {
     if (!sess || typeof sess !== "object") return false;
@@ -9469,8 +9472,12 @@ useEffect(() => {
     rotationBackendApplyingRef.current = true;
     try {
       const r = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, { method: "GET", token, wallet: wa });
-      const sessions = Array.isArray(r?.sessions) ? r.sessions.filter((x) => x && typeof x === "object") : [];
-      const activeId = String(r?.activeRotationSessionId || "").trim();
+      const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
+      const sessions = Array.isArray(r?.sessions)
+        ? r.sessions.filter((x) => x && typeof x === "object" && !deletedIds.has(String(x?.id || x?.session_id || "")))
+        : [];
+      const activeIdRaw = String(r?.activeRotationSessionId || "").trim();
+      const activeId = deletedIds.has(activeIdRaw) ? "" : activeIdRaw;
       setRotationSessions(sessions);
       setActiveRotationSessionId(activeId || (sessions[0]?.id ? String(sessions[0].id) : ""));
     } catch (e) {
@@ -9492,7 +9499,10 @@ useEffect(() => {
     const wa = resolveWalletAddress(wallet);
     if (!wa || !appStateHydratedRef.current || !rotationBackendHydratedRef.current) return;
     if (rotationBackendApplyingRef.current || appStateApplyingServerRef.current) return;
-    const sessions = Array.isArray(rotationSessions) ? rotationSessions.filter((x) => x && typeof x === "object") : [];
+    const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
+    const sessions = Array.isArray(rotationSessions)
+      ? rotationSessions.filter((x) => x && typeof x === "object" && !deletedIds.has(String(x?.id || x?.session_id || "")))
+      : [];
     const body = {
       wallet: wa,
       wallet_address: wa,
@@ -9663,7 +9673,8 @@ const [aiLoading, setAiLoading] = useState(false);
     if (!silent) setRotationBackendMsg("Rotation Shadow is reading live market context...");
 
     try {
-      const sessions = Array.isArray(rotationSessions) ? rotationSessions : [];
+      const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
+      const sessions = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((s) => !deletedIds.has(String(s?.id || s?.session_id || "")));
       const nowStart = Date.now();
       const firstActive = sessions.find((s) => String(s?.id || "") === String(activeRotationSessionId || "") && isRotationSessionRunnable(s, nowStart))
         || sessions.find((s) => isRotationSessionRunnable(s, nowStart))
@@ -9691,6 +9702,17 @@ const [aiLoading, setAiLoading] = useState(false);
         : baseBudgetUsd;
       const budgetUsd = workingCapitalUsd;
       const baseAsset = String(firstActive?.baseAsset || firstActive?.payoutAsset || firstActive?.meta?.base_asset || manualPayoutAsset || "USDC").toUpperCase();
+      // LIVE-VAULT SAFETY: once a Rotation session is created, its target is locked.
+      // Strategist may fill another free slot with a new target, but it must not rewrite
+      // an existing session from ETH to BNB/XLM/etc. during the runtime window.
+      const lockedSessionTarget = String(
+        firstActive?.targetAsset ||
+        firstActive?.sourceSymbol ||
+        firstActive?.symbol ||
+        firstActive?.meta?.target_asset ||
+        firstActive?.meta?.source_symbol ||
+        ""
+      ).toUpperCase().trim();
       const chain = String(firstActive?.chain || rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
       const slippageSource = firstActive?.maxSlippagePct ?? firstActive?.meta?.max_slippage_pct ?? rotationMaxSlippage ?? "1";
       const riskLimitSource = firstActive?.riskLimitPct ?? firstActive?.meta?.risk_limit_pct ?? rotationRiskLimit;
@@ -9724,10 +9746,15 @@ const [aiLoading, setAiLoading] = useState(false);
       const plan = Array.isArray(preview?.plan) ? preview.plan : [];
       const previews = Array.isArray(preview?.previews) ? preview.previews : [];
       const candidateRows = plan.filter((row) => ["INCREASE", "HOLD"].includes(String(row?.action || "").toUpperCase()));
-      const best = candidateRows[0] || plan[0] || null;
-      const bestSymbol = String(best?.symbol || firstActive?.sourceSymbol || firstActive?.symbol || rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || "ASSET").toUpperCase();
-      const bestChain = String(best?.chain || chain).toUpperCase();
-      const bestScore = Number(best?.score || rotationSelectedPick?.score || 0) || 0;
+      const lockedPlanRow = lockedSessionTarget
+        ? (plan.find((row) => String(row?.symbol || "").toUpperCase() === lockedSessionTarget)
+            || candidateRows.find((row) => String(row?.symbol || "").toUpperCase() === lockedSessionTarget)
+            || null)
+        : null;
+      const best = lockedPlanRow || candidateRows[0] || plan[0] || null;
+      const bestSymbol = String(lockedSessionTarget || best?.symbol || firstActive?.sourceSymbol || firstActive?.symbol || rotationSelectedPick?.coin || rotationSelectedPick?.source || gridItem || "ASSET").toUpperCase();
+      const bestChain = String(firstActive?.chain || best?.chain || chain).toUpperCase();
+      const bestScore = Number(best?.score || firstActive?.score || firstActive?.confidence || rotationSelectedPick?.score || 0) || 0;
       const bestWeight = Number(best?.target_weight_pct || 0) || 0;
       const targetUsd = Number(best?.target_usd || budgetUsd) || budgetUsd;
       const assetRow = assets.find((a) => String(a.symbol).toUpperCase() === bestSymbol) || assets[0] || {};
@@ -9798,6 +9825,7 @@ const [aiLoading, setAiLoading] = useState(false);
         setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
           // Critical: only the actually runnable active session may be updated by the Shadow loop.
           // A STOPPED/closed session must never be revived back into WAITING by a later Shadow tick.
+          if (deletedIds.has(String(sess?.id || sess?.session_id || ""))) return sess;
           if (String(sess?.id || "") !== String(firstActive?.id || "")) return sess;
           const currentStatus = String(sess?.status || "").toUpperCase();
           if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED", "ARCHIVED"].includes(currentStatus)) return sess;
@@ -18626,18 +18654,34 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           className="miniBtn danger"
                                           type="button"
                                           title="Delete this stopped Rotation session from the wallet-bound Rotation DB"
-                                          onClick={() => {
+                                          onClick={async () => {
                                             const sid = String(sess?.id || "");
-                                            setRotationSessions((prev) => {
-                                              const rows = Array.isArray(prev) ? prev : [];
-                                              const next = rows.filter((x) => String(x?.id || "") !== sid);
+                                            if (!sid) return;
+                                            rotationDeletedSessionIdsRef.current.add(sid);
+                                            const removeLocal = (rowsInput) => {
+                                              const rows = Array.isArray(rowsInput) ? rowsInput : [];
+                                              const next = rows.filter((x) => String(x?.id || x?.session_id || "") !== sid);
                                               setActiveRotationSessionId((cur) => {
                                                 if (String(cur || "") !== sid) return cur;
                                                 const fallback = next.find((x) => isRotationSessionRunnable(x, Date.now())) || next[0] || null;
                                                 return fallback?.id ? String(fallback.id) : "";
                                               });
                                               return next;
-                                            });
+                                            };
+                                            setRotationSessions(removeLocal);
+                                            setRotationBackendMsg(`Deleted Rotation session ${sid}.`);
+                                            try {
+                                              const saved = await api(`/api/rotation-sessions/${encodeURIComponent(sid)}`, { method: "DELETE", token, wallet });
+                                              const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
+                                              const serverRows = Array.isArray(saved?.sessions)
+                                                ? saved.sessions.filter((x) => x && typeof x === "object" && !deletedIds.has(String(x?.id || x?.session_id || "")))
+                                                : [];
+                                              setRotationSessions(serverRows);
+                                              const serverActive = String(saved?.activeRotationSessionId || "").trim();
+                                              setActiveRotationSessionId(serverActive && !deletedIds.has(serverActive) ? serverActive : (serverRows[0]?.id ? String(serverRows[0].id) : ""));
+                                            } catch (e) {
+                                              setRotationBackendMsg(`Rotation delete failed: ${e?.message || e}. Session remains hidden locally until refresh.`);
+                                            }
                                           }}
                                         >
                                           Delete

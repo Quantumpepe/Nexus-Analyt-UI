@@ -13952,11 +13952,18 @@ const isGridSidebarCompact = isDesktopWide && !!activePanel && activePanel !== "
 const handlePanelActivate = useCallback((name) => (e) => {
   if (typeof window !== "undefined" && window.innerWidth <= 980) return;
   const el = e?.target;
-  if (el && typeof el.closest === "function") {
-    const interactive = el.closest('button, input, select, textarea, label, a, [role="dialog"], .infoBtn, .iconBtn, .chip, .btn, .btnGhost, .btnDanger, .btnPill, .pill, .pairRow, .pairsScroll, .watchRow');
-    if (interactive) return;
-  }
-  setActivePanel((prev) => (prev === name ? null : name));
+  if (!el || typeof el.closest !== "function") return;
+
+  // Global UX guard:
+  // Empty clicks inside cards/panels must never close, toggle away, or switch the active workspace.
+  // A desktop panel may only be focused from its header/title area, not from random empty body space.
+  const interactive = el.closest('button, input, select, textarea, label, a, [role="dialog"], .infoBtn, .iconBtn, .chip, .btn, .btnGhost, .btnDanger, .btnPill, .pill, .pairRow, .pairsScroll, .watchRow, .sessionCard, .rotationSessionCard, .tradingSessionCard, .orderRow, .watchTable, .ordersList');
+  if (interactive) return;
+
+  const headerClick = el.closest('.cardHead');
+  if (!headerClick) return;
+
+  setActivePanel(name);
 }, []);
 
   return (
@@ -19026,7 +19033,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
                               <div style={{ display: "flex", gap: 6, justifyContent: isCompactMobile ? "flex-start" : "flex-end", alignItems: "center", flexWrap: "wrap" }}>
                                 <span className={`pill ${p.score >= 70 ? "green" : p.score >= 55 ? "silver" : "red"}`}>
-                                  {isSelected ? "Selected" : idx === 0 ? "Best" : "Option"}
+                                  {isSelected ? "Target" : idx === 0 ? "Best" : "Option"}
                                 </span>
                                 <button
                                   type="button"
@@ -19393,11 +19400,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             return (
                               <div
                                 key={sid || `${sessionAsset}-${sessionBudget}`}
-                                onClick={() => sid && selectTradingSession(sid)}
+                                className="tradingSessionCard"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (sid) selectTradingSession(sid); }}
                                 style={{
-                                  border: selected ? "1px solid rgba(34,197,94,.55)" : "1px solid rgba(139,220,255,.16)",
+                                  border: "1px solid rgba(139,220,255,.16)",
                                   borderRadius: 14,
-                                  background: selected ? "linear-gradient(135deg, rgba(34,197,94,.11), rgba(0,0,0,.18))" : "linear-gradient(135deg, rgba(255,255,255,.035), rgba(0,0,0,.16))",
+                                  background: "linear-gradient(135deg, rgba(255,255,255,.035), rgba(0,0,0,.16))",
                                   padding: "10px 12px",
                                   display: "grid",
                                   gap: 10,
@@ -19410,7 +19418,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                                       <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 14 }}>{sessionAsset} · {fmtUsd(sessionBudget)} · {getTradingSessionSlotCount(sess)} slots</div>
                                       <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
-                                      {selected ? <span className="tiny" style={{ color: "#7cf7a2", fontWeight: 950 }}>SELECTED</span> : null}
                                     </div>
                                     <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
                                     <div className="muted tiny">Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exited {counts.SIMULATED_EXIT || 0}</div>

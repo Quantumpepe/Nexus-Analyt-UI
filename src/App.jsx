@@ -19492,7 +19492,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                     </div>
                                     <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
-                                    <div className="muted tiny">Trades {tradeCount} · Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exited {counts.SIMULATED_EXIT || 0}</div>
+                                    <div className="muted tiny">Closed trades {tradeCount} · Slots: Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exit {counts.SIMULATED_EXIT || 0}</div>
                                   </div>
 
                                   <div style={{ display: "grid", gap: 5 }}>
@@ -20083,7 +20083,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             const sessionProfit = getTradingSessionProfitUsd(sess);
                             const tradeCount = getTradingSessionTradeCount(sess);
                             const profitLabel = `${sessionProfit >= 0 ? "+" : "-"}${fmtUsd(Math.abs(sessionProfit))}`;
-                            const label = `${primaryAsset || "ASSET"} · ${fmtUsd(getTradingSessionBudgetUsd(sess))} · Profit ${profitLabel} · Trades ${tradeCount} · ${getTradingSessionSlotCount(sess)} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
+                            const label = `${primaryAsset || "ASSET"} · ${fmtUsd(getTradingSessionBudgetUsd(sess))} · Profit ${profitLabel} · Closed trades ${tradeCount} · ${getTradingSessionSlotCount(sess)} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
                             return <option key={sid || `session-${sess?.createdAt || Math.random()}`} value={sid}>{label}</option>;
                           })}
                         </select>
@@ -20136,7 +20136,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                 </div>
                                 <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
-                                <div className="muted tiny">Trades {tradeCount} · Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exited {counts.SIMULATED_EXIT || 0}</div>
+                                <div className="muted tiny">Closed trades {tradeCount} · Slots: Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exit {counts.SIMULATED_EXIT || 0}</div>
                               </div>
 
                               <div style={{ display: "grid", gap: 5 }}>

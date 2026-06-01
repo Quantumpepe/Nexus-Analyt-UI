@@ -19852,7 +19852,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     </div>
 
-                    {((isCompactMobile || String(gridMode || "normal") !== "trading") && tradingVisibleQueueSummary.queue.length) ? (
+                    {false ? (
                       <div
                         style={{
                           padding: "8px 10px",

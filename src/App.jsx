@@ -7434,6 +7434,35 @@ useEffect(() => {
     return q.length || (Number.isFinite(explicit) ? explicit : 0);
   }, []);
 
+  const getTradingSessionTradeCount = useCallback((sess = {}, slotsOverride = null) => {
+    const slots = Array.isArray(slotsOverride) ? slotsOverride : (Array.isArray(sess?.queue) ? sess.queue : []);
+    const explicit = Number(
+      sess?.tradesExecuted ??
+      sess?.trades_executed ??
+      sess?.tradeCount ??
+      sess?.trade_count ??
+      sess?.completedTrades ??
+      sess?.completed_trades ??
+      0
+    );
+
+    const slotCycles = slots.reduce((sum, slot) => {
+      const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+      const n = Number(
+        slot?.shadow_cycles ??
+        meta?.shadow_cycles ??
+        slot?.trade_count ??
+        meta?.trade_count ??
+        slot?.trades_executed ??
+        meta?.trades_executed ??
+        0
+      );
+      return sum + (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+    }, 0);
+
+    return Math.max(0, Math.floor(Math.max(Number.isFinite(explicit) ? explicit : 0, slotCycles)));
+  }, []);
+
   const dedupeTradingQueue = useCallback((items = []) => {
     const rows = Array.isArray(items) ? items.filter((x) => x && typeof x === "object") : [];
     const order = [];
@@ -19437,6 +19466,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }, { gross: 0, costs: 0, net: 0, cycle: 0 });
                             const progressPct = sessionBudget > 0 ? Math.max(0, Math.min(100, 50 + (sessionProfitPct * 8))) : 0;
                             const stateLabel = String(sess?.status || "ACTIVE").toUpperCase();
+                            const tradeCount = getTradingSessionTradeCount(sess, sessionSlots);
                             const selected = sid && sid === selectedTradingSessionId;
                             const slotsOpen = !!expandedTradingSessionSlots?.[sid];
                             return (
@@ -19462,7 +19492,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                     </div>
                                     <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
-                                    <div className="muted tiny">Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exited {counts.SIMULATED_EXIT || 0}</div>
+                                    <div className="muted tiny">Trades {tradeCount} · Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exited {counts.SIMULATED_EXIT || 0}</div>
                                   </div>
 
                                   <div style={{ display: "grid", gap: 5 }}>
@@ -20051,8 +20081,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             const sid = String(sess?.id || "");
                             const primaryAsset = getTradingSessionPrimaryAsset(sess);
                             const sessionProfit = getTradingSessionProfitUsd(sess);
+                            const tradeCount = getTradingSessionTradeCount(sess);
                             const profitLabel = `${sessionProfit >= 0 ? "+" : "-"}${fmtUsd(Math.abs(sessionProfit))}`;
-                            const label = `${primaryAsset || "ASSET"} · ${fmtUsd(getTradingSessionBudgetUsd(sess))} · Profit ${profitLabel} · ${getTradingSessionSlotCount(sess)} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
+                            const label = `${primaryAsset || "ASSET"} · ${fmtUsd(getTradingSessionBudgetUsd(sess))} · Profit ${profitLabel} · Trades ${tradeCount} · ${getTradingSessionSlotCount(sess)} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
                             return <option key={sid || `session-${sess?.createdAt || Math.random()}`} value={sid}>{label}</option>;
                           })}
                         </select>
@@ -20085,6 +20116,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           }, { gross: 0, costs: 0, net: 0, cycle: 0 });
                           const progressPct = sessionBudget > 0 ? Math.max(0, Math.min(200, 100 + sessionProfitPct)) : 0;
                           const stateLabel = String(selectedTradingSession?.status || selectedTradingSessionLabel || "ACTIVE").toUpperCase();
+                          const tradeCount = getTradingSessionTradeCount(selectedTradingSession, sessionSlots);
                           return (
                           <div
                             style={{
@@ -20104,7 +20136,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                 </div>
                                 <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
-                                <div className="muted tiny">Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exited {counts.SIMULATED_EXIT || 0}</div>
+                                <div className="muted tiny">Trades {tradeCount} · Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exited {counts.SIMULATED_EXIT || 0}</div>
                               </div>
 
                               <div style={{ display: "grid", gap: 5 }}>

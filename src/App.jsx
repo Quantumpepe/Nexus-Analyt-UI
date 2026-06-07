@@ -415,6 +415,44 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
+const LS_TRADING_STOPPED_SESSIONS = "na_trading_stopped_sessions_v1";
+
+function loadTradingStoppedSessionIds() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(LS_TRADING_STOPPED_SESSIONS) || "[]");
+    return new Set(Array.isArray(arr) ? arr.map((x) => String(x || "").trim()).filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
+}
+function saveTradingStoppedSessionIds(setVal) {
+  try { localStorage.setItem(LS_TRADING_STOPPED_SESSIONS, JSON.stringify(Array.from(setVal || []))); } catch {}
+}
+function markTradingSessionStoppedLocal(sessionId) {
+  const sid = String(sessionId || "").trim();
+  if (!sid) return;
+  const setVal = loadTradingStoppedSessionIds();
+  setVal.add(sid);
+  const base = sid.split(":")[0];
+  if (base) setVal.add(base);
+  saveTradingStoppedSessionIds(setVal);
+}
+function isTradingSessionStoppedLocal(sessionId) {
+  const sid = String(sessionId || "").trim();
+  if (!sid) return false;
+  const setVal = loadTradingStoppedSessionIds();
+  const base = sid.split(":")[0];
+  return setVal.has(sid) || (base && setVal.has(base));
+}
+function clearTradingSessionStoppedLocal(sessionId) {
+  const sid = String(sessionId || "").trim();
+  if (!sid) return;
+  const setVal = loadTradingStoppedSessionIds();
+  setVal.delete(sid);
+  const base = sid.split(":")[0];
+  if (base) setVal.delete(base);
+  saveTradingStoppedSessionIds(setVal);
+}
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   // Default backend for production builds.
@@ -800,21 +838,6 @@ const fmtPct = (n) => {
   const s = (x >= 0 ? "+" : "") + x.toFixed(2) + "%";
   return s;
 };
-
-function nexusConfidenceToScore(value, fallback = 55) {
-  if (value === null || value === undefined) return fallback;
-  const raw = String(value || "").trim().toUpperCase();
-  const n = Number(String(value).replace(",", "."));
-  if (Number.isFinite(n) && n > 0) return Math.max(0, Math.min(100, n));
-  if (["VERY_HIGH", "VERY-HIGH", "EXTREME"].includes(raw)) return 90;
-  if (["HIGH", "STRONG"].includes(raw)) return 80;
-  if (["MEDIUM_HIGH", "MEDIUM-HIGH", "MID_HIGH", "MID-HIGH"].includes(raw)) return 68;
-  if (["MEDIUM", "MID", "BALANCED"].includes(raw)) return 58;
-  if (["LOW_MEDIUM", "LOW-MEDIUM", "LOW_MED", "LOW-MED"].includes(raw)) return 45;
-  if (["LOW", "WEAK"].includes(raw)) return 30;
-  if (["BLOCKED", "FAIL", "NONE", "NO"].includes(raw)) return 0;
-  return fallback;
-}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function resolveWalletAddress(walletLike = "") {
@@ -7235,6 +7258,7 @@ useEffect(() => {
   const [tradingSessionSlotsExpanded, setTradingSessionSlotsExpanded] = useState(false);
   const [tradingQueueSlotsExpanded, setTradingQueueSlotsExpanded] = useState(false);
   const [expandedTradingSessionSlots, setExpandedTradingSessionSlots] = useState({});
+  const [expandedTradingSessionDetails, setExpandedTradingSessionDetails] = useState({});
   const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useState(false);
   const [tradingSessionStatus, setTradingSessionStatus] = useState("PREPARED");
   const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useState(0);
@@ -7641,17 +7665,17 @@ useEffect(() => {
       setTradingExecutionQueue(normalizedQueue);
 
       const restoredSessions = buildTradingSessionsFromQueue(normalizedQueue);
-      if (restoredSessions.length) {
-        setTradingSessions(() => restoredSessions.filter((sess) => {
-          const st = String(sess?.status || "").toUpperCase();
-          return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(st);
-        }));
-        setActiveTradingSessionId((prev) => {
-          const current = String(prev || "").trim();
-          if (current && restoredSessions.some((sess) => String(sess.id) === current)) return current;
-          return String(restoredSessions[0]?.id || current || "");
-        });
-      }
+      const visibleRestoredSessions = restoredSessions.filter((sess) => {
+        const st = String(sess?.status || "").toUpperCase();
+        const sid = String(sess?.id || sess?.session_id || "").trim();
+        return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(st) && !isTradingSessionStoppedLocal(sid);
+      });
+      setTradingSessions(() => visibleRestoredSessions);
+      setActiveTradingSessionId((prev) => {
+        const current = String(prev || "").trim();
+        if (current && visibleRestoredSessions.some((sess) => String(sess.id) === current)) return current;
+        return String(visibleRestoredSessions[0]?.id || "");
+      });
     }
     const holdStatus = String(nexusBackendState?.hold_state?.status || "").toUpperCase();
     if (holdStatus) setTradingSessionStatus(holdStatus);
@@ -7661,7 +7685,8 @@ useEffect(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
     const active = sessions.filter((sess) => {
       const st = String(sess?.status || "").toUpperCase();
-      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st);
+      const sid = String(sess?.id || sess?.session_id || "").trim();
+      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st) && !isTradingSessionStoppedLocal(sid);
     });
 
     // IMPORTANT: multiple independent budgets/sessions per chain/asset are allowed.
@@ -7882,14 +7907,6 @@ useEffect(() => {
         priority: Math.max(0, Math.min(100, priorityBase - idx * 8)),
         condition,
         confidence,
-        confidence_score: nexusConfidenceToScore(confidence, priorityBase),
-        risk_score: riskMode === "DEFENSIVE" ? 30 : riskMode === "BALANCED" ? 20 : 12,
-        signals: {
-          confidence: nexusConfidenceToScore(confidence, priorityBase),
-          confidence_label: confidence,
-          risk_mode: riskMode,
-          style,
-        },
         suitability,
         riskMode,
         style,
@@ -8657,8 +8674,7 @@ useEffect(() => {
             action: slot?.action || "OBSERVE",
             state,
             priority: Number(slot?.priority || 0),
-            confidence: nexusConfidenceToScore(slot?.confidence_score ?? slot?.confidence, Number(slot?.priority || 55)),
-            confidence_score: nexusConfidenceToScore(slot?.confidence_score ?? slot?.confidence, Number(slot?.priority || 55)),
+            confidence: Number(slot?.confidence || slot?.confidence_score || 0),
             risk_score: Number(slot?.risk_score || 0),
             reserved_capital_usd: Number(slot?.reserved_capital_usd || slot?.amountUsd || 0),
             session_id: sessionId,
@@ -8735,6 +8751,7 @@ useEffect(() => {
     if (!tradingCanStop) return;
     const now = Date.now();
     const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+    if (sid) markTradingSessionStoppedLocal(sid);
     let stoppedQueue = [];
 
     // Stop means: close the selected independent session and remove its slots
@@ -9461,9 +9478,16 @@ useEffect(() => {
         if (rotationSettingsSource.rotationMinNetAdvantage != null) setRotationMinNetAdvantage(String(rotationSettingsSource.rotationMinNetAdvantage));
         if (rotationSettingsSource.rotationMode != null) setRotationMode(String(rotationSettingsSource.rotationMode));
         if (rotationSettingsSource.rotationNetworkScope != null) setRotationNetworkScope(String(rotationSettingsSource.rotationNetworkScope));
-        if (serverTradingSessions.length) {
-          setTradingSessions(serverTradingSessions);
-          if (serverActiveTradingSessionId) setActiveTradingSessionId(serverActiveTradingSessionId);
+        const visibleServerTradingSessions = serverTradingSessions.filter((sess) => {
+          const st = String(sess?.status || "").toUpperCase();
+          const sid = String(sess?.id || sess?.session_id || "").trim();
+          return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st) && !isTradingSessionStoppedLocal(sid);
+        });
+        setTradingSessions(visibleServerTradingSessions);
+        if (serverActiveTradingSessionId && visibleServerTradingSessions.some((sess) => String(sess?.id || sess?.session_id || "") === serverActiveTradingSessionId)) {
+          setActiveTradingSessionId(serverActiveTradingSessionId);
+        } else if (!visibleServerTradingSessions.some((sess) => String(sess?.id || sess?.session_id || "") === String(activeTradingSessionId || ""))) {
+          setActiveTradingSessionId(String(visibleServerTradingSessions?.[0]?.id || ""));
         }
         // Rotation sessions are hydrated separately from /api/rotation-sessions.
       }
@@ -9476,7 +9500,7 @@ useEffect(() => {
       appStateSyncBusyRef.current = false;
       setTimeout(() => { appStateApplyingServerRef.current = false; }, 0);
     }
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, activeTradingSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   useEffect(() => {
     syncAppStateFromServer();
@@ -19457,6 +19481,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         >
                           {openTradingSessions.map((sess) => {
                             const sid = String(sess?.id || sess?.session_id || "").trim();
+                            const sessionChain = String((Array.isArray(sess?.chains) ? sess.chains[0] : "") || sess?.chain || sess?.chainKey || sess?.chain_key || sess?.network || activeGridChainKey || DEFAULT_CHAIN || "").toUpperCase();
+                            const detailsOpen = !!expandedTradingSessionDetails?.[sid];
                             const sessionSlots = Array.isArray(sess?.queue)
                               ? sess.queue
                               : (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue.filter((slot) => {
@@ -19539,12 +19565,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       className="miniBtn"
                                       type="button"
                                       onClick={(e) => {
+                                        e.preventDefault();
                                         e.stopPropagation();
-                                        sid && selectTradingSession(sid);
+                                        if (!sid) return;
+                                        selectTradingSession(sid);
+                                        setExpandedTradingSessionDetails((prev) => ({ ...(prev || {}), [sid]: !prev?.[sid] }));
                                       }}
                                       title="Open this session's detailed runtime view"
                                     >
-                                      Details
+                                      {detailsOpen ? "Hide Details ▲" : "Details"}
                                     </button>
                                     <button
                                       className="miniBtn"
@@ -19576,6 +19605,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         if (!sid) return;
+                                        markTradingSessionStoppedLocal(sid);
                                         const now = Date.now();
                                         let stoppedQueue = [];
                                         setTradingExecutionQueue((prev) => {
@@ -19626,6 +19656,43 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     </button>
                                   </div>
                                 </div>
+
+                                {detailsOpen ? (
+                                  <div style={{ borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 8, display: "grid", gap: 8 }}>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 7 }}>
+                                      {[
+                                        ["Session", sid],
+                                        ["Chain", sessionChain],
+                                        ["Style", sess?.style || sess?.strategy || "—"],
+                                        ["Risk", sess?.riskMode || sess?.risk_mode || "—"],
+                                        ["Max Trades", sess?.maxTrades || sess?.max_trades || "—"],
+                                        ["Reuse", `${Number.isFinite(reusePct) ? reusePct.toFixed(0) : "0"}%`],
+                                        ["Hard Stop", `${sess?.hardStopPct ?? sess?.hard_stop_pct ?? tradingHardStopPct ?? "—"}%`],
+                                        ["Profit Lock", `${sess?.profitLockPct ?? sess?.profit_lock_pct ?? tradingProfitLockPct ?? "—"}%`],
+                                        ["Slippage", `${sess?.maxSlippagePct ?? sess?.max_slippage_pct ?? tradingMaxSlippagePct ?? "—"}%`],
+                                      ].map(([k, v]) => (
+                                        <div key={`${sid}-${k}`} style={{ border: "1px solid rgba(139,220,255,.10)", borderRadius: 8, padding: "6px 7px", background: "rgba(0,0,0,.12)" }}>
+                                          <div className="muted tiny" style={{ fontWeight: 900 }}>{k}</div>
+                                          <div className="tiny" style={{ color: "#eafff5", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis" }}>{String(v || "—")}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div style={{ display: "grid", gap: 5 }}>
+                                      <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 950 }}>Strategist / Slot log</div>
+                                      {sessionSlots.map((slot, idx) => {
+                                        const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+                                        const st = String(slot?.status || slot?.state || "WAIT").toUpperCase();
+                                        const score = Number(slot?.score ?? slot?.confidence_score ?? slot?.priority ?? meta.score ?? meta.confidence_score ?? 0);
+                                        return (
+                                          <div key={`${sid}-detail-${idx}`} className="muted tiny" style={{ border: "1px solid rgba(139,220,255,.10)", borderRadius: 8, padding: "6px 7px", background: "rgba(0,0,0,.10)", color: "rgba(216,255,241,.78)" }}>
+                                            <b style={{ color: st === "ACTIVE" ? "#7cf7a2" : st === "SIMULATED_EXIT" ? "#8bdcff" : st === "WAIT" ? "#ffd166" : "#eafff5" }}>Slot #{slot.slot || slot.slot_id || idx + 1} · {st}</b> · score {Number.isFinite(score) ? Math.round(score) : 0}<br />
+                                            {slot.reason || slot.message || slot.note || meta.reason || meta.message || "No detailed Strategist reason stored yet."}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ) : null}
 
                                 {slotsOpen ? (
                                   <div style={{ borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 8, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
@@ -20179,7 +20246,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
 
                               <div style={{ display: "grid", gap: 7, minWidth: 116 }}>
-                                <button className="miniBtn" type="button" title="Open detailed session view">Details</button>
+                                <button
+                                  className="miniBtn"
+                                  type="button"
+                                  title="Open detailed session view"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const sid = String(selectedTradingSession?.id || selectedTradingSession?.session_id || selectedTradingSessionId || "").trim();
+                                    if (!sid) return;
+                                    setExpandedTradingSessionDetails((prev) => ({ ...(prev || {}), [sid]: !prev?.[sid] }));
+                                  }}
+                                >
+                                  {expandedTradingSessionDetails?.[String(selectedTradingSession?.id || selectedTradingSession?.session_id || selectedTradingSessionId || "").trim()] ? "Hide Details ▲" : "Details"}
+                                </button>
                                 {tradingCanPause ? (
                                   <button className="miniBtn" type="button" onClick={handleTradingPauseSession} title="Pause only this selected Trading session">Pause</button>
                                 ) : null}
@@ -20194,6 +20274,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 ) : null}
                               </div>
                             </div>
+                            {expandedTradingSessionDetails?.[String(selectedTradingSession?.id || selectedTradingSession?.session_id || selectedTradingSessionId || "").trim()] ? (
+                              <div style={{ borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 8, display: "grid", gap: 7 }}>
+                                <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 950 }}>Session Details</div>
+                                <div className="muted tiny">Style: {selectedTradingSession?.style || selectedTradingSession?.strategy || "—"} · Risk: {selectedTradingSession?.riskMode || selectedTradingSession?.risk_mode || "—"} · Max Trades: {selectedTradingSession?.maxTrades || selectedTradingSession?.max_trades || "—"}</div>
+                                <div className="muted tiny">Hard Stop: {selectedTradingSession?.hardStopPct ?? selectedTradingSession?.hard_stop_pct ?? tradingHardStopPct ?? "—"}% · Profit Lock: {selectedTradingSession?.profitLockPct ?? selectedTradingSession?.profit_lock_pct ?? tradingProfitLockPct ?? "—"}% · Slippage: {selectedTradingSession?.maxSlippagePct ?? selectedTradingSession?.max_slippage_pct ?? tradingMaxSlippagePct ?? "—"}%</div>
+                                <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 950 }}>Strategist / Slot log</div>
+                                {sessionSlots.map((slot, idx) => {
+                                  const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+                                  const st = String(slot?.status || slot?.state || "WAIT").toUpperCase();
+                                  const score = Number(slot?.score ?? slot?.confidence_score ?? slot?.priority ?? meta.score ?? meta.confidence_score ?? 0);
+                                  return (
+                                    <div key={`mobile-detail-${idx}`} className="muted tiny" style={{ border: "1px solid rgba(139,220,255,.10)", borderRadius: 8, padding: "6px 7px", background: "rgba(0,0,0,.10)" }}>
+                                      <b style={{ color: st === "ACTIVE" ? "#7cf7a2" : st === "SIMULATED_EXIT" ? "#8bdcff" : st === "WAIT" ? "#ffd166" : "#eafff5" }}>Slot #{slot.slot || slot.slot_id || idx + 1} · {st}</b> · score {Number.isFinite(score) ? Math.round(score) : 0}<br />
+                                      {slot.reason || slot.message || slot.note || meta.reason || meta.message || "No detailed Strategist reason stored yet."}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+
                             <div style={{ borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 8, display: "grid", gap: 8 }}>
                               <button
                                 className="miniBtn"

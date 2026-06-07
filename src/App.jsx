@@ -415,44 +415,6 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const LS_TRADING_STOPPED_SESSIONS = "na_trading_stopped_sessions_v1";
-
-function loadTradingStoppedSessionIds() {
-  try {
-    const arr = JSON.parse(localStorage.getItem(LS_TRADING_STOPPED_SESSIONS) || "[]");
-    return new Set(Array.isArray(arr) ? arr.map((x) => String(x || "").trim()).filter(Boolean) : []);
-  } catch {
-    return new Set();
-  }
-}
-function saveTradingStoppedSessionIds(setVal) {
-  try { localStorage.setItem(LS_TRADING_STOPPED_SESSIONS, JSON.stringify(Array.from(setVal || []))); } catch {}
-}
-function markTradingSessionStoppedLocal(sessionId) {
-  const sid = String(sessionId || "").trim();
-  if (!sid) return;
-  const setVal = loadTradingStoppedSessionIds();
-  setVal.add(sid);
-  const base = sid.split(":")[0];
-  if (base) setVal.add(base);
-  saveTradingStoppedSessionIds(setVal);
-}
-function isTradingSessionStoppedLocal(sessionId) {
-  const sid = String(sessionId || "").trim();
-  if (!sid) return false;
-  const setVal = loadTradingStoppedSessionIds();
-  const base = sid.split(":")[0];
-  return setVal.has(sid) || (base && setVal.has(base));
-}
-function clearTradingSessionStoppedLocal(sessionId) {
-  const sid = String(sessionId || "").trim();
-  if (!sid) return;
-  const setVal = loadTradingStoppedSessionIds();
-  setVal.delete(sid);
-  const base = sid.split(":")[0];
-  if (base) setVal.delete(base);
-  saveTradingStoppedSessionIds(setVal);
-}
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   // Default backend for production builds.
@@ -7585,6 +7547,24 @@ useEffect(() => {
         approvedAt: Number(slot?.created_ts || 0) ? Number(slot.created_ts) * 1000 : Date.now(),
         updatedAt: Number(slot?.updated_ts || 0) ? Number(slot.updated_ts) * 1000 : Date.now(),
         restoredFromBackend: true,
+        style: String(slot?.style || slot?.trading_style || slot?.strategy || meta.style || meta.trading_style || meta.strategy || "").toUpperCase() || undefined,
+        trading_style: String(slot?.trading_style || slot?.style || slot?.strategy || meta.trading_style || meta.style || meta.strategy || "").toUpperCase() || undefined,
+        strategy: String(slot?.strategy || slot?.style || slot?.trading_style || meta.strategy || meta.style || meta.trading_style || "").toUpperCase() || undefined,
+        riskMode: String(slot?.riskMode || slot?.risk_mode || slot?.trading_risk_mode || meta.riskMode || meta.risk_mode || meta.trading_risk_mode || "").toUpperCase() || undefined,
+        risk_mode: String(slot?.risk_mode || slot?.riskMode || slot?.trading_risk_mode || meta.risk_mode || meta.riskMode || meta.trading_risk_mode || "").toUpperCase() || undefined,
+        trading_risk_mode: String(slot?.trading_risk_mode || slot?.risk_mode || slot?.riskMode || meta.trading_risk_mode || meta.risk_mode || meta.riskMode || "").toUpperCase() || undefined,
+        maxTrades: Number(slot?.maxTrades ?? slot?.max_trades ?? meta.maxTrades ?? meta.max_trades ?? 0) || undefined,
+        max_trades: Number(slot?.max_trades ?? slot?.maxTrades ?? meta.max_trades ?? meta.maxTrades ?? 0) || undefined,
+        hardStopPct: Number(slot?.hardStopPct ?? slot?.hard_stop_pct ?? meta.hardStopPct ?? meta.hard_stop_pct ?? 0) || undefined,
+        hard_stop_pct: Number(slot?.hard_stop_pct ?? slot?.hardStopPct ?? meta.hard_stop_pct ?? meta.hardStopPct ?? 0) || undefined,
+        profitLockPct: Number(slot?.profitLockPct ?? slot?.profit_lock_pct ?? meta.profitLockPct ?? meta.profit_lock_pct ?? 0) || undefined,
+        profit_lock_pct: Number(slot?.profit_lock_pct ?? slot?.profitLockPct ?? meta.profit_lock_pct ?? meta.profitLockPct ?? 0) || undefined,
+        maxSlippagePct: Number(slot?.maxSlippagePct ?? slot?.max_slippage_pct ?? meta.maxSlippagePct ?? meta.max_slippage_pct ?? 0) || undefined,
+        max_slippage_pct: Number(slot?.max_slippage_pct ?? slot?.maxSlippagePct ?? meta.max_slippage_pct ?? meta.maxSlippagePct ?? 0) || undefined,
+        cautionDrawdownPct: Number(slot?.cautionDrawdownPct ?? slot?.caution_drawdown_pct ?? meta.cautionDrawdownPct ?? meta.caution_drawdown_pct ?? 0) || undefined,
+        caution_drawdown_pct: Number(slot?.caution_drawdown_pct ?? slot?.cautionDrawdownPct ?? meta.caution_drawdown_pct ?? meta.cautionDrawdownPct ?? 0) || undefined,
+        payoutAsset: String(slot?.payoutAsset || slot?.payout_asset || meta.payoutAsset || meta.payout_asset || "").toUpperCase() || undefined,
+        payout_asset: String(slot?.payout_asset || slot?.payoutAsset || meta.payout_asset || meta.payoutAsset || "").toUpperCase() || undefined,
         runtimeHours: Number(slot?.runtime_hours ?? slot?.runtimeHours ?? meta.runtime_hours ?? meta.runtimeHours ?? 0) || undefined,
         runtime_hours: Number(slot?.runtime_hours ?? slot?.runtimeHours ?? meta.runtime_hours ?? meta.runtimeHours ?? 0) || undefined,
         reuseProfitPct: Number(slot?.reuseProfitPct ?? slot?.reuse_profit_pct ?? slot?.profitReusePct ?? slot?.profit_reuse_pct ?? meta.reuseProfitPct ?? meta.reuse_profit_pct ?? meta.profitReusePct ?? meta.profit_reuse_pct ?? 0) || 0,
@@ -7618,6 +7598,22 @@ useEffect(() => {
         existing.runtimeHours = slotRuntimeHours;
         existing.runtime_hours = slotRuntimeHours;
       }
+      const slotStyle = String(slot?.style || slot?.trading_style || slot?.strategy || meta.style || meta.trading_style || meta.strategy || "").toUpperCase();
+      if (slotStyle) { existing.style = slotStyle; existing.trading_style = slotStyle; existing.strategy = slotStyle; }
+      const slotRiskMode = String(slot?.riskMode || slot?.risk_mode || slot?.trading_risk_mode || meta.riskMode || meta.risk_mode || meta.trading_risk_mode || "").toUpperCase();
+      if (slotRiskMode) { existing.riskMode = slotRiskMode; existing.risk_mode = slotRiskMode; existing.trading_risk_mode = slotRiskMode; }
+      const slotMaxTrades = Number(slot?.maxTrades ?? slot?.max_trades ?? meta.maxTrades ?? meta.max_trades ?? NaN);
+      if (Number.isFinite(slotMaxTrades) && slotMaxTrades > 0) { existing.maxTrades = slotMaxTrades; existing.max_trades = slotMaxTrades; }
+      const slotHardStop = Number(slot?.hardStopPct ?? slot?.hard_stop_pct ?? meta.hardStopPct ?? meta.hard_stop_pct ?? NaN);
+      if (Number.isFinite(slotHardStop) && slotHardStop > 0) { existing.hardStopPct = slotHardStop; existing.hard_stop_pct = slotHardStop; }
+      const slotProfitLock = Number(slot?.profitLockPct ?? slot?.profit_lock_pct ?? meta.profitLockPct ?? meta.profit_lock_pct ?? NaN);
+      if (Number.isFinite(slotProfitLock) && slotProfitLock > 0) { existing.profitLockPct = slotProfitLock; existing.profit_lock_pct = slotProfitLock; }
+      const slotSlippage = Number(slot?.maxSlippagePct ?? slot?.max_slippage_pct ?? meta.maxSlippagePct ?? meta.max_slippage_pct ?? NaN);
+      if (Number.isFinite(slotSlippage) && slotSlippage > 0) { existing.maxSlippagePct = slotSlippage; existing.max_slippage_pct = slotSlippage; }
+      const slotCaution = Number(slot?.cautionDrawdownPct ?? slot?.caution_drawdown_pct ?? meta.cautionDrawdownPct ?? meta.caution_drawdown_pct ?? NaN);
+      if (Number.isFinite(slotCaution) && slotCaution > 0) { existing.cautionDrawdownPct = slotCaution; existing.caution_drawdown_pct = slotCaution; }
+      const slotPayout = String(slot?.payoutAsset || slot?.payout_asset || meta.payoutAsset || meta.payout_asset || "").toUpperCase();
+      if (slotPayout) { existing.payoutAsset = slotPayout; existing.payout_asset = slotPayout; }
       const slotExpiresTs = Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts ?? NaN);
       if (Number.isFinite(slotExpiresTs) && slotExpiresTs > 0) {
         existing.expires_ts = slotExpiresTs;
@@ -7633,6 +7629,24 @@ useEffect(() => {
         trade_session_id: rawSid || baseSid,
         slot: slotNo,
         slot_id: slotNo,
+        style: slot?.style || slot?.trading_style || slot?.strategy || meta.style || meta.trading_style || meta.strategy || existing.style,
+        trading_style: slot?.trading_style || slot?.style || slot?.strategy || meta.trading_style || meta.style || meta.strategy || existing.trading_style,
+        strategy: slot?.strategy || slot?.style || slot?.trading_style || meta.strategy || meta.style || meta.trading_style || existing.strategy,
+        riskMode: slot?.riskMode || slot?.risk_mode || slot?.trading_risk_mode || meta.riskMode || meta.risk_mode || meta.trading_risk_mode || existing.riskMode,
+        risk_mode: slot?.risk_mode || slot?.riskMode || slot?.trading_risk_mode || meta.risk_mode || meta.riskMode || meta.trading_risk_mode || existing.risk_mode,
+        trading_risk_mode: slot?.trading_risk_mode || slot?.risk_mode || slot?.riskMode || meta.trading_risk_mode || meta.risk_mode || meta.riskMode || existing.trading_risk_mode,
+        maxTrades: slot?.maxTrades ?? slot?.max_trades ?? meta.maxTrades ?? meta.max_trades ?? existing.maxTrades,
+        max_trades: slot?.max_trades ?? slot?.maxTrades ?? meta.max_trades ?? meta.maxTrades ?? existing.max_trades,
+        hardStopPct: slot?.hardStopPct ?? slot?.hard_stop_pct ?? meta.hardStopPct ?? meta.hard_stop_pct ?? existing.hardStopPct,
+        hard_stop_pct: slot?.hard_stop_pct ?? slot?.hardStopPct ?? meta.hard_stop_pct ?? meta.hardStopPct ?? existing.hard_stop_pct,
+        profitLockPct: slot?.profitLockPct ?? slot?.profit_lock_pct ?? meta.profitLockPct ?? meta.profit_lock_pct ?? existing.profitLockPct,
+        profit_lock_pct: slot?.profit_lock_pct ?? slot?.profitLockPct ?? meta.profit_lock_pct ?? meta.profitLockPct ?? existing.profit_lock_pct,
+        maxSlippagePct: slot?.maxSlippagePct ?? slot?.max_slippage_pct ?? meta.maxSlippagePct ?? meta.max_slippage_pct ?? existing.maxSlippagePct,
+        max_slippage_pct: slot?.max_slippage_pct ?? slot?.maxSlippagePct ?? meta.max_slippage_pct ?? meta.maxSlippagePct ?? existing.max_slippage_pct,
+        cautionDrawdownPct: slot?.cautionDrawdownPct ?? slot?.caution_drawdown_pct ?? meta.cautionDrawdownPct ?? meta.caution_drawdown_pct ?? existing.cautionDrawdownPct,
+        caution_drawdown_pct: slot?.caution_drawdown_pct ?? slot?.cautionDrawdownPct ?? meta.caution_drawdown_pct ?? meta.cautionDrawdownPct ?? existing.caution_drawdown_pct,
+        payoutAsset: slot?.payoutAsset || slot?.payout_asset || meta.payoutAsset || meta.payout_asset || existing.payoutAsset,
+        payout_asset: slot?.payout_asset || slot?.payoutAsset || meta.payout_asset || meta.payoutAsset || existing.payout_asset,
         status: st,
         state: st,
         symbol: asset || slot?.symbol || slot?.asset || "",
@@ -7665,17 +7679,17 @@ useEffect(() => {
       setTradingExecutionQueue(normalizedQueue);
 
       const restoredSessions = buildTradingSessionsFromQueue(normalizedQueue);
-      const visibleRestoredSessions = restoredSessions.filter((sess) => {
-        const st = String(sess?.status || "").toUpperCase();
-        const sid = String(sess?.id || sess?.session_id || "").trim();
-        return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(st) && !isTradingSessionStoppedLocal(sid);
-      });
-      setTradingSessions(() => visibleRestoredSessions);
-      setActiveTradingSessionId((prev) => {
-        const current = String(prev || "").trim();
-        if (current && visibleRestoredSessions.some((sess) => String(sess.id) === current)) return current;
-        return String(visibleRestoredSessions[0]?.id || "");
-      });
+      if (restoredSessions.length) {
+        setTradingSessions(() => restoredSessions.filter((sess) => {
+          const st = String(sess?.status || "").toUpperCase();
+          return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(st);
+        }));
+        setActiveTradingSessionId((prev) => {
+          const current = String(prev || "").trim();
+          if (current && restoredSessions.some((sess) => String(sess.id) === current)) return current;
+          return String(restoredSessions[0]?.id || current || "");
+        });
+      }
     }
     const holdStatus = String(nexusBackendState?.hold_state?.status || "").toUpperCase();
     if (holdStatus) setTradingSessionStatus(holdStatus);
@@ -7685,8 +7699,7 @@ useEffect(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
     const active = sessions.filter((sess) => {
       const st = String(sess?.status || "").toUpperCase();
-      const sid = String(sess?.id || sess?.session_id || "").trim();
-      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st) && !isTradingSessionStoppedLocal(sid);
+      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st);
     });
 
     // IMPORTANT: multiple independent budgets/sessions per chain/asset are allowed.
@@ -8291,9 +8304,17 @@ useEffect(() => {
           chain: activeGridChainKey || gridChain || "",
           runtime_hours: normalizeTradingRuntimeHours(),
           runtime_unit: tradingRuntimeUnit,
-          max_trades: tradingMaxTrades,
-          risk_mode: tradingRiskMode,
-          max_slippage_pct: tradingMaxSlippagePct,
+          max_trades: sessionMaxTrades,
+          maxTrades: sessionMaxTrades,
+          style: sessionStyle,
+          trading_style: sessionStyle,
+          risk_mode: sessionRiskMode,
+          riskMode: sessionRiskMode,
+          max_slippage_pct: sessionMaxSlippagePct,
+          maxSlippagePct: sessionMaxSlippagePct,
+          hard_stop_pct: sessionHardStopPct,
+          profit_lock_pct: sessionProfitLockPct,
+          caution_drawdown_pct: sessionCautionDrawdownPct,
           reuse_profit_pct: normalizeTradingReuseProfitPct(),
           profit_reuse_pct: normalizeTradingReuseProfitPct(),
           max_combined_slots: normalizeTradingMaxCombinedSlots(),
@@ -8315,7 +8336,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingMaxTrades, tradingRiskMode, tradingStyle, tradingMaxSlippagePct, tradingHardStopPct, tradingProfitLockPct, tradingCautionDrawdownPct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState]);
 
   const runShadowRuntimeAction = useCallback(async (action = "tick") => {
     if (!wallet) {
@@ -8331,6 +8352,13 @@ useEffect(() => {
       const sessionRuntimeHours = Number(sessionMeta.runtime_hours || sessionMeta.runtimeHours || normalizeTradingRuntimeHours()) || normalizeTradingRuntimeHours();
       const sessionReuseProfitPct = Number(sessionMeta.reuseProfitPct ?? sessionMeta.reuse_profit_pct ?? sessionMeta.profitReusePct ?? sessionMeta.profit_reuse_pct ?? normalizeTradingReuseProfitPct()) || 0;
       const sessionMaxCombinedSlots = Number(sessionMeta.maxCombinedSlots ?? sessionMeta.max_combined_slots ?? sessionMeta.slotDonorCap ?? sessionMeta.slot_donor_cap ?? normalizeTradingMaxCombinedSlots()) || 0;
+      const sessionStyle = String(sessionMeta.style || sessionMeta.trading_style || sessionMeta.strategy || tradingStyle || "TACTICAL").toUpperCase();
+      const sessionRiskMode = String(sessionMeta.riskMode || sessionMeta.risk_mode || sessionMeta.trading_risk_mode || tradingRiskMode || "BALANCED").toUpperCase();
+      const sessionMaxTrades = Number(sessionMeta.maxTrades ?? sessionMeta.max_trades ?? tradingMaxTrades ?? 0) || 0;
+      const sessionMaxSlippagePct = Number(sessionMeta.maxSlippagePct ?? sessionMeta.max_slippage_pct ?? tradingMaxSlippagePct ?? 0) || 0;
+      const sessionHardStopPct = Number(sessionMeta.hardStopPct ?? sessionMeta.hard_stop_pct ?? tradingHardStopPct ?? 0) || 0;
+      const sessionProfitLockPct = Number(sessionMeta.profitLockPct ?? sessionMeta.profit_lock_pct ?? tradingProfitLockPct ?? 0) || 0;
+      const sessionCautionDrawdownPct = Number(sessionMeta.cautionDrawdownPct ?? sessionMeta.caution_drawdown_pct ?? tradingCautionDrawdownPct ?? 0) || 0;
       const body = {
         action,
         source: "frontend_shadow_runtime",
@@ -8343,9 +8371,17 @@ useEffect(() => {
           runtime_unit: tradingRuntimeUnit,
           expires_ts: sessionExpiresTs || undefined,
           session_expires_ts: sessionExpiresTs || undefined,
-          max_trades: tradingMaxTrades,
-          risk_mode: tradingRiskMode,
-          max_slippage_pct: tradingMaxSlippagePct,
+          max_trades: sessionMaxTrades,
+          maxTrades: sessionMaxTrades,
+          style: sessionStyle,
+          trading_style: sessionStyle,
+          risk_mode: sessionRiskMode,
+          riskMode: sessionRiskMode,
+          max_slippage_pct: sessionMaxSlippagePct,
+          maxSlippagePct: sessionMaxSlippagePct,
+          hard_stop_pct: sessionHardStopPct,
+          profit_lock_pct: sessionProfitLockPct,
+          caution_drawdown_pct: sessionCautionDrawdownPct,
           reuse_profit_pct: sessionReuseProfitPct,
           profit_reuse_pct: sessionReuseProfitPct,
           max_combined_slots: sessionMaxCombinedSlots,
@@ -8536,6 +8572,13 @@ useEffect(() => {
     const runtimeHoursNum = normalizeTradingRuntimeHours();
     const reuseProfitPctNum = normalizeTradingReuseProfitPct();
     const maxCombinedSlotsNum = normalizeTradingMaxCombinedSlots();
+    const sessionStyle = String(tradingStyle || "TACTICAL").toUpperCase();
+    const sessionRiskMode = String(tradingRiskMode || "BALANCED").toUpperCase();
+    const sessionMaxTrades = Number(tradingMaxTrades || 0) || 0;
+    const sessionHardStopPct = Number(String(tradingHardStopPct || "").replace(",", ".")) || 0;
+    const sessionProfitLockPct = Number(String(tradingProfitLockPct || "").replace(",", ".")) || 0;
+    const sessionMaxSlippagePct = Number(String(tradingMaxSlippagePct || "").replace(",", ".")) || 0;
+    const sessionCautionDrawdownPct = Number(String(tradingCautionDrawdownPct || "").replace(",", ".")) || 0;
     const sessionStartedAt = now;
     const sessionExpiresAt = now + Math.round(runtimeHoursNum * 3600 * 1000);
     const sessionExpiresTs = Math.floor(sessionExpiresAt / 1000);
@@ -8555,6 +8598,22 @@ useEffect(() => {
         max_combined_slots: maxCombinedSlotsNum,
         maxCombinedSlots: maxCombinedSlotsNum,
         slot_donor_cap: maxCombinedSlotsNum,
+        style: sessionStyle,
+        trading_style: sessionStyle,
+        strategy: sessionStyle,
+        riskMode: sessionRiskMode,
+        risk_mode: sessionRiskMode,
+        trading_risk_mode: sessionRiskMode,
+        maxTrades: sessionMaxTrades,
+        max_trades: sessionMaxTrades,
+        hardStopPct: sessionHardStopPct,
+        hard_stop_pct: sessionHardStopPct,
+        profitLockPct: sessionProfitLockPct,
+        profit_lock_pct: sessionProfitLockPct,
+        maxSlippagePct: sessionMaxSlippagePct,
+        max_slippage_pct: sessionMaxSlippagePct,
+        cautionDrawdownPct: sessionCautionDrawdownPct,
+        caution_drawdown_pct: sessionCautionDrawdownPct,
         session_started_ts: Math.floor(sessionStartedAt / 1000),
         session_expires_ts: sessionExpiresTs,
         expires_ts: sessionExpiresTs,
@@ -8569,6 +8628,22 @@ useEffect(() => {
           max_combined_slots: maxCombinedSlotsNum,
           maxCombinedSlots: maxCombinedSlotsNum,
           slot_donor_cap: maxCombinedSlotsNum,
+          style: sessionStyle,
+          trading_style: sessionStyle,
+          strategy: sessionStyle,
+          riskMode: sessionRiskMode,
+          risk_mode: sessionRiskMode,
+          trading_risk_mode: sessionRiskMode,
+          maxTrades: sessionMaxTrades,
+          max_trades: sessionMaxTrades,
+          hardStopPct: sessionHardStopPct,
+          hard_stop_pct: sessionHardStopPct,
+          profitLockPct: sessionProfitLockPct,
+          profit_lock_pct: sessionProfitLockPct,
+          maxSlippagePct: sessionMaxSlippagePct,
+          max_slippage_pct: sessionMaxSlippagePct,
+          cautionDrawdownPct: sessionCautionDrawdownPct,
+          caution_drawdown_pct: sessionCautionDrawdownPct,
           session_started_ts: Math.floor(sessionStartedAt / 1000),
           session_expires_ts: sessionExpiresTs,
           expires_ts: sessionExpiresTs,
@@ -8614,6 +8689,24 @@ useEffect(() => {
           max_combined_slots: maxCombinedSlotsNum,
           slotDonorCap: maxCombinedSlotsNum,
           slot_donor_cap: maxCombinedSlotsNum,
+          style: sessionStyle,
+          trading_style: sessionStyle,
+          strategy: sessionStyle,
+          riskMode: sessionRiskMode,
+          risk_mode: sessionRiskMode,
+          trading_risk_mode: sessionRiskMode,
+          maxTrades: sessionMaxTrades,
+          max_trades: sessionMaxTrades,
+          hardStopPct: sessionHardStopPct,
+          hard_stop_pct: sessionHardStopPct,
+          profitLockPct: sessionProfitLockPct,
+          profit_lock_pct: sessionProfitLockPct,
+          maxSlippagePct: sessionMaxSlippagePct,
+          max_slippage_pct: sessionMaxSlippagePct,
+          cautionDrawdownPct: sessionCautionDrawdownPct,
+          caution_drawdown_pct: sessionCautionDrawdownPct,
+          payoutAsset: manualPayoutAsset || "USDC",
+          payout_asset: manualPayoutAsset || "USDC",
           expiresAt: sessionExpiresAt,
           expires_ts: sessionExpiresTs,
           createdAt: now,
@@ -8640,6 +8733,24 @@ useEffect(() => {
       max_combined_slots: maxCombinedSlotsNum,
       slotDonorCap: maxCombinedSlotsNum,
       slot_donor_cap: maxCombinedSlotsNum,
+      style: sessionStyle,
+      trading_style: sessionStyle,
+      strategy: sessionStyle,
+      riskMode: sessionRiskMode,
+      risk_mode: sessionRiskMode,
+      trading_risk_mode: sessionRiskMode,
+      maxTrades: sessionMaxTrades,
+      max_trades: sessionMaxTrades,
+      hardStopPct: sessionHardStopPct,
+      hard_stop_pct: sessionHardStopPct,
+      profitLockPct: sessionProfitLockPct,
+      profit_lock_pct: sessionProfitLockPct,
+      maxSlippagePct: sessionMaxSlippagePct,
+      max_slippage_pct: sessionMaxSlippagePct,
+      cautionDrawdownPct: sessionCautionDrawdownPct,
+      caution_drawdown_pct: sessionCautionDrawdownPct,
+      payoutAsset: manualPayoutAsset || "USDC",
+      payout_asset: manualPayoutAsset || "USDC",
       expiresAt: sessionExpiresAt,
       expires_ts: sessionExpiresTs,
       holdHours: clampTradingHoldHours(tradingHoldHours),
@@ -8685,10 +8796,26 @@ useEffect(() => {
             max_combined_slots: maxCombinedSlotsNum,
             maxCombinedSlots: maxCombinedSlotsNum,
             slot_donor_cap: maxCombinedSlotsNum,
+            style: sessionStyle,
+            trading_style: sessionStyle,
+            strategy: sessionStyle,
+            riskMode: sessionRiskMode,
+            risk_mode: sessionRiskMode,
+            trading_risk_mode: sessionRiskMode,
+            maxTrades: sessionMaxTrades,
+            max_trades: sessionMaxTrades,
+            hardStopPct: sessionHardStopPct,
+            hard_stop_pct: sessionHardStopPct,
+            profitLockPct: sessionProfitLockPct,
+            profit_lock_pct: sessionProfitLockPct,
+            maxSlippagePct: sessionMaxSlippagePct,
+            max_slippage_pct: sessionMaxSlippagePct,
+            cautionDrawdownPct: sessionCautionDrawdownPct,
+            caution_drawdown_pct: sessionCautionDrawdownPct,
             session_started_ts: Math.floor(sessionStartedAt / 1000),
             session_expires_ts: sessionExpiresTs,
             expires_ts: sessionExpiresTs,
-            meta: { ...(slot?.meta || {}), session_id: sessionId, trade_session_id: sessionId, runtime_hours: runtimeHoursNum, reuse_profit_pct: reuseProfitPctNum, profit_reuse_pct: reuseProfitPctNum, max_combined_slots: maxCombinedSlotsNum, maxCombinedSlots: maxCombinedSlotsNum, slot_donor_cap: maxCombinedSlotsNum, session_started_ts: Math.floor(sessionStartedAt / 1000), session_expires_ts: sessionExpiresTs, expires_ts: sessionExpiresTs, source: "frontend_budget_approval" },
+            meta: { ...(slot?.meta || {}), session_id: sessionId, trade_session_id: sessionId, runtime_hours: runtimeHoursNum, reuse_profit_pct: reuseProfitPctNum, profit_reuse_pct: reuseProfitPctNum, max_combined_slots: maxCombinedSlotsNum, maxCombinedSlots: maxCombinedSlotsNum, slot_donor_cap: maxCombinedSlotsNum, style: sessionStyle, trading_style: sessionStyle, strategy: sessionStyle, riskMode: sessionRiskMode, risk_mode: sessionRiskMode, trading_risk_mode: sessionRiskMode, maxTrades: sessionMaxTrades, max_trades: sessionMaxTrades, hardStopPct: sessionHardStopPct, hard_stop_pct: sessionHardStopPct, profitLockPct: sessionProfitLockPct, profit_lock_pct: sessionProfitLockPct, maxSlippagePct: sessionMaxSlippagePct, max_slippage_pct: sessionMaxSlippagePct, cautionDrawdownPct: sessionCautionDrawdownPct, caution_drawdown_pct: sessionCautionDrawdownPct, payoutAsset: manualPayoutAsset || "USDC", payout_asset: manualPayoutAsset || "USDC", session_started_ts: Math.floor(sessionStartedAt / 1000), session_expires_ts: sessionExpiresTs, expires_ts: sessionExpiresTs, source: "frontend_budget_approval" },
             signals: slot?.signals || {},
             reason: slot?.condition || slot?.reason || "Created from approved Trading session.",
           },
@@ -8699,7 +8826,7 @@ useEffect(() => {
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
     setErrorMsg(`Trading session created: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Enter the next budget and approve/sign again when you want another independent session.`);
-  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, normalizeTradingRuntimeHours, normalizeTradingReuseProfitPct, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, normalizeTradingRuntimeHours, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, tradingStyle, tradingRiskMode, tradingMaxTrades, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingCautionDrawdownPct, manualPayoutAsset, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
 
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;
@@ -8751,7 +8878,6 @@ useEffect(() => {
     if (!tradingCanStop) return;
     const now = Date.now();
     const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
-    if (sid) markTradingSessionStoppedLocal(sid);
     let stoppedQueue = [];
 
     // Stop means: close the selected independent session and remove its slots
@@ -9478,16 +9604,9 @@ useEffect(() => {
         if (rotationSettingsSource.rotationMinNetAdvantage != null) setRotationMinNetAdvantage(String(rotationSettingsSource.rotationMinNetAdvantage));
         if (rotationSettingsSource.rotationMode != null) setRotationMode(String(rotationSettingsSource.rotationMode));
         if (rotationSettingsSource.rotationNetworkScope != null) setRotationNetworkScope(String(rotationSettingsSource.rotationNetworkScope));
-        const visibleServerTradingSessions = serverTradingSessions.filter((sess) => {
-          const st = String(sess?.status || "").toUpperCase();
-          const sid = String(sess?.id || sess?.session_id || "").trim();
-          return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st) && !isTradingSessionStoppedLocal(sid);
-        });
-        setTradingSessions(visibleServerTradingSessions);
-        if (serverActiveTradingSessionId && visibleServerTradingSessions.some((sess) => String(sess?.id || sess?.session_id || "") === serverActiveTradingSessionId)) {
-          setActiveTradingSessionId(serverActiveTradingSessionId);
-        } else if (!visibleServerTradingSessions.some((sess) => String(sess?.id || sess?.session_id || "") === String(activeTradingSessionId || ""))) {
-          setActiveTradingSessionId(String(visibleServerTradingSessions?.[0]?.id || ""));
+        if (serverTradingSessions.length) {
+          setTradingSessions(serverTradingSessions);
+          if (serverActiveTradingSessionId) setActiveTradingSessionId(serverActiveTradingSessionId);
         }
         // Rotation sessions are hydrated separately from /api/rotation-sessions.
       }
@@ -9500,7 +9619,7 @@ useEffect(() => {
       appStateSyncBusyRef.current = false;
       setTimeout(() => { appStateApplyingServerRef.current = false; }, 0);
     }
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, activeTradingSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   useEffect(() => {
     syncAppStateFromServer();
@@ -19481,8 +19600,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         >
                           {openTradingSessions.map((sess) => {
                             const sid = String(sess?.id || sess?.session_id || "").trim();
-                            const sessionChain = String((Array.isArray(sess?.chains) ? sess.chains[0] : "") || sess?.chain || sess?.chainKey || sess?.chain_key || sess?.network || activeGridChainKey || DEFAULT_CHAIN || "").toUpperCase();
-                            const detailsOpen = !!expandedTradingSessionDetails?.[sid];
                             const sessionSlots = Array.isArray(sess?.queue)
                               ? sess.queue
                               : (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue.filter((slot) => {
@@ -19519,6 +19636,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             const tradeCount = getTradingSessionTradeCount(sess, sessionSlots);
                             const selected = sid && sid === selectedTradingSessionId;
                             const slotsOpen = !!expandedTradingSessionSlots?.[sid];
+                            const detailsOpen = !!expandedTradingSessionDetails?.[sid];
+                            const sessionChain = String((Array.isArray(sess?.chains) && sess.chains[0]) || sess?.chain || sessionSlots?.[0]?.chain || sessionSlots?.[0]?.chain_key || activeGridChainKey || DEFAULT_CHAIN || "").toUpperCase();
+                            const sessionStyle = String(sess?.style || sess?.trading_style || sess?.strategy || sessionSlots?.[0]?.style || sessionSlots?.[0]?.trading_style || sessionSlots?.[0]?.strategy || "").toUpperCase();
+                            const sessionRiskMode = String(sess?.riskMode || sess?.risk_mode || sess?.trading_risk_mode || sessionSlots?.[0]?.riskMode || sessionSlots?.[0]?.risk_mode || sessionSlots?.[0]?.trading_risk_mode || "").toUpperCase();
+                            const sessionMaxTrades = Number(sess?.maxTrades ?? sess?.max_trades ?? sessionSlots?.[0]?.maxTrades ?? sessionSlots?.[0]?.max_trades ?? NaN);
+                            const sessionHardStop = Number(sess?.hardStopPct ?? sess?.hard_stop_pct ?? sessionSlots?.[0]?.hardStopPct ?? sessionSlots?.[0]?.hard_stop_pct ?? NaN);
+                            const sessionProfitLock = Number(sess?.profitLockPct ?? sess?.profit_lock_pct ?? sessionSlots?.[0]?.profitLockPct ?? sessionSlots?.[0]?.profit_lock_pct ?? NaN);
+                            const sessionSlippage = Number(sess?.maxSlippagePct ?? sess?.max_slippage_pct ?? sessionSlots?.[0]?.maxSlippagePct ?? sessionSlots?.[0]?.max_slippage_pct ?? NaN);
                             return (
                               <div
                                 key={sid || `${sessionAsset}-${sessionBudget}`}
@@ -19565,7 +19690,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       className="miniBtn"
                                       type="button"
                                       onClick={(e) => {
-                                        e.preventDefault();
                                         e.stopPropagation();
                                         if (!sid) return;
                                         selectTradingSession(sid);
@@ -19605,7 +19729,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         if (!sid) return;
-                                        markTradingSessionStoppedLocal(sid);
                                         const now = Date.now();
                                         let stoppedQueue = [];
                                         setTradingExecutionQueue((prev) => {
@@ -19659,34 +19782,34 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                                 {detailsOpen ? (
                                   <div style={{ borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 8, display: "grid", gap: 8 }}>
-                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 7 }}>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 8 }}>
                                       {[
                                         ["Session", sid],
-                                        ["Chain", sessionChain],
-                                        ["Style", sess?.style || sess?.strategy || "—"],
-                                        ["Risk", sess?.riskMode || sess?.risk_mode || "—"],
-                                        ["Max Trades", sess?.maxTrades || sess?.max_trades || "—"],
+                                        ["Chain", sessionChain || "—"],
+                                        ["Style", sessionStyle || "—"],
+                                        ["Risk", sessionRiskMode || "—"],
+                                        ["Max Trades", Number.isFinite(sessionMaxTrades) && sessionMaxTrades > 0 ? sessionMaxTrades : "—"],
                                         ["Reuse", `${Number.isFinite(reusePct) ? reusePct.toFixed(0) : "0"}%`],
-                                        ["Hard Stop", `${sess?.hardStopPct ?? sess?.hard_stop_pct ?? tradingHardStopPct ?? "—"}%`],
-                                        ["Profit Lock", `${sess?.profitLockPct ?? sess?.profit_lock_pct ?? tradingProfitLockPct ?? "—"}%`],
-                                        ["Slippage", `${sess?.maxSlippagePct ?? sess?.max_slippage_pct ?? tradingMaxSlippagePct ?? "—"}%`],
-                                      ].map(([k, v]) => (
-                                        <div key={`${sid}-${k}`} style={{ border: "1px solid rgba(139,220,255,.10)", borderRadius: 8, padding: "6px 7px", background: "rgba(0,0,0,.12)" }}>
-                                          <div className="muted tiny" style={{ fontWeight: 900 }}>{k}</div>
-                                          <div className="tiny" style={{ color: "#eafff5", fontWeight: 950, overflow: "hidden", textOverflow: "ellipsis" }}>{String(v || "—")}</div>
+                                        ["Hard Stop", Number.isFinite(sessionHardStop) && sessionHardStop > 0 ? `${sessionHardStop}%` : "—"],
+                                        ["Profit Lock", Number.isFinite(sessionProfitLock) && sessionProfitLock > 0 ? `${sessionProfitLock}%` : "—"],
+                                        ["Slippage", Number.isFinite(sessionSlippage) && sessionSlippage > 0 ? `${sessionSlippage}%` : "—"],
+                                      ].map(([label, value]) => (
+                                        <div key={`${sid}-${label}`} style={{ border: "1px solid rgba(139,220,255,.10)", borderRadius: 8, padding: "7px 8px", background: "rgba(0,0,0,.14)", minWidth: 0 }}>
+                                          <div className="muted tiny" style={{ fontWeight: 900 }}>{label}</div>
+                                          <div className="tiny" style={{ fontWeight: 950, color: "#eafff5", overflowWrap: "anywhere" }}>{String(value || "—")}</div>
                                         </div>
                                       ))}
                                     </div>
+                                    <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Strategist / Slot log</div>
                                     <div style={{ display: "grid", gap: 5 }}>
-                                      <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 950 }}>Strategist / Slot log</div>
-                                      {sessionSlots.map((slot, idx) => {
+                                      {sessionSlots.slice(0, 6).map((slot, idx) => {
                                         const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
                                         const st = String(slot?.status || slot?.state || "WAIT").toUpperCase();
-                                        const score = Number(slot?.score ?? slot?.confidence_score ?? slot?.priority ?? meta.score ?? meta.confidence_score ?? 0);
+                                        const score = Number(slot?.priority ?? slot?.confidence ?? slot?.confidence_score ?? meta.priority ?? meta.confidence ?? 0);
                                         return (
-                                          <div key={`${sid}-detail-${idx}`} className="muted tiny" style={{ border: "1px solid rgba(139,220,255,.10)", borderRadius: 8, padding: "6px 7px", background: "rgba(0,0,0,.10)", color: "rgba(216,255,241,.78)" }}>
-                                            <b style={{ color: st === "ACTIVE" ? "#7cf7a2" : st === "SIMULATED_EXIT" ? "#8bdcff" : st === "WAIT" ? "#ffd166" : "#eafff5" }}>Slot #{slot.slot || slot.slot_id || idx + 1} · {st}</b> · score {Number.isFinite(score) ? Math.round(score) : 0}<br />
-                                            {slot.reason || slot.message || slot.note || meta.reason || meta.message || "No detailed Strategist reason stored yet."}
+                                          <div key={`${sid}-log-${idx}`} className="muted tiny" style={{ border: "1px solid rgba(139,220,255,.10)", borderRadius: 8, padding: "6px 8px", background: "rgba(0,0,0,.12)" }}>
+                                            <b style={{ color: st === "ACTIVE" ? "#7cf7a2" : st === "READY" ? "#8bdcff" : "#ffd166" }}>Slot #{slot?.slot || slot?.slot_id || idx + 1} · {st}</b> · score {Number.isFinite(score) ? Math.round(score) : 0}<br />
+                                            {slot?.condition || slot?.reason || slot?.message || slot?.note || "No detailed decision reason recorded yet."}
                                           </div>
                                         );
                                       })}
@@ -19727,7 +19850,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 ) : null}
 
                                 <div className="muted tiny" style={{ color: "#8bdcff", borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 6 }}>
-                                  Viewing: {sid}. Strategy: {sess?.style || sess?.strategy || "Tactical"} · Risk: {sess?.riskMode || sess?.risk_mode || tradingRiskMode || "Balanced"} · Payout: {sess?.payoutAsset || sess?.payout_asset || manualPayoutAsset || "USDC"}
+                                  Viewing: {sid}. Strategy: {sessionStyle || "—"} · Risk: {sessionRiskMode || "—"} · Payout: {sess?.payoutAsset || sess?.payout_asset || manualPayoutAsset || "USDC"}
                                 </div>
                               </div>
                             );
@@ -20246,20 +20369,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
 
                               <div style={{ display: "grid", gap: 7, minWidth: 116 }}>
-                                <button
-                                  className="miniBtn"
-                                  type="button"
-                                  title="Open detailed session view"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    const sid = String(selectedTradingSession?.id || selectedTradingSession?.session_id || selectedTradingSessionId || "").trim();
-                                    if (!sid) return;
-                                    setExpandedTradingSessionDetails((prev) => ({ ...(prev || {}), [sid]: !prev?.[sid] }));
-                                  }}
-                                >
-                                  {expandedTradingSessionDetails?.[String(selectedTradingSession?.id || selectedTradingSession?.session_id || selectedTradingSessionId || "").trim()] ? "Hide Details ▲" : "Details"}
-                                </button>
+                                <button className="miniBtn" type="button" title="Open detailed session view">Details</button>
                                 {tradingCanPause ? (
                                   <button className="miniBtn" type="button" onClick={handleTradingPauseSession} title="Pause only this selected Trading session">Pause</button>
                                 ) : null}
@@ -20274,26 +20384,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 ) : null}
                               </div>
                             </div>
-                            {expandedTradingSessionDetails?.[String(selectedTradingSession?.id || selectedTradingSession?.session_id || selectedTradingSessionId || "").trim()] ? (
-                              <div style={{ borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 8, display: "grid", gap: 7 }}>
-                                <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 950 }}>Session Details</div>
-                                <div className="muted tiny">Style: {selectedTradingSession?.style || selectedTradingSession?.strategy || "—"} · Risk: {selectedTradingSession?.riskMode || selectedTradingSession?.risk_mode || "—"} · Max Trades: {selectedTradingSession?.maxTrades || selectedTradingSession?.max_trades || "—"}</div>
-                                <div className="muted tiny">Hard Stop: {selectedTradingSession?.hardStopPct ?? selectedTradingSession?.hard_stop_pct ?? tradingHardStopPct ?? "—"}% · Profit Lock: {selectedTradingSession?.profitLockPct ?? selectedTradingSession?.profit_lock_pct ?? tradingProfitLockPct ?? "—"}% · Slippage: {selectedTradingSession?.maxSlippagePct ?? selectedTradingSession?.max_slippage_pct ?? tradingMaxSlippagePct ?? "—"}%</div>
-                                <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 950 }}>Strategist / Slot log</div>
-                                {sessionSlots.map((slot, idx) => {
-                                  const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
-                                  const st = String(slot?.status || slot?.state || "WAIT").toUpperCase();
-                                  const score = Number(slot?.score ?? slot?.confidence_score ?? slot?.priority ?? meta.score ?? meta.confidence_score ?? 0);
-                                  return (
-                                    <div key={`mobile-detail-${idx}`} className="muted tiny" style={{ border: "1px solid rgba(139,220,255,.10)", borderRadius: 8, padding: "6px 7px", background: "rgba(0,0,0,.10)" }}>
-                                      <b style={{ color: st === "ACTIVE" ? "#7cf7a2" : st === "SIMULATED_EXIT" ? "#8bdcff" : st === "WAIT" ? "#ffd166" : "#eafff5" }}>Slot #{slot.slot || slot.slot_id || idx + 1} · {st}</b> · score {Number.isFinite(score) ? Math.round(score) : 0}<br />
-                                      {slot.reason || slot.message || slot.note || meta.reason || meta.message || "No detailed Strategist reason stored yet."}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : null}
-
                             <div style={{ borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 8, display: "grid", gap: 8 }}>
                               <button
                                 className="miniBtn"

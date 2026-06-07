@@ -19637,13 +19637,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             const selected = sid && sid === selectedTradingSessionId;
                             const slotsOpen = !!expandedTradingSessionSlots?.[sid];
                             const detailsOpen = !!expandedTradingSessionDetails?.[sid];
-                            const sessionChain = String((Array.isArray(sess?.chains) && sess.chains[0]) || sess?.chain || sessionSlots?.[0]?.chain || sessionSlots?.[0]?.chain_key || activeGridChainKey || DEFAULT_CHAIN || "").toUpperCase();
-                            const sessionStyle = String(sess?.style || sess?.trading_style || sess?.strategy || sessionSlots?.[0]?.style || sessionSlots?.[0]?.trading_style || sessionSlots?.[0]?.strategy || "").toUpperCase();
-                            const sessionRiskMode = String(sess?.riskMode || sess?.risk_mode || sess?.trading_risk_mode || sessionSlots?.[0]?.riskMode || sessionSlots?.[0]?.risk_mode || sessionSlots?.[0]?.trading_risk_mode || "").toUpperCase();
-                            const sessionMaxTrades = Number(sess?.maxTrades ?? sess?.max_trades ?? sessionSlots?.[0]?.maxTrades ?? sessionSlots?.[0]?.max_trades ?? NaN);
-                            const sessionHardStop = Number(sess?.hardStopPct ?? sess?.hard_stop_pct ?? sessionSlots?.[0]?.hardStopPct ?? sessionSlots?.[0]?.hard_stop_pct ?? NaN);
-                            const sessionProfitLock = Number(sess?.profitLockPct ?? sess?.profit_lock_pct ?? sessionSlots?.[0]?.profitLockPct ?? sessionSlots?.[0]?.profit_lock_pct ?? NaN);
-                            const sessionSlippage = Number(sess?.maxSlippagePct ?? sess?.max_slippage_pct ?? sessionSlots?.[0]?.maxSlippagePct ?? sessionSlots?.[0]?.max_slippage_pct ?? NaN);
+                            const firstSessionSlot = Array.isArray(sessionSlots) && sessionSlots.length ? sessionSlots[0] : {};
+                            const firstSessionMeta = firstSessionSlot?.meta && typeof firstSessionSlot.meta === "object" ? firstSessionSlot.meta : {};
+                            const sessionMeta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+                            const pickSessionValue = (...vals) => vals.find((v) => v !== undefined && v !== null && String(v).trim() !== "");
+                            const sessionChain = String(pickSessionValue((Array.isArray(sess?.chains) && sess.chains[0]), sess?.chain, sess?.chain_key, sessionMeta.chain, firstSessionSlot?.chain, firstSessionSlot?.chain_key, firstSessionMeta.chain, activeGridChainKey, DEFAULT_CHAIN, "")).toUpperCase();
+                            const sessionStyle = String(pickSessionValue(sess?.style, sess?.trading_style, sess?.strategy, sessionMeta.style, sessionMeta.trading_style, sessionMeta.strategy, firstSessionSlot?.style, firstSessionSlot?.trading_style, firstSessionSlot?.strategy, firstSessionMeta.style, firstSessionMeta.trading_style, firstSessionMeta.strategy, "")).toUpperCase();
+                            const sessionRiskMode = String(pickSessionValue(sess?.riskMode, sess?.risk_mode, sess?.trading_risk_mode, sessionMeta.riskMode, sessionMeta.risk_mode, sessionMeta.trading_risk_mode, firstSessionSlot?.riskMode, firstSessionSlot?.risk_mode, firstSessionSlot?.trading_risk_mode, firstSessionMeta.riskMode, firstSessionMeta.risk_mode, firstSessionMeta.trading_risk_mode, "")).toUpperCase();
+                            const sessionMaxTrades = Number(pickSessionValue(sess?.maxTrades, sess?.max_trades, sessionMeta.maxTrades, sessionMeta.max_trades, firstSessionSlot?.maxTrades, firstSessionSlot?.max_trades, firstSessionMeta.maxTrades, firstSessionMeta.max_trades, NaN));
+                            const sessionHardStop = Number(pickSessionValue(sess?.hardStopPct, sess?.hard_stop_pct, sessionMeta.hardStopPct, sessionMeta.hard_stop_pct, firstSessionSlot?.hardStopPct, firstSessionSlot?.hard_stop_pct, firstSessionMeta.hardStopPct, firstSessionMeta.hard_stop_pct, NaN));
+                            const sessionProfitLock = Number(pickSessionValue(sess?.profitLockPct, sess?.profit_lock_pct, sessionMeta.profitLockPct, sessionMeta.profit_lock_pct, firstSessionSlot?.profitLockPct, firstSessionSlot?.profit_lock_pct, firstSessionMeta.profitLockPct, firstSessionMeta.profit_lock_pct, NaN));
+                            const sessionSlippage = Number(pickSessionValue(sess?.maxSlippagePct, sess?.max_slippage_pct, sessionMeta.maxSlippagePct, sessionMeta.max_slippage_pct, firstSessionSlot?.maxSlippagePct, firstSessionSlot?.max_slippage_pct, firstSessionMeta.maxSlippagePct, firstSessionMeta.max_slippage_pct, NaN));
                             return (
                               <div
                                 key={sid || `${sessionAsset}-${sessionBudget}`}

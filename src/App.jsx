@@ -6732,6 +6732,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // Wallet-bound delete tombstones: prevents a just-deleted Rotation session from
   // being resurrected by a delayed GET/POST sync or by the auto Shadow loop.
   const rotationDeletedSessionIdsRef = useRef(new Set());
+  // Wallet-bound Trading tombstones: if the user stops a Trading session,
+  // delayed backend polling/Shadow recovery must not resurrect it in the UI.
+  const tradingDeletedSessionIdsRef = useRef(loadSetLS("nexus_trading_deleted_sessions"));
 
   const isRotationSessionRunnable = useCallback((sess, now = Date.now()) => {
     if (!sess || typeof sess !== "object") return false;
@@ -7556,6 +7559,21 @@ useEffect(() => {
         max_combined_slots: Number(slot?.max_combined_slots ?? slot?.maxCombinedSlots ?? slot?.slot_donor_cap ?? slot?.slotDonorCap ?? meta.max_combined_slots ?? meta.maxCombinedSlots ?? meta.slot_donor_cap ?? meta.slotDonorCap ?? 0) || 0,
         slotDonorCap: Number(slot?.slotDonorCap ?? slot?.slot_donor_cap ?? slot?.maxCombinedSlots ?? slot?.max_combined_slots ?? meta.slotDonorCap ?? meta.slot_donor_cap ?? meta.maxCombinedSlots ?? meta.max_combined_slots ?? 0) || 0,
         slot_donor_cap: Number(slot?.slot_donor_cap ?? slot?.slotDonorCap ?? slot?.max_combined_slots ?? slot?.maxCombinedSlots ?? meta.slot_donor_cap ?? meta.slotDonorCap ?? meta.max_combined_slots ?? meta.maxCombinedSlots ?? 0) || 0,
+        riskMode: String(slot?.riskMode ?? slot?.risk_mode ?? slot?.trading_risk_mode ?? meta.riskMode ?? meta.risk_mode ?? meta.trading_risk_mode ?? "").toUpperCase() || undefined,
+        risk_mode: String(slot?.risk_mode ?? slot?.riskMode ?? slot?.trading_risk_mode ?? meta.risk_mode ?? meta.riskMode ?? meta.trading_risk_mode ?? "").toUpperCase() || undefined,
+        trading_risk_mode: String(slot?.trading_risk_mode ?? slot?.risk_mode ?? slot?.riskMode ?? meta.trading_risk_mode ?? meta.risk_mode ?? meta.riskMode ?? "").toUpperCase() || undefined,
+        style: String(slot?.style ?? slot?.trading_style ?? meta.style ?? meta.trading_style ?? "").toUpperCase() || undefined,
+        trading_style: String(slot?.trading_style ?? slot?.style ?? meta.trading_style ?? meta.style ?? "").toUpperCase() || undefined,
+        cautionDrawdownPct: Number(slot?.cautionDrawdownPct ?? slot?.caution_drawdown_pct ?? meta.cautionDrawdownPct ?? meta.caution_drawdown_pct ?? NaN),
+        caution_drawdown_pct: Number(slot?.caution_drawdown_pct ?? slot?.cautionDrawdownPct ?? meta.caution_drawdown_pct ?? meta.cautionDrawdownPct ?? NaN),
+        hardStopPct: Number(slot?.hardStopPct ?? slot?.hard_stop_pct ?? meta.hardStopPct ?? meta.hard_stop_pct ?? NaN),
+        hard_stop_pct: Number(slot?.hard_stop_pct ?? slot?.hardStopPct ?? meta.hard_stop_pct ?? meta.hardStopPct ?? NaN),
+        profitLockPct: Number(slot?.profitLockPct ?? slot?.profit_lock_pct ?? meta.profitLockPct ?? meta.profit_lock_pct ?? NaN),
+        profit_lock_pct: Number(slot?.profit_lock_pct ?? slot?.profitLockPct ?? meta.profit_lock_pct ?? meta.profitLockPct ?? NaN),
+        maxSlippagePct: Number(slot?.maxSlippagePct ?? slot?.max_slippage_pct ?? meta.maxSlippagePct ?? meta.max_slippage_pct ?? NaN),
+        max_slippage_pct: Number(slot?.max_slippage_pct ?? slot?.maxSlippagePct ?? meta.max_slippage_pct ?? meta.maxSlippagePct ?? NaN),
+        maxTrades: Number(slot?.maxTrades ?? slot?.max_trades ?? meta.maxTrades ?? meta.max_trades ?? NaN),
+        max_trades: Number(slot?.max_trades ?? slot?.maxTrades ?? meta.max_trades ?? meta.maxTrades ?? NaN),
         expiresAt: (Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts ?? 0) ? Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts) * 1000 : undefined),
         expires_ts: Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts ?? 0) || undefined,
       };
@@ -7583,6 +7601,24 @@ useEffect(() => {
       if (Number.isFinite(slotExpiresTs) && slotExpiresTs > 0) {
         existing.expires_ts = slotExpiresTs;
         existing.expiresAt = slotExpiresTs * 1000;
+      }
+      const slotRiskMode = String(slot?.riskMode ?? slot?.risk_mode ?? slot?.trading_risk_mode ?? meta.riskMode ?? meta.risk_mode ?? meta.trading_risk_mode ?? "").toUpperCase();
+      if (slotRiskMode) {
+        existing.riskMode = slotRiskMode;
+        existing.risk_mode = slotRiskMode;
+        existing.trading_risk_mode = slotRiskMode;
+      }
+      const slotStyle = String(slot?.style ?? slot?.trading_style ?? meta.style ?? meta.trading_style ?? "").toUpperCase();
+      if (slotStyle) {
+        existing.style = slotStyle;
+        existing.trading_style = slotStyle;
+      }
+      for (const [camel, snake] of [["cautionDrawdownPct", "caution_drawdown_pct"], ["hardStopPct", "hard_stop_pct"], ["profitLockPct", "profit_lock_pct"], ["maxSlippagePct", "max_slippage_pct"], ["maxTrades", "max_trades"]]) {
+        const n = Number(slot?.[camel] ?? slot?.[snake] ?? meta?.[camel] ?? meta?.[snake] ?? NaN);
+        if (Number.isFinite(n)) {
+          existing[camel] = n;
+          existing[snake] = n;
+        }
       }
       existing.approvedBudgetUsd = Number((Number(existing.approvedBudgetUsd || 0) + amount).toFixed(2));
       existing.collectedProfitUsd = Number((Number(existing.collectedProfitUsd || 0) + getTradingSlotCollectedProfitUsd(slot)).toFixed(4));
@@ -7622,10 +7658,19 @@ useEffect(() => {
   useEffect(() => {
     const execQueue = nexusBackendState?.execution?.queue;
     if (Array.isArray(execQueue)) {
-      const normalizedQueue = dedupeTradingQueue(execQueue);
+      const deletedIds = tradingDeletedSessionIdsRef.current || new Set();
+      const normalizedQueue = dedupeTradingQueue(execQueue).filter((slot) => {
+        const sid = String(getTradingSlotSessionId(slot) || slot?.session_id || slot?.sessionId || slot?.trade_session_id || "").trim();
+        const baseSid = sid.includes("::") ? sid.split("::", 1)[0] : sid;
+        return !deletedIds.has(sid) && !deletedIds.has(baseSid);
+      });
       setTradingExecutionQueue(normalizedQueue);
 
-      const restoredSessions = buildTradingSessionsFromQueue(normalizedQueue);
+      const restoredSessions = buildTradingSessionsFromQueue(normalizedQueue).filter((sess) => {
+        const sid = String(sess?.id || sess?.session_id || "").trim();
+        const baseSid = String(sess?.baseSessionId || (sid.includes("::") ? sid.split("::", 1)[0] : sid)).trim();
+        return !deletedIds.has(sid) && !deletedIds.has(baseSid);
+      });
       if (restoredSessions.length) {
         setTradingSessions(() => restoredSessions.filter((sess) => {
           const st = String(sess?.status || "").toUpperCase();
@@ -7869,7 +7914,33 @@ useEffect(() => {
         confidence,
         suitability,
         riskMode,
+        risk_mode: riskMode,
+        trading_risk_mode: riskMode,
         style,
+        trading_style: style,
+        cautionDrawdownPct: Number(tradingCautionDrawdownPct),
+        caution_drawdown_pct: Number(tradingCautionDrawdownPct),
+        hardStopPct: Number(tradingHardStopPct),
+        hard_stop_pct: Number(tradingHardStopPct),
+        profitLockPct: Number(tradingProfitLockPct),
+        profit_lock_pct: Number(tradingProfitLockPct),
+        maxSlippagePct: Number(tradingMaxSlippagePct),
+        max_slippage_pct: Number(tradingMaxSlippagePct),
+        maxTrades: Number(tradingMaxTrades),
+        max_trades: Number(tradingMaxTrades),
+        meta: {
+          
+          riskMode,
+          risk_mode: riskMode,
+          trading_risk_mode: riskMode,
+          style,
+          trading_style: style,
+          caution_drawdown_pct: Number(tradingCautionDrawdownPct),
+          hard_stop_pct: Number(tradingHardStopPct),
+          profit_lock_pct: Number(tradingProfitLockPct),
+          max_slippage_pct: Number(tradingMaxSlippagePct),
+          max_trades: Number(tradingMaxTrades),
+        },
       };
     });
   }, [
@@ -7880,6 +7951,11 @@ useEffect(() => {
     tradingConfidenceMin,
     tradingRiskMode,
     tradingStyle,
+    tradingCautionDrawdownPct,
+    tradingHardStopPct,
+    tradingProfitLockPct,
+    tradingMaxSlippagePct,
+    tradingMaxTrades,
     tradingAllowedAssets,
     gridItem,
     activeGridChainSymbol,
@@ -8242,6 +8318,14 @@ useEffect(() => {
     setShadowExecutorMsg("");
     try {
       const currentQueue = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+      const sessionMeta = selectedTradingSession && typeof selectedTradingSession === "object" ? selectedTradingSession : {};
+      const sessionRiskMode = String(sessionMeta.riskMode ?? sessionMeta.risk_mode ?? sessionMeta.trading_risk_mode ?? tradingRiskMode ?? "BALANCED").toUpperCase();
+      const sessionStyle = String(sessionMeta.style ?? sessionMeta.trading_style ?? tradingStyle ?? "TACTICAL").toUpperCase();
+      const sessionCautionDrawdownPct = Number(sessionMeta.cautionDrawdownPct ?? sessionMeta.caution_drawdown_pct ?? tradingCautionDrawdownPct);
+      const sessionHardStopPct = Number(sessionMeta.hardStopPct ?? sessionMeta.hard_stop_pct ?? tradingHardStopPct);
+      const sessionProfitLockPct = Number(sessionMeta.profitLockPct ?? sessionMeta.profit_lock_pct ?? tradingProfitLockPct);
+      const sessionMaxSlippagePct = Number(sessionMeta.maxSlippagePct ?? sessionMeta.max_slippage_pct ?? tradingMaxSlippagePct);
+      const sessionMaxTrades = Number(sessionMeta.maxTrades ?? sessionMeta.max_trades ?? tradingMaxTrades);
       const body = {
         action: "validate",
         source: "frontend_trading_panel_test_only",
@@ -8251,9 +8335,17 @@ useEffect(() => {
           chain: activeGridChainKey || gridChain || "",
           runtime_hours: normalizeTradingRuntimeHours(),
           runtime_unit: tradingRuntimeUnit,
-          max_trades: tradingMaxTrades,
-          risk_mode: tradingRiskMode,
-          max_slippage_pct: tradingMaxSlippagePct,
+          max_trades: sessionMaxTrades,
+          maxTrades: sessionMaxTrades,
+          risk_mode: sessionRiskMode,
+          riskMode: sessionRiskMode,
+          trading_risk_mode: sessionRiskMode,
+          style: sessionStyle,
+          trading_style: sessionStyle,
+          caution_drawdown_pct: sessionCautionDrawdownPct,
+          hard_stop_pct: sessionHardStopPct,
+          profit_lock_pct: sessionProfitLockPct,
+          max_slippage_pct: sessionMaxSlippagePct,
           reuse_profit_pct: normalizeTradingReuseProfitPct(),
           profit_reuse_pct: normalizeTradingReuseProfitPct(),
           max_combined_slots: normalizeTradingMaxCombinedSlots(),
@@ -8275,7 +8367,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSession, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingMaxTrades, tradingRiskMode, tradingStyle, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState]);
 
   const runShadowRuntimeAction = useCallback(async (action = "tick") => {
     if (!wallet) {
@@ -8291,6 +8383,13 @@ useEffect(() => {
       const sessionRuntimeHours = Number(sessionMeta.runtime_hours || sessionMeta.runtimeHours || normalizeTradingRuntimeHours()) || normalizeTradingRuntimeHours();
       const sessionReuseProfitPct = Number(sessionMeta.reuseProfitPct ?? sessionMeta.reuse_profit_pct ?? sessionMeta.profitReusePct ?? sessionMeta.profit_reuse_pct ?? normalizeTradingReuseProfitPct()) || 0;
       const sessionMaxCombinedSlots = Number(sessionMeta.maxCombinedSlots ?? sessionMeta.max_combined_slots ?? sessionMeta.slotDonorCap ?? sessionMeta.slot_donor_cap ?? normalizeTradingMaxCombinedSlots()) || 0;
+      const sessionRiskMode = String(sessionMeta.riskMode ?? sessionMeta.risk_mode ?? sessionMeta.trading_risk_mode ?? tradingRiskMode ?? "BALANCED").toUpperCase();
+      const sessionStyle = String(sessionMeta.style ?? sessionMeta.trading_style ?? tradingStyle ?? "TACTICAL").toUpperCase();
+      const sessionCautionDrawdownPct = Number(sessionMeta.cautionDrawdownPct ?? sessionMeta.caution_drawdown_pct ?? tradingCautionDrawdownPct);
+      const sessionHardStopPct = Number(sessionMeta.hardStopPct ?? sessionMeta.hard_stop_pct ?? tradingHardStopPct);
+      const sessionProfitLockPct = Number(sessionMeta.profitLockPct ?? sessionMeta.profit_lock_pct ?? tradingProfitLockPct);
+      const sessionMaxSlippagePct = Number(sessionMeta.maxSlippagePct ?? sessionMeta.max_slippage_pct ?? tradingMaxSlippagePct);
+      const sessionMaxTrades = Number(sessionMeta.maxTrades ?? sessionMeta.max_trades ?? tradingMaxTrades);
       const body = {
         action,
         source: "frontend_shadow_runtime",
@@ -8303,9 +8402,17 @@ useEffect(() => {
           runtime_unit: tradingRuntimeUnit,
           expires_ts: sessionExpiresTs || undefined,
           session_expires_ts: sessionExpiresTs || undefined,
-          max_trades: tradingMaxTrades,
-          risk_mode: tradingRiskMode,
-          max_slippage_pct: tradingMaxSlippagePct,
+          max_trades: sessionMaxTrades,
+          maxTrades: sessionMaxTrades,
+          risk_mode: sessionRiskMode,
+          riskMode: sessionRiskMode,
+          trading_risk_mode: sessionRiskMode,
+          style: sessionStyle,
+          trading_style: sessionStyle,
+          caution_drawdown_pct: sessionCautionDrawdownPct,
+          hard_stop_pct: sessionHardStopPct,
+          profit_lock_pct: sessionProfitLockPct,
+          max_slippage_pct: sessionMaxSlippagePct,
           reuse_profit_pct: sessionReuseProfitPct,
           profit_reuse_pct: sessionReuseProfitPct,
           max_combined_slots: sessionMaxCombinedSlots,
@@ -8324,6 +8431,10 @@ useEffect(() => {
 
       if (String(action || "").toLowerCase() === "stop") {
         const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+        const baseSid = normalizeTradingSessionBaseId(sid);
+        if (sid) tradingDeletedSessionIdsRef.current.add(sid);
+        if (baseSid) tradingDeletedSessionIdsRef.current.add(baseSid);
+        saveSetLS("nexus_trading_deleted_sessions", tradingDeletedSessionIdsRef.current);
         setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).filter((slot) => !tradingSessionIdMatches(getTradingSlotSessionId(slot), sid)));
         updateTradingSessionMeta(sid, { status: "STOPPED", stoppedAt: Date.now(), active: false, queue: [] });
         const remainingOpen = (Array.isArray(openTradingSessions) ? openTradingSessions : []).filter((sess) => !tradingSessionIdMatches(sess?.id, sid));
@@ -8344,7 +8455,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSession, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingSessionIdMatches, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSession, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingSessionIdMatches, tradingMaxTrades, tradingRiskMode, tradingStyle, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
 
   useEffect(() => {
     const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
@@ -8711,6 +8822,10 @@ useEffect(() => {
     if (!tradingCanStop) return;
     const now = Date.now();
     const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+    const baseSid = normalizeTradingSessionBaseId(sid);
+    if (sid) tradingDeletedSessionIdsRef.current.add(sid);
+    if (baseSid) tradingDeletedSessionIdsRef.current.add(baseSid);
+    saveSetLS("nexus_trading_deleted_sessions", tradingDeletedSessionIdsRef.current);
     let stoppedQueue = [];
 
     // Stop means: close the selected independent session and remove its slots
@@ -9381,7 +9496,13 @@ useEffect(() => {
       const serverIndex = state?.indexMode == null ? true : !!state.indexMode;
       const serverAi = Array.isArray(state?.aiSelected) ? state.aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
       const serverUi = state?.ui && typeof state.ui === "object" ? state.ui : {};
-      const serverTradingSessions = Array.isArray(serverUi.tradingSessions) ? serverUi.tradingSessions.filter((x) => x && typeof x === "object") : [];
+      const deletedTradingIds = tradingDeletedSessionIdsRef.current || new Set();
+      const serverTradingSessions = Array.isArray(serverUi.tradingSessions) ? serverUi.tradingSessions.filter((x) => {
+        if (!x || typeof x !== "object") return false;
+        const sid = String(x?.id || x?.session_id || x?.sessionId || "").trim();
+        const baseSid = String(x?.baseSessionId || (sid.includes("::") ? sid.split("::", 1)[0] : sid)).trim();
+        return !deletedTradingIds.has(sid) && !deletedTradingIds.has(baseSid);
+      }) : [];
       const serverActiveTradingSessionId = String(serverUi.activeTradingSessionId || "").trim();
       // Rotation runtime sessions are loaded from /api/rotation-sessions, not from ui_state_json.
       // ui_state_json only keeps display/settings values; the lifecycle itself is Trading-style backend state.
@@ -9439,7 +9560,7 @@ useEffect(() => {
         if (rotationSettingsSource.rotationNetworkScope != null) setRotationNetworkScope(String(rotationSettingsSource.rotationNetworkScope));
         if (serverTradingSessions.length) {
           setTradingSessions(serverTradingSessions);
-          if (serverActiveTradingSessionId) setActiveTradingSessionId(serverActiveTradingSessionId);
+          if (serverActiveTradingSessionId && !deletedTradingIds.has(serverActiveTradingSessionId) && !deletedTradingIds.has(serverActiveTradingSessionId.includes("::") ? serverActiveTradingSessionId.split("::", 1)[0] : serverActiveTradingSessionId)) setActiveTradingSessionId(serverActiveTradingSessionId);
         }
         // Rotation sessions are hydrated separately from /api/rotation-sessions.
       }

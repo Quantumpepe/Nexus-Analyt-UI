@@ -8584,8 +8584,7 @@ useEffect(() => {
     const sessionExpiresTs = Math.floor(sessionExpiresAt / 1000);
     setActiveTradingSessionId(sessionId);
     const queue = buildTradingQueue();
-    const maxInitialActiveSlots = Math.max(1, Number(maxCombinedSlotsNum || 1) || 1);
-    let activatedCount = 0;
+    let activatedOne = false;
     const activeQueue = (Array.isArray(queue) ? queue : []).map((slot, idx) => {
       const slotMeta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
       let next = {
@@ -8650,17 +8649,13 @@ useEffect(() => {
           expires_ts: sessionExpiresTs,
         },
       };
-      const slotState = String(slot.status || "WAIT").toUpperCase();
-      const slotPriority = Number(slot.priority || slot.strategist_score || slot.shadow_quality || 0);
-      const canInitialActivate =
-        activatedCount < maxInitialActiveSlots &&
-        !["HOLD", "OBSERVE", "RELEASE_REQUIRED", "PROTECT"].includes(slotState) &&
-        (slotState === "READY" || slotPriority >= 50 || (idx < maxInitialActiveSlots && slotPriority >= 35));
-      if (canInitialActivate) {
-        // User-approved sessions may use several clean slots immediately, but never
-        // above Max Combined Slots. Backend risk/quality checks can still demote
-        // weak slots back to READY/WAIT/PROTECT on the next tick.
-        activatedCount += 1;
+      if (slot.status === "READY") {
+        activatedOne = true;
+        next = { ...next, status: "ACTIVE", activatedAt: now };
+      } else if (!activatedOne && idx === 0 && ["WAIT", "BLOCKED"].includes(String(slot.status || "").toUpperCase()) && Number(slot.priority || 0) >= 50) {
+        // User-approved sessions must enter active monitoring instead of staying idle forever.
+        // Risk decisions can still move the slot back to PROTECT/HOLD/BLOCKED afterwards.
+        activatedOne = true;
         next = { ...next, previousStatus: slot.status, status: "ACTIVE", activatedAt: now, lastRuntimeRecheckAt: now };
       }
       return next;

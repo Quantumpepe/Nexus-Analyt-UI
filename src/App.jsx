@@ -5070,7 +5070,7 @@ const byChain = {};
 
     const nowMs = Date.now();
     const cacheKey = onchainWatchSymbolsKey;
-    const minAgeMs = 10 * 60 * 1000; // 10 minutes
+    const minAgeMs = 60 * 60 * 1000; // 60 minutes: market-condition uses 20d daily data; protect CoinGecko credits
     if (marketConditionFetchRef.current?.key === cacheKey && (nowMs - Number(marketConditionFetchRef.current?.ts || 0)) < minAgeMs) {
       return;
     }
@@ -5081,14 +5081,22 @@ const byChain = {};
     let cancelled = false;
     const t = setTimeout(() => {
       marketConditionFetchRef.current = { key: cacheKey, ts: nowMs, inflight: true };
-      Promise.all(symbols.map(async (sym) => {
-        try {
-          const r = await api(`/api/market-condition?symbol=${encodeURIComponent(sym)}`, { method: "GET", token, wallet });
-          return [sym, r || null];
-        } catch {
-          return [sym, null];
+      (async () => {
+        const entries = [];
+        // Fetch sequentially instead of firing a parallel burst. Backend cache still
+        // keeps Strategist data fresh, but this avoids request storms on refresh.
+        for (const sym of symbols) {
+          try {
+            const r = await api(`/api/market-condition?symbol=${encodeURIComponent(sym)}`, { method: "GET", token, wallet });
+            entries.push([sym, r || null]);
+          } catch {
+            entries.push([sym, null]);
+          }
+          if (cancelled) break;
+          await sleep(120);
         }
-      })).then((entries) => {
+        return entries;
+      })().then((entries) => {
         if (cancelled) return;
         setMarketConditionBySymbol((prev) => {
           const next = { ...(prev || {}) };
@@ -5120,7 +5128,7 @@ const byChain = {};
     // changes or when the cache is old. AI Insight still uses the latest cached signals.
     const nowMs = Date.now();
     const cacheKey = `${String(wallet || "").toLowerCase()}|${onchainWatchSymbolsKey}`;
-    const minAgeMs = 10 * 60 * 1000; // 10 minutes
+    const minAgeMs = 60 * 60 * 1000; // 60 minutes: market-condition uses 20d daily data; protect CoinGecko credits
     if (onchainFetchRef.current?.key === cacheKey && (nowMs - Number(onchainFetchRef.current?.ts || 0)) < minAgeMs) {
       return;
     }
@@ -7033,6 +7041,7 @@ useEffect(() => {
   const [tradingBudgetSplitInput, setTradingBudgetSplitInput] = useState("");
   const [tradingExecutionQueue, setTradingExecutionQueue] = useState([]);
   const [tradingRuntimeHours, setTradingRuntimeHours] = useState("24");
+  const [tradingRuntimeUnit, setTradingRuntimeUnit] = useState("hours");
   const [tradingHoldHours, setTradingHoldHours] = useState("1");
   const [tradingAllowedAssets, setTradingAllowedAssets] = useState("");
   const [tradingAllowedChains, setTradingAllowedChains] = useState("POL,BNB,ETH");
@@ -7040,6 +7049,8 @@ useEffect(() => {
   const [tradingCautionDrawdownPct, setTradingCautionDrawdownPct] = useState("3");
   const [tradingHardStopPct, setTradingHardStopPct] = useState("12");
   const [tradingProfitLockPct, setTradingProfitLockPct] = useState("20");
+  const [tradingReuseProfitPct, setTradingReuseProfitPct] = useState("0");
+  const [tradingMaxCombinedSlots, setTradingMaxCombinedSlots] = useState("2");
   const [tradingMaxSlippagePct, setTradingMaxSlippagePct] = useState("1.2");
   const [tradingMaxTrades, setTradingMaxTrades] = useState("6");
   const [tradingConfidenceMin, setTradingConfidenceMin] = useState("MEDIUM");
@@ -7060,33 +7071,348 @@ useEffect(() => {
     return String(slot?.session_id || slot?.sessionId || slot?.trade_session_id || "").trim();
   }, []);
 
+  const normalizeTradingSessionBaseId = useCallback((sessionId = "") => {
+    const raw = String(sessionId || "").trim();
+    return raw.includes("::") ? raw.split("::", 1)[0].trim() : raw;
+  }, []);
+
+  const tradingSessionIdMatches = useCallback((a = "", b = "") => {
+    const aa = String(a || "").trim();
+    const bb = String(b || "").trim();
+    if (!aa || !bb) return false;
+    if (aa === bb) return true;
+    return normalizeTradingSessionBaseId(aa) === normalizeTradingSessionBaseId(bb);
+  }, [normalizeTradingSessionBaseId]);
+
+  const normalizeTradingRuntimeHours = useCallback((value = tradingRuntimeHours, unit = tradingRuntimeUnit) => {
+    const n = Number(String(value ?? "").replace(",", "."));
+    const safe = Number.isFinite(n) && n > 0 ? n : 24;
+    const u = String(unit || "hours").toLowerCase();
+    const hours = u.startsWith("day") || u === "tage" || u === "days" ? safe * 24 : safe;
+    return Math.max(1, Math.min(24 * 30, Math.round(hours * 100) / 100));
+  }, [tradingRuntimeHours, tradingRuntimeUnit]);
+
+  const normalizeTradingReuseProfitPct = useCallback((value = tradingReuseProfitPct) => {
+    const n = Number(String(value ?? "0").replace(",", "."));
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, Math.round(n * 100) / 100));
+  }, [tradingReuseProfitPct]);
+
+  const normalizeTradingMaxCombinedSlots = useCallback((value = tradingMaxCombinedSlots) => {
+    const n = Number(String(value ?? "2").replace(",", "."));
+    if (!Number.isFinite(n)) return 2;
+    return Math.max(0, Math.min(3, Math.round(n)));
+  }, [tradingMaxCombinedSlots]);
+
+  const getTradingSlotAmountUsd = useCallback((slot = {}) => {
+    const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+    const candidates = [
+      slot.amountUsd,
+      slot.amount_usd,
+      slot.reserved_capital_usd,
+      slot.reservedCapitalUsd,
+      slot.budgetUsd,
+      meta.amountUsd,
+      meta.amount_usd,
+      meta.reserved_capital_usd,
+      meta.paper_position_usd,
+    ];
+    for (const value of candidates) {
+      const n = Number(String(value ?? "").replace(",", "."));
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 0;
+  }, []);
+
+  const getTradingSlotCollectedProfitUsd = useCallback((slot = {}) => {
+    const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+    const candidates = [
+      slot.paper_collected_profit_usd,
+      slot.collected_profit_usd,
+      slot.realized_profit_usd,
+      slot.paper_realized_total_usd,
+      meta.paper_collected_profit_usd,
+      meta.collected_profit_usd,
+      meta.realized_profit_usd,
+      meta.paper_realized_total_usd,
+    ];
+    const nums = candidates
+      .map((value) => Number(String(value ?? "").replace(",", ".")))
+      .filter((n) => Number.isFinite(n));
+    if (!nums.length) return 0;
+    const nonZero = nums.filter((n) => Math.abs(n) > 0.0001);
+    if (!nonZero.length) return 0;
+    // Avoid stale top-level 0 hiding the real value inside meta.
+    return nonZero.reduce((best, n) => Math.abs(n) > Math.abs(best) ? n : best, nonZero[0]);
+  }, []);
+
+  const getTradingSessionProfitUsd = useCallback((sess = {}) => {
+    // Backend slot meta is the most reliable source after Shadow recycle:
+    // each slot keeps its protected/collected profit separately while the
+    // current cycle PnL resets to zero.
+    const q = Array.isArray(sess.queue) ? sess.queue : [];
+    const queueProfit = Number(q.reduce((sum, slot) => sum + getTradingSlotCollectedProfitUsd(slot), 0).toFixed(4));
+
+    const explicit = [
+      sess.collectedProfitUsd,
+      sess.collected_profit_usd,
+      sess.paperCollectedProfitUsd,
+      sess.paper_collected_profit_usd,
+      sess.realizedProfitUsd,
+      sess.realized_profit_usd,
+    ];
+    let explicitProfit = 0;
+    for (const value of explicit) {
+      const n = Number(String(value ?? "").replace(",", "."));
+      if (Number.isFinite(n)) {
+        explicitProfit = n;
+        break;
+      }
+    }
+
+    // Avoid a stale explicit 0 hiding real collected slot profit.
+    if (Math.abs(queueProfit) > 0.0001) return queueProfit;
+    return explicitProfit;
+  }, [getTradingSlotCollectedProfitUsd]);
+
+  const getTradingSessionBudgetUsd = useCallback((sess = {}) => {
+    const explicit = [sess.budgetUsd, sess.approvedBudgetUsd, sess.reservedCapitalUsd, sess.allocatedUsd, sess.amountUsd];
+    for (const value of explicit) {
+      const n = Number(String(value ?? "").replace(",", "."));
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    const q = Array.isArray(sess.queue) ? sess.queue : [];
+    return q.reduce((sum, slot) => sum + getTradingSlotAmountUsd(slot), 0);
+  }, [getTradingSlotAmountUsd]);
+
+  const normalizeTradingAssetToken = useCallback((value = "") => {
+    const raw = String(value || "").trim().toUpperCase();
+    if (!raw || raw === "ASSET") return "";
+    // Some old persisted sessions contain polluted labels like "BNB,POL" or "ETH,POL".
+    // For display/control a Trading session must show exactly one primary chain/asset.
+    const parts = raw.split(/[\s,|/+]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
+    const allowed = ["ETH", "BNB", "POL"];
+    return parts.find((x) => allowed.includes(x)) || parts[0] || "";
+  }, []);
+
+  const getTradingSlotDisplayAsset = useCallback((slot = {}, fallback = "") => {
+    const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+    // IMPORTANT: For Trading/Shadow sessions the visible asset is the slot symbol/asset.
+    // The chain field can be polluted by older backend/UI state or payout-chain defaults
+    // (example: BNB slot with chain=POL). Therefore symbol/asset wins over chain.
+    const candidates = [
+      slot?.symbol,
+      slot?.asset,
+      slot?.baseAsset,
+      slot?.base_asset,
+      meta.symbol,
+      meta.asset,
+      meta.baseAsset,
+      meta.base_asset,
+      fallback,
+      slot?.chain,
+      slot?.chain_key,
+      slot?.network,
+      meta.chain,
+      meta.chain_key,
+      meta.network,
+    ];
+    for (const candidate of candidates) {
+      const token = normalizeTradingAssetToken(candidate);
+      if (token) return token;
+    }
+    return "";
+  }, [normalizeTradingAssetToken]);
+
+  const getTradingSessionPrimaryAsset = useCallback((sess = {}) => {
+    const q = Array.isArray(sess.queue) ? sess.queue : [];
+    const counts = new Map();
+    const addCount = (value, weight = 1) => {
+      const token = normalizeTradingAssetToken(value);
+      if (!token) return;
+      counts.set(token, (counts.get(token) || 0) + weight);
+    };
+
+    // Prefer actual slot symbol/asset. Do NOT let old comma labels or polluted chain fields win.
+    q.forEach((slot) => {
+      const asset = getTradingSlotDisplayAsset(slot);
+      addCount(asset, 10);
+    });
+
+    if (counts.size) {
+      return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0][0];
+    }
+
+    const candidates = [
+      sess.asset,
+      sess.symbol,
+      sess.primaryAsset,
+      sess.primary_asset,
+      ...(Array.isArray(sess.assets) ? sess.assets : []),
+      sess.chain,
+      sess.chain_key,
+      sess.network,
+      ...(Array.isArray(sess.chains) ? sess.chains : []),
+    ];
+    for (const candidate of candidates) {
+      const token = normalizeTradingAssetToken(candidate);
+      if (token) return token;
+    }
+    return "ASSET";
+  }, [normalizeTradingAssetToken, getTradingSlotDisplayAsset]);
+
+  const getTradingSessionAssets = useCallback((sess = {}) => {
+    const primary = getTradingSessionPrimaryAsset(sess);
+    return primary && primary !== "ASSET" ? [primary] : [];
+  }, [getTradingSessionPrimaryAsset]);
+
+  const getTradingSessionSlotCount = useCallback((sess = {}) => {
+    const q = Array.isArray(sess.queue) ? sess.queue : [];
+    const explicit = Number(sess.slots || sess.slotCount || 0);
+    return q.length || (Number.isFinite(explicit) ? explicit : 0);
+  }, []);
+
   const dedupeTradingQueue = useCallback((items = []) => {
     const rows = Array.isArray(items) ? items.filter((x) => x && typeof x === "object") : [];
     const order = [];
     const byKey = new Map();
+    const slotNoOf = (value, fallback = "") => {
+      const raw = String(value ?? fallback ?? "").trim();
+      const m = raw.match(/\d+/);
+      return m ? m[0] : raw;
+    };
 
     rows.forEach((slot, idx) => {
-      const sid = String(getTradingSlotSessionId(slot) || "NO_SESSION").trim();
-      const chain = String(slot?.chain || slot?.chain_key || slot?.network || activeGridChainKey || "NO_CHAIN").toUpperCase().trim();
-      const slotNo = String(slot?.slot || slot?.slot_id || slot?.slotId || idx + 1).trim();
-      const symbol = String(slot?.symbol || slot?.asset || "").toUpperCase().trim();
+      const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+      const sid = String(getTradingSlotSessionId(slot) || meta.session_id || "NO_SESSION").trim() || "NO_SESSION";
+      const chain = String(slot?.chain || slot?.chain_key || slot?.network || meta.chain || activeGridChainKey || "NO_CHAIN").toUpperCase().trim();
+      const slotNo = slotNoOf(slot?.slot || slot?.slot_id || slot?.slotId || meta.slot, idx + 1);
+      const symbol = String(slot?.symbol || slot?.asset || meta.asset || "").toUpperCase().trim();
       const id = String(slot?.id || slot?.queue_id || "").trim();
+      const st = String(slot?.status || slot?.state || "WAIT").toUpperCase();
+      if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED"].includes(st)) return;
 
-      // Queue ids are sometimes regenerated by preview/simulation. For visible cards,
-      // session + chain + slot is the stable identity. This prevents duplicated ETH slots
-      // and prevents a BNB session from inheriting ETH preview rows.
       const key = sid !== "NO_SESSION" && slotNo
         ? `session:${sid}|chain:${chain}|slot:${slotNo}`
         : id
           ? `id:${id}`
-          : `fallback:${chain}|${symbol}|${slotNo}`;
+          : `fallback:${chain}|${symbol}|slot:${slotNo}`;
+
+      const normalized = {
+        ...slot,
+        status: st,
+        state: st,
+        chain,
+        chain_key: chain,
+        session_id: sid !== "NO_SESSION" ? sid : (slot.session_id || ""),
+        sessionId: sid !== "NO_SESSION" ? sid : (slot.sessionId || ""),
+        slot: slotNo,
+        slot_id: slotNo,
+        symbol: symbol || slot.symbol || slot.asset || "",
+        asset: symbol || slot.asset || slot.symbol || "",
+        amountUsd: getTradingSlotAmountUsd(slot),
+        reserved_capital_usd: getTradingSlotAmountUsd(slot),
+      };
 
       if (!byKey.has(key)) order.push(key);
-      byKey.set(key, { ...slot, chain, slot: slot?.slot || slotNo });
+      byKey.set(key, normalized);
     });
 
     return order.map((key) => byKey.get(key)).filter(Boolean);
-  }, [getTradingSlotSessionId, activeGridChainKey]);
+  }, [getTradingSlotSessionId, activeGridChainKey, getTradingSlotAmountUsd, getTradingSlotDisplayAsset]);
+
+  const buildTradingSessionsFromQueue = useCallback((queue = []) => {
+    const rows = Array.isArray(queue) ? queue.filter((x) => x && typeof x === "object") : [];
+    const bySession = new Map();
+    const slotNoOf = (value, fallback = "") => {
+      const raw = String(value ?? fallback ?? "").trim();
+      const m = raw.match(/\d+/);
+      return m ? m[0] : raw;
+    };
+
+    rows.forEach((slot, idx) => {
+      const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+      const rawSid = String(getTradingSlotSessionId(slot) || meta.session_id || meta.trade_session_id || "").trim();
+      const asset = getTradingSlotDisplayAsset(slot, activeGridChainKey || DEFAULT_CHAIN || "");
+      const chain = asset || getTradingSlotDisplayAsset({ chain: slot?.chain || slot?.chain_key || meta.chain }, activeGridChainKey || DEFAULT_CHAIN || "");
+      const baseSid = rawSid || `LEGACY-${asset || chain || "ASSET"}`;
+      // A historical backend session id may contain slots from multiple assets. Split it here.
+      const sid = `${baseSid}::${asset || chain || "ASSET"}`;
+      const st = String(slot?.status || slot?.state || "WAIT").toUpperCase();
+      if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED"].includes(st)) return;
+      const amount = getTradingSlotAmountUsd(slot);
+      const slotNo = slotNoOf(slot?.slot || slot?.slot_id || meta.slot, idx + 1);
+      const existing = bySession.get(sid) || {
+        id: sid,
+        baseSessionId: baseSid,
+        status: "ACTIVE",
+        asset: asset || chain || "ASSET",
+        symbol: asset || chain || "ASSET",
+        chains: asset ? [asset] : (chain ? [chain] : []),
+        queue: [],
+        approvedBudgetUsd: 0,
+        collectedProfitUsd: 0,
+        approvedAt: Number(slot?.created_ts || 0) ? Number(slot.created_ts) * 1000 : Date.now(),
+        updatedAt: Number(slot?.updated_ts || 0) ? Number(slot.updated_ts) * 1000 : Date.now(),
+        restoredFromBackend: true,
+        runtimeHours: Number(slot?.runtime_hours ?? slot?.runtimeHours ?? meta.runtime_hours ?? meta.runtimeHours ?? 0) || undefined,
+        runtime_hours: Number(slot?.runtime_hours ?? slot?.runtimeHours ?? meta.runtime_hours ?? meta.runtimeHours ?? 0) || undefined,
+        reuseProfitPct: Number(slot?.reuseProfitPct ?? slot?.reuse_profit_pct ?? slot?.profitReusePct ?? slot?.profit_reuse_pct ?? meta.reuseProfitPct ?? meta.reuse_profit_pct ?? meta.profitReusePct ?? meta.profit_reuse_pct ?? 0) || 0,
+        reuse_profit_pct: Number(slot?.reuse_profit_pct ?? slot?.reuseProfitPct ?? slot?.profit_reuse_pct ?? slot?.profitReusePct ?? meta.reuse_profit_pct ?? meta.reuseProfitPct ?? meta.profit_reuse_pct ?? meta.profitReusePct ?? 0) || 0,
+        profitReusePct: Number(slot?.profitReusePct ?? slot?.profit_reuse_pct ?? slot?.reuseProfitPct ?? slot?.reuse_profit_pct ?? meta.profitReusePct ?? meta.profit_reuse_pct ?? meta.reuseProfitPct ?? meta.reuse_profit_pct ?? 0) || 0,
+        profit_reuse_pct: Number(slot?.profit_reuse_pct ?? slot?.profitReusePct ?? slot?.reuse_profit_pct ?? slot?.reuseProfitPct ?? meta.profit_reuse_pct ?? meta.profitReusePct ?? meta.reuse_profit_pct ?? meta.reuseProfitPct ?? 0) || 0,
+        maxCombinedSlots: Number(slot?.maxCombinedSlots ?? slot?.max_combined_slots ?? slot?.slotDonorCap ?? slot?.slot_donor_cap ?? meta.maxCombinedSlots ?? meta.max_combined_slots ?? meta.slotDonorCap ?? meta.slot_donor_cap ?? 0) || 0,
+        max_combined_slots: Number(slot?.max_combined_slots ?? slot?.maxCombinedSlots ?? slot?.slot_donor_cap ?? slot?.slotDonorCap ?? meta.max_combined_slots ?? meta.maxCombinedSlots ?? meta.slot_donor_cap ?? meta.slotDonorCap ?? 0) || 0,
+        slotDonorCap: Number(slot?.slotDonorCap ?? slot?.slot_donor_cap ?? slot?.maxCombinedSlots ?? slot?.max_combined_slots ?? meta.slotDonorCap ?? meta.slot_donor_cap ?? meta.maxCombinedSlots ?? meta.max_combined_slots ?? 0) || 0,
+        slot_donor_cap: Number(slot?.slot_donor_cap ?? slot?.slotDonorCap ?? slot?.max_combined_slots ?? slot?.maxCombinedSlots ?? meta.slot_donor_cap ?? meta.slotDonorCap ?? meta.max_combined_slots ?? meta.maxCombinedSlots ?? 0) || 0,
+        expiresAt: (Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts ?? 0) ? Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts) * 1000 : undefined),
+        expires_ts: Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts ?? 0) || undefined,
+      };
+      if (asset && !existing.chains.includes(asset)) existing.chains.push(asset);
+      const slotReusePct = Number(slot?.reuseProfitPct ?? slot?.reuse_profit_pct ?? slot?.profitReusePct ?? slot?.profit_reuse_pct ?? meta.reuseProfitPct ?? meta.reuse_profit_pct ?? meta.profitReusePct ?? meta.profit_reuse_pct ?? NaN);
+      if (Number.isFinite(slotReusePct)) {
+        existing.reuseProfitPct = slotReusePct;
+        existing.reuse_profit_pct = slotReusePct;
+        existing.profitReusePct = slotReusePct;
+        existing.profit_reuse_pct = slotReusePct;
+      }
+      const slotMaxCombined = Number(slot?.maxCombinedSlots ?? slot?.max_combined_slots ?? slot?.slotDonorCap ?? slot?.slot_donor_cap ?? meta.maxCombinedSlots ?? meta.max_combined_slots ?? meta.slotDonorCap ?? meta.slot_donor_cap ?? NaN);
+      if (Number.isFinite(slotMaxCombined)) {
+        existing.maxCombinedSlots = slotMaxCombined;
+        existing.max_combined_slots = slotMaxCombined;
+        existing.slotDonorCap = slotMaxCombined;
+        existing.slot_donor_cap = slotMaxCombined;
+      }
+      const slotRuntimeHours = Number(slot?.runtimeHours ?? slot?.runtime_hours ?? meta.runtimeHours ?? meta.runtime_hours ?? NaN);
+      if (Number.isFinite(slotRuntimeHours) && slotRuntimeHours > 0) {
+        existing.runtimeHours = slotRuntimeHours;
+        existing.runtime_hours = slotRuntimeHours;
+      }
+      const slotExpiresTs = Number(slot?.expires_ts ?? slot?.session_expires_ts ?? meta.expires_ts ?? meta.session_expires_ts ?? NaN);
+      if (Number.isFinite(slotExpiresTs) && slotExpiresTs > 0) {
+        existing.expires_ts = slotExpiresTs;
+        existing.expiresAt = slotExpiresTs * 1000;
+      }
+      existing.approvedBudgetUsd = Number((Number(existing.approvedBudgetUsd || 0) + amount).toFixed(2));
+      existing.collectedProfitUsd = Number((Number(existing.collectedProfitUsd || 0) + getTradingSlotCollectedProfitUsd(slot)).toFixed(4));
+      existing.updatedAt = Math.max(Number(existing.updatedAt || 0), Number(slot?.updated_ts || 0) ? Number(slot.updated_ts) * 1000 : Date.now());
+      existing.queue.push({
+        ...slot,
+        session_id: rawSid || baseSid,
+        sessionId: rawSid || baseSid,
+        trade_session_id: rawSid || baseSid,
+        slot: slotNo,
+        slot_id: slotNo,
+        status: st,
+        state: st,
+        symbol: asset || slot?.symbol || slot?.asset || "",
+        asset: asset || slot?.asset || slot?.symbol || "",
+      });
+      bySession.set(sid, existing);
+    });
+
+    return Array.from(bySession.values()).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+  }, [getTradingSlotSessionId, activeGridChainKey, getTradingSlotAmountUsd, getTradingSlotDisplayAsset, getTradingSlotCollectedProfitUsd]);
 
   // One-time/local cleanup for queues that were polluted by an older Shadow preview merge.
   // This removes duplicated slot cards from localStorage without touching stopped sessions.
@@ -7100,21 +7426,54 @@ useEffect(() => {
   }, [dedupeTradingQueue, setTradingExecutionQueue]);
 
   // Backend-first Trading hydration: backend queue/hold/risk state is authoritative across devices.
+  // Important: do not lose the session dropdown on refresh. The backend queue is the
+  // persisted truth, while tradingSessions is UI metadata reconstructed from that queue.
   useEffect(() => {
     const execQueue = nexusBackendState?.execution?.queue;
     if (Array.isArray(execQueue)) {
-      setTradingExecutionQueue(dedupeTradingQueue(execQueue));
+      const normalizedQueue = dedupeTradingQueue(execQueue);
+      setTradingExecutionQueue(normalizedQueue);
+
+      const restoredSessions = buildTradingSessionsFromQueue(normalizedQueue);
+      if (restoredSessions.length) {
+        setTradingSessions(() => restoredSessions.filter((sess) => {
+          const st = String(sess?.status || "").toUpperCase();
+          return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(st);
+        }));
+        setActiveTradingSessionId((prev) => {
+          const current = String(prev || "").trim();
+          if (current && restoredSessions.some((sess) => String(sess.id) === current)) return current;
+          return String(restoredSessions[0]?.id || current || "");
+        });
+      }
     }
     const holdStatus = String(nexusBackendState?.hold_state?.status || "").toUpperCase();
     if (holdStatus) setTradingSessionStatus(holdStatus);
-  }, [nexusBackendState, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus]);
+  }, [nexusBackendState, dedupeTradingQueue, buildTradingSessionsFromQueue, setTradingExecutionQueue, setTradingSessionStatus]);
 
   const openTradingSessions = useMemo(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
-    return sessions.filter((sess) => {
+    const active = sessions.filter((sess) => {
       const st = String(sess?.status || "").toUpperCase();
-      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(st);
+      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st);
     });
+
+    // IMPORTANT: multiple independent budgets/sessions per chain/asset are allowed.
+    // Do NOT dedupe by asset/chain here. A user can start ETH 500$ + ETH 500$
+    // as two separate signed/approved Trading sessions, and both must remain visible.
+    // Old POL duplicate bugs must be prevented by proper session_id/runtime_id matching
+    // in the queue layer, not by hiding valid sessions with the same asset.
+    const bySessionId = new Map();
+    active.forEach((sess, idx) => {
+      const sid = String(sess?.id || sess?.session_id || sess?.sessionId || sess?.baseSessionId || `SESSION-${idx}`).trim();
+      if (!sid) return;
+      const prev = bySessionId.get(sid);
+      if (!prev || Number(sess?.updatedAt || 0) >= Number(prev?.updatedAt || 0)) {
+        bySessionId.set(sid, sess);
+      }
+    });
+
+    return Array.from(bySessionId.values()).sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
   }, [tradingSessions]);
 
   const stoppedTradingSessions = useMemo(() => {
@@ -7144,6 +7503,8 @@ useEffect(() => {
   }, [openTradingSessions, activeTradingSessionId, activeGridChainKey]);
 
   const selectedTradingSessionId = String(selectedTradingSession?.id || activeTradingSessionId || "").trim();
+
+
 
   const updateTradingSessionMeta = useCallback((sessionId, patch = {}) => {
     const sid = String(sessionId || "").trim();
@@ -7295,13 +7656,16 @@ useEffect(() => {
   const tradingVisibleQueueSummary = useMemo(() => {
     const allQueue = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [];
     const sid = String(selectedTradingSessionId || "").trim();
-    let queue = sid
-      ? allQueue.filter((slot) => String(getTradingSlotSessionId(slot) || "") === sid)
-      : allQueue;
-
-    // Backward compatibility for sessions created before every slot carried a session id.
-    if (!queue.length && selectedTradingSession && Array.isArray(selectedTradingSession.queue)) {
+    let queue = [];
+    // Composite UI sessions (session_id::ASSET) must use the reconstructed session queue.
+    // Filtering only by raw session_id would merge ETH/BNB/POL again.
+    if (selectedTradingSession && Array.isArray(selectedTradingSession.queue)) {
       queue = selectedTradingSession.queue;
+    } else if (sid) {
+      const baseSid = sid.includes("::") ? sid.split("::")[0] : sid;
+      queue = allQueue.filter((slot) => String(getTradingSlotSessionId(slot) || "") === baseSid);
+    } else {
+      queue = allQueue;
     }
 
     const active = queue.filter((slot) => ["ACTIVE", "PROTECT"].includes(String(slot.status || "").toUpperCase()));
@@ -7490,179 +7854,139 @@ useEffect(() => {
     if (!previewRows.length) return false;
 
     const now = Date.now();
-    const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+    const runConfig = shadowRun?.config && typeof shadowRun.config === "object" ? shadowRun.config : {};
+    const sid = String(runConfig.session_id || shadowRun?.summary?.runtime?.session_id || selectedTradingSessionId || activeTradingSessionId || "").trim();
     const visibleRows = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
-    const preferredChain =
+    const chain = String(
+      runConfig.chain ||
       previewRows.find((r) => String(r?.chain || r?.chain_key || r?.network || "").trim())?.chain ||
       visibleRows.find((r) => String(r?.chain || r?.chain_key || r?.network || "").trim())?.chain ||
       activeGridChainKey ||
       DEFAULT_CHAIN ||
-      "";
-    const chain = String(preferredChain || "").toUpperCase().trim();
+      ""
+    ).toUpperCase().trim();
     const runId = String(shadowRun?.run_id || shadowRun?.id || "").trim();
-
-    const keysFor = (slot = {}, idx = 0) => {
-      const slotSession = String(getTradingSlotSessionId(slot) || sid || "").trim();
-      const slotChain = String(slot?.chain || slot?.chain_key || slot?.network || chain || "").toUpperCase().trim();
-      const id = String(slot?.id || slot?.queue_id || "").trim();
-      const slotNo = String(slot?.slot || slot?.slot_id || slot?.slotId || idx + 1).trim();
-      const symbol = String(slot?.symbol || slot?.asset || "").trim().toUpperCase();
-      const out = [];
-      if (id) out.push(`id:${id}`);
-      if (slotSession && slotChain && slotNo) out.push(`session:${slotSession}|chain:${slotChain}|slot:${slotNo}`);
-      if (slotSession && slotChain && slotNo && symbol) out.push(`session:${slotSession}|chain:${slotChain}|slot:${slotNo}|symbol:${symbol}`);
-      return out;
-    };
-
-    const slotSortValue = (slot = {}, idx = 0) => {
-      const raw = String(slot?.slot || slot?.slot_id || slot?.slotId || idx + 1);
+    const slotNoOf = (value, fallback = "") => {
+      const raw = String(value ?? fallback ?? "").trim();
       const m = raw.match(/\d+/);
-      return m ? Number(m[0]) : idx + 1;
+      return m ? m[0] : raw;
     };
 
-    const normalizePreviewSlot = (row = {}, idx = 0) => {
-      const nextStatus = String(row.status || row.state || "WAIT").toUpperCase();
+    const bySlot = new Map();
+    previewRows.forEach((row, idx) => {
+      const meta = row?.meta && typeof row.meta === "object" ? row.meta : {};
+      const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || meta.session_id || sid || "").trim();
+      const rowChain = String(row?.chain || row?.chain_key || row?.network || meta.chain || chain || "").toUpperCase().trim();
+      if (sid && rowSession && rowSession !== sid) return;
+      if (chain && rowChain && rowChain !== chain) return;
+      const slotNo = slotNoOf(row?.slot || row?.slot_id || row?.slotId || meta.slot, idx + 1);
+      if (!slotNo) return;
       const transition = row.shadow_transition && typeof row.shadow_transition === "object" ? row.shadow_transition : {};
-      const rowChain = String(row?.chain || row?.chain_key || row?.network || chain || "").toUpperCase().trim();
-      const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || sid || "").trim();
-      return {
+      const st = String(row.status || row.state || "WAIT").toUpperCase();
+      if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED"].includes(st)) return;
+      const symbol = String(row.symbol || row.asset || meta.asset || "").toUpperCase();
+      const amountUsd = Number(row.amountUsd ?? row.reserved_capital_usd ?? row.amount_usd ?? meta.amountUsd ?? 0);
+      const paperCollected = getTradingSlotCollectedProfitUsd(row);
+      const nextMeta = {
+        ...meta,
+        paper_collected_profit_usd: Math.abs(paperCollected) > 0.0001 ? paperCollected : meta.paper_collected_profit_usd,
+        collected_profit_usd: Math.abs(paperCollected) > 0.0001 ? paperCollected : meta.collected_profit_usd,
+        realized_profit_usd: Math.abs(paperCollected) > 0.0001 ? paperCollected : meta.realized_profit_usd,
+        paper_realized_total_usd: Math.abs(paperCollected) > 0.0001 ? paperCollected : meta.paper_realized_total_usd,
+      };
+      const normalized = {
         ...row,
-        status: nextStatus,
-        state: nextStatus,
-        chain: rowChain,
-        chain_key: rowChain,
-        session_id: rowSession,
+        meta: nextMeta,
+        id: row.id || row.queue_id || `${rowSession || sid || "SESSION"}-${rowChain || chain || "CHAIN"}-${slotNo}-${symbol || "ASSET"}`,
+        queue_id: row.queue_id || row.id || `${rowSession || sid || "SESSION"}-${rowChain || chain || "CHAIN"}-${slotNo}-${symbol || "ASSET"}`,
+        status: st,
+        state: st,
+        chain: rowChain || chain,
+        chain_key: rowChain || chain,
+        session_id: rowSession || sid,
+        sessionId: rowSession || sid,
+        trade_session_id: rowSession || sid,
+        slot: slotNo,
+        slot_id: slotNo,
+        symbol: symbol || row.symbol || row.asset || "",
+        asset: symbol || row.asset || row.symbol || "",
+        amountUsd: Number.isFinite(amountUsd) && amountUsd > 0 ? amountUsd : Number(row.amountUsd || row.reserved_capital_usd || 0),
+        reserved_capital_usd: Number.isFinite(amountUsd) && amountUsd > 0 ? amountUsd : Number(row.reserved_capital_usd || row.amountUsd || 0),
         priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : 0,
         confidence: Number.isFinite(Number(row.confidence)) ? Number(row.confidence) : row.confidence_score,
         confidence_score: Number.isFinite(Number(row.confidence_score)) ? Number(row.confidence_score) : row.confidence,
         risk_score: Number.isFinite(Number(row.risk_score)) ? Number(row.risk_score) : 0,
-        condition: String(transition.reason || row.condition || row.reason || "Shadow updated this slot."),
+        condition: String(transition.reason || row.condition || row.reason || "Strategist updated this slot."),
         shadowTransition: transition,
+        paper_collected_profit_usd: paperCollected,
+        collected_profit_usd: paperCollected,
+        realized_profit_usd: paperCollected,
+        paper_realized_total_usd: paperCollected,
         shadowLastRunId: runId,
         shadowUpdatedAt: now,
       };
-    };
-
-    const previewByKey = new Map();
-    previewRows.forEach((row, idx) => {
-      // Only accept preview rows for the selected session and selected chain.
-      const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || sid || "").trim();
-      const rowChain = String(row?.chain || row?.chain_key || row?.network || chain || "").toUpperCase().trim();
-      if (sid && rowSession && rowSession !== sid) return;
-      if (chain && rowChain && rowChain !== chain) return;
-      keysFor({ ...row, session_id: rowSession, chain: rowChain }, idx).forEach((key) => previewByKey.set(key, row));
+      bySlot.set(String(slotNo), normalized);
     });
 
-    let appliedCount = 0;
-    let hasActive = false;
-    let hasReady = false;
-    let hasProtect = false;
+    const replacement = Array.from(bySlot.values()).sort((a, b) => Number(a.slot || 0) - Number(b.slot || 0));
+    if (!replacement.length) return false;
 
     setTradingExecutionQueue((prev) => {
       const existing = Array.isArray(prev) ? prev : [];
-      const next = existing.map((slot, idx) => {
+      const keep = existing.filter((slot) => {
         const slotSession = String(getTradingSlotSessionId(slot) || "").trim();
         const slotChain = String(slot?.chain || slot?.chain_key || slot?.network || chain || "").toUpperCase().trim();
-        if (sid && slotSession && slotSession !== sid) return slot;
-        if (chain && slotChain && slotChain !== chain) return slot;
-
-        let preview = null;
-        for (const key of keysFor(slot, idx)) {
-          if (previewByKey.has(key)) {
-            preview = previewByKey.get(key);
-            break;
-          }
-        }
-        // Do not fall back to previewRows[idx]. That caused ETH preview rows to be
-        // written into BNB/POL slots and duplicated cards across sessions.
-        if (!preview) return slot;
-
-        const nextStatus = String(preview.status || preview.state || slot.status || "WAIT").toUpperCase();
-        const transition = preview.shadow_transition && typeof preview.shadow_transition === "object" ? preview.shadow_transition : {};
-        const reason = String(transition.reason || preview.condition || preview.reason || slot.condition || "Shadow updated this slot.");
-        appliedCount += 1;
-        if (nextStatus === "ACTIVE") hasActive = true;
-        if (nextStatus === "READY") hasReady = true;
-        if (nextStatus === "PROTECT") hasProtect = true;
-
-        return {
-          ...slot,
-          status: nextStatus,
-          state: nextStatus,
-          chain: slotChain || chain,
-          chain_key: slotChain || chain,
-          priority: Number.isFinite(Number(preview.priority)) ? Number(preview.priority) : Number(slot.priority || 0),
-          confidence: Number.isFinite(Number(preview.confidence)) ? Number(preview.confidence) : (preview.confidence_score ?? slot.confidence),
-          confidence_score: Number.isFinite(Number(preview.confidence_score)) ? Number(preview.confidence_score) : (preview.confidence ?? slot.confidence_score),
-          risk_score: Number.isFinite(Number(preview.risk_score)) ? Number(preview.risk_score) : Number(slot.risk_score || 0),
-          condition: reason,
-          shadowTransition: transition,
-          shadowLastRunId: runId,
-          shadowUpdatedAt: now,
-        };
+        if (sid && slotSession === sid) return false;
+        if (!sid && chain && slotChain === chain) return false;
+        return true;
       });
-      return dedupeTradingQueue(next).slice().sort((a, b) => slotSortValue(a, 0) - slotSortValue(b, 0));
+      return dedupeTradingQueue([...keep, ...replacement]);
     });
 
-    if (appliedCount <= 0) {
-      const replacement = previewRows
-        .map((row, idx) => normalizePreviewSlot(row, idx))
-        .filter((row) => {
-          const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || sid || "").trim();
-          const rowChain = String(row?.chain || row?.chain_key || row?.network || chain || "").toUpperCase().trim();
-          if (sid && rowSession && rowSession !== sid) return false;
-          if (chain && rowChain && rowChain !== chain) return false;
-          return true;
-        })
-        .sort((a, b) => slotSortValue(a, 0) - slotSortValue(b, 0));
-      if (!replacement.length) return false;
-      setTradingExecutionQueue((prev) => {
-        const existing = Array.isArray(prev) ? prev : [];
-        const keep = existing.filter((slot) => {
-          const slotSession = String(getTradingSlotSessionId(slot) || "").trim();
-          const slotChain = String(slot?.chain || slot?.chain_key || slot?.network || chain || "").toUpperCase().trim();
-          if (sid && slotSession && slotSession === sid) return false;
-          if (!sid && chain && slotChain === chain) return false;
-          return true;
-        });
-        return dedupeTradingQueue([...keep, ...replacement]).slice().sort((a, b) => slotSortValue(a, 0) - slotSortValue(b, 0));
-      });
-      appliedCount = replacement.length;
-      hasActive = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "ACTIVE");
-      hasReady = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "READY");
-      hasProtect = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "PROTECT");
-    }
+    const hasActive = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "ACTIVE");
+    const hasReady = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "READY");
+    const hasPaused = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "PAUSED");
+    const hasProtect = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "PROTECT");
+    const nextSessionStatus = hasPaused ? "PAUSED" : hasProtect ? "PROTECT" : hasActive ? "ACTIVE" : hasReady ? "ACTIVE" : "WAIT";
 
-    const nextSessionStatus = hasProtect ? "PROTECT" : hasActive ? "ACTIVE" : hasReady ? "ACTIVE" : "WAIT";
     setTradingSessionStatus(nextSessionStatus);
     setTradingSessionUpdatedTs(now);
+    const replacementCollectedProfitUsd = Number(replacement.reduce((sum, slot) => sum + getTradingSlotCollectedProfitUsd(slot), 0).toFixed(4));
     updateTradingSessionMeta(sid, {
       status: nextSessionStatus,
+      collectedProfitUsd: replacementCollectedProfitUsd,
+      collected_profit_usd: replacementCollectedProfitUsd,
+      paperCollectedProfitUsd: replacementCollectedProfitUsd,
+      paper_collected_profit_usd: replacementCollectedProfitUsd,
       shadowLastRunId: runId,
       shadowAppliedAt: now,
-      shadowAppliedSlots: appliedCount,
+      shadowAppliedSlots: replacement.length,
+      queue: replacement,
     });
     setTradingPreparedSetup((prev) => {
       const base = prev && typeof prev === "object" ? prev : {};
       const previousSession = base.session && typeof base.session === "object" ? base.session : {};
-      const nextSession = {
-        ...previousSession,
-        status: nextSessionStatus,
-        shadowLastRunId: runId,
-        shadowAppliedAt: now,
-        shadowAppliedSlots: appliedCount,
-        userAction: {
-          ...(previousSession.userAction || {}),
-          shadowPreviewApplied: true,
-          sessionId: sid,
+      return {
+        ...base,
+        session: {
+          ...previousSession,
+          status: nextSessionStatus,
+          shadowLastRunId: runId,
+          shadowAppliedAt: now,
+          shadowAppliedSlots: replacement.length,
+          executionQueue: replacement,
+          userAction: {
+            ...(previousSession.userAction || {}),
+            shadowPreviewApplied: true,
+            sessionId: sid,
+          },
+          updatedTs: now,
         },
-        updatedTs: now,
       };
-      return { ...base, session: nextSession };
     });
 
     return true;
-  }, [selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, tradingVisibleQueueSummary, getTradingSlotSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingPreparedSetup]);
+  }, [selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, tradingVisibleQueueSummary, getTradingSlotSessionId, getTradingSlotCollectedProfitUsd, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingPreparedSetup]);
 
   const runShadowExecutorValidation = useCallback(async () => {
     if (!wallet) {
@@ -7678,11 +8002,17 @@ useEffect(() => {
         source: "frontend_trading_panel_test_only",
         config: {
           session_id: selectedTradingSessionId || "",
+          base_session_id: normalizeTradingSessionBaseId(selectedTradingSessionId || ""),
           chain: activeGridChainKey || gridChain || "",
-          runtime_hours: tradingRuntimeHours,
+          runtime_hours: normalizeTradingRuntimeHours(),
+          runtime_unit: tradingRuntimeUnit,
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
           max_slippage_pct: tradingMaxSlippagePct,
+          reuse_profit_pct: normalizeTradingReuseProfitPct(),
+          profit_reuse_pct: normalizeTradingReuseProfitPct(),
+          max_combined_slots: normalizeTradingMaxCombinedSlots(),
+          maxCombinedSlots: normalizeTradingMaxCombinedSlots(),
           // Important: Test is only a read-only validation. It must never rewrite
           // visible slots or clear the live-like Shadow queue.
           persist_state: false,
@@ -7700,7 +8030,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState]);
 
   const runShadowRuntimeAction = useCallback(async (action = "tick") => {
     if (!wallet) {
@@ -7711,17 +8041,30 @@ useEffect(() => {
     setShadowExecutorMsg("");
     try {
       const currentQueue = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+      const sessionMeta = selectedTradingSession && typeof selectedTradingSession === "object" ? selectedTradingSession : {};
+      const sessionExpiresTs = Number(sessionMeta.expires_ts || sessionMeta.session_expires_ts || (sessionMeta.expiresAt ? Math.floor(Number(sessionMeta.expiresAt) / 1000) : 0)) || 0;
+      const sessionRuntimeHours = Number(sessionMeta.runtime_hours || sessionMeta.runtimeHours || normalizeTradingRuntimeHours()) || normalizeTradingRuntimeHours();
+      const sessionReuseProfitPct = Number(sessionMeta.reuseProfitPct ?? sessionMeta.reuse_profit_pct ?? sessionMeta.profitReusePct ?? sessionMeta.profit_reuse_pct ?? normalizeTradingReuseProfitPct()) || 0;
+      const sessionMaxCombinedSlots = Number(sessionMeta.maxCombinedSlots ?? sessionMeta.max_combined_slots ?? sessionMeta.slotDonorCap ?? sessionMeta.slot_donor_cap ?? normalizeTradingMaxCombinedSlots()) || 0;
       const body = {
         action,
         source: "frontend_shadow_runtime",
         config: {
           action,
           session_id: selectedTradingSessionId || "",
+          base_session_id: normalizeTradingSessionBaseId(selectedTradingSessionId || ""),
           chain: activeGridChainKey || gridChain || "",
-          runtime_hours: tradingRuntimeHours,
+          runtime_hours: sessionRuntimeHours,
+          runtime_unit: tradingRuntimeUnit,
+          expires_ts: sessionExpiresTs || undefined,
+          session_expires_ts: sessionExpiresTs || undefined,
           max_trades: tradingMaxTrades,
           risk_mode: tradingRiskMode,
           max_slippage_pct: tradingMaxSlippagePct,
+          reuse_profit_pct: sessionReuseProfitPct,
+          profit_reuse_pct: sessionReuseProfitPct,
+          max_combined_slots: sessionMaxCombinedSlots,
+          maxCombinedSlots: sessionMaxCombinedSlots,
           persist_state: true,
         },
       };
@@ -7732,8 +8075,20 @@ useEffect(() => {
       const res = await api(`/api/nexus/shadow/executor`, { method: "POST", wallet, body });
       const shadowRun = res?.run || null;
       const shadowQueue = Array.isArray(shadowRun?.queue) ? shadowRun.queue : [];
-      applyShadowQueuePreview(shadowQueue, shadowRun);
       const runtimeStatus = String(res?.runtime_status || shadowRun?.summary?.runtime_status || shadowRun?.summary?.runtime?.status || action || "updated").toUpperCase();
+
+      if (String(action || "").toLowerCase() === "stop") {
+        const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+        setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).filter((slot) => !tradingSessionIdMatches(getTradingSlotSessionId(slot), sid)));
+        updateTradingSessionMeta(sid, { status: "STOPPED", stoppedAt: Date.now(), active: false, queue: [] });
+        const remainingOpen = (Array.isArray(openTradingSessions) ? openTradingSessions : []).filter((sess) => !tradingSessionIdMatches(sess?.id, sid));
+        setActiveTradingSessionId(String(remainingOpen?.[0]?.id || ""));
+        setTradingSessionStatus("PREPARED");
+        setTradingSessionUpdatedTs(Date.now());
+      } else {
+        applyShadowQueuePreview(shadowQueue, shadowRun);
+      }
+
       setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun });
       const strategist = shadowRun?.summary?.runtime?.strategist || {};
       const extra = strategist?.driver ? ` Strategist: ${strategist.active_slots ?? 0} active, ${strategist.ready_slots ?? 0} ready, ${strategist.simulated_exits ?? 0} exited.` : "";
@@ -7744,7 +8099,7 @@ useEffect(() => {
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSession, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingSessionIdMatches, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
 
   useEffect(() => {
     const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
@@ -7893,11 +8248,47 @@ useEffect(() => {
     }
     const now = Date.now();
     const sessionId = makeNexusSessionId("TRD");
+    const runtimeHoursNum = normalizeTradingRuntimeHours();
+    const reuseProfitPctNum = normalizeTradingReuseProfitPct();
+    const maxCombinedSlotsNum = normalizeTradingMaxCombinedSlots();
+    const sessionStartedAt = now;
+    const sessionExpiresAt = now + Math.round(runtimeHoursNum * 3600 * 1000);
+    const sessionExpiresTs = Math.floor(sessionExpiresAt / 1000);
     setActiveTradingSessionId(sessionId);
     const queue = buildTradingQueue();
     let activatedOne = false;
     const activeQueue = (Array.isArray(queue) ? queue : []).map((slot, idx) => {
-      let next = { ...slot, session_id: sessionId, sessionId, trade_session_id: sessionId };
+      const slotMeta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+      let next = {
+        ...slot,
+        session_id: sessionId,
+        sessionId,
+        trade_session_id: sessionId,
+        runtime_hours: runtimeHoursNum,
+        reuse_profit_pct: reuseProfitPctNum,
+        profit_reuse_pct: reuseProfitPctNum,
+        max_combined_slots: maxCombinedSlotsNum,
+        maxCombinedSlots: maxCombinedSlotsNum,
+        slot_donor_cap: maxCombinedSlotsNum,
+        session_started_ts: Math.floor(sessionStartedAt / 1000),
+        session_expires_ts: sessionExpiresTs,
+        expires_ts: sessionExpiresTs,
+        expiresAt: sessionExpiresAt,
+        meta: {
+          ...slotMeta,
+          session_id: sessionId,
+          trade_session_id: sessionId,
+          runtime_hours: runtimeHoursNum,
+          reuse_profit_pct: reuseProfitPctNum,
+          profit_reuse_pct: reuseProfitPctNum,
+          max_combined_slots: maxCombinedSlotsNum,
+          maxCombinedSlots: maxCombinedSlotsNum,
+          slot_donor_cap: maxCombinedSlotsNum,
+          session_started_ts: Math.floor(sessionStartedAt / 1000),
+          session_expires_ts: sessionExpiresTs,
+          expires_ts: sessionExpiresTs,
+        },
+      };
       if (slot.status === "READY") {
         activatedOne = true;
         next = { ...next, status: "ACTIVE", activatedAt: now };
@@ -7928,6 +8319,18 @@ useEffect(() => {
           chains,
           status: activeQueue.some((s) => String(s.status || "").toUpperCase() === "ACTIVE") ? "ACTIVE" : "WAIT",
           slots: activeQueue.length,
+          runtimeHours: runtimeHoursNum,
+          runtime_hours: runtimeHoursNum,
+          reuseProfitPct: reuseProfitPctNum,
+          reuse_profit_pct: reuseProfitPctNum,
+          profitReusePct: reuseProfitPctNum,
+          profit_reuse_pct: reuseProfitPctNum,
+          maxCombinedSlots: maxCombinedSlotsNum,
+          max_combined_slots: maxCombinedSlotsNum,
+          slotDonorCap: maxCombinedSlotsNum,
+          slot_donor_cap: maxCombinedSlotsNum,
+          expiresAt: sessionExpiresAt,
+          expires_ts: sessionExpiresTs,
           createdAt: now,
           updatedAt: now,
         },
@@ -7942,6 +8345,18 @@ useEffect(() => {
       approvedBudgetUsd: tradingBudgetUsd,
       approvedAt: now,
       startedAt: now,
+      runtimeHours: runtimeHoursNum,
+      runtime_hours: runtimeHoursNum,
+      reuseProfitPct: reuseProfitPctNum,
+      reuse_profit_pct: reuseProfitPctNum,
+      profitReusePct: reuseProfitPctNum,
+      profit_reuse_pct: reuseProfitPctNum,
+      maxCombinedSlots: maxCombinedSlotsNum,
+      max_combined_slots: maxCombinedSlotsNum,
+      slotDonorCap: maxCombinedSlotsNum,
+      slot_donor_cap: maxCombinedSlotsNum,
+      expiresAt: sessionExpiresAt,
+      expires_ts: sessionExpiresTs,
       holdHours: clampTradingHoldHours(tradingHoldHours),
       observeMaxHours: 12,
       preflight: tradingPreflight,
@@ -7979,7 +8394,16 @@ useEffect(() => {
             reserved_capital_usd: Number(slot?.reserved_capital_usd || slot?.amountUsd || 0),
             session_id: sessionId,
             trade_session_id: sessionId,
-            meta: { ...(slot?.meta || {}), session_id: sessionId, source: "frontend_budget_approval" },
+            runtime_hours: runtimeHoursNum,
+            reuse_profit_pct: reuseProfitPctNum,
+            profit_reuse_pct: reuseProfitPctNum,
+            max_combined_slots: maxCombinedSlotsNum,
+            maxCombinedSlots: maxCombinedSlotsNum,
+            slot_donor_cap: maxCombinedSlotsNum,
+            session_started_ts: Math.floor(sessionStartedAt / 1000),
+            session_expires_ts: sessionExpiresTs,
+            expires_ts: sessionExpiresTs,
+            meta: { ...(slot?.meta || {}), session_id: sessionId, trade_session_id: sessionId, runtime_hours: runtimeHoursNum, reuse_profit_pct: reuseProfitPctNum, profit_reuse_pct: reuseProfitPctNum, max_combined_slots: maxCombinedSlotsNum, maxCombinedSlots: maxCombinedSlotsNum, slot_donor_cap: maxCombinedSlotsNum, session_started_ts: Math.floor(sessionStartedAt / 1000), session_expires_ts: sessionExpiresTs, expires_ts: sessionExpiresTs, source: "frontend_budget_approval" },
             signals: slot?.signals || {},
             reason: slot?.condition || slot?.reason || "Created from approved Trading session.",
           },
@@ -7990,7 +8414,7 @@ useEffect(() => {
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
     setErrorMsg(`Trading session created: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Enter the next budget and approve/sign again when you want another independent session.`);
-  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, normalizeTradingRuntimeHours, normalizeTradingReuseProfitPct, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
 
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;
@@ -8050,9 +8474,9 @@ useEffect(() => {
     setTradingExecutionQueue((prev) => {
       const all = Array.isArray(prev) ? prev : [];
       stoppedQueue = all
-        .filter((slot) => String(getTradingSlotSessionId(slot) || "") === sid)
+        .filter((slot) => tradingSessionIdMatches(getTradingSlotSessionId(slot), sid))
         .map((slot) => ({ ...slot, status: "STOPPED", stoppedAt: now, closedAt: now }));
-      return all.filter((slot) => String(getTradingSlotSessionId(slot) || "") !== sid);
+      return all.filter((slot) => !tradingSessionIdMatches(getTradingSlotSessionId(slot), sid));
     });
 
     setTradingSessionStatus("PREPARED");
@@ -8060,7 +8484,7 @@ useEffect(() => {
     updateTradingSessionMeta(sid, { status: "STOPPED", stoppedAt: now, closedAt: now, active: false });
 
     const remainingOpen = (Array.isArray(openTradingSessions) ? openTradingSessions : [])
-      .filter((sess) => String(sess?.id || "") !== sid);
+      .filter((sess) => !tradingSessionIdMatches(sess?.id, sid));
     setActiveTradingSessionId(String(remainingOpen?.[0]?.id || ""));
 
     updateTradingPreparedSession({
@@ -8077,9 +8501,9 @@ useEffect(() => {
 
     api("/api/nexus/trading/hold-state", {
       method: "POST",
-      body: { action: "stop", queue: [], stopped_queue: stoppedQueue, reason: "user_stop_session", session_id: sid },
+      body: { action: "stop", queue: [], stopped_queue: stoppedQueue, reason: "user_stop_session", session_id: sid, base_session_id: normalizeTradingSessionBaseId(sid), chain: activeGridChainKey || DEFAULT_CHAIN || "" },
     }).catch(() => {});
-  }, [tradingCanStop, selectedTradingSessionId, activeTradingSessionId, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession, openTradingSessions, setActiveTradingSessionId]);
+  }, [tradingCanStop, selectedTradingSessionId, activeTradingSessionId, getTradingSlotSessionId, tradingSessionIdMatches, normalizeTradingSessionBaseId, activeGridChainKey, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession, openTradingSessions, setActiveTradingSessionId]);
 
   const handleTradingReleaseCapital = useCallback(() => {
     if (!tradingCanReleaseCapital) return;
@@ -8446,6 +8870,7 @@ useEffect(() => {
     setTradingProfitLockPct(String(clamp(base.profit + adj.profit, 8, 40)));
     setTradingMaxSlippagePct(String(clamp(Number((base.slip + adj.slip).toFixed(1)), 0.3, 3)));
     setTradingMaxTrades(String(clamp(base.trades + adj.trades, 1, 15)));
+    setTradingMaxCombinedSlots(String(risk === "DYNAMIC" ? 3 : risk === "DEFENSIVE" ? 1 : 2));
   }, [
     tradingConfidenceMin,
     setTradingRiskMode,
@@ -8455,6 +8880,7 @@ useEffect(() => {
     setTradingProfitLockPct,
     setTradingMaxSlippagePct,
     setTradingMaxTrades,
+    setTradingMaxCombinedSlots,
   ]);
 
   const handleTradingRiskModeChange = useCallback((value) => {
@@ -8691,6 +9117,8 @@ useEffect(() => {
       const serverIndex = state?.indexMode == null ? true : !!state.indexMode;
       const serverAi = Array.isArray(state?.aiSelected) ? state.aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
       const serverUi = state?.ui && typeof state.ui === "object" ? state.ui : {};
+      const serverTradingSessions = Array.isArray(serverUi.tradingSessions) ? serverUi.tradingSessions.filter((x) => x && typeof x === "object") : [];
+      const serverActiveTradingSessionId = String(serverUi.activeTradingSessionId || "").trim();
       const neverSynced = String(appStateSyncedWallet || "").toLowerCase() !== String(wa || "").toLowerCase();
       const localCompare = Array.isArray(compareSet) ? compareSet.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
       const localAi = Array.isArray(aiSelected) ? aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
@@ -8718,6 +9146,7 @@ useEffect(() => {
         if (serverUi.gridChain != null) setGridChain(String(serverUi.gridChain || DEFAULT_CHAIN || "POL").toUpperCase());
         if (serverUi.gridItem != null) setGridItem(String(serverUi.gridItem || "").toUpperCase());
         if (serverUi.tradingRuntimeHours != null) setTradingRuntimeHours(String(serverUi.tradingRuntimeHours));
+        if (serverUi.tradingRuntimeUnit != null) setTradingRuntimeUnit(String(serverUi.tradingRuntimeUnit || "hours"));
         if (serverUi.tradingHoldHours != null) setTradingHoldHours(String(serverUi.tradingHoldHours));
         if (serverUi.tradingAllowedAssets != null) setTradingAllowedAssets(String(serverUi.tradingAllowedAssets));
         if (serverUi.tradingAllowedChains != null) setTradingAllowedChains(String(serverUi.tradingAllowedChains));
@@ -8725,12 +9154,18 @@ useEffect(() => {
         if (serverUi.tradingCautionDrawdownPct != null) setTradingCautionDrawdownPct(String(serverUi.tradingCautionDrawdownPct));
         if (serverUi.tradingHardStopPct != null) setTradingHardStopPct(String(serverUi.tradingHardStopPct));
         if (serverUi.tradingProfitLockPct != null) setTradingProfitLockPct(String(serverUi.tradingProfitLockPct));
+        if (serverUi.tradingReuseProfitPct != null) setTradingReuseProfitPct(String(serverUi.tradingReuseProfitPct));
+        if (serverUi.tradingMaxCombinedSlots != null) setTradingMaxCombinedSlots(String(serverUi.tradingMaxCombinedSlots));
         if (serverUi.tradingMaxSlippagePct != null) setTradingMaxSlippagePct(String(serverUi.tradingMaxSlippagePct));
         if (serverUi.tradingMaxTrades != null) setTradingMaxTrades(String(serverUi.tradingMaxTrades));
         if (serverUi.tradingConfidenceMin != null) setTradingConfidenceMin(String(serverUi.tradingConfidenceMin));
         if (serverUi.tradingStyle != null) setTradingStyle(String(serverUi.tradingStyle));
         if (serverUi.tradingBudgetUsd != null) setTradingBudgetUsd(String(serverUi.tradingBudgetUsd));
         if (serverUi.tradingBudgetSplitInput != null) setTradingBudgetSplitInput(String(serverUi.tradingBudgetSplitInput));
+        if (serverTradingSessions.length) {
+          setTradingSessions(serverTradingSessions);
+          if (serverActiveTradingSessionId) setActiveTradingSessionId(serverActiveTradingSessionId);
+        }
       }
       if (serverUpdatedTs) storeAppStateServerTs(serverUpdatedTs);
       setAppStateSyncedWallet(wa);
@@ -8765,6 +9200,7 @@ useEffect(() => {
         gridChain: String(activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase(),
         gridItem: String(gridItem || "").toUpperCase(),
         tradingRuntimeHours,
+        tradingRuntimeUnit,
         tradingHoldHours,
         tradingAllowedAssets,
         tradingAllowedChains,
@@ -8772,12 +9208,16 @@ useEffect(() => {
         tradingCautionDrawdownPct,
         tradingHardStopPct,
         tradingProfitLockPct,
+        tradingReuseProfitPct,
+        tradingMaxCombinedSlots,
         tradingMaxSlippagePct,
         tradingMaxTrades,
         tradingConfidenceMin,
         tradingStyle,
         tradingBudgetUsd,
         tradingBudgetSplitInput,
+        tradingSessions: (Array.isArray(tradingSessions) ? tradingSessions : []).slice(0, 30),
+        activeTradingSessionId,
       },
     };
     const t = setTimeout(async () => {
@@ -8794,7 +9234,7 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -10258,7 +10698,8 @@ setGridBusy((s) => ({ ...s, stop: true }));
         session_id: activeTradingSessionId || makeNexusSessionId("TRDORDER"),
         trade_session_id: activeTradingSessionId || "",
         trading_style: tradingStyle,
-        trading_runtime_hours: tradingRuntimeHours,
+        trading_runtime_hours: normalizeTradingRuntimeHours(),
+        trading_runtime_unit: tradingRuntimeUnit,
         trading_hold_hours: clampTradingHoldHours(tradingHoldHours),
         trading_observe_max_hours: 12,
         trading_risk_mode: tradingRiskMode,
@@ -10270,7 +10711,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
         execution_queue: tradingExecutionQueue,
       },
     });
-  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingHoldHours, clampTradingHoldHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, activeTradingSessionId, makeNexusSessionId, addCoreOrderFromModule]);
+  }, [tradingAllowedChains, tradingAllowedAssets, activeGridChainKey, gridItem, tradingBudgetUsd, tradingBudgetSplitInput, tradingExecutionQueue, parseTradingBudgetSplits, getNexusOrderPriceUsd, tradingStyle, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, tradingHoldHours, clampTradingHoldHours, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxTrades, activeTradingSessionId, makeNexusSessionId, addCoreOrderFromModule]);
 
   async function addManualOrder(opts = {}) {
     setErrorMsg("");
@@ -14724,7 +15165,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 position: "absolute",
                 top: 52,
                 right: 0,
-                width: 340,
+                width: "min(340px, calc(100vw - 24px))",
+                maxHeight: "min(84vh, 760px)",
+                overflowY: "auto",
+                overscrollBehavior: "contain",
+                WebkitOverflowScrolling: "touch",
                 background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
                 border: "none",
                 borderRadius: 14,
@@ -14937,7 +15382,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>{"Could not load balances."}</div>
               )}
 
-              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+              <div
+                style={{
+                  marginTop: 10,
+                  display: "grid",
+                  gap: 8,
+                  maxHeight: showAllWalletChains ? "36vh" : "none",
+                  overflowY: showAllWalletChains ? "auto" : "visible",
+                  paddingRight: showAllWalletChains ? 4 : 0,
+                  overscrollBehavior: "contain",
+                  WebkitOverflowScrolling: "touch",
+                }}
+              >
                 {(showAllWalletChains ? walletChainKeys : [balActiveChain || DEFAULT_CHAIN]).map((chainRaw) => {
                   const c = normalizeWalletChainKey(chainRaw);
                   const row = balByChain?.[c] || {};
@@ -17720,11 +18176,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const px = Number(activeGridNativeUsd || 0);
                           const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
                           const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
-                          const tradingAllocatedUsd = (Array.isArray(openTradingSessions) ? openTradingSessions : []).reduce((sum, sess) => {
+                          const activeTradingSessions = (Array.isArray(openTradingSessions) ? openTradingSessions : []);
+                          const tradingAllocatedUsd = activeTradingSessions.reduce((sum, sess) => {
                             const st = String(sess?.status || "").toUpperCase();
                             if (["RELEASED", "CLOSED", "EXPIRED"].includes(st)) return sum;
-                            return sum + (Number(sess?.budgetUsd) || 0);
+                            return sum + getTradingSessionBudgetUsd(sess);
                           }, 0);
+                          const tradingCollectedProfitUsd = activeTradingSessions.reduce((sum, sess) => sum + getTradingSessionProfitUsd(sess), 0);
                           const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - tradingAllocatedUsd);
                           const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + tradingAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
                           return (
@@ -17733,7 +18191,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Grid allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div><b>Trading allocated:</b> {tradingAllocatedUsd ? fmtUsd(tradingAllocatedUsd) : "$0.00"}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
-                              <div style={{ gridColumn: isCompactMobile ? "auto" : "1 / -1" }}><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
+                              <div style={{ color: tradingCollectedProfitUsd >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}><b>Collected Profit:</b> {`${tradingCollectedProfitUsd >= 0 ? "+" : "-"}${fmtUsd(Math.abs(tradingCollectedProfitUsd))}`}</div>
+                              <div><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
                             </>
                           );
                         })()}
@@ -17759,7 +18218,36 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                       <div className="formRow">
                         <label>Runtime (h)</label>
-                        <input value={tradingRuntimeHours} onChange={(e) => setTradingRuntimeHours(e.target.value)} placeholder="24" />
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 6 }}>
+                          <input value={tradingRuntimeHours} onChange={(e) => setTradingRuntimeHours(e.target.value)} placeholder="24" />
+                          <select value={tradingRuntimeUnit} onChange={(e) => setTradingRuntimeUnit(e.target.value)} title="Runtime unit">
+                            <option value="hours">hours</option>
+                            <option value="days">day</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="formRow">
+                        <label>Reuse Profit %</label>
+                        <input
+                          value={tradingReuseProfitPct}
+                          onChange={(e) => setTradingReuseProfitPct(e.target.value)}
+                          onBlur={() => setTradingReuseProfitPct(String(normalizeTradingReuseProfitPct()))}
+                          placeholder="0"
+                          title="How much collected profit may be reused by the Strategist. 0% protects all profit; 100% compounds all profit."
+                        />
+                      </div>
+                      <div className="formRow">
+                        <label>Max Combined Slots</label>
+                        <select
+                          value={tradingMaxCombinedSlots}
+                          onChange={(e) => setTradingMaxCombinedSlots(e.target.value)}
+                          title="Maximum number of other slots whose capital the Strategist may combine into one stronger slot. 0 disables internal slot-capital rotation."
+                        >
+                          <option value="0">0 - off</option>
+                          <option value="1">1 slot</option>
+                          <option value="2">2 slots</option>
+                          <option value="3">3 slots</option>
+                        </select>
                       </div>
                       <div className="formRow">
                         <label>Capital HOLD (1-12h)</label>
@@ -17913,7 +18401,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ display: "grid", gap: 6 }}>
                           {tradingVisibleQueueSummary.queue.map((slot) => (
                             <div
-                              key={slot.id || `${slot.slot}-${slot.amountUsd}`}
+                              key={`${getTradingSlotSessionId(slot) || selectedTradingSessionId || "session"}-${slot.chain || slot.chain_key || "chain"}-${slot.slot || slot.slot_id || slot.id || "slot"}`}
                               style={(() => {
                                 const st = String(slot.status || "").toUpperCase();
                                 const isGreen = ["ACTIVE", "READY", "EXECUTED"].includes(st);
@@ -17933,7 +18421,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               })()}
                             >
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                                <b style={{ color: "#eafff5" }}>Slot {slot.slot} · {fmtUsd(Number(slot.amountUsd || 0))}</b>
+                                <b style={{ color: "#eafff5" }}>Slot {slot.slot} · {fmtUsd(getTradingSlotAmountUsd(slot))}</b>
                                 <span
                                   className="tiny"
                                   style={{
@@ -17942,7 +18430,47 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   }}
                                 >{String(slot.status || "WAIT").toUpperCase()} · priority {Math.round(Number(slot.priority || 0))}</span>
                               </div>
-                              <div className="muted tiny">{slot.symbol || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition}</div>
+                              <div className="muted tiny">{slot.symbol || slot.asset || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition || slot.reason}</div>
+                              {(() => {
+                                const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+                                const pnlPct = Number(slot.paper_pnl_pct ?? meta.paper_pnl_pct);
+                                const pnlUsd = Number(slot.paper_pnl_usd ?? meta.paper_pnl_usd);
+                                const grossPnl = Number(slot.paper_gross_pnl_usd ?? meta.paper_gross_pnl_usd ?? pnlUsd);
+                                const netPnl = Number(slot.paper_net_pnl_usd ?? meta.paper_net_pnl_usd);
+                                const estCosts = Number(slot.paper_estimated_costs_usd ?? meta.paper_estimated_costs_usd);
+                                const estGas = Number(slot.paper_estimated_gas_usd ?? meta.paper_estimated_gas_usd);
+                                const estDex = Number(slot.paper_estimated_dex_fee_usd ?? meta.paper_estimated_dex_fee_usd);
+                                const estSlip = Number(slot.paper_estimated_slippage_usd ?? meta.paper_estimated_slippage_usd);
+                                const pnlTotal = Number(slot.paper_cycle_realized_usd ?? meta.paper_cycle_realized_usd ?? slot.paper_pnl_total_usd ?? meta.paper_pnl_total_usd);
+                                const entryPx = Number(slot.paper_entry_price ?? meta.paper_entry_price);
+                                const markPx = Number(slot.paper_mark_price ?? meta.paper_mark_price);
+                                const exitPx = Number(slot.paper_exit_price ?? meta.paper_exit_price);
+                                if (!Number.isFinite(pnlPct) && !Number.isFinite(pnlUsd) && !Number.isFinite(pnlTotal) && !Number.isFinite(entryPx) && !Number.isFinite(markPx) && !Number.isFinite(exitPx)) return null;
+                                const effectivePnl = Number.isFinite(netPnl) ? netPnl : (Number.isFinite(pnlUsd) ? pnlUsd : pnlPct);
+                                const positive = effectivePnl >= 0;
+                                return (
+                                  <div style={{ display: "grid", gap: 2 }}>
+                                    <div className="tiny" style={{ color: positive ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
+                                      Paper PnL: {Number.isFinite(pnlPct) ? `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : "—"}
+                                      {Number.isFinite(grossPnl) ? ` · gross ${grossPnl >= 0 ? "+" : ""}${fmtUsd(Math.abs(grossPnl))}` : ""}
+                                      {Number.isFinite(estCosts) && estCosts > 0 ? ` · costs -${fmtUsd(estCosts)}` : ""}
+                                      {Number.isFinite(netPnl) ? ` · net ${netPnl >= 0 ? "+" : ""}${fmtUsd(Math.abs(netPnl))}` : ""}
+                                      {Number.isFinite(pnlTotal) ? ` · cycle ${pnlTotal >= 0 ? "+" : ""}${fmtUsd(Math.abs(pnlTotal))}` : ""}
+                                    </div>
+                                    {Number.isFinite(estCosts) && estCosts > 0 ? (
+                                      <div className="muted tiny" style={{ color: "#ffd166" }}>
+                                        Estimated costs: Gas {Number.isFinite(estGas) ? fmtUsd(estGas) : "—"} · DEX {Number.isFinite(estDex) ? fmtUsd(estDex) : "—"} · Slippage {Number.isFinite(estSlip) ? fmtUsd(estSlip) : "—"}
+                                      </div>
+                                    ) : null}
+                                    {(Number.isFinite(entryPx) || Number.isFinite(markPx) || Number.isFinite(exitPx)) ? (
+                                      <div className="muted tiny">
+                                        Paper price / Kurs: Entry {Number.isFinite(entryPx) ? fmtUsd(entryPx) : "—"} · Current {Number.isFinite(markPx) ? fmtUsd(markPx) : "—"}{Number.isFinite(exitPx) ? ` · Exit ${fmtUsd(exitPx)}` : ""}
+                                        <span style={{ opacity: 0.72 }}> · not slot capital</span>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })()}
                               {["PROTECT", "HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(String(slot.status || "").toUpperCase()) ? (
                                 <div className="muted tiny" style={{ display: "grid", gap: 4 }}>
                                   <div>
@@ -18064,7 +18592,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         >
                           {openTradingSessions.slice(0, 20).map((sess) => {
                             const sid = String(sess?.id || "");
-                            const label = `${(sess.assets || []).join(",") || "ASSET"} · ${fmtUsd(Number(sess.budgetUsd || 0))} · ${sess.slots || 0} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
+                            const primaryAsset = getTradingSessionPrimaryAsset(sess);
+                            const sessionProfit = getTradingSessionProfitUsd(sess);
+                            const profitLabel = `${sessionProfit >= 0 ? "+" : "-"}${fmtUsd(Math.abs(sessionProfit))}`;
+                            const label = `${primaryAsset || "ASSET"} · ${fmtUsd(getTradingSessionBudgetUsd(sess))} · Profit ${profitLabel} · ${getTradingSessionSlotCount(sess)} slots · ${String(sess.status || "ACTIVE").toUpperCase()} · ${sid.slice(0, 18)}`;
                             return <option key={sid || `session-${sess?.createdAt || Math.random()}`} value={sid}>{label}</option>;
                           })}
                         </select>
@@ -18079,7 +18610,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               gap: 3,
                             }}
                           >
-                            <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{(selectedTradingSession.assets || []).join(",") || "ASSET"} · {fmtUsd(Number(selectedTradingSession.budgetUsd || 0))} · {selectedTradingSession.slots || 0} slots</div>
+                            <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{getTradingSessionPrimaryAsset(selectedTradingSession) || "ASSET"} · {fmtUsd(getTradingSessionBudgetUsd(selectedTradingSession))} · {getTradingSessionSlotCount(selectedTradingSession)} slots</div>
+                            <div className="muted tiny" style={{ color: getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}>Session Profit: {`${getTradingSessionProfitUsd(selectedTradingSession) >= 0 ? "+" : "-"}${fmtUsd(Math.abs(getTradingSessionProfitUsd(selectedTradingSession)))}`}</div>
+                            <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Reuse Profit: {Number(selectedTradingSession?.reuseProfitPct ?? selectedTradingSession?.reuse_profit_pct ?? selectedTradingSession?.profitReusePct ?? selectedTradingSession?.profit_reuse_pct ?? 0).toFixed(0)}% allowed</div>
+                            <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Max Combined Slots: {Number(selectedTradingSession?.maxCombinedSlots ?? selectedTradingSession?.max_combined_slots ?? selectedTradingSession?.slotDonorCap ?? selectedTradingSession?.slot_donor_cap ?? 0).toFixed(0)}</div>
                             <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                               {tradingCanPause ? (

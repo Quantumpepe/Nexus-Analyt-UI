@@ -853,19 +853,23 @@ async function api(
     return true;
   });
 
-  const makeHeaders = (bearer) => {
+  const makeHeaders = (bearer, requestPath = "") => {
     const headers = { Accept: "application/json" };
 
-    // Only send Content-Type when we actually send a JSON body
+    // Only send Content-Type when we actually send a JSON body.
     if (body != null && method !== "GET") {
       headers["Content-Type"] = "application/json";
     }
 
     if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
 
-    if (wa) {
+    // Important for request volume:
+    // GET requests already receive wallet + wallet_address as query params via withWalletQuery().
+    // Adding a custom X-Wallet-Address header to every GET turns simple GETs into CORS preflight
+    // pairs (OPTIONS + GET). That doubled/throttled the app with thousands of network rows.
+    // Keep the wallet header only for non-GET requests where JSON body actions may need it.
+    if (wa && method !== "GET") {
       headers["X-Wallet-Address"] = wa;
-      headers["x-wallet-address"] = wa;
     }
 
     return headers;
@@ -900,12 +904,23 @@ async function api(
 
     try {
       const requestPath = withWalletQuery(path, wa);
+      const safeBody =
+        body && typeof body === "object" && !Array.isArray(body)
+          ? (() => {
+              const next = { ...body };
+              for (const key of ["wallet", "wallet_address", "walletAddress"]) {
+                if (next[key]) next[key] = resolveWalletAddress(next[key]) || wa || "";
+              }
+              return next;
+            })()
+          : body;
+
       return await fetch(`${API_BASE}${requestPath}`, {
         method,
         signal: merged.signal,
-        headers: makeHeaders(bearer),
+        headers: makeHeaders(bearer, requestPath),
         credentials: "include",
-        body: body ? JSON.stringify(body) : undefined,
+        body: safeBody ? JSON.stringify(safeBody) : undefined,
       });
     } finally {
       clearTimeout(tm);
@@ -1062,13 +1077,30 @@ async function fetchSubscribeConfig() {
 
 function useInterval(fn, ms, enabled = true) {
   const fnRef = useRef(fn);
+  const inFlightRef = useRef(false);
+
   useEffect(() => {
     fnRef.current = fn;
   }, [fn]);
 
   useEffect(() => {
     if (!enabled || !ms) return;
-    const id = setInterval(() => fnRef.current?.(), ms);
+
+    const tick = async () => {
+      // Do not poll aggressively while the browser tab is hidden.
+      if (typeof document !== "undefined" && document.hidden) return;
+
+      // Prevent stacked requests when the previous async poll is still pending.
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+      try {
+        await fnRef.current?.();
+      } finally {
+        inFlightRef.current = false;
+      }
+    };
+
+    const id = setInterval(tick, ms);
     return () => clearInterval(id);
   }, [ms, enabled]);
 }
@@ -4696,18 +4728,11 @@ const byChain = {};
   }, [walletModalOpen, wallet]);
 
   // watchlist
-  const [watchItems, setWatchItems] = useLocalStorageState("nexus_watch_items", []);
-  const [watchRows, setWatchRows] = useState(() => {
-    try {
-      const raw = localStorage.getItem(LS_WATCH_ROWS_CACHE);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [watchItems, setWatchItems] = useState([]);
+  const [watchRows, setWatchRows] = useState([]);
   const [watchDragKey, setWatchDragKey] = useState("");
   const [watchDropKey, setWatchDropKey] = useState("");
-  const [watchSortMode, setWatchSortMode] = useLocalStorageState("nexus_watch_sort_mode", "manual"); // manual | winner | loser
+  const [watchSortMode, setWatchSortMode] = useState("manual"); // manual | winner | loser
   const [ratingModal, setRatingModal] = useState({ open: false, row: null, symbol: "", systemRating: "", systemScore: 0 });
   const [ratingStatus, setRatingStatus] = useState(null);
   const [ratingBusy, setRatingBusy] = useState(false);
@@ -4718,12 +4743,36 @@ const byChain = {};
   const [marketConditionBySymbol, setMarketConditionBySymbol] = useState({});
   const [activeWhaleNews, setActiveWhaleNews] = useState(null);
 
-  const [watchSyncedWallet, setWatchSyncedWallet] = useLocalStorageState("nexus_watch_synced_wallet", "");
-  const [appStateSyncedWallet, setAppStateSyncedWallet] = useLocalStorageState("nexus_app_state_synced_wallet", "");
+  const [watchSyncedWallet, setWatchSyncedWallet] = useState("");
+  const [appStateSyncedWallet, setAppStateSyncedWallet] = useState("");
   const watchSyncBusyRef = useRef(false);
+  const watchApplyingServerRef = useRef(false);
+  const watchDirtyRef = useRef(false);
+  const watchLastServerTsRef = useRef((() => {
+    try { return Number(localStorage.getItem("nexus_watch_server_updated_ts") || 0) || 0; } catch { return 0; }
+  })());
+  const storeWatchServerTs = useCallback((ts) => {
+    const n = Number(ts || 0);
+    if (!Number.isFinite(n) || n <= 0) return;
+    watchLastServerTsRef.current = Math.max(Number(watchLastServerTsRef.current || 0), n);
+    try { localStorage.setItem("nexus_watch_server_updated_ts", String(watchLastServerTsRef.current)); } catch {}
+  }, []);
+  const markWatchDirty = useCallback(() => {
+    if (!watchApplyingServerRef.current) watchDirtyRef.current = true;
+  }, []);
   const appStateHydratedRef = useRef(false);
   const prevWalletRef = useRef(String(wallet || "").toLowerCase());
   const appStateSyncBusyRef = useRef(false);
+  const appStateApplyingServerRef = useRef(false);
+  const appStateLastServerTsRef = useRef((() => {
+    try { return Number(localStorage.getItem("nexus_app_state_server_updated_ts") || 0) || 0; } catch { return 0; }
+  })());
+  const storeAppStateServerTs = useCallback((ts) => {
+    const n = Number(ts || 0);
+    if (!Number.isFinite(n) || n <= 0) return;
+    appStateLastServerTsRef.current = Math.max(Number(appStateLastServerTsRef.current || 0), n);
+    try { localStorage.setItem("nexus_app_state_server_updated_ts", String(appStateLastServerTsRef.current)); } catch {}
+  }, []);
   const normalizeWatchItems = useCallback((items) => {
     const arr = Array.isArray(items) ? items : [];
     const out = [];
@@ -4771,7 +4820,7 @@ const byChain = {};
 
   const saveWatchlistToServer = useCallback(async (itemsArg) => {
     const wa = resolveWalletAddress(wallet);
-    if (!wa) return;
+    if (!wa) return null;
     try {
       const normalized = normalizeWatchItems(itemsArg);
 
@@ -4800,16 +4849,20 @@ const byChain = {};
         };
       });
 
-      await api(`/api/watchlist?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, {
+      const res = await api(`/api/watchlist?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, {
         method: "POST",
         token,
         wallet: wa,
         body: { wallet: wa, wallet_address: wa, items: clean },
       });
+      storeWatchServerTs(res?.updated_ts);
+      watchDirtyRef.current = false;
+      return res;
     } catch (e) {
       console.warn("watchlist save failed", e);
+      return null;
     }
-  }, [wallet, token, normalizeWatchItems]);
+  }, [wallet, token, normalizeWatchItems, storeWatchServerTs]);
 
   const syncWatchlistFromServer = useCallback(async () => {
     const wa = resolveWalletAddress(wallet);
@@ -4829,35 +4882,45 @@ const byChain = {};
 
       const serverItems = normalizeWatchItems(r?.items || []);
       const localItems = normalizeWatchItems(watchItems || []);
+      const serverUpdatedTs = Number(r?.updated_ts || 0) || 0;
+      const lastSeenServerTs = Number(watchLastServerTsRef.current || 0) || 0;
 
       const sig = (arr) => JSON.stringify((arr || []).map((x) => _watchKeyFromItem(x)).filter(Boolean));
       const serverSig = sig(serverItems);
       const localSig = sig(localItems);
       const neverSynced = String(watchSyncedWallet || "").toLowerCase() !== String(wa || "").toLowerCase();
 
-      if (neverSynced && !serverItems.length && localItems.length) {
-        await saveWatchlistToServer(localItems);
-        setWatchSyncedWallet(wa);
-        fetchWatchSnapshot(localItems, { force: true, user: false });
-        return;
+      // Backend is the cross-device source of truth. Empty server watchlist is authoritative too.
+      // LocalStorage must never re-upload old device items during hydration.
+      const serverIsNewerOrDifferent = true;
+
+      if (serverIsNewerOrDifferent && !watchDirtyRef.current) {
+        // Server wins for normal hydration/sync. This is what makes desktop -> mobile and mobile -> desktop reliable.
+        // Clear local tombstones for items that exist on the server, otherwise a coin re-added on another device can stay hidden.
+        try { serverItems.forEach((it) => _clearTombstone(_watchKeyFromItem(it))); } catch {}
+        if (serverSig !== localSig) {
+          watchApplyingServerRef.current = true;
+          setWatchItems(serverItems);
+          watchApplyingServerRef.current = false;
+        }
+        storeWatchServerTs(serverUpdatedTs);
       }
 
-      // Once a wallet has synced, server is the source of truth — even when empty.
-      if (serverSig !== localSig || (!serverItems.length && localItems.length) || (serverItems.length && !localItems.length)) {
-        setWatchItems(serverItems);
-        try { localStorage.setItem("nexus_watch_items", JSON.stringify(serverItems)); } catch {}
-      }
       setWatchSyncedWallet(wa);
       fetchWatchSnapshot(serverItems, { force: true, user: false });
+      setCompareForceNonce((n) => n + 1);
     } catch (e) {
       console.warn("watchlist sync failed", e);
       fetchWatchSnapshot();
     } finally {
       watchSyncBusyRef.current = false;
+      watchApplyingServerRef.current = false;
     }
-  }, [wallet, token, watchItems, normalizeWatchItems, setWatchItems, watchSyncedWallet, setWatchSyncedWallet, saveWatchlistToServer]);
+  }, [wallet, token, watchItems, normalizeWatchItems, setWatchItems, watchSyncedWallet, setWatchSyncedWallet, saveWatchlistToServer, storeWatchServerTs]);
 
-  // Persist local watchlist edits to the backend so desktop/mobile stay in sync.
+  // Persist local watchlist edits explicitly in add/remove/reorder handlers.
+  // Do NOT autosave every watchItems change: server hydration also changes watchItems,
+  // and autosaving that can overwrite newer changes from the other device.
   const watchItemsPersistKey = useMemo(() => {
     try {
       return JSON.stringify(normalizeWatchItems(watchItems || []).map(_watchKeyFromItem).filter(Boolean));
@@ -4867,16 +4930,8 @@ const byChain = {};
   }, [watchItems, normalizeWatchItems]);
 
   useEffect(() => {
-    const wa = resolveWalletAddress(wallet);
-    if (!wa) return;
-    const items = normalizeWatchItems(watchItems || []);
-    const t = setTimeout(() => {
-      saveWatchlistToServer(items)
-        .then(() => setWatchSyncedWallet(wa))
-        .catch((e) => console.warn("watchlist autosave failed", e));
-    }, 450);
-    return () => clearTimeout(t);
-  }, [wallet, watchItemsPersistKey, saveWatchlistToServer, normalizeWatchItems, setWatchSyncedWallet]);
+    // Kept intentionally as a no-op dependency anchor for future explicit sync diagnostics.
+  }, [watchItemsPersistKey]);
 
   const watchSortValue = useCallback((row) => {
     const raw = row?.change24h ?? row?.chg_24h ?? row?.usd_24h_change ?? row?.change_24h;
@@ -5171,7 +5226,7 @@ const byChain = {};
   }, [ratingStatus]);
 
 
-  const [compareSet, setCompareSet] = useLocalStorageState("nexus_compare_set", []);
+  const [compareSet, setCompareSet] = useState([]);
   const compareSymbols = useMemo(() => {
     const uniq = [];
     for (const s of compareSet || []) {
@@ -5223,7 +5278,7 @@ const byChain = {};
   const lineClassForSym = (sym) => `line${(ensureColorSlot(sym) % PALETTE20.length) + 1}`;
 
   // compare/chart
-  const [timeframe, setTimeframe] = useLocalStorageState("nexus_timeframe", "90D");
+  const [timeframe, setTimeframe] = useState("90D");
   const compareFetchRange = useMemo(() => _compareFetchRange(timeframe), [timeframe]);
   const PAIR_EXPLAIN_TF = "30D";
 
@@ -6483,7 +6538,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compareSymbols.join("|")]);
 
-  const [indexMode, setIndexMode] = useLocalStorageState("nexus_index_mode", true);
+  const [indexMode, setIndexMode] = useState(true);
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [comparePage, setComparePage] = useState("all"); // first10 | next10 | all
   const [highlightedSyms, setHighlightedSyms] = useState([]);
@@ -6636,21 +6691,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   // grid (manual)
   // Grid UI works with symbols; backend grid endpoints are keyed by item_id.
-  const [gridChain, setGridChain] = useState(() => {
-    try {
-      return String(localStorage.getItem("nexus_grid_chain") || localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN || "POL").toUpperCase();
-    } catch (_) {
-      return String(DEFAULT_CHAIN || "POL").toUpperCase();
-    }
-  });
-  const [gridItem, setGridItem] = useState(() => {
-    try {
-      const chain = String(localStorage.getItem("nexus_grid_chain") || localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN || "POL").toUpperCase();
-      return localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${chain}`) || chain;
-    } catch (_) {
-      return DEFAULT_CHAIN;
-    }
-  });
+  const [gridChain, setGridChain] = useState(() => String(DEFAULT_CHAIN || "POL").toUpperCase());
+  const [gridItem, setGridItem] = useState(() => String(DEFAULT_CHAIN || "POL").toUpperCase());
   const [rotationSelectedPick, setRotationSelectedPick] = useState(null);
   const [rotationShowAllRecommendations, setRotationShowAllRecommendations] = useState(false);
   const [rotationNetworkScope, setRotationNetworkScope] = useState("ALL");
@@ -6672,10 +6714,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
 
   // Multi-session support: each later budget approval becomes an independent user-bounded session.
   // Existing sessions are preserved; new Trading/Rotation sessions get their own session_id.
-  const [tradingSessions, setTradingSessions] = useLocalStorageState("nexus_trading_sessions_v1", []);
-  const [activeTradingSessionId, setActiveTradingSessionId] = useLocalStorageState("nexus_trading_active_session_id", "");
-  const [rotationSessions, setRotationSessions] = useLocalStorageState("nexus_rotation_sessions_v1", []);
-  const [activeRotationSessionId, setActiveRotationSessionId] = useLocalStorageState("nexus_rotation_active_session_id", "");
+  const [tradingSessions, setTradingSessions] = useState([]);
+  const [activeTradingSessionId, setActiveTradingSessionId] = useState("");
+  const [rotationSessions, setRotationSessions] = useState([]);
+  const [activeRotationSessionId, setActiveRotationSessionId] = useState("");
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
@@ -6975,72 +7017,97 @@ useEffect(() => {
     }
   }, [gridUiHydrated, gridWalletCoins, gridItem]);
 
-  // Restore the saved Grid coin per selected network only.
+  // Backend-first: selected Grid chain/item are synchronized via /api/app-state.
+  // LocalStorage is not used as an authority here; fallback selection only happens when the server has no value.
   useEffect(() => {
     if (!gridUiHydrated) return;
-    const ck = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
     const cur = String(gridItem || "").toUpperCase();
     if (cur && gridWalletCoins.includes(cur)) return;
-
-    try {
-      const savedForChain = String(localStorage.getItem(`${LS_GRID_COIN_PREFIX}:${ck}`) || "").toUpperCase();
-      if (savedForChain && gridWalletCoins.includes(savedForChain)) {
-        setGridItem(savedForChain);
-        return;
-      }
-    } catch (_) {}
-
     if (gridWalletCoins.length) setGridItem(gridWalletCoins[0]);
-  }, [gridUiHydrated, activeGridChainKey, gridWalletCoins, gridItem]);
-
-  // Persist selected Grid network and selected coin per network.
-  useEffect(() => {
-    if (!gridUiHydrated) return;
-    const ck = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-    const sym = String(gridItem || "").toUpperCase();
-    try { localStorage.setItem("nexus_grid_chain", ck); } catch (_) {}
-    if (sym) {
-      try { localStorage.setItem(`${LS_GRID_COIN_PREFIX}:${ck}`, sym); } catch (_) {}
-    }
-  }, [gridUiHydrated, activeGridChainKey, gridItem]);
+  }, [gridUiHydrated, gridWalletCoins, gridItem]);
 
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
-  const [gridMode, setGridMode] = useState(() => {
-    try { return localStorage.getItem("nexus_grid_mode") || "normal"; } catch (_) { return "normal"; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem("nexus_grid_mode", gridMode); } catch (_) {}
-  }, [gridMode]);
+  const [gridMode, setGridMode] = useState("normal");
 
-  const [tradingBudgetUsd, setTradingBudgetUsd] = useLocalStorageState("nexus_trading_budget_usd", "");
-  const [tradingBudgetSplitInput, setTradingBudgetSplitInput] = useLocalStorageState("nexus_trading_budget_splits", "");
-  const [tradingExecutionQueue, setTradingExecutionQueue] = useLocalStorageState("nexus_trading_execution_queue", []);
-  const [tradingRuntimeHours, setTradingRuntimeHours] = useLocalStorageState("nexus_trading_runtime_hours", "24");
-  const [tradingHoldHours, setTradingHoldHours] = useLocalStorageState("nexus_trading_hold_hours", "1");
-  const [tradingAllowedAssets, setTradingAllowedAssets] = useLocalStorageState("nexus_trading_allowed_assets", "");
-  const [tradingAllowedChains, setTradingAllowedChains] = useLocalStorageState("nexus_trading_allowed_chains", "POL,BNB,ETH");
-  const [tradingRiskMode, setTradingRiskMode] = useLocalStorageState("nexus_trading_risk_mode", "BALANCED");
-  const [tradingCautionDrawdownPct, setTradingCautionDrawdownPct] = useLocalStorageState("nexus_trading_caution_drawdown_pct", "3");
-  const [tradingHardStopPct, setTradingHardStopPct] = useLocalStorageState("nexus_trading_hard_stop_pct", "12");
-  const [tradingProfitLockPct, setTradingProfitLockPct] = useLocalStorageState("nexus_trading_profit_lock_pct", "20");
-  const [tradingMaxSlippagePct, setTradingMaxSlippagePct] = useLocalStorageState("nexus_trading_max_slippage_pct", "1.2");
-  const [tradingMaxTrades, setTradingMaxTrades] = useLocalStorageState("nexus_trading_max_trades", "6");
-  const [tradingConfidenceMin, setTradingConfidenceMin] = useLocalStorageState("nexus_trading_confidence_min", "MEDIUM");
-  const [tradingStyle, setTradingStyle] = useLocalStorageState("nexus_trading_style", "TACTICAL");
-  const [tradingPreparedSetup, setTradingPreparedSetup] = useLocalStorageState("nexus_trading_prepared_setup", null);
-  const [tradingLearningSetups, setTradingLearningSetups] = useLocalStorageState("nexus_trading_learning_setups", []);
-  const [tradingRiskExpanded, setTradingRiskExpanded] = useLocalStorageState("nexus_trading_risk_expanded", false);
-  const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useLocalStorageState("nexus_rotation_recommendations_expanded", false);
-  const [tradingSessionStatus, setTradingSessionStatus] = useLocalStorageState("nexus_trading_session_status", "PREPARED");
-  const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useLocalStorageState("nexus_trading_session_updated_ts", 0);
+  const [tradingBudgetUsd, setTradingBudgetUsd] = useState("");
+  const [tradingBudgetSplitInput, setTradingBudgetSplitInput] = useState("");
+  const [tradingExecutionQueue, setTradingExecutionQueue] = useState([]);
+  const [tradingRuntimeHours, setTradingRuntimeHours] = useState("24");
+  const [tradingHoldHours, setTradingHoldHours] = useState("1");
+  const [tradingAllowedAssets, setTradingAllowedAssets] = useState("");
+  const [tradingAllowedChains, setTradingAllowedChains] = useState("POL,BNB,ETH");
+  const [tradingRiskMode, setTradingRiskMode] = useState("BALANCED");
+  const [tradingCautionDrawdownPct, setTradingCautionDrawdownPct] = useState("3");
+  const [tradingHardStopPct, setTradingHardStopPct] = useState("12");
+  const [tradingProfitLockPct, setTradingProfitLockPct] = useState("20");
+  const [tradingMaxSlippagePct, setTradingMaxSlippagePct] = useState("1.2");
+  const [tradingMaxTrades, setTradingMaxTrades] = useState("6");
+  const [tradingConfidenceMin, setTradingConfidenceMin] = useState("MEDIUM");
+  const [tradingStyle, setTradingStyle] = useState("TACTICAL");
+  const [tradingPreparedSetup, setTradingPreparedSetup] = useState(null);
+  const [tradingLearningSetups, setTradingLearningSetups] = useState([]);
+  const [tradingRiskExpanded, setTradingRiskExpanded] = useState(false);
+  const [rotationRecommendationsExpanded, setRotationRecommendationsExpanded] = useState(false);
+  const [tradingSessionStatus, setTradingSessionStatus] = useState("PREPARED");
+  const [tradingSessionUpdatedTs, setTradingSessionUpdatedTs] = useState(0);
 
   const tradingHoldStateHydratedRef = useRef(false);
+  const tradingRiskRequestRef = useRef({ key: "", ts: 0, inFlight: false });
 
   const tradingSessionLabel = String(tradingSessionStatus || "PREPARED").toUpperCase();
 
   const getTradingSlotSessionId = useCallback((slot = {}) => {
     return String(slot?.session_id || slot?.sessionId || slot?.trade_session_id || "").trim();
   }, []);
+
+  const dedupeTradingQueue = useCallback((items = []) => {
+    const rows = Array.isArray(items) ? items.filter((x) => x && typeof x === "object") : [];
+    const order = [];
+    const byKey = new Map();
+
+    rows.forEach((slot, idx) => {
+      const sid = String(getTradingSlotSessionId(slot) || "NO_SESSION").trim();
+      const chain = String(slot?.chain || slot?.chain_key || slot?.network || activeGridChainKey || "NO_CHAIN").toUpperCase().trim();
+      const slotNo = String(slot?.slot || slot?.slot_id || slot?.slotId || idx + 1).trim();
+      const symbol = String(slot?.symbol || slot?.asset || "").toUpperCase().trim();
+      const id = String(slot?.id || slot?.queue_id || "").trim();
+
+      // Queue ids are sometimes regenerated by preview/simulation. For visible cards,
+      // session + chain + slot is the stable identity. This prevents duplicated ETH slots
+      // and prevents a BNB session from inheriting ETH preview rows.
+      const key = sid !== "NO_SESSION" && slotNo
+        ? `session:${sid}|chain:${chain}|slot:${slotNo}`
+        : id
+          ? `id:${id}`
+          : `fallback:${chain}|${symbol}|${slotNo}`;
+
+      if (!byKey.has(key)) order.push(key);
+      byKey.set(key, { ...slot, chain, slot: slot?.slot || slotNo });
+    });
+
+    return order.map((key) => byKey.get(key)).filter(Boolean);
+  }, [getTradingSlotSessionId, activeGridChainKey]);
+
+  // One-time/local cleanup for queues that were polluted by an older Shadow preview merge.
+  // This removes duplicated slot cards from localStorage without touching stopped sessions.
+  useEffect(() => {
+    setTradingExecutionQueue((prev) => {
+      const existing = Array.isArray(prev) ? prev : [];
+      const next = dedupeTradingQueue(existing);
+      if (next.length === existing.length) return prev;
+      return next;
+    });
+  }, [dedupeTradingQueue, setTradingExecutionQueue]);
+
+  // Backend-first Trading hydration: backend queue/hold/risk state is authoritative across devices.
+  useEffect(() => {
+    const execQueue = nexusBackendState?.execution?.queue;
+    if (Array.isArray(execQueue)) {
+      setTradingExecutionQueue(dedupeTradingQueue(execQueue));
+    }
+    const holdStatus = String(nexusBackendState?.hold_state?.status || "").toUpperCase();
+    if (holdStatus) setTradingSessionStatus(holdStatus);
+  }, [nexusBackendState, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus]);
 
   const openTradingSessions = useMemo(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
@@ -7062,8 +7129,19 @@ useEffect(() => {
     const sessions = Array.isArray(openTradingSessions) ? openTradingSessions : [];
     if (!sessions.length) return null;
     const activeId = String(activeTradingSessionId || "").trim();
-    return sessions.find((sess) => String(sess?.id || "") === activeId) || sessions[0] || null;
-  }, [openTradingSessions, activeTradingSessionId]);
+    const active = sessions.find((sess) => String(sess?.id || "") === activeId);
+    if (active) return active;
+
+    // Prefer a session that belongs to the currently selected Trading/Grid chain.
+    // Without this, switching POL/BNB/ETH can show the wrong session or an empty panel.
+    const chain = String(activeGridChainKey || DEFAULT_CHAIN || "").toUpperCase().trim();
+    const sameChain = chain
+      ? sessions.find((sess) => (Array.isArray(sess?.chains) ? sess.chains : [])
+          .map((x) => String(x || "").toUpperCase().trim())
+          .includes(chain))
+      : null;
+    return sameChain || sessions[0] || null;
+  }, [openTradingSessions, activeTradingSessionId, activeGridChainKey]);
 
   const selectedTradingSessionId = String(selectedTradingSession?.id || activeTradingSessionId || "").trim();
 
@@ -7177,6 +7255,8 @@ useEffect(() => {
         slot: idx + 1,
         amountUsd: Number(Number(amount).toFixed(2)),
         symbol,
+        chain: activeGridChainKey,
+        chain_key: activeGridChainKey,
         status,
         priority: Math.max(0, Math.min(100, priorityBase - idx * 8)),
         condition,
@@ -7197,6 +7277,7 @@ useEffect(() => {
     tradingAllowedAssets,
     gridItem,
     activeGridChainSymbol,
+    activeGridChainKey,
   ]);
 
   const tradingQueueSummary = useMemo(() => {
@@ -7384,10 +7465,204 @@ useEffect(() => {
 
   const tradingCanApprove = !!tradingPreflight.ok;
   const tradingCanStart = false;
-  const tradingCanPause = ["ACTIVE", "PROTECT"].includes(selectedTradingSessionLabel);
-  const tradingCanResume = selectedTradingSessionLabel === "PAUSED";
-  const tradingCanStop = ["ARMED", "ACTIVE", "PROTECT", "PAUSED", "WAIT"].includes(selectedTradingSessionLabel);
-  const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(selectedTradingSessionLabel);
+
+  // Controls must be based on the selected Trading session first, not only on
+  // temporary Shadow slot states. A Shadow run can promote slots or keep cards
+  // in WAIT while the approved session itself is still open/active. If controls
+  // follow only slot labels, Pause/Stop can disappear although capital/session
+  // control must remain available.
+  const selectedTradingSessionStatus = String(selectedTradingSession?.status || "").toUpperCase();
+  const selectedTradingSessionIsOpen = !!selectedTradingSession && !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(selectedTradingSessionStatus);
+  const selectedSessionHasRuntimeQueue = Array.isArray(tradingVisibleQueueSummary?.queue) && tradingVisibleQueueSummary.queue.length > 0;
+  const selectedControlStatus = selectedTradingSessionStatus || selectedTradingSessionLabel;
+
+  const tradingCanPause =
+    ["ACTIVE", "PROTECT", "READY"].includes(selectedControlStatus) ||
+    (selectedTradingSessionIsOpen && selectedSessionHasRuntimeQueue && !["PAUSED", "HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED", "PREPARED"].includes(selectedControlStatus));
+  const tradingCanResume = selectedControlStatus === "PAUSED";
+  const tradingCanStop =
+    ["ARMED", "ACTIVE", "PROTECT", "PAUSED", "WAIT", "READY"].includes(selectedControlStatus) ||
+    (selectedTradingSessionIsOpen && selectedSessionHasRuntimeQueue);
+  const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(selectedControlStatus);
+
+  const applyShadowQueuePreview = useCallback((shadowQueue = [], shadowRun = null) => {
+    const previewRows = Array.isArray(shadowQueue) ? shadowQueue.filter((x) => x && typeof x === "object") : [];
+    if (!previewRows.length) return false;
+
+    const now = Date.now();
+    const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+    const visibleRows = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+    const preferredChain =
+      previewRows.find((r) => String(r?.chain || r?.chain_key || r?.network || "").trim())?.chain ||
+      visibleRows.find((r) => String(r?.chain || r?.chain_key || r?.network || "").trim())?.chain ||
+      activeGridChainKey ||
+      DEFAULT_CHAIN ||
+      "";
+    const chain = String(preferredChain || "").toUpperCase().trim();
+    const runId = String(shadowRun?.run_id || shadowRun?.id || "").trim();
+
+    const keysFor = (slot = {}, idx = 0) => {
+      const slotSession = String(getTradingSlotSessionId(slot) || sid || "").trim();
+      const slotChain = String(slot?.chain || slot?.chain_key || slot?.network || chain || "").toUpperCase().trim();
+      const id = String(slot?.id || slot?.queue_id || "").trim();
+      const slotNo = String(slot?.slot || slot?.slot_id || slot?.slotId || idx + 1).trim();
+      const symbol = String(slot?.symbol || slot?.asset || "").trim().toUpperCase();
+      const out = [];
+      if (id) out.push(`id:${id}`);
+      if (slotSession && slotChain && slotNo) out.push(`session:${slotSession}|chain:${slotChain}|slot:${slotNo}`);
+      if (slotSession && slotChain && slotNo && symbol) out.push(`session:${slotSession}|chain:${slotChain}|slot:${slotNo}|symbol:${symbol}`);
+      return out;
+    };
+
+    const slotSortValue = (slot = {}, idx = 0) => {
+      const raw = String(slot?.slot || slot?.slot_id || slot?.slotId || idx + 1);
+      const m = raw.match(/\d+/);
+      return m ? Number(m[0]) : idx + 1;
+    };
+
+    const normalizePreviewSlot = (row = {}, idx = 0) => {
+      const nextStatus = String(row.status || row.state || "WAIT").toUpperCase();
+      const transition = row.shadow_transition && typeof row.shadow_transition === "object" ? row.shadow_transition : {};
+      const rowChain = String(row?.chain || row?.chain_key || row?.network || chain || "").toUpperCase().trim();
+      const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || sid || "").trim();
+      return {
+        ...row,
+        status: nextStatus,
+        state: nextStatus,
+        chain: rowChain,
+        chain_key: rowChain,
+        session_id: rowSession,
+        priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : 0,
+        confidence: Number.isFinite(Number(row.confidence)) ? Number(row.confidence) : row.confidence_score,
+        confidence_score: Number.isFinite(Number(row.confidence_score)) ? Number(row.confidence_score) : row.confidence,
+        risk_score: Number.isFinite(Number(row.risk_score)) ? Number(row.risk_score) : 0,
+        condition: String(transition.reason || row.condition || row.reason || "Shadow updated this slot."),
+        shadowTransition: transition,
+        shadowLastRunId: runId,
+        shadowUpdatedAt: now,
+      };
+    };
+
+    const previewByKey = new Map();
+    previewRows.forEach((row, idx) => {
+      // Only accept preview rows for the selected session and selected chain.
+      const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || sid || "").trim();
+      const rowChain = String(row?.chain || row?.chain_key || row?.network || chain || "").toUpperCase().trim();
+      if (sid && rowSession && rowSession !== sid) return;
+      if (chain && rowChain && rowChain !== chain) return;
+      keysFor({ ...row, session_id: rowSession, chain: rowChain }, idx).forEach((key) => previewByKey.set(key, row));
+    });
+
+    let appliedCount = 0;
+    let hasActive = false;
+    let hasReady = false;
+    let hasProtect = false;
+
+    setTradingExecutionQueue((prev) => {
+      const existing = Array.isArray(prev) ? prev : [];
+      const next = existing.map((slot, idx) => {
+        const slotSession = String(getTradingSlotSessionId(slot) || "").trim();
+        const slotChain = String(slot?.chain || slot?.chain_key || slot?.network || chain || "").toUpperCase().trim();
+        if (sid && slotSession && slotSession !== sid) return slot;
+        if (chain && slotChain && slotChain !== chain) return slot;
+
+        let preview = null;
+        for (const key of keysFor(slot, idx)) {
+          if (previewByKey.has(key)) {
+            preview = previewByKey.get(key);
+            break;
+          }
+        }
+        // Do not fall back to previewRows[idx]. That caused ETH preview rows to be
+        // written into BNB/POL slots and duplicated cards across sessions.
+        if (!preview) return slot;
+
+        const nextStatus = String(preview.status || preview.state || slot.status || "WAIT").toUpperCase();
+        const transition = preview.shadow_transition && typeof preview.shadow_transition === "object" ? preview.shadow_transition : {};
+        const reason = String(transition.reason || preview.condition || preview.reason || slot.condition || "Shadow updated this slot.");
+        appliedCount += 1;
+        if (nextStatus === "ACTIVE") hasActive = true;
+        if (nextStatus === "READY") hasReady = true;
+        if (nextStatus === "PROTECT") hasProtect = true;
+
+        return {
+          ...slot,
+          status: nextStatus,
+          state: nextStatus,
+          chain: slotChain || chain,
+          chain_key: slotChain || chain,
+          priority: Number.isFinite(Number(preview.priority)) ? Number(preview.priority) : Number(slot.priority || 0),
+          confidence: Number.isFinite(Number(preview.confidence)) ? Number(preview.confidence) : (preview.confidence_score ?? slot.confidence),
+          confidence_score: Number.isFinite(Number(preview.confidence_score)) ? Number(preview.confidence_score) : (preview.confidence ?? slot.confidence_score),
+          risk_score: Number.isFinite(Number(preview.risk_score)) ? Number(preview.risk_score) : Number(slot.risk_score || 0),
+          condition: reason,
+          shadowTransition: transition,
+          shadowLastRunId: runId,
+          shadowUpdatedAt: now,
+        };
+      });
+      return dedupeTradingQueue(next).slice().sort((a, b) => slotSortValue(a, 0) - slotSortValue(b, 0));
+    });
+
+    if (appliedCount <= 0) {
+      const replacement = previewRows
+        .map((row, idx) => normalizePreviewSlot(row, idx))
+        .filter((row) => {
+          const rowSession = String(getTradingSlotSessionId(row) || row?.session_id || row?.sessionId || sid || "").trim();
+          const rowChain = String(row?.chain || row?.chain_key || row?.network || chain || "").toUpperCase().trim();
+          if (sid && rowSession && rowSession !== sid) return false;
+          if (chain && rowChain && rowChain !== chain) return false;
+          return true;
+        })
+        .sort((a, b) => slotSortValue(a, 0) - slotSortValue(b, 0));
+      if (!replacement.length) return false;
+      setTradingExecutionQueue((prev) => {
+        const existing = Array.isArray(prev) ? prev : [];
+        const keep = existing.filter((slot) => {
+          const slotSession = String(getTradingSlotSessionId(slot) || "").trim();
+          const slotChain = String(slot?.chain || slot?.chain_key || slot?.network || chain || "").toUpperCase().trim();
+          if (sid && slotSession && slotSession === sid) return false;
+          if (!sid && chain && slotChain === chain) return false;
+          return true;
+        });
+        return dedupeTradingQueue([...keep, ...replacement]).slice().sort((a, b) => slotSortValue(a, 0) - slotSortValue(b, 0));
+      });
+      appliedCount = replacement.length;
+      hasActive = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "ACTIVE");
+      hasReady = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "READY");
+      hasProtect = replacement.some((x) => String(x.status || x.state || "").toUpperCase() === "PROTECT");
+    }
+
+    const nextSessionStatus = hasProtect ? "PROTECT" : hasActive ? "ACTIVE" : hasReady ? "ACTIVE" : "WAIT";
+    setTradingSessionStatus(nextSessionStatus);
+    setTradingSessionUpdatedTs(now);
+    updateTradingSessionMeta(sid, {
+      status: nextSessionStatus,
+      shadowLastRunId: runId,
+      shadowAppliedAt: now,
+      shadowAppliedSlots: appliedCount,
+    });
+    setTradingPreparedSetup((prev) => {
+      const base = prev && typeof prev === "object" ? prev : {};
+      const previousSession = base.session && typeof base.session === "object" ? base.session : {};
+      const nextSession = {
+        ...previousSession,
+        status: nextSessionStatus,
+        shadowLastRunId: runId,
+        shadowAppliedAt: now,
+        shadowAppliedSlots: appliedCount,
+        userAction: {
+          ...(previousSession.userAction || {}),
+          shadowPreviewApplied: true,
+          sessionId: sid,
+        },
+        updatedTs: now,
+      };
+      return { ...base, session: nextSession };
+    });
+
+    return true;
+  }, [selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, tradingVisibleQueueSummary, getTradingSlotSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingPreparedSetup]);
 
   const runShadowExecutorValidation = useCallback(async () => {
     if (!wallet) {
@@ -7397,32 +7672,92 @@ useEffect(() => {
     setShadowExecutorBusy(true);
     setShadowExecutorMsg("");
     try {
-      const res = await api(`/api/nexus/shadow/executor`, {
-        method: "POST",
-        wallet,
-        body: {
-          source: "frontend_trading_panel",
-          // Validate only the selected independent Trading session. Passing the full
-          // wallet queue made Shadow/Risk output look inconsistent in multi-session mode.
-          queue: Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [],
-          config: {
-            session_id: selectedTradingSessionId || "",
-            runtime_hours: tradingRuntimeHours,
-            max_trades: tradingMaxTrades,
-            risk_mode: tradingRiskMode,
-            max_slippage_pct: tradingMaxSlippagePct,
-          },
+      const currentQueue = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+      const body = {
+        action: "validate",
+        source: "frontend_trading_panel_test_only",
+        config: {
+          session_id: selectedTradingSessionId || "",
+          chain: activeGridChainKey || gridChain || "",
+          runtime_hours: tradingRuntimeHours,
+          max_trades: tradingMaxTrades,
+          risk_mode: tradingRiskMode,
+          max_slippage_pct: tradingMaxSlippagePct,
+          // Important: Test is only a read-only validation. It must never rewrite
+          // visible slots or clear the live-like Shadow queue.
+          persist_state: false,
         },
-      });
-      setShadowExecutorState({ ...(shadowExecutorState || {}), last_run: res?.run || null, run: res?.run || null });
-      setShadowExecutorMsg(res?.message || "Shadow validation completed. No Vault execution was triggered.");
-      await refreshNexusBackendState();
+      };
+      if (currentQueue.length) body.queue = currentQueue;
+      const res = await api(`/api/nexus/shadow/executor`, { method: "POST", wallet, body });
+      const shadowRun = res?.run || null;
+      const shadowQueue = Array.isArray(shadowRun?.queue) ? shadowRun.queue : [];
+      const summary = shadowRun?.summary || {};
+      setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun });
+      setShadowExecutorMsg(`Shadow test only: ${summary?.virtual_fills ?? 0} virtual fill(s), ${summary?.virtual_waits ?? 0} waiting. No slot state was changed.`);
     } catch (e) {
       setShadowExecutorMsg(e?.message || "Shadow validation failed.");
     } finally {
       setShadowExecutorBusy(false);
     }
-  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, refreshNexusBackendState]);
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState]);
+
+  const runShadowRuntimeAction = useCallback(async (action = "tick") => {
+    if (!wallet) {
+      setShadowExecutorMsg("Wallet not connected.");
+      return;
+    }
+    setShadowExecutorBusy(true);
+    setShadowExecutorMsg("");
+    try {
+      const currentQueue = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+      const body = {
+        action,
+        source: "frontend_shadow_runtime",
+        config: {
+          action,
+          session_id: selectedTradingSessionId || "",
+          chain: activeGridChainKey || gridChain || "",
+          runtime_hours: tradingRuntimeHours,
+          max_trades: tradingMaxTrades,
+          risk_mode: tradingRiskMode,
+          max_slippage_pct: tradingMaxSlippagePct,
+          persist_state: true,
+        },
+      };
+      // Only send a frontend queue when it actually has rows. Empty arrays caused
+      // the backend to ignore the persisted wallet queue, so Pause/Resume/Stop
+      // looked like they did nothing.
+      if (currentQueue.length) body.queue = currentQueue;
+      const res = await api(`/api/nexus/shadow/executor`, { method: "POST", wallet, body });
+      const shadowRun = res?.run || null;
+      const shadowQueue = Array.isArray(shadowRun?.queue) ? shadowRun.queue : [];
+      applyShadowQueuePreview(shadowQueue, shadowRun);
+      const runtimeStatus = String(res?.runtime_status || shadowRun?.summary?.runtime_status || shadowRun?.summary?.runtime?.status || action || "updated").toUpperCase();
+      setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun });
+      const strategist = shadowRun?.summary?.runtime?.strategist || {};
+      const extra = strategist?.driver ? ` Strategist: ${strategist.active_slots ?? 0} active, ${strategist.ready_slots ?? 0} ready, ${strategist.simulated_exits ?? 0} exited.` : "";
+      setShadowExecutorMsg(`Shadow runtime ${runtimeStatus}.${extra} Paper-only; no Vault transaction triggered.`);
+      await refreshNexusBackendState();
+    } catch (e) {
+      setShadowExecutorMsg(e?.message || `Shadow ${action} failed.`);
+    } finally {
+      setShadowExecutorBusy(false);
+    }
+  }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState]);
+
+  useEffect(() => {
+    const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
+    const status = String(shadowExecutorState?.runtime_status || run?.summary?.runtime_status || run?.summary?.runtime?.status || "").toLowerCase();
+    if (String(gridMode || "").toLowerCase() !== "trading") return;
+    if (status !== "running") return;
+    if (!wallet || !selectedTradingSessionId) return;
+    const id = setInterval(() => {
+      if (document?.hidden) return;
+      runShadowRuntimeAction("tick");
+    }, 60 * 1000);
+    return () => clearInterval(id);
+  }, [gridMode, wallet, selectedTradingSessionId, shadowExecutorState?.runtime_status, shadowExecutorState?.last_run, shadowExecutorState?.run, runShadowRuntimeAction]);
 
 
   // Runtime heartbeat for multi-session Trading.
@@ -7551,7 +7886,7 @@ useEffect(() => {
     return `${status}${score}${cooldown}`;
   }, [tradingGlobalRiskState]);
 
-  const handleTradingApproveBudget = useCallback(() => {
+  const handleTradingApproveBudget = useCallback(async () => {
     if (!tradingCanApprove) {
       setErrorMsg(tradingPreflight.title || "Complete Nexus Trading preflight before approving.");
       return;
@@ -7578,7 +7913,7 @@ useEffect(() => {
     // Do not replace older trades. A later 300$ approval becomes a separate session.
     setTradingExecutionQueue((prev) => {
       const existing = Array.isArray(prev) ? prev : [];
-      return [...existing, ...activeQueue];
+      return dedupeTradingQueue([...existing, ...activeQueue]);
     });
     setTradingSessions((prev) => {
       const existing = Array.isArray(prev) ? prev : [];
@@ -7614,10 +7949,48 @@ useEffect(() => {
       userAction: { approvedBudget: true, armed: true, started: true, preflightOk: true, multiSession: true },
       note: "New independent Trading session created. Nexus Trading is autonomous only inside this session's approved limits. User controls Pause and Stop.",
     });
+
+    // Backend-first: immediately create/update the authoritative queue rows.
+    // Without this, Shadow can simulate locally but the next backend hydration may
+    // restore old WAIT rows or an empty queue on another device.
+    if (wallet && Array.isArray(activeQueue) && activeQueue.length) {
+      await Promise.allSettled(activeQueue.map((slot, idx) => {
+        const slotId = String(slot?.slot_id || slot?.slot || idx + 1);
+        const symbol = String(slot?.symbol || slot?.asset || "").toUpperCase();
+        const chain = String(slot?.chain || slot?.chain_key || activeGridChainKey || "").toUpperCase();
+        const state = String(slot?.status || slot?.state || "WAIT").toUpperCase();
+        return api(`/api/nexus/trading/queue`, {
+          method: "POST",
+          wallet,
+          body: {
+            id: slot?.id || slot?.queue_id || `${sessionId}-${chain}-${slotId}-${symbol || idx + 1}`,
+            queue_id: slot?.id || slot?.queue_id || `${sessionId}-${chain}-${slotId}-${symbol || idx + 1}`,
+            slot_id: slotId,
+            slot: slotId,
+            asset: symbol,
+            symbol,
+            chain,
+            chain_key: chain,
+            action: slot?.action || "OBSERVE",
+            state,
+            priority: Number(slot?.priority || 0),
+            confidence: Number(slot?.confidence || slot?.confidence_score || 0),
+            risk_score: Number(slot?.risk_score || 0),
+            reserved_capital_usd: Number(slot?.reserved_capital_usd || slot?.amountUsd || 0),
+            session_id: sessionId,
+            trade_session_id: sessionId,
+            meta: { ...(slot?.meta || {}), session_id: sessionId, source: "frontend_budget_approval" },
+            signals: slot?.signals || {},
+            reason: slot?.condition || slot?.reason || "Created from approved Trading session.",
+          },
+        });
+      }));
+      await refreshNexusBackendState();
+    }
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
     setErrorMsg(`Trading session created: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Enter the next budget and approve/sign again when you want another independent session.`);
-  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput]);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
 
   const handleTradingStartSession = useCallback(() => {
     if (!tradingCanStart) return;
@@ -7853,9 +8226,38 @@ useEffect(() => {
       const monitoredQueue = (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [])
         .filter((slot) => ["ACTIVE", "PROTECT", "READY"].includes(String(slot?.status || "").toUpperCase()));
       if (!monitoredQueue.length) return;
+
+      // Prevent request storms: queue/risk updates can re-render the component and
+      // would otherwise immediately re-trigger this effect. Keep one risk decision
+      // request per stable queue/config snapshot unless the 60s interval fires.
+      const riskKey = JSON.stringify({
+        wallet: String(wallet || "").toLowerCase(),
+        session: String(selectedTradingSessionId || activeTradingSessionId || ""),
+        queue: monitoredQueue.map((slot) => ({
+          slot: slot?.slot || slot?.slot_id || slot?.id || "",
+          symbol: slot?.symbol || slot?.asset || "",
+          status: String(slot?.status || "").toUpperCase(),
+          confidence: Number(slot?.confidence ?? slot?.confidence_score ?? 0),
+          risk_score: Number(slot?.risk_score ?? slot?.riskScore ?? 0),
+          priority: Number(slot?.priority ?? 0),
+        })),
+        risk_mode: tradingRiskMode,
+        caution_drawdown_pct: tradingCautionDrawdownPct,
+        hard_stop_pct: tradingHardStopPct,
+        max_slippage_pct: tradingMaxSlippagePct,
+      });
+      const nowMs = Date.now();
+      const last = tradingRiskRequestRef.current || { key: "", ts: 0, inFlight: false };
+      if (last.inFlight) return;
+      if (last.key === riskKey && nowMs - Number(last.ts || 0) < 55000) return;
+      tradingRiskRequestRef.current = { key: riskKey, ts: nowMs, inFlight: true };
+
       api("/api/nexus/trading/risk-decision", {
         method: "POST",
+        wallet,
         body: {
+          wallet,
+          wallet_address: wallet,
           queue: monitoredQueue,
           config: {
             risk_mode: tradingRiskMode,
@@ -7872,16 +8274,21 @@ useEffect(() => {
             if (typeof refreshNexusBackendState === "function") refreshNexusBackendState();
           }
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          const cur = tradingRiskRequestRef.current || {};
+          tradingRiskRequestRef.current = { ...cur, inFlight: false };
+        });
     };
 
-    checkRisk();
-    const id = setInterval(checkRisk, 60 * 1000);
+    const first = setTimeout(checkRisk, 5000);
+    const id = setInterval(checkRisk, 120 * 1000);
     return () => {
       cancelled = true;
+      clearTimeout(first);
       clearInterval(id);
     };
-  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, applyTradingRiskDecision, refreshNexusBackendState]);
+  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, wallet, selectedTradingSessionId, activeTradingSessionId, applyTradingRiskDecision, refreshNexusBackendState]);
 
   useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;
@@ -7978,7 +8385,29 @@ useEffect(() => {
 
         setTradingSessionStatus(status);
         setTradingSessionUpdatedTs(Date.now());
-        if (nextQueue.length) setTradingExecutionQueue(nextQueue);
+        if (nextQueue.length) {
+          const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+          const chain = String(activeGridChainKey || DEFAULT_CHAIN || "").toUpperCase().trim();
+          const normalizedHoldQueue = nextQueue.map((slot, idx) => ({
+            ...slot,
+            session_id: getTradingSlotSessionId(slot) || sid || slot.session_id,
+            sessionId: getTradingSlotSessionId(slot) || sid || slot.sessionId,
+            trade_session_id: getTradingSlotSessionId(slot) || sid || slot.trade_session_id,
+            chain: String(slot?.chain || slot?.chain_key || chain || "").toUpperCase(),
+            chain_key: String(slot?.chain || slot?.chain_key || chain || "").toUpperCase(),
+            slot: slot?.slot || slot?.slot_id || idx + 1,
+          }));
+          setTradingExecutionQueue((prev) => {
+            const existing = Array.isArray(prev) ? prev : [];
+            const kept = existing.filter((slot) => {
+              const slotSession = String(getTradingSlotSessionId(slot) || "").trim();
+              const slotChain = String(slot?.chain || slot?.chain_key || "").toUpperCase().trim();
+              if (sid && slotSession === sid && (!chain || slotChain === chain)) return false;
+              return true;
+            });
+            return dedupeTradingQueue([...kept, ...normalizedHoldQueue]);
+          });
+        }
         updateTradingPreparedSession({
           status,
           executionQueue: nextQueue,
@@ -7987,7 +8416,7 @@ useEffect(() => {
         });
       })
       .catch(() => {});
-  }, [gridMode, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+  }, [gridMode, selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, getTradingSlotSessionId, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const applyTradingRiskPreset = useCallback((mode, confidence = tradingConfidenceMin) => {
     const risk = String(mode || "BALANCED").toUpperCase();
@@ -8242,54 +8671,77 @@ useEffect(() => {
   const [gridOrderChainOpen, setGridOrderChainOpen] = useState({});
 
   // AI
-  const [aiSelected, setAiSelected] = useLocalStorageState("nexus_ai_selected", []);
+  const [aiSelected, setAiSelected] = useState([]);
+  const [compareForceNonce, setCompareForceNonce] = useState(0);
   const syncAppStateFromServer = useCallback(async () => {
-    if (!wallet) {
+    const wa = resolveWalletAddress(wallet);
+    if (!wa) {
       appStateHydratedRef.current = true;
       return;
     }
     if (appStateSyncBusyRef.current) return;
     appStateSyncBusyRef.current = true;
     try {
-      const r = await api(`/api/app-state?wallet=${encodeURIComponent(wallet)}`, { method: "GET", token, wallet });
+      const r = await api(`/api/app-state?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, { method: "GET", token, wallet: wa });
       const state = r?.state || {};
+      const serverUpdatedTs = Number(r?.updated_ts || 0) || 0;
+      const lastSeenServerTs = Number(appStateLastServerTsRef.current || 0) || 0;
       const serverCompare = Array.isArray(state?.compare) ? state.compare.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
       const serverTf = String(state?.timeframe || "90D").toUpperCase();
       const serverIndex = state?.indexMode == null ? true : !!state.indexMode;
       const serverAi = Array.isArray(state?.aiSelected) ? state.aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
-      const neverSynced = String(appStateSyncedWallet || "").toLowerCase() !== String(wallet || "").toLowerCase();
-      const hasLocal = (Array.isArray(compareSet) && compareSet.length) || (Array.isArray(aiSelected) && aiSelected.length) || String(timeframe || "90D").toUpperCase() !== "90D" || !!indexMode === false;
+      const serverUi = state?.ui && typeof state.ui === "object" ? state.ui : {};
+      const neverSynced = String(appStateSyncedWallet || "").toLowerCase() !== String(wa || "").toLowerCase();
+      const localCompare = Array.isArray(compareSet) ? compareSet.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
+      const localAi = Array.isArray(aiSelected) ? aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
+      const hasLocal = localCompare.length || localAi.length || String(timeframe || "90D").toUpperCase() !== "90D" || !!indexMode === false;
       const hasServer = serverCompare.length || serverAi.length || serverTf !== "90D" || serverIndex !== true;
+      const sig = (cmp, tf, idx, ai) => JSON.stringify({ cmp: cmp || [], tf: String(tf || "90D").toUpperCase(), idx: !!idx, ai: ai || [] });
+      const serverSig = sig(serverCompare, serverTf, serverIndex, serverAi);
+      const localSig = sig(localCompare, timeframe, indexMode, localAi);
 
-      if (neverSynced && !hasServer && hasLocal) {
-        await api("/api/app-state", {
-          method: "POST",
-          token,
-          wallet,
-          body: { wallet, compare: compareSet, timeframe, indexMode, aiSelected },
-        });
-        setAppStateSyncedWallet(wallet);
-      } else {
-        // Keep the larger/local compare selection so an older server state (e.g. 10 coins)
-        // does not kick out newly selected coins after hydration.
-        const localCompare = Array.isArray(compareSet)
-          ? compareSet.map((x) => String(x || "").toUpperCase()).filter(Boolean)
-          : [];
-        const mergedCompare = Array.from(new Set([...localCompare, ...serverCompare])).slice(0, 20);
-
-        setCompareSet(mergedCompare);
-        setTimeframe(serverTf || "90D");
-        setIndexMode(!!serverIndex);
-        setAiSelected(serverAi);
-        setAppStateSyncedWallet(wallet);
+      // Backend is the cross-device source of truth. Do not upload local state during hydration.
+      // A server empty state is authoritative too; localStorage must never resurrect old symbols or settings.
+      const serverIsAuthoritative = true;
+      if (serverIsAuthoritative) {
+        appStateApplyingServerRef.current = true;
+        if (serverSig !== localSig) {
+          setCompareSet(serverCompare);
+          setTimeframe(serverTf || "90D");
+          setIndexMode(!!serverIndex);
+          setAiSelected(serverAi);
+          try { localStorage.removeItem(LS_COMPARE_SERIES_CACHE); localStorage.removeItem(LS_COMPARE_STORE); } catch {}
+          setCompareForceNonce((n) => n + 1);
+        }
+        if (serverUi.watchSortMode != null) setWatchSortMode(String(serverUi.watchSortMode || "manual"));
+        if (serverUi.gridMode != null) setGridMode(String(serverUi.gridMode || "normal"));
+        if (serverUi.gridChain != null) setGridChain(String(serverUi.gridChain || DEFAULT_CHAIN || "POL").toUpperCase());
+        if (serverUi.gridItem != null) setGridItem(String(serverUi.gridItem || "").toUpperCase());
+        if (serverUi.tradingRuntimeHours != null) setTradingRuntimeHours(String(serverUi.tradingRuntimeHours));
+        if (serverUi.tradingHoldHours != null) setTradingHoldHours(String(serverUi.tradingHoldHours));
+        if (serverUi.tradingAllowedAssets != null) setTradingAllowedAssets(String(serverUi.tradingAllowedAssets));
+        if (serverUi.tradingAllowedChains != null) setTradingAllowedChains(String(serverUi.tradingAllowedChains));
+        if (serverUi.tradingRiskMode != null) setTradingRiskMode(String(serverUi.tradingRiskMode));
+        if (serverUi.tradingCautionDrawdownPct != null) setTradingCautionDrawdownPct(String(serverUi.tradingCautionDrawdownPct));
+        if (serverUi.tradingHardStopPct != null) setTradingHardStopPct(String(serverUi.tradingHardStopPct));
+        if (serverUi.tradingProfitLockPct != null) setTradingProfitLockPct(String(serverUi.tradingProfitLockPct));
+        if (serverUi.tradingMaxSlippagePct != null) setTradingMaxSlippagePct(String(serverUi.tradingMaxSlippagePct));
+        if (serverUi.tradingMaxTrades != null) setTradingMaxTrades(String(serverUi.tradingMaxTrades));
+        if (serverUi.tradingConfidenceMin != null) setTradingConfidenceMin(String(serverUi.tradingConfidenceMin));
+        if (serverUi.tradingStyle != null) setTradingStyle(String(serverUi.tradingStyle));
+        if (serverUi.tradingBudgetUsd != null) setTradingBudgetUsd(String(serverUi.tradingBudgetUsd));
+        if (serverUi.tradingBudgetSplitInput != null) setTradingBudgetSplitInput(String(serverUi.tradingBudgetSplitInput));
       }
+      if (serverUpdatedTs) storeAppStateServerTs(serverUpdatedTs);
+      setAppStateSyncedWallet(wa);
     } catch (e) {
       console.warn("app-state sync failed", e);
     } finally {
       appStateHydratedRef.current = true;
       appStateSyncBusyRef.current = false;
+      setTimeout(() => { appStateApplyingServerRef.current = false; }, 0);
     }
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, setCompareSet, setTimeframe, setIndexMode, setAiSelected, setAppStateSyncedWallet]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   useEffect(() => {
     syncAppStateFromServer();
@@ -8297,20 +8749,44 @@ useEffect(() => {
   }, [wallet]);
 
   useEffect(() => {
-    if (!wallet || !appStateHydratedRef.current) return;
+    const wa = resolveWalletAddress(wallet);
+    if (!wa || !appStateHydratedRef.current) return;
+    if (appStateApplyingServerRef.current) return;
     const payload = {
-      wallet,
-      compare: Array.isArray(compareSet) ? compareSet : [],
+      wallet: wa,
+      wallet_address: wa,
+      compare: Array.isArray(compareSet) ? compareSet.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [],
       timeframe,
       indexMode,
-      aiSelected: Array.isArray(aiSelected) ? aiSelected : [],
+      aiSelected: Array.isArray(aiSelected) ? aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [],
+      ui: {
+        watchSortMode,
+        gridMode,
+        gridChain: String(activeGridChainKey || gridChain || DEFAULT_CHAIN || "POL").toUpperCase(),
+        gridItem: String(gridItem || "").toUpperCase(),
+        tradingRuntimeHours,
+        tradingHoldHours,
+        tradingAllowedAssets,
+        tradingAllowedChains,
+        tradingRiskMode,
+        tradingCautionDrawdownPct,
+        tradingHardStopPct,
+        tradingProfitLockPct,
+        tradingMaxSlippagePct,
+        tradingMaxTrades,
+        tradingConfidenceMin,
+        tradingStyle,
+        tradingBudgetUsd,
+        tradingBudgetSplitInput,
+      },
     };
     const t = setTimeout(async () => {
-      if (appStateSyncBusyRef.current) return;
+      if (appStateSyncBusyRef.current || appStateApplyingServerRef.current) return;
       appStateSyncBusyRef.current = true;
       try {
-        await api("/api/app-state", { method: "POST", token, wallet, body: payload });
-        setAppStateSyncedWallet(wallet);
+        const saved = await api("/api/app-state", { method: "POST", token, wallet: wa, body: payload });
+        storeAppStateServerTs(saved?.updated_ts);
+        setAppStateSyncedWallet(wa);
       } catch (e) {
         console.warn("app-state save failed", e);
       } finally {
@@ -8318,7 +8794,7 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, setAppStateSyncedWallet]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -8540,7 +9016,6 @@ const [aiLoading, setAiLoading] = useState(false);
     });
 
     if (!changed) return rows;
-    try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(next)); } catch {}
     setWatchRows(next);
     return next;
   }, [token, wallet, setWatchRows]);
@@ -8602,7 +9077,6 @@ const [aiLoading, setAiLoading] = useState(false);
         }
 
         mergedRows = merged;
-        try { localStorage.setItem(LS_WATCH_ROWS_CACHE, JSON.stringify(merged)); } catch {}
         return merged;
       });
       try {
@@ -8668,13 +9142,14 @@ const [aiLoading, setAiLoading] = useState(false);
     syncWatchlistFromServer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallet]);
-  useInterval(syncWatchlistFromServer, 45000, !!wallet);
-  useInterval(syncAppStateFromServer, 45000, !!wallet);
+  useInterval(syncWatchlistFromServer, 15000, !!wallet);
+  useInterval(syncAppStateFromServer, 15000, !!wallet);
 
   useEffect(() => {
     const onFocusSync = () => {
       syncWatchlistFromServer();
       syncAppStateFromServer();
+      setCompareForceNonce((n) => n + 1);
     };
     window.addEventListener("focus", onFocusSync);
     document.addEventListener("visibilitychange", onFocusSync);
@@ -8711,7 +9186,7 @@ const [aiLoading, setAiLoading] = useState(false);
   // fetchWatchSnapshot already has an in-flight guard, so it will not stack requests.
   useInterval(
     () => fetchWatchSnapshot(null, { force: true, user: false }),
-    6000,
+    30000,
     !!wallet && Array.isArray(watchItems) && watchItems.length > 0
   );
 
@@ -8743,7 +9218,7 @@ const [aiLoading, setAiLoading] = useState(false);
     // Show cached series immediately (SWR) so chart renders without waiting for backend
     // NOTE: fetchRange can be overridden (used for preloading 2Y while keeping UI timeframe at 90D).
     const fetchRange = (opts && opts.fetchRangeOverride) ? String(opts.fetchRangeOverride).toUpperCase() : _compareFetchRange(timeframe);
-    const cached = _cmpGetCached(compareSymbols, fetchRange);
+    const cached = (opts.force || opts.noCache) ? null : _cmpGetCached(compareSymbols, fetchRange);
     if (cached && Object.keys(cached || {}).length) {
       setCompareSeries(cached);
       lastGoodCompareRef.current = cached;
@@ -8752,8 +9227,12 @@ const [aiLoading, setAiLoading] = useState(false);
     setCompareLoading(true);
     try {
       const syms = compareSymbols.slice(0, 20).join(",");
-      const url = `${API_BASE}/api/compare?symbols=${encodeURIComponent(syms)}&range=${encodeURIComponent(fetchRange)}`;
-      const r = await fetch(url, { method: "GET", credentials: "include", headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal: ac.signal });
+      const wa = resolveWalletAddress(wallet);
+      const qs = new URLSearchParams({ symbols: syms, range: fetchRange });
+      if (wa) qs.set("wallet", wa);
+      if (opts.force || opts.noCache) qs.set("_", String(Date.now()));
+      const url = `${API_BASE}/api/compare?${qs.toString()}`;
+      const r = await fetch(url, { method: "GET", credentials: "include", cache: "no-store", headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, signal: ac.signal });
 
       let data = null;
       try { data = await r.json(); } catch { data = null; }
@@ -8884,8 +9363,14 @@ const [aiLoading, setAiLoading] = useState(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compareFetchRange, compareSymbols.join("|")]);
 
-  // Compare/history refresh: slower than active Grid, faster than before for fresher charts.
-  useInterval(fetchCompare, 7000, compareSymbols.length > 0);
+  useEffect(() => {
+    if (!compareForceNonce) return;
+    fetchCompare({ force: true, noCache: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compareForceNonce]);
+
+  // Compare/history refresh: keep charts reasonably fresh without hammering backend/CoinGecko.
+  useInterval(() => fetchCompare({ force: true, noCache: true }), 90000, compareSymbols.length > 0);
 
   // policy (UI-only for now)
 
@@ -9057,12 +9542,27 @@ useEffect(() => {
   setGridVaultStats({ vault: 0, reserved: 0, free: 0 });
 }, [gridItemId]);
 
-const fetchGridOrders = useCallback(async () => {
+const gridOrdersFetchGuardRef = useRef({ key: "", ts: 0, inflight: false });
+
+const fetchGridOrders = useCallback(async (opts = {}) => {
+  // Hard request-storm guard. This function is called from several places
+  // (initial load, manual refresh, intervals, grid actions). Keep the guard here
+  // so every caller is protected, even if React re-renders quickly.
+  const force = !!(opts && opts.force);
+  const nowMs = Date.now();
+  const requestKey = `${String(gridItemId || "")}|${String(activeGridChainKey || "")}|${String(walletAddress || "")}`;
+  const guard = gridOrdersFetchGuardRef.current || { key: "", ts: 0, inflight: false };
+  const openNow = (Array.isArray(gridOrders) ? gridOrders : []).some((o) => String(o?.status || "").toUpperCase() === "OPEN");
+  const minGapMs = openNow ? 15000 : 60000;
+  if (guard.inflight) return;
+  if (!force && guard.key === requestKey && nowMs - Number(guard.ts || 0) < minGapMs) return;
+
   // Only fetch when wallet + backend grid context are ready.
   // Do not require the backend auth token here: api() can fall back to API key + wallet header,
   // and requiring token caused empty grid state after refresh on some devices until auth finished.
   if (!gridUiHydrated || !gridItemId || !walletAddress) return;
 
+  gridOrdersFetchGuardRef.current = { key: requestKey, ts: nowMs, inflight: true };
   try {
     // Be permissive with query param naming across backend revisions.
     // Some deployments use `addr`, others `wallet`.
@@ -9114,8 +9614,11 @@ const fetchGridOrders = useCallback(async () => {
     }
     // Keep existing orders on real backend errors; surface message.
     setErrorMsg(`Grid orders: ${msg || "temporary backend error"}`);
+  } finally {
+    const cur = gridOrdersFetchGuardRef.current || {};
+    gridOrdersFetchGuardRef.current = { ...cur, inflight: false };
   }
-}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState]);
+}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState, gridOrders]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -9124,9 +9627,7 @@ useEffect(() => {
 }, [isGridReady, fetchGridOrders]);
 
 const kickGridRefresh = useCallback(() => {
-  try { fetchGridOrders(); } catch (_) {}
-  setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 400);
-  setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 1400);
+  try { fetchGridOrders({ force: true }); } catch (_) {}
 }, [fetchGridOrders]);
 
 const hasOpenGridOrders = useMemo(
@@ -9134,7 +9635,9 @@ const hasOpenGridOrders = useMemo(
   [gridOrders]
 );
 
+const gridUiActive = ["grid", "trading"].includes(String(gridMode || "").toLowerCase());
 const gridPollingAllowed =
+  gridUiActive &&
   !!isGridReady &&
   !!gridItemId &&
   !!walletAddress &&
@@ -9142,7 +9645,8 @@ const gridPollingAllowed =
   !gridBusy.stop &&
   !gridBusy.add &&
   !gridBusy.stopOrderId &&
-  !gridBusy.deleteOrderId;
+  !gridBusy.deleteOrderId &&
+  !(typeof document !== "undefined" && document.hidden);
 
 // Grid order-state refresh:
 // - active/open orders: fast enough for trader UI
@@ -9151,7 +9655,7 @@ useInterval(
   () => {
     fetchGridOrders();
   },
-  hasOpenGridOrders ? 2500 : 6500,
+  hasOpenGridOrders ? 45000 : 180000,
   gridPollingAllowed
 );
 
@@ -9181,7 +9685,7 @@ useInterval(
       // silent: polling should never spam the UI
     }
   },
-  2500,
+  45000,
   gridPollingAllowed && hasOpenGridOrders
 );
 
@@ -9522,8 +10026,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
       }
       applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-      setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 0);
-      setTimeout(() => { try { fetchGridOrders(); } catch (_) {} }, 700);
+      setTimeout(() => { try { fetchGridOrders({ force: true }); } catch (_) {} }, 800);
       setErrorMsg(`${src} order added: ${String(side || "BUY").toUpperCase()} ${sym} with ${fmtUsd(usd)} budget.`);
     } catch (e) {
       setErrorMsg(`${src} add order: ${e?.message || e}`);
@@ -10050,8 +10553,9 @@ if (!manualFundingOk) {
     setGridBusy((s) => ({ ...s, deleteOrderId: null }));
     setErrorMsg(`Delete order: ${lastErr?.message || "failed"}`);
   }
-// Slow fallback only when Grid is ready but no active order is running.
-useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
+// Duplicate slow fallback disabled: the main grid order-state refresh above already
+// handles the no-open-orders case at a slower cadence.
+useInterval(fetchGridOrders, 30000, false);
 
   const gridLiveFallback = useMemo(() => {
   const tgt = String(gridItem || "").toUpperCase();
@@ -11199,8 +11703,8 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
 
   const persistWatchOrder = useCallback(async (nextItems) => {
     const normalized = normalizeWatchItems(nextItems || []);
+    markWatchDirty();
     setWatchItems(normalized);
-    try { localStorage.setItem("nexus_watch_items", JSON.stringify(normalized)); } catch {}
     setWatchRows((prev) => {
       const prevMap = new Map((Array.isArray(prev) ? prev : []).map((row) => [_watchKeyFromRow(row), row]));
       const ordered = normalized.map((it) => {
@@ -11232,7 +11736,7 @@ useInterval(fetchGridOrders, 6500, isGridReady && !hasOpenGridOrders);
       } catch (_) {}
     }
     fetchWatchSnapshot(normalized, { force: true, user: false });
-  }, [normalizeWatchItems, setWatchItems, wallet, saveWatchlistToServer, setWatchSyncedWallet]);
+  }, [normalizeWatchItems, setWatchItems, wallet, saveWatchlistToServer, setWatchSyncedWallet, markWatchDirty]);
 
   const reorderWatchItems = useCallback(async (fromKey, toKey) => {
     if (!fromKey || !toKey || fromKey === toKey) return;
@@ -11402,19 +11906,17 @@ const addMarketCoin = async (coin) => {
   _clearTombstone(_watchKeyFromItem(item));
 
   // Optimistic: update local state immediately (never wait for backend)
-  let nextItems = null;
-  setWatchItems((prev0) => {
-    const prev = Array.isArray(prev0) ? prev0 : [];
-    const key = `${item.mode}|${item.symbol}|${item.coingecko_id}`.toLowerCase();
-    const exists = prev.some((x) => {
-      const xs = String(x?.symbol || "").trim().toUpperCase();
-      const xm = String(x?.mode || "market").toLowerCase();
-      const xid = String(x?.coingecko_id || x?.id || "").toLowerCase();
-      return `${xm}|${xs}|${xid}`.toLowerCase() === key;
-    });
-    nextItems = exists ? prev : [...prev, item];
-    return nextItems;
+  const prevWatchItemsForAdd = normalizeWatchItems(watchItems || []);
+  const addKey = `${item.mode}|${item.symbol}|${item.coingecko_id}`.toLowerCase();
+  const addExists = prevWatchItemsForAdd.some((x) => {
+    const xs = String(x?.symbol || "").trim().toUpperCase();
+    const xm = String(x?.mode || "market").toLowerCase();
+    const xid = String(x?.coingecko_id || x?.id || "").toLowerCase();
+    return `${xm}|${xs}|${xid}`.toLowerCase() === addKey;
   });
+  const nextItems = addExists ? prevWatchItemsForAdd : [...prevWatchItemsForAdd, item];
+  markWatchDirty();
+  setWatchItems(nextItems);
 
   // Ensure it shows instantly in the table even if snapshot is down (placeholder row).
   setWatchRows((prev0) => {
@@ -11519,14 +12021,12 @@ const addDexToken = async () => {
 
   _clearTombstone(_watchKeyFromItem(item));
 
-  let nextItems = null;
-  setWatchItems((prev0) => {
-    const prev = Array.isArray(prev0) ? prev0 : [];
-    const key = `${item.mode}|${item.contract}`.toLowerCase();
-    const exists = prev.some((x) => `${String(x?.mode || "market").toLowerCase()}|${String(x?.contract || x?.tokenAddress || "").toLowerCase()}` === key);
-    nextItems = exists ? prev : [...prev, item];
-    return nextItems;
-  });
+  const prevWatchItemsForDexAdd = normalizeWatchItems(watchItems || []);
+  const dexKey = `${item.mode}|${item.contract}`.toLowerCase();
+  const dexExists = prevWatchItemsForDexAdd.some((x) => `${String(x?.mode || "market").toLowerCase()}|${String(x?.contract || x?.tokenAddress || "").toLowerCase()}` === dexKey);
+  const nextItems = dexExists ? prevWatchItemsForDexAdd : [...prevWatchItemsForDexAdd, item];
+  markWatchDirty();
+  setWatchItems(nextItems);
 
   // placeholder row so user sees it instantly
   setWatchRows((prev0) => {
@@ -11606,6 +12106,7 @@ _setTombstone(removedKey);
   });
 
   // Optimistic UI update (so it disappears immediately)
+  markWatchDirty();
   setWatchItems(nextItems);
   setWatchRows((prev) =>
     (prev || []).filter((r) => {
@@ -11638,9 +12139,13 @@ _setTombstone(removedKey);
     try {
       try { await saveWatchlistToServer(nextItems); setWatchSyncedWallet(resolveWalletAddress(wallet) || ""); } catch (_) {}
 
-      const data = await api("/api/watchlist/snapshot", {
+      const wa = resolveWalletAddress(wallet);
+      const snapPath = wa ? `/api/watchlist/snapshot?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}&force=1&_=${Date.now()}` : `/api/watchlist/snapshot?force=1&_=${Date.now()}`;
+      const data = await api(snapPath, {
         method: "POST",
-        body: { items: nextItems },
+        token,
+        wallet: wa || wallet,
+        body: { wallet: wa || wallet, wallet_address: wa || wallet, items: nextItems },
       });
 
       const nextRowsRaw = data?.results || data?.rows || [];
@@ -13723,7 +14228,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <span style={{ display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>
                   Value: {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}
                 </span>
-                <span style={{ display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span
+                  style={{
+                    display: "block",
+                    maxWidth: "100%",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    color: walletProfit.available
+                      ? Number(walletProfit.amount || 0) > 0
+                        ? "#39d98a"
+                        : Number(walletProfit.amount || 0) < 0
+                          ? "#ff6b6b"
+                          : "rgba(255,255,255,0.92)"
+                      : "rgba(255,255,255,0.72)",
+                    fontWeight: walletProfit.available ? 900 : 800,
+                  }}
+                >
                   Profit: {walletProfit.available
                     ? `${Number(walletProfit.amount || 0) >= 0 ? "+" : ""}${fmtUsd(walletProfit.amount)}${Number.isFinite(Number(walletProfit.pct)) ? ` (${Number(walletProfit.pct).toFixed(2)}%)` : ""}`
                     : "Set baseline"}
@@ -17457,16 +17977,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <div style={{ fontWeight: 950, color: "#8bdcff", fontSize: 13 }}>Shadow Executor</div>
                           <div className="muted tiny">Paper execution only: virtual fills, stop/re-entry validation, reallocation observation. No Vault transaction can be triggered here.</div>
                         </div>
-                        <button
-                          className="btnGhost"
-                          type="button"
-                          onClick={runShadowExecutorValidation}
-                          disabled={shadowExecutorBusy || !wallet}
-                          style={{ height: 30, paddingInline: 10 }}
-                          title="Run off-chain Shadow Executor validation"
-                        >
-                          {shadowExecutorBusy ? "Testing..." : "Run Shadow Test"}
-                        </button>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button
+                            className="btnGhost"
+                            type="button"
+                            onClick={() => runShadowRuntimeAction("start")}
+                            disabled={shadowExecutorBusy || !wallet}
+                            style={{ height: 30, paddingInline: 10 }}
+                            title="Start live-like paper Shadow runtime"
+                          >
+                            {shadowExecutorBusy ? "Working..." : "Start Shadow"}
+                          </button>
+                          <button className="miniBtn" type="button" onClick={() => runShadowRuntimeAction("pause")} disabled={shadowExecutorBusy || !wallet} style={{ height: 30, paddingInline: 10 }}>Pause</button>
+                          <button className="miniBtn" type="button" onClick={() => runShadowRuntimeAction("resume")} disabled={shadowExecutorBusy || !wallet} style={{ height: 30, paddingInline: 10 }}>Resume</button>
+                          <button className="btnDanger" type="button" onClick={() => runShadowRuntimeAction("stop")} disabled={shadowExecutorBusy || !wallet} style={{ height: 30, paddingInline: 10 }}>Stop</button>
+                          <button className="miniBtn" type="button" onClick={runShadowExecutorValidation} disabled={shadowExecutorBusy || !wallet} style={{ height: 30, paddingInline: 10 }} title="One-shot validation only">Test</button>
+                        </div>
                       </div>
                       {(() => {
                         const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
@@ -17475,11 +18001,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return <div className="muted tiny">No shadow run yet. Run this before Vault deployment to validate behavior without risking live capital.</div>;
                         }
                         const status = String(summary?.status || run?.status || "pending").toUpperCase();
+                        const runtimeStatus = String(shadowExecutorState?.runtime_status || summary?.runtime_status || summary?.runtime?.status || "idle").toUpperCase();
                         const readiness = String(summary?.readiness || "PENDING").replaceAll("_", " ");
                         const score = Number(summary?.safety_score ?? NaN);
                         return (
                           <div style={{ display: "grid", gap: 5 }}>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <span className="tiny" style={{ fontWeight: 950, color: runtimeStatus === "RUNNING" ? "#7cf7a2" : runtimeStatus === "PAUSED" ? "#ffd166" : "rgba(235,255,247,.78)" }}>Runtime: {runtimeStatus}</span>
                               <span className="tiny" style={{ fontWeight: 950, color: status === "PASSED" ? "#7cf7a2" : status === "BLOCKED" ? "#ff8a8a" : "#ffd166" }}>Status: {status}</span>
                               <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.78)" }}>Safety: {Number.isFinite(score) ? `${score}/100` : "—"}</span>
                               <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.78)" }}>Readiness: {readiness}</span>
@@ -17553,6 +18081,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           >
                             <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 12 }}>{(selectedTradingSession.assets || []).join(",") || "ASSET"} · {fmtUsd(Number(selectedTradingSession.budgetUsd || 0))} · {selectedTradingSession.slots || 0} slots</div>
                             <div className="muted tiny" style={{ color: "#8bdcff" }}>Viewing: {selectedTradingSessionId}. This dropdown controls only the selected independent Trading session.</div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                              {tradingCanPause ? (
+                                <button className="miniBtn" type="button" onClick={handleTradingPauseSession} title="Pause only this selected Trading session">Pause</button>
+                              ) : null}
+                              {tradingCanResume ? (
+                                <button className="miniBtn" type="button" onClick={handleTradingResumeSession} title="Resume only this selected Trading session">Resume</button>
+                              ) : null}
+                              {tradingCanStop ? (
+                                <button className="miniBtn" type="button" onClick={handleTradingStopSession} title="Protect / stop only this selected Trading session">Protect / Stop</button>
+                              ) : null}
+                              {tradingCanReleaseCapital ? (
+                                <button className="miniBtn" type="button" onClick={handleTradingReleaseCapital} title="Release capital for this selected Trading session">Release Capital</button>
+                              ) : null}
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -17602,10 +18144,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </button>
                         ) : null}
                         
-                        {["ACTIVE", "PROTECT"].includes(selectedTradingSessionLabel) ? (
+                        {tradingCanPause ? (
                           <button className="btnGhost" type="button" onClick={handleTradingPauseSession} style={{ height: 30, paddingInline: 10 }}>Pause</button>
                         ) : null}
-                        {selectedTradingSessionLabel === "PAUSED" ? (
+                        {tradingCanResume ? (
                           <button className="btn" type="button" onClick={handleTradingResumeSession} style={{ height: 30, paddingInline: 10 }}>Resume</button>
                         ) : null}
                         {tradingCanStop ? (
@@ -18562,17 +19104,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         cursor: String(watchSortMode || "manual") === "manual" ? "grab" : "default",
                         border: watchDropKey === _watchKeyFromRow(r) ? "1px dashed var(--line)" : undefined,
                         background: watchDropKey === _watchKeyFromRow(r) ? "rgba(255,255,255,0.04)" : undefined,
-                        gridTemplateColumns: "26px minmax(0,1fr) 132px 34px",
-                        paddingRight: 8,
+                        gridTemplateColumns: "24px minmax(0,1fr) 78px 30px",
+                        columnGap: 6,
+                        rowGap: 6,
+                        paddingRight: 6,
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
                         <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
                       </div>
                       <div className="watchCompactMain">
-                        <div className="watchCompactTop" style={{ gap: 6 }}>
-                          <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800 }}>{sym}</div>
+                        <div className="watchCompactTop" style={{ gap: 6, minWidth: 0, overflow: "hidden" }}>
+                          <div className="watchCompactMeta" style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, flexWrap: "wrap", maxWidth: "100%" }}>
+                            <div className="watchSym" style={{ fontSize: 13, lineHeight: 1.1, fontWeight: 800, maxWidth: 66, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sym}</div>
                             <button
                               type="button"
                               className="pill silver"
@@ -18598,18 +19142,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               {mcUi.code}
                             </span>
-                            <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 12, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>{fmtPct(r.change24h)}</span>
+                            <span className={`mono tiny ${Number(r.change24h) >= 0 ? "txtGood" : "txtBad"}`} style={{ fontSize: 11, lineHeight: 1.1, color: Number(r.change24h) >= 0 ? "var(--green)" : "var(--red)", marginLeft: "auto", whiteSpace: "nowrap" }}>{fmtPct(r.change24h)}</span>
                           </div>
                         </div>
-                        <div className="watchCompactStats" style={{ gap: 8 }}>
-                          <span className="muted tiny" style={{ fontSize: 12, lineHeight: 1.1 }}>Vol {isCompactWatchNumbers ? fmtCompactUsd(r.volume24h) : fmtUsd(r.volume24h)}</span>
-                          <span className="muted tiny" style={{ fontSize: 12, lineHeight: 1.1 }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? (isCompactWatchNumbers ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : fmtUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap)) : "—"}</span>
+                        <div className="watchCompactStats" style={{ display: "grid", gap: 2, minWidth: 0, marginTop: 4 }}>
+                          <span className="muted tiny" style={{ fontSize: 10.5, lineHeight: 1.12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Vol {fmtCompactUsd(r.volume24h)}</span>
+                          <span className="muted tiny" style={{ fontSize: 10.5, lineHeight: 1.12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>MCap {((r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) != null) ? fmtCompactUsd(r.marketCap ?? r.market_cap ?? r.mcap ?? r.marketcap) : "—"}</span>
                         </div>
                       </div>
-                      <div className="watchCompactPrice" style={{ display: "grid", gap: 4, alignItems: "center", minWidth: 0 }}>
-                        <div className="mono" style={{ fontWeight: 900, fontSize: 13, lineHeight: 1.1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtUsd(r.price)}</div>
+                      <div className="watchCompactPrice" style={{ display: "grid", gap: 2, alignItems: "center", justifyItems: "end", minWidth: 0, overflow: "hidden" }}>
+                        <div className="mono" title={fmtUsd(r.price)} style={{ fontWeight: 900, fontSize: 11.5, lineHeight: 1.1, maxWidth: "78px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "right" }}>{fmtUsd(r.price)}</div>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: 34 }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minWidth: 30 }}>
                         <button
                           className="iconBtn"
                           style={{
@@ -19718,8 +20262,71 @@ const handlePanelActivate = useCallback((name) => (e) => {
     </div>
   );
 }
+
+
 export default function App() {
-  return <AppInner />;
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+
+  return (
+    <>
+      <AppInner />
+
+      <div className="nexus-footer-left">
+        <div className="nexus-footer-copy">© 2026 Nexus Analyt</div>
+
+        <button
+          type="button"
+          className="nexus-disclaimer-btn"
+          onClick={() => setShowDisclaimer(true)}
+        >
+          Disclaimer
+        </button>
+
+        <div className="nexus-footer-ai">AI-assisted infrastructure</div>
+      </div>
+
+      {showDisclaimer && (
+        <div
+          className="nexus-disclaimer-overlay"
+          onClick={() => setShowDisclaimer(false)}
+        >
+          <div
+            className="nexus-disclaimer-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="nexus-disclaimer-title">DISCLAIMER</div>
+
+            <div className="nexus-disclaimer-content">
+              <h3>EN</h3>
+              <p>
+                Nexus Analyt provides AI-assisted analytics, market intelligence
+                and research tools only. No financial advice is provided.
+                Cryptocurrency trading involves risk and users are fully
+                responsible for their own decisions. No profits are guaranteed.
+              </p>
+
+              <h3>DE</h3>
+              <p>
+                Nexus Analyt stellt ausschliesslich KI-gestützte Analyse-, Markt-
+                und Research-Tools bereit. Es handelt sich nicht um
+                Finanzberatung. Der Handel mit Kryptowährungen ist risikoreich.
+                Nutzer handeln eigenverantwortlich. Gewinne werden nicht
+                garantiert.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="nexus-disclaimer-close"
+              onClick={() => setShowDisclaimer(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 // -------------------------

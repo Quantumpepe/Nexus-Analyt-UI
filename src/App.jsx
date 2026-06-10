@@ -7464,6 +7464,7 @@ useEffect(() => {
     return Math.max(0, Math.floor(Math.max(Number.isFinite(explicit) ? explicit : 0, slotCycles)));
   }, []);
 
+
   const dedupeTradingQueue = useCallback((items = []) => {
     const rows = Array.isArray(items) ? items.filter((x) => x && typeof x === "object") : [];
     const order = [];
@@ -7801,6 +7802,101 @@ useEffect(() => {
     if (!startedTimes.length) return "—";
     return formatTradingDuration(Math.max(0, Number(tradingRuntimeNowMs || Date.now()) - Math.min(...startedTimes)));
   }, [getTradingSessionTiming, formatTradingDuration, tradingRuntimeNowMs]);
+
+  const getTradingStrategistRuntimeSnapshot = useCallback((sess = {}, slotsOverride = null, runOverride = null) => {
+    const slots = Array.isArray(slotsOverride) ? slotsOverride : (Array.isArray(sess?.queue) ? sess.queue : []);
+    const run = runOverride || shadowExecutorState?.last_run || shadowExecutorState?.run || null;
+    const summary = run?.summary || shadowExecutorState?.summary || {};
+    const runtime = summary?.runtime || shadowExecutorState?.runtime || {};
+    const strategist = runtime?.strategist || summary?.strategist || shadowExecutorState?.strategist || {};
+    const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+
+    const timing = getTradingSessionTiming(sess);
+    const runtimeHours = Number(sess?.runtimeHours ?? sess?.runtime_hours ?? meta.runtimeHours ?? meta.runtime_hours ?? runtime?.runtime_hours ?? normalizeTradingRuntimeHours()) || normalizeTradingRuntimeHours();
+    const maxTrades = Math.max(1, Math.floor(Number(sess?.maxTrades ?? sess?.max_trades ?? meta.maxTrades ?? meta.max_trades ?? runtime?.max_trades ?? tradingMaxTrades ?? 10) || 10));
+    const hardLimit = Math.max(maxTrades, Math.floor(Number(strategist?.hard_limit ?? strategist?.hard_trade_limit ?? runtime?.hard_trade_limit ?? (maxTrades + 5)) || (maxTrades + 5)));
+    const tradesUsed = getTradingSessionTradeCount(sess, slots);
+
+    const elapsedRatio = runtimeHours > 0
+      ? Math.max(0, Math.min(1, Number(timing?.elapsedMs || 0) / (runtimeHours * 3600 * 1000)))
+      : 0;
+    const allowedByTimeFallback = Math.max(0, Math.min(hardLimit, Math.floor(elapsedRatio * maxTrades + 0.0001)));
+    const allowedByTime = Math.max(0, Math.floor(Number(
+      strategist?.allowed_by_time ?? strategist?.allowed_trades_now ?? runtime?.allowed_by_time ?? runtime?.allowed_trades_now ?? allowedByTimeFallback
+    ) || 0));
+
+    const activeSlots = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "ACTIVE").length;
+    const readySlots = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "READY").length;
+    const waitSlots = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "WAIT").length;
+    const maxCombined = Math.max(1, Math.floor(Number(sess?.maxCombinedSlots ?? sess?.max_combined_slots ?? sess?.slotDonorCap ?? sess?.slot_donor_cap ?? meta.maxCombinedSlots ?? meta.max_combined_slots ?? meta.slotDonorCap ?? meta.slot_donor_cap ?? runtime?.max_combined_slots ?? normalizeTradingMaxCombinedSlots()) || 1));
+
+    const regimeRaw = String(
+      strategist?.market_regime ?? strategist?.regime ?? runtime?.market_regime ?? runtime?.regime ?? summary?.market_regime ?? meta.market_regime ?? "NEUTRAL"
+    ).toUpperCase();
+    const regime = regimeRaw.includes("STRONG") ? "STRONG_GREEN" : regimeRaw.includes("GREEN") ? "GREEN" : regimeRaw.includes("RED") || regimeRaw.includes("RISK_OFF") ? "RED" : "NEUTRAL";
+    const regimeTone = regime === "RED"
+      ? { label: "RED / ruhiger", color: "#ff8a8a", bg: "rgba(255,107,107,.08)", border: "rgba(255,107,107,.28)" }
+      : regime === "GREEN"
+        ? { label: "GREEN / aktiver", color: "#7cf7a2", bg: "rgba(34,197,94,.08)", border: "rgba(34,197,94,.26)" }
+        : regime === "STRONG_GREEN"
+          ? { label: "STRONG GREEN / aggressiv achtsam", color: "#54f0a4", bg: "rgba(0,255,136,.10)", border: "rgba(0,255,136,.34)" }
+          : { label: "NEUTRAL / normal", color: "#ffd166", bg: "rgba(255,209,102,.08)", border: "rgba(255,209,102,.24)" };
+
+    const netEdge = Number(strategist?.net_edge ?? strategist?.net_expected_profit_pct ?? runtime?.net_edge ?? NaN);
+    const minEdge = Number(strategist?.min_edge_required ?? strategist?.min_edge ?? runtime?.min_edge_required ?? NaN);
+    const decisionReason = String(strategist?.reason || runtime?.decision_reason || summary?.message || "Strategist waits unless market edge is positive after estimated costs, risk and trade pace.");
+
+    const combineRows = slots
+      .filter((slot) => {
+        const m = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+        return Number(slot?.combined_slots ?? slot?.combinedSlots ?? m.combined_slots ?? m.combinedSlots ?? 0) > 1 || String(slot?.combine_reason || m.combine_reason || "").trim();
+      })
+      .map((slot) => {
+        const m = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+        return {
+          slot: slot?.slot || slot?.slot_id || m.slot || "Slot",
+          symbol: slot?.symbol || slot?.asset || m.asset || "ASSET",
+          count: Number(slot?.combined_slots ?? slot?.combinedSlots ?? m.combined_slots ?? m.combinedSlots ?? 1) || 1,
+          capital: Number(slot?.reserved_capital_usd ?? slot?.amountUsd ?? slot?.amount_usd ?? m.paper_position_usd ?? 0) || 0,
+          reason: String(slot?.combine_reason || m.combine_reason || slot?.reason || m.reason || "Highest net edge within Max Combined Slots.")
+        };
+      });
+
+    return {
+      regime,
+      regimeTone,
+      runtimeHours,
+      maxTrades,
+      hardLimit,
+      tradesUsed,
+      allowedByTime,
+      activeSlots,
+      readySlots,
+      waitSlots,
+      maxCombined,
+      netEdge,
+      minEdge,
+      decisionReason,
+      combineRows,
+      elapsedPct: Math.round(elapsedRatio * 100),
+    };
+  }, [shadowExecutorState, getTradingSessionTiming, getTradingSessionTradeCount, normalizeTradingRuntimeHours, normalizeTradingMaxCombinedSlots, tradingMaxTrades]);
+
+  const getTradingSlotDecisionReason = useCallback((slot = {}) => {
+    const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+    const state = String(slot?.status || slot?.state || "WAIT").toUpperCase();
+    const reason = String(
+      slot?.decision_reason || slot?.reason || slot?.condition || slot?.shadow_transition?.reason ||
+      meta.decision_reason || meta.reason || meta.pause_reason || meta.shadow_reason || ""
+    ).trim();
+    if (reason) return reason;
+    if (state === "WAIT") return "Waiting: net edge is not strong enough after costs, risk and trade pace.";
+    if (state === "READY") return "Ready: setup passed basic checks; Strategist waits for pace/edge confirmation.";
+    if (state === "ACTIVE") return "Active: Strategist allocated capital within slot and session limits.";
+    if (state === "PROTECT") return "Protect: risk increased; no new add-ons until quality improves.";
+    if (state === "SIMULATED_EXIT") return "Exited: paper cycle closed by Strategist decision.";
+    return "Strategist state is synced from backend.";
+  }, []);
 
 
 
@@ -8431,7 +8527,7 @@ useEffect(() => {
     const id = setInterval(() => {
       if (document?.hidden) return;
       runShadowRuntimeAction("tick");
-    }, 60 * 1000);
+    }, 5 * 60 * 1000);
     return () => clearInterval(id);
   }, [gridMode, wallet, selectedTradingSessionId, shadowExecutorState?.runtime_status, shadowExecutorState?.last_run, shadowExecutorState?.run, runShadowRuntimeAction]);
 
@@ -8657,11 +8753,11 @@ useEffect(() => {
         !["HOLD", "OBSERVE", "RELEASE_REQUIRED", "PROTECT"].includes(slotState) &&
         (slotState === "READY" || slotPriority >= 50 || (idx < maxInitialActiveSlots && slotPriority >= 35));
       if (canInitialActivate) {
-        // User-approved sessions may use several clean slots immediately, but never
-        // above Max Combined Slots. Backend risk/quality checks can still demote
-        // weak slots back to READY/WAIT/PROTECT on the next tick.
+        // Frontend only prepares READY candidates. The backend Strategist decides
+        // whether a slot actually becomes ACTIVE after market-regime, net-edge,
+        // cost, risk, pacing and Max Combined Slot checks.
         activatedCount += 1;
-        next = { ...next, previousStatus: slot.status, status: "ACTIVE", activatedAt: now, lastRuntimeRecheckAt: now };
+        next = { ...next, previousStatus: slot.status, status: "READY", preparedAt: now, lastRuntimeRecheckAt: now };
       }
       return next;
     });
@@ -8682,7 +8778,7 @@ useEffect(() => {
           budgetUsd: Number(String(tradingBudgetUsd || "").replace(",", ".")) || 0,
           assets,
           chains,
-          status: activeQueue.some((s) => String(s.status || "").toUpperCase() === "ACTIVE") ? "ACTIVE" : "WAIT",
+          status: activeQueue.some((s) => String(s.status || "").toUpperCase() === "READY") ? "READY" : "WAIT",
           slots: activeQueue.length,
           runtimeHours: runtimeHoursNum,
           runtime_hours: runtimeHoursNum,
@@ -19847,7 +19943,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             <b style={{ color: "#eafff5" }}>Slot {slot.slot || slot.slot_id || idx + 1} · {fmtUsd(getTradingSlotAmountUsd(slot))}</b>
                                             <span className="tiny" style={{ color: isActive || isReady ? "#7cf7a2" : isWait ? "#ffc107" : isExit ? "#8bdcff" : "rgba(235,255,247,.72)", fontWeight: 950 }}>{st} · priority {Math.round(Number(slot.priority || 0))}</span>
                                           </div>
-                                          <div className="muted tiny">{slot.symbol || slot.asset || sessionAsset} · {slot.reason || slot.message || slot.note || "Strategist slot state"}</div>
+                                          <div className="muted tiny">{slot.symbol || slot.asset || sessionAsset} · {getTradingSlotDecisionReason(slot)}</div>
                                           <div className="tiny" style={{ color: net >= 0 ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
                                             gross {gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(gross))} · costs {costs > 0 ? `-${fmtUsd(costs)}` : fmtUsd(0)} · net {net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(net))} · cycle {cycle >= 0 ? "+" : "-"}{fmtUsd(Math.abs(cycle))}
                                           </div>
@@ -20253,6 +20349,36 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div className="muted tiny">
                               Virtual fills: {summary?.virtual_fills ?? 0} · Blocks: {summary?.virtual_blocks ?? 0} · Protect tests: {summary?.protect_tests ?? 0} · Re-entry allowed: {summary?.reentry_allowed ? "yes" : "no"}
                             </div>
+                            {selectedTradingSession ? (() => {
+                              const slots = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+                              const snap = getTradingStrategistRuntimeSnapshot(selectedTradingSession, slots, run);
+                              return (
+                                <div style={{ border: `1px solid ${snap.regimeTone.border}`, borderRadius: 10, padding: "7px 8px", background: snap.regimeTone.bg, display: "grid", gap: 5 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                                    <span className="tiny" style={{ fontWeight: 950, color: snap.regimeTone.color }}>Market Regime: {snap.regimeTone.label}</span>
+                                    <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.80)" }}>Elapsed {snap.elapsedPct}% · Runtime {snap.runtimeHours}h</span>
+                                  </div>
+                                  <div className="muted tiny">
+                                    Trade pace: used {snap.tradesUsed}/{snap.maxTrades} · hard {snap.tradesUsed}/{snap.hardLimit} · allowed by time {snap.allowedByTime}
+                                  </div>
+                                  <div className="muted tiny">
+                                    Slots: active {snap.activeSlots} · ready {snap.readySlots} · wait {snap.waitSlots} · max combined {snap.maxCombined}
+                                    {Number.isFinite(snap.netEdge) ? ` · net edge ${snap.netEdge.toFixed(2)}%` : ""}
+                                    {Number.isFinite(snap.minEdge) ? ` · min edge ${snap.minEdge.toFixed(2)}%` : ""}
+                                  </div>
+                                  <div className="muted tiny" style={{ color: "#d8fff1" }}>{snap.decisionReason}</div>
+                                  {snap.combineRows.length ? (
+                                    <div style={{ display: "grid", gap: 3 }}>
+                                      {snap.combineRows.slice(0, 3).map((row, idx) => (
+                                        <div key={`${row.slot}-${idx}`} className="muted tiny" style={{ color: "#8bdcff" }}>
+                                          Combined: Slot {row.slot} · {row.symbol} · {row.count} slot(s) · {fmtUsd(row.capital)} · {row.reason}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })() : null}
                             {shadowExecutorMsg ? <div className="muted tiny" style={{ color: "#8bdcff" }}>{shadowExecutorMsg}</div> : null}
                             {Array.isArray(run?.events) && run.events.length ? (
                               <details

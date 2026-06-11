@@ -2960,6 +2960,16 @@ const [errorMsg, setErrorMsg] = useState("");
     { label: "Trader Pulse", value: "Loading live liquidity, volatility and risk…", detail: "Waiting for real market data from the backend.", metric: "LIVE", tone: "neutral", chartType: "line", chartData: [] },
   ]);
   const [marketBannerIndex, setMarketBannerIndex] = useState(0);
+  const [shadowMarketContext, setShadowMarketContext] = useState({
+    market_score: 50,
+    market_risk_score: 50,
+    breadth_pct: 50,
+    mcap_change_pct: 0,
+    vol_cap: 0,
+    liquidity_score: 50,
+    source: "frontend_default",
+    updated_ts: 0,
+  });
 
   useEffect(() => {
     let alive = true;
@@ -3240,6 +3250,30 @@ const [errorMsg, setErrorMsg] = useState("");
         })();
         const riskLabel = riskScore >= 62 ? "Risk-On" : riskScore <= 42 ? "Risk-Off" : "Neutral";
         const riskTone = riskScore >= 62 ? "positive" : riskScore <= 42 ? "negative" : "warning";
+
+        // Shadow/Strategist must use the same market context the user sees in the header.
+        // Do not let backend runtime infer market regime from slot scores or stale session meta.
+        setShadowMarketContext({
+          market_score: riskScore,
+          marketScore: riskScore,
+          market_risk_score: riskScore,
+          marketRiskScore: riskScore,
+          breadth_pct: Number.isFinite(breadthPct) ? breadthPct : 50,
+          breadthPct: Number.isFinite(breadthPct) ? breadthPct : 50,
+          market_breadth: Number.isFinite(breadthPct) ? breadthPct : 50,
+          mcap_change_pct: Number.isFinite(capChange) ? capChange : 0,
+          mcapChangePct: Number.isFinite(capChange) ? capChange : 0,
+          market_cap_change_pct: Number.isFinite(capChange) ? capChange : 0,
+          vol_cap: Number.isFinite(liquidityRatio) ? liquidityRatio : 0,
+          volCap: Number.isFinite(liquidityRatio) ? liquidityRatio : 0,
+          liquidity_score: Number.isFinite(liquidityRatio) ? Math.max(0, Math.min(100, liquidityRatio * 12.5)) : 50,
+          liquidityScore: Number.isFinite(liquidityRatio) ? Math.max(0, Math.min(100, liquidityRatio * 12.5)) : 50,
+          avg_abs_volatility: Number.isFinite(avgAbsVolatility) ? avgAbsVolatility : 0,
+          btc_dominance: Number.isFinite(btcDom) ? btcDom : null,
+          eth_dominance: Number.isFinite(ethDom) ? ethDom : null,
+          source: "frontend_market_banner",
+          updated_ts: Date.now(),
+        });
 
         next.push({
           label: "Market Risk",
@@ -7830,8 +7864,19 @@ useEffect(() => {
     const waitSlots = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "WAIT").length;
     const maxCombined = Math.max(1, Math.floor(Number(sess?.maxCombinedSlots ?? sess?.max_combined_slots ?? sess?.slotDonorCap ?? sess?.slot_donor_cap ?? meta.maxCombinedSlots ?? meta.max_combined_slots ?? meta.slotDonorCap ?? meta.slot_donor_cap ?? runtime?.max_combined_slots ?? normalizeTradingMaxCombinedSlots()) || 1));
 
+    const frontendMarketScore = Number(shadowMarketContext?.market_score ?? shadowMarketContext?.marketScore ?? 50);
+    const frontendBreadth = Number(shadowMarketContext?.breadth_pct ?? shadowMarketContext?.breadthPct ?? 50);
+    const frontendMcap = Number(shadowMarketContext?.mcap_change_pct ?? shadowMarketContext?.mcapChangePct ?? 0);
+    const frontendLiquidity = Number(shadowMarketContext?.vol_cap ?? shadowMarketContext?.volCap ?? 0);
+    const frontendRegime = (frontendMarketScore >= 75 && frontendBreadth >= 60 && frontendMcap >= 1.5 && frontendLiquidity >= 3.5)
+      ? "STRONG_GREEN"
+      : (frontendMarketScore >= 60 && frontendBreadth >= 45 && frontendMcap >= 0.3)
+        ? "GREEN"
+        : (frontendMarketScore < 35 || frontendMcap <= -1 || frontendBreadth <= 30)
+          ? "RED"
+          : "NEUTRAL";
     const regimeRaw = String(
-      strategist?.market_regime ?? strategist?.regime ?? runtime?.market_regime ?? runtime?.regime ?? summary?.market_regime ?? meta.market_regime ?? "NEUTRAL"
+      strategist?.market_regime ?? strategist?.regime ?? runtime?.market_regime ?? runtime?.regime ?? summary?.market_regime ?? frontendRegime ?? "NEUTRAL"
     ).toUpperCase();
     const regime = regimeRaw.includes("STRONG") ? "STRONG_GREEN" : regimeRaw.includes("GREEN") ? "GREEN" : regimeRaw.includes("RED") || regimeRaw.includes("RISK_OFF") ? "RED" : "NEUTRAL";
     const regimeTone = regime === "RED"
@@ -8415,6 +8460,10 @@ useEffect(() => {
           profit_reuse_pct: normalizeTradingReuseProfitPct(),
           max_combined_slots: normalizeTradingMaxCombinedSlots(),
           maxCombinedSlots: normalizeTradingMaxCombinedSlots(),
+          market_context: shadowMarketContext,
+          marketContext: shadowMarketContext,
+          global_market: shadowMarketContext,
+          globalMarket: shadowMarketContext,
           // Important: Test is only a read-only validation. It must never rewrite
           // visible slots or clear the live-like Shadow queue.
           persist_state: false,
@@ -8482,6 +8531,10 @@ useEffect(() => {
           profit_reuse_pct: sessionReuseProfitPct,
           max_combined_slots: sessionMaxCombinedSlots,
           maxCombinedSlots: sessionMaxCombinedSlots,
+          market_context: shadowMarketContext,
+          marketContext: shadowMarketContext,
+          global_market: shadowMarketContext,
+          globalMarket: shadowMarketContext,
           persist_state: true,
         },
       };

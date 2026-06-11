@@ -7854,13 +7854,25 @@ useEffect(() => {
     const elapsedRatio = runtimeHours > 0
       ? Math.max(0, Math.min(1, Number(timing?.elapsedMs || 0) / (runtimeHours * 3600 * 1000)))
       : 0;
-    const allowedByTimeFallback = Math.max(0, Math.min(hardLimit, Math.floor(elapsedRatio * maxTrades + 0.0001)));
+    const activeSlotsForPacing = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "ACTIVE").length;
+    const readySlotsForPacing = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "READY").length;
+    const rawAllowedByTimeFallback = Math.floor(elapsedRatio * maxTrades + 0.0001);
+    const allowedByTimeFallback = Math.max(
+      (elapsedRatio > 0 && readySlotsForPacing > 0) ? 1 : 0,
+      Math.min(hardLimit, rawAllowedByTimeFallback)
+    );
     const allowedByTime = Math.max(0, Math.floor(Number(
-      strategist?.allowed_by_time ?? strategist?.allowed_trades_now ?? runtime?.allowed_by_time ?? runtime?.allowed_trades_now ?? allowedByTimeFallback
+      strategist?.allowed_by_time
+      ?? strategist?.allowed_trades_now
+      ?? strategist?.paced_soft_allowed
+      ?? runtime?.allowed_by_time
+      ?? runtime?.allowed_trades_now
+      ?? runtime?.paced_soft_allowed
+      ?? allowedByTimeFallback
     ) || 0));
 
-    const activeSlots = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "ACTIVE").length;
-    const readySlots = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "READY").length;
+    const activeSlots = activeSlotsForPacing;
+    const readySlots = readySlotsForPacing;
     const waitSlots = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "WAIT").length;
     const maxCombined = Math.max(1, Math.floor(Number(sess?.maxCombinedSlots ?? sess?.max_combined_slots ?? sess?.slotDonorCap ?? sess?.slot_donor_cap ?? meta.maxCombinedSlots ?? meta.max_combined_slots ?? meta.slotDonorCap ?? meta.slot_donor_cap ?? runtime?.max_combined_slots ?? normalizeTradingMaxCombinedSlots()) || 1));
 

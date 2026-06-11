@@ -2289,3 +2289,78 @@ body::before {
     display:none;
   }
 }
+/* =========================================================
+   FIX: Compare full width on phone / desktop-mode touch screens
+   Problem: phone desktop-mode can still trigger the desktop dashboard rules,
+   so the inner Compare content stays trapped in the 280px left column.
+   This override keeps the outer card wide and forces the inner Compare
+   grid/content to use the full available panel width on touch/narrow devices.
+   ========================================================= */
+@media (pointer: coarse), (max-width: 1180px){
+  .section-compare,
+  .section-compare.card,
+  .section-compare.dashboardPanel,
+  .section-compare.panelActive{
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+  }
+
+  .section-compare .cardBody,
+  .section-compare .panelScroll{
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    overflow-x: hidden !important;
+  }
+
+  .section-compare .compareGrid{
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    gap: 12px !important;
+  }
+
+  .section-compare .compareLive,
+  .section-compare .compareChart,
+  .section-compare .chartWrap,
+  .section-compare .pairsBox,
+  .section-compare .pairsScroll,
+  .section-compare .sparkGridWrap,
+  .section-compare .sparkGrid{
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    justify-self: stretch !important;
+  }
+
+  .section-compare .compareChart,
+  .section-compare .chartWrap{
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .section-compare svg,
+  .section-compare canvas,
+  .section-compare .chartSvg{
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .section-compare .pairsScroll{
+    height: auto !important;
+    max-height: clamp(220px, 34vh, 420px) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  .section-compare .pairRow{
+    width: 100% !important;
+  }
+}

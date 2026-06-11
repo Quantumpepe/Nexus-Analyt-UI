@@ -15147,6 +15147,34 @@ const handlePanelActivate = useCallback((name) => (e) => {
             max-height: min(420px, 52vh) !important;
             overflow-y: auto !important;
           }
+
+          /* Mobile desktop-site width fix: the card was full width, but the
+             Compare content stayed in a narrow left column. Stretch the inner
+             chart/list containers to the full panel width like Nexus Grid. */
+          .section-compare,
+          .section-compare .panelScroll,
+          .section-compare .compareGrid,
+          .section-compare .compareChart,
+          .section-compare .chartHeader,
+          .section-compare .chartWrap,
+          .section-compare .pairsBox,
+          .section-compare .pairsScroll {
+            width: 100% !important;
+            max-width: none !important;
+            box-sizing: border-box !important;
+          }
+          .section-compare .compareGrid {
+            display: block !important;
+            justify-items: stretch !important;
+            align-items: stretch !important;
+          }
+          .section-compare .compareChart > svg,
+          .section-compare .chartWrap > svg,
+          .section-compare svg.svgChart,
+          .section-compare svg.chartSvg {
+            width: 100% !important;
+            max-width: 100% !important;
+          }
         }
 
           .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridLayout{

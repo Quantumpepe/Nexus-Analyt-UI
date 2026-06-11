@@ -15074,6 +15074,81 @@ const handlePanelActivate = useCallback((name) => (e) => {
             overflow: hidden !important;
           }
 
+
+
+        /* --- Mobile browser in "Desktop site" mode fix ---
+           Chrome mobile can report a desktop-like viewport, so the desktop
+           dashboard rules above force panels to 100vh and leave the Compare
+           card with a large empty block before Nexus Trading. On narrow or
+           short viewports we switch the dashboard back to natural document
+           flow: content decides the height, no forced 3-row focus layout. */
+        @media (max-width: 1180px), (max-height: 760px) {
+          body {
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+          }
+          .main {
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+          }
+          .dashboardGrid,
+          .dashboardGrid.hasFocus {
+            display: block !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+          }
+          .dashboardGrid.hasFocus .section-compare,
+          .dashboardGrid.hasFocus .section-grid,
+          .dashboardGrid.hasFocus .section-watch,
+          .dashboardGrid.hasFocus .section-ai,
+          .dashboardGrid.focus-compare .section-compare,
+          .dashboardGrid.focus-vault .section-grid,
+          .dashboardGrid.focus-watchlist .section-watch,
+          .dashboardGrid.focus-ai .section-ai {
+            grid-column: auto !important;
+            grid-row: auto !important;
+          }
+          .dashboardPanel,
+          .dashboardPanel.panelActive,
+          .dashboardGrid.hasFocus .dashboardPanel,
+          .dashboardGrid.hasFocus .dashboardPanel.panelActive {
+            height: auto !important;
+            max-height: none !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            transform: none !important;
+            opacity: 1 !important;
+            margin-bottom: 16px !important;
+          }
+          .panelScroll {
+            height: auto !important;
+            max-height: none !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            padding-right: 0 !important;
+          }
+          .section-compare .compareGrid,
+          .section-compare .compareChart,
+          .section-compare .pairsBox {
+            height: auto !important;
+            max-height: none !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+          }
+          .section-compare .pairsScroll {
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: min(360px, 45vh) !important;
+            overflow-y: auto !important;
+          }
+          .section-compare .liveListBox {
+            max-height: min(420px, 52vh) !important;
+            overflow-y: auto !important;
+          }
+        }
+
           .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridLayout{
             grid-template-columns: 1fr !important;
             gap: 8px !important;

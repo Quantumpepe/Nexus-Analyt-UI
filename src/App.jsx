@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.13-DEPLOY-PROOF-001";
+const FRONTEND_BUILD_ID = "F-2026.06.13-SYSTEM-INFO-002";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   // Default backend for production builds.
@@ -22829,6 +22829,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 export default function App() {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [showSystemInfo, setShowSystemInfo] = useState(false);
   const [buildInfo, setBuildInfo] = useState(null);
 
   useEffect(() => {
@@ -22847,20 +22848,45 @@ export default function App() {
   }, []);
 
   const backendBuild = buildInfo?.backend_build || "backend ?";
+  const frontendTarget = buildInfo?.frontend_target || "frontend target ?";
   const strategistBuild = buildInfo?.strategist_version || "S ?";
   const shadowBuild = buildInfo?.shadow_version || "SH ?";
+  const entryMode = buildInfo?.entry_mode || "entry ?";
+  const promotionMode = buildInfo?.promotion_mode || "promotion ?";
   const exitMode = buildInfo?.exit_mode || "exit ?";
+  const renderCommit = buildInfo?.render_git_commit || "not provided";
+  const buildTs = buildInfo?.ts ? new Date(buildInfo.ts * 1000).toLocaleString() : "unknown";
+  const backendOnline = !!buildInfo?.backend_build;
 
   return (
     <>
       <AppInner />
 
       <div className="nexus-footer-left">
-        <div className="nexus-build-info" title="Frontend and backend deploy proof">
-          Build: {backendBuild} | {FRONTEND_BUILD_ID}
+        <button
+          type="button"
+          className="nexus-build-info"
+          title="Open Nexus system/build diagnostics"
+          onClick={() => setShowSystemInfo(true)}
+          style={{
+            display: "block",
+            border: "1px solid rgba(68, 255, 180, 0.28)",
+            background: "rgba(3, 24, 19, 0.72)",
+            color: backendOnline ? "#8dffd0" : "#ffb4b4",
+            borderRadius: 8,
+            padding: "4px 8px",
+            marginBottom: 4,
+            fontSize: 11,
+            lineHeight: 1.25,
+            textAlign: "left",
+            cursor: "pointer",
+            maxWidth: 360,
+          }}
+        >
+          System Info {backendOnline ? "🟢" : "🔴"}
           <br />
-          Strategist: {strategistBuild} | Shadow: {shadowBuild} | Exit: {exitMode}
-        </div>
+          B: {backendBuild} | F: {FRONTEND_BUILD_ID}
+        </button>
 
         <div className="nexus-footer-copy">© 2026 Nexus Analyt</div>
 
@@ -22874,6 +22900,86 @@ export default function App() {
 
         <div className="nexus-footer-ai">AI-assisted infrastructure</div>
       </div>
+
+      {showSystemInfo && (
+        <div
+          className="nexus-disclaimer-overlay"
+          onClick={() => setShowSystemInfo(false)}
+        >
+          <div
+            className="nexus-disclaimer-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 620 }}
+          >
+            <div className="nexus-disclaimer-title">NEXUS SYSTEM INFO</div>
+
+            <div className="nexus-disclaimer-content">
+              <div style={{ display: "grid", gap: 10, fontSize: 13 }}>
+                <div>
+                  <b>Connection</b>
+                  <br />
+                  Backend: {backendOnline ? "ONLINE 🟢" : "OFFLINE / NOT LOADED 🔴"}
+                  <br />
+                  API Base: {API_BASE || "same origin"}
+                </div>
+
+                <div>
+                  <b>Build Proof</b>
+                  <br />
+                  Backend Build: {backendBuild}
+                  <br />
+                  Frontend Build: {FRONTEND_BUILD_ID}
+                  <br />
+                  Frontend Target: {frontendTarget}
+                  <br />
+                  Render Commit: {renderCommit}
+                  <br />
+                  Backend Timestamp: {buildTs}
+                </div>
+
+                <div>
+                  <b>Engine Modes</b>
+                  <br />
+                  Strategist: {strategistBuild}
+                  <br />
+                  Shadow: {shadowBuild}
+                  <br />
+                  Entry: {entryMode}
+                  <br />
+                  Promotion: {promotionMode}
+                  <br />
+                  Exit: {exitMode}
+                </div>
+
+                <div>
+                  <b>Raw Build Payload</b>
+                  <pre style={{
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                    background: "rgba(0,0,0,0.28)",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: 8,
+                    padding: 8,
+                    marginTop: 6,
+                    maxHeight: 180,
+                    overflow: "auto",
+                  }}>
+                    {JSON.stringify(buildInfo || { error: "build-info not loaded" }, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="nexus-disclaimer-close"
+              onClick={() => setShowSystemInfo(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {showDisclaimer && (
         <div

@@ -8550,10 +8550,13 @@ useEffect(() => {
           persist_state: true,
         },
       };
-      // Only send a frontend queue when it actually has rows. Empty arrays caused
-      // the backend to ignore the persisted wallet queue, so Pause/Resume/Stop
-      // looked like they did nothing.
-      if (currentQueue.length) body.queue = currentQueue;
+      // Runtime actions are backend-first. Do NOT send the visible frontend queue
+      // for start/tick/resume/pause/stop, because it may be stale or locally mapped
+      // and can overwrite the authoritative backend queue. The backend may use a
+      // body queue only as last-resort seed when its persisted queue is empty.
+      if (!['start', 'tick', 'resume', 'pause', 'stop'].includes(String(action || '').toLowerCase()) && currentQueue.length) {
+        body.queue = currentQueue;
+      }
       const res = await api(`/api/nexus/shadow/executor`, { method: "POST", wallet, body });
       const shadowRun = res?.run || null;
       const shadowQueue = Array.isArray(shadowRun?.queue) ? shadowRun.queue : [];
@@ -8624,84 +8627,32 @@ useEffect(() => {
   }, [setTradingPreparedSetup]);
 
   const applyTradingRuntimeHeartbeat = useCallback((reason = "auto") => {
-    const now = Date.now();
-    const openIds = new Set((Array.isArray(openTradingSessions) ? openTradingSessions : [])
-      .map((sess) => String(sess?.id || "").trim())
-      .filter(Boolean));
-    if (!openIds.size) return;
-
-    let changed = false;
-    const promotedBySession = new Map();
-    const bySession = new Map();
-
-    const currentQueue = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue : [];
-    currentQueue.forEach((slot, idx) => {
-      const sid = String(getTradingSlotSessionId(slot) || "").trim();
-      if (!sid || !openIds.has(sid)) return;
-      if (!bySession.has(sid)) bySession.set(sid, []);
-      bySession.get(sid).push({ slot, idx });
-    });
-
-    for (const [sid, rows] of bySession.entries()) {
-      const hasExecutable = rows.some(({ slot }) => ["ACTIVE", "PROTECT", "EXECUTING"].includes(String(slot?.status || "").toUpperCase()));
-      const hasProtected = rows.some(({ slot }) => ["HOLD", "OBSERVE", "RELEASE_REQUIRED"].includes(String(slot?.status || "").toUpperCase()));
-      if (hasExecutable || hasProtected) continue;
-
-      const candidates = rows
-        .filter(({ slot }) => {
-          const st = String(slot?.status || "").toUpperCase();
-          const risk = Number(slot?.risk_score ?? slot?.riskScore ?? 0);
-          return ["READY", "WAIT", "BLOCKED"].includes(st) && (!Number.isFinite(risk) || risk < 70);
-        })
-        .sort((a, b) => Number(b.slot?.priority || 0) - Number(a.slot?.priority || 0));
-
-      const pick = candidates[0];
-      if (pick) promotedBySession.set(sid, pick.idx);
-    }
-
-    if (!promotedBySession.size) return;
-
-    const nextQueue = currentQueue.map((slot, idx) => {
-      const sid = String(getTradingSlotSessionId(slot) || "").trim();
-      if (!sid || !promotedBySession.has(sid) || promotedBySession.get(sid) !== idx) return slot;
-      const prevStatus = String(slot?.status || "WAIT").toUpperCase();
-      changed = true;
-      return {
-        ...slot,
-        status: "ACTIVE",
-        previousStatus: prevStatus,
-        runtimePromotedAt: now,
-        lastRuntimeRecheckAt: now,
-        condition: prevStatus === "BLOCKED"
-          ? "Runtime recheck released this slot from BLOCKED into ACTIVE monitoring. Execution still remains inside user/session limits."
-          : "Runtime recheck promoted this slot into ACTIVE monitoring. Execution still remains inside user/session limits.",
-        observeReason: `Runtime heartbeat (${reason}) prevented the approved session from staying idle without a fresh decision.`,
-      };
-    });
-
-    if (changed) {
-      setTradingExecutionQueue(nextQueue);
-      promotedBySession.forEach((_, sid) => {
-        setTradingSessionStatus("ACTIVE");
-        setTradingSessionUpdatedTs(now);
-        updateTradingSessionMeta(sid, { status: "ACTIVE", lastRuntimeHeartbeatAt: now, runtimeHeartbeatReason: reason });
-      });
-      updateTradingPreparedSession({
-        status: "ACTIVE",
-        executionQueue: nextQueue,
-        runtimeHeartbeatAt: now,
-        runtimeHeartbeatReason: reason,
-      });
-    }
-  }, [openTradingSessions, tradingExecutionQueue, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession]);
+    // Backend-first rule: the frontend must never promote READY/WAIT slots to ACTIVE.
+    // This local heartbeat created false ACTIVE slots in the UI while the backend still
+    // reported virtual_fills=0 / closed_trades=0. Runtime decisions belong only to the
+    // Shadow/Strategist backend tick.
+    return;
+  }, []);
 
   useEffect(() => {
+    // Backend-first Shadow polling. This keeps the displayed state aligned with the
+    // persisted backend runtime and lets GET /api/nexus/shadow/executor safely tick
+    // already-running sessions when due. It does not change slots locally.
     if (String(gridMode || "").toLowerCase() !== "trading") return;
-    if (!openTradingSessions?.length) return;
-    applyTradingRuntimeHeartbeat("mount");
-    const id = setInterval(() => applyTradingRuntimeHeartbeat("interval"), 2 * 60 * 1000);
-    return () => clearInterval(id);
-  }, [gridMode, openTradingSessions, applyTradingRuntimeHeartbeat]);
+    if (!wallet) return;
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled) return;
+      try { await refreshShadowExecutorState(); } catch {}
+      try { await refreshNexusBackendState(); } catch {}
+    };
+    poll();
+    const id = setInterval(poll, 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [gridMode, wallet, refreshShadowExecutorState, refreshNexusBackendState]);
 
   const tradingGlobalRiskState = useMemo(() => {
     const fromBackend = nexusBackendState?.risk_state || nexusBackendState?.global_risk_state || null;

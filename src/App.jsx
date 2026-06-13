@@ -415,6 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
+const FRONTEND_BUILD_ID = "F-2026.06.13-DEPLOY-PROOF-001";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   // Default backend for production builds.
@@ -22828,12 +22829,39 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 export default function App() {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [buildInfo, setBuildInfo] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API_BASE}/api/build-info`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (alive && data) setBuildInfo(data);
+      })
+      .catch(() => {
+        if (alive) setBuildInfo(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const backendBuild = buildInfo?.backend_build || "backend ?";
+  const strategistBuild = buildInfo?.strategist_version || "S ?";
+  const shadowBuild = buildInfo?.shadow_version || "SH ?";
+  const exitMode = buildInfo?.exit_mode || "exit ?";
 
   return (
     <>
       <AppInner />
 
       <div className="nexus-footer-left">
+        <div className="nexus-build-info" title="Frontend and backend deploy proof">
+          Build: {backendBuild} | {FRONTEND_BUILD_ID}
+          <br />
+          Strategist: {strategistBuild} | Shadow: {shadowBuild} | Exit: {exitMode}
+        </div>
+
         <div className="nexus-footer-copy">© 2026 Nexus Analyt</div>
 
         <button

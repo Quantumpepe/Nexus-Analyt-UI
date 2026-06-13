@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.13-SYSTEM-INFO-002";
+const FRONTEND_BUILD_ID = "F-2026.06.13-LAYOUT-004";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   // Default backend for production builds.
@@ -15093,13 +15093,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 
 
-        /* --- Mobile browser in "Desktop site" mode fix ---
-           Chrome mobile can report a desktop-like viewport, so the desktop
-           dashboard rules above force panels to 100vh and leave the Compare
-           card with a large empty block before Nexus Trading. On narrow or
-           short viewports we switch the dashboard back to natural document
-           flow: content decides the height, no forced 3-row focus layout. */
-        @media (max-width: 1180px), (max-height: 760px) {
+        /* --- True compact/mobile layout fix ---
+           Important: a smaller desktop browser window is NOT a phone.
+           The old rule used max-width:1180px OR max-height:760px, so normal
+           resized desktop windows jumped into the mobile/focus fallback and
+           left only the Compare column visible. Keep desktop layout until the
+           viewport is genuinely compact. */
+        @media (max-width: 900px) {
           body {
             overflow-y: auto !important;
             overflow-x: hidden !important;

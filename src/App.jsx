@@ -22858,35 +22858,46 @@ export default function App() {
   const buildTs = buildInfo?.ts ? new Date(buildInfo.ts * 1000).toLocaleString() : "unknown";
   const backendOnline = !!buildInfo?.backend_build;
 
+  // Developer-only diagnostics button.
+  // Keep the System Info trigger hidden for normal users; your wallet can still open it.
+  const DEV_SYSTEM_INFO_WALLET = "0x150270ac191ba7caee8f098add651fa9db38b028";
+  const footerWallet = resolveWalletAddress(typeof window !== "undefined" ? localStorage.getItem("nexus_wallet") : "");
+  const canOpenSystemInfo = String(footerWallet || "").toLowerCase() === DEV_SYSTEM_INFO_WALLET;
+
   return (
     <>
       <AppInner />
 
       <div className="nexus-footer-left">
-        <button
-          type="button"
-          className="nexus-build-info"
-          title="Open Nexus system/build diagnostics"
-          onClick={() => setShowSystemInfo(true)}
-          style={{
-            display: "block",
-            border: "1px solid rgba(68, 255, 180, 0.28)",
-            background: "rgba(3, 24, 19, 0.72)",
-            color: backendOnline ? "#8dffd0" : "#ffb4b4",
-            borderRadius: 8,
-            padding: "4px 8px",
-            marginBottom: 4,
-            fontSize: 11,
-            lineHeight: 1.25,
-            textAlign: "left",
-            cursor: "pointer",
-            maxWidth: 360,
-          }}
-        >
-          System Info {backendOnline ? "🟢" : "🔴"}
-          <br />
-          B: {backendBuild} | F: {FRONTEND_BUILD_ID}
-        </button>
+        {canOpenSystemInfo && (
+          <button
+            type="button"
+            className="nexus-build-info"
+            title="Open Nexus system/build diagnostics"
+            onClick={() => setShowSystemInfo(true)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              border: "1px solid rgba(68, 255, 180, 0.28)",
+              background: "rgba(3, 24, 19, 0.72)",
+              color: backendOnline ? "#8dffd0" : "#ffb4b4",
+              borderRadius: 999,
+              padding: "4px 9px",
+              marginBottom: 4,
+              fontSize: 11,
+              lineHeight: 1.15,
+              fontWeight: 800,
+              textAlign: "left",
+              cursor: "pointer",
+              maxWidth: 160,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {backendOnline ? "🟢" : "🔴"} System Info
+          </button>
+        )}
 
         <div className="nexus-footer-copy">© 2026 Nexus Analyt</div>
 

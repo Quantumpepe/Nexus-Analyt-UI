@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.13-LAYOUT-004";
+const FRONTEND_BUILD_ID = "F-2026.06.13-ENGINE-010";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   // Default backend for production builds.
@@ -15093,12 +15093,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 
 
-        /* --- True compact/mobile layout fix ---
-           Important: a smaller desktop browser window is NOT a phone.
-           The old rule used max-width:1180px OR max-height:760px, so normal
-           resized desktop windows jumped into the mobile/focus fallback and
-           left only the Compare column visible. Keep desktop layout until the
-           viewport is genuinely compact. */
+        /* --- Mobile browser in "Desktop site" mode fix ---
+           Chrome mobile can report a desktop-like viewport, so the desktop
+           dashboard rules above force panels to 100vh and leave the Compare
+           card with a large empty block before Nexus Trading. On narrow or
+           short viewports we switch the dashboard back to natural document
+           flow: content decides the height, no forced 3-row focus layout. */
         @media (max-width: 900px) {
           body {
             overflow-y: auto !important;
@@ -22831,6 +22831,7 @@ export default function App() {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showSystemInfo, setShowSystemInfo] = useState(false);
   const [buildInfo, setBuildInfo] = useState(null);
+  const [shadowHealth, setShadowHealth] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -22857,12 +22858,35 @@ export default function App() {
   const renderCommit = buildInfo?.render_git_commit || "not provided";
   const buildTs = buildInfo?.ts ? new Date(buildInfo.ts * 1000).toLocaleString() : "unknown";
   const backendOnline = !!buildInfo?.backend_build;
+  const shadowTickAge = shadowHealth?.seconds_since_tick;
+  const shadowLastTick = shadowHealth?.last_tick ? new Date(shadowHealth.last_tick * 1000).toLocaleString() : "not seen";
+  const shadowTickCount = shadowHealth?.tick_count ?? "?";
+  const shadowRuntimeStatus = shadowHealth?.runtime_status || (shadowHealth?.running ? "running" : "unknown");
+  const shadowStalled = !!shadowHealth?.stalled;
 
   // Developer-only diagnostics button.
   // Keep the System Info trigger hidden for normal users; your wallet can still open it.
   const DEV_SYSTEM_INFO_WALLET = "0x150270ac191ba7caee8f098add651fa9db38b028";
   const footerWallet = resolveWalletAddress(typeof window !== "undefined" ? localStorage.getItem("nexus_wallet") : "");
   const canOpenSystemInfo = String(footerWallet || "").toLowerCase() === DEV_SYSTEM_INFO_WALLET;
+
+  useEffect(() => {
+    if (!canOpenSystemInfo) return;
+    let alive = true;
+    const loadShadowHealth = () => {
+      const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";
+      fetch(`${API_BASE}/api/shadow/health${walletParam}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => { if (alive && data) setShadowHealth(data); })
+        .catch(() => { if (alive) setShadowHealth(null); });
+    };
+    loadShadowHealth();
+    const id = setInterval(loadShadowHealth, 15000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [canOpenSystemInfo, footerWallet]);
 
   return (
     <>
@@ -22962,6 +22986,25 @@ export default function App() {
                   Exit: {exitMode}
                 </div>
 
+                <div style={{
+                  border: `1px solid ${shadowStalled ? "rgba(255,80,80,0.55)" : "rgba(68,255,180,0.22)"}`,
+                  borderRadius: 10,
+                  padding: 10,
+                  background: shadowStalled ? "rgba(120,0,0,0.18)" : "rgba(0,255,140,0.055)",
+                }}>
+                  <b>Shadow Runtime Health</b>
+                  <br />
+                  Status: {shadowRuntimeStatus} {shadowHealth?.running ? "🟢" : "⚪"}
+                  <br />
+                  Last Tick: {shadowLastTick}
+                  <br />
+                  Tick Age: {shadowTickAge == null ? "unknown" : `${shadowTickAge}s`} {shadowStalled ? "⚠ STALLED" : ""}
+                  <br />
+                  Tick Count: {shadowTickCount}
+                  <br />
+                  Process Tick: {shadowHealth?.process_tick_count ?? "?"} / {shadowHealth?.process_tick_source || "?"}
+                </div>
+
                 <div>
                   <b>Raw Build Payload</b>
                   <pre style={{
@@ -22975,7 +23018,7 @@ export default function App() {
                     maxHeight: 180,
                     overflow: "auto",
                   }}>
-                    {JSON.stringify(buildInfo || { error: "build-info not loaded" }, null, 2)}
+                    {JSON.stringify({ buildInfo: buildInfo || { error: "build-info not loaded" }, shadowHealth: shadowHealth || { error: "shadow health not loaded" } }, null, 2)}
                   </pre>
                 </div>
               </div>

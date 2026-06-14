@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-019";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-020";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   // Default backend for production builds.
@@ -9436,14 +9436,23 @@ useEffect(() => {
   const confirmAggressiveRiskConsent = useCallback(() => {
     const next = String(aggressiveRiskPendingValue || "AGGRESSIVE").toUpperCase();
     setTradingStyle(next);
+    setTradingRiskExpanded(false);
     setAggressiveRiskPendingValue("");
     setAggressiveRiskConsentOpen(false);
-  }, [aggressiveRiskPendingValue, setTradingStyle, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
+  }, [aggressiveRiskPendingValue, setTradingStyle, setTradingRiskExpanded, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
 
   const cancelAggressiveRiskConsent = useCallback(() => {
     setAggressiveRiskPendingValue("");
     setAggressiveRiskConsentOpen(false);
   }, [setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
+
+  const isTradingAggressivePerformance = String(tradingStyle || "").toUpperCase() === "AGGRESSIVE";
+
+  useEffect(() => {
+    if (isTradingAggressivePerformance && tradingRiskExpanded) {
+      setTradingRiskExpanded(false);
+    }
+  }, [isTradingAggressivePerformance, tradingRiskExpanded, setTradingRiskExpanded]);
 
 
 
@@ -20284,14 +20293,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <button
                           type="button"
                           className="btnGhost"
+                          disabled={isTradingAggressivePerformance}
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
+                            if (isTradingAggressivePerformance) return;
                             setTradingRiskExpanded((v) => !v);
                           }}
-                          style={{ height: 30, paddingInline: 10, fontSize: 12 }}
+                          title={isTradingAggressivePerformance ? "Advanced Risk Engine is disabled in Aggressive Performance. Core safety protections remain active." : "Open Advanced Risk Engine"}
+                          style={{ height: 30, paddingInline: 10, fontSize: 12, opacity: isTradingAggressivePerformance ? 0.55 : 1, cursor: isTradingAggressivePerformance ? "not-allowed" : "pointer" }}
                         >
-                          {tradingRiskExpanded ? "Advanced Risk Engine ▲" : "Advanced Risk Engine ▼"}
+                          {isTradingAggressivePerformance ? "Advanced Risk Engine disabled in Aggressive" : (tradingRiskExpanded ? "Advanced Risk Engine ▲" : "Advanced Risk Engine ▼")}
                         </button>
                         <InfoButton title="Advanced Risk Engine – Info">
                           <Help showClose dismissable
@@ -20313,9 +20325,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }
                           />
                         </InfoButton>
+                        {isTradingAggressivePerformance ? (
+                          <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>
+                            Aggressive Performance uses Legacy Protection Mode. Soft risk-engine brakes are not selectable here; hard safety, budget limits, security checks and net-profit exit remain active.
+                          </div>
+                        ) : null}
                       </div>
 
-                      {tradingRiskExpanded ? (
+                      {tradingRiskExpanded && !isTradingAggressivePerformance ? (
                         <div style={{ padding: "0 10px 10px 10px", display: "grid", gap: 8 }}>
                           <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10 }}>
                             <div className="formRow">

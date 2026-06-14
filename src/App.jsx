@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-026";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-027";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -20202,8 +20202,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             <span className="tiny" style={{ color: isActive || isReady ? "#7cf7a2" : isWait ? "#ffc107" : isExit ? "#8bdcff" : "rgba(235,255,247,.72)", fontWeight: 950 }}>{st}</span>
                                           </div>
                                           <div className="muted tiny">{slot.symbol || slot.asset || sessionAsset} · {getTradingSlotDecisionReason(slot)}</div>
-                                          <div className="tiny" style={{ color: net >= 0 ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
-                                            gross {gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(gross))} · costs {costs > 0 ? `-${fmtUsd(costs)}` : fmtUsd(0)} · net {net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(net))} · cycle {cycle >= 0 ? "+" : "-"}{fmtUsd(Math.abs(cycle))}
+                                          <div className="tiny" style={{ fontWeight: 900, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                            <span style={{ color: gross >= 0 ? "#7cf7a2" : "#ff8a8a" }}>gross {gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(gross))}</span>
+                                            <span style={{ color: "rgba(216,255,241,.68)" }}>·</span>
+                                            <span style={{ color: costs > 0 ? "#ffd166" : "rgba(216,255,241,.68)" }}>costs {costs > 0 ? `-${fmtUsd(costs)}` : fmtUsd(0)}</span>
+                                            <span style={{ color: "rgba(216,255,241,.68)" }}>·</span>
+                                            <span style={{ color: net >= 0 ? "#7cf7a2" : "#ff8a8a" }}>net {net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(net))}</span>
+                                            <span style={{ color: "rgba(216,255,241,.68)" }}>·</span>
+                                            <span style={{ color: cycle >= 0 ? "#7cf7a2" : "#ff8a8a" }}>cycle {cycle >= 0 ? "+" : "-"}{fmtUsd(Math.abs(cycle))}</span>
                                           </div>
                                           <div className="muted tiny">Entry {fmtUsd(Number(slot.paper_entry_price ?? meta.paper_entry_price ?? 0))} · Current {fmtUsd(Number(slot.paper_mark_price ?? meta.paper_mark_price ?? 0))} · Exit {fmtUsd(Number(slot.paper_exit_price ?? meta.paper_exit_price ?? 0))}</div>
                                         </div>
@@ -20842,8 +20848,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           <span className="tiny" style={{ color: isActive || isReady ? "#7cf7a2" : isWait ? "#ffc107" : isExit ? "#8bdcff" : "rgba(235,255,247,.72)", fontWeight: 950 }}>{st}</span>
                                         </div>
                                         <div className="muted tiny">{slot.symbol || slot.asset || sessionAsset} · {slot.reason || slot.message || slot.note || "Strategist slot state"}</div>
-                                        <div className="tiny" style={{ color: net >= 0 ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
-                                          gross {gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(gross))} · costs {costs > 0 ? `-${fmtUsd(costs)}` : fmtUsd(0)} · net {net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(net))} · cycle {cycle >= 0 ? "+" : "-"}{fmtUsd(Math.abs(cycle))}
+                                        <div className="tiny" style={{ fontWeight: 900, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                          <span style={{ color: gross >= 0 ? "#7cf7a2" : "#ff8a8a" }}>gross {gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(gross))}</span>
+                                          <span style={{ color: "rgba(216,255,241,.68)" }}>·</span>
+                                          <span style={{ color: costs > 0 ? "#ffd166" : "rgba(216,255,241,.68)" }}>costs {costs > 0 ? `-${fmtUsd(costs)}` : fmtUsd(0)}</span>
+                                          <span style={{ color: "rgba(216,255,241,.68)" }}>·</span>
+                                          <span style={{ color: net >= 0 ? "#7cf7a2" : "#ff8a8a" }}>net {net >= 0 ? "+" : "-"}{fmtUsd(Math.abs(net))}</span>
+                                          <span style={{ color: "rgba(216,255,241,.68)" }}>·</span>
+                                          <span style={{ color: cycle >= 0 ? "#7cf7a2" : "#ff8a8a" }}>cycle {cycle >= 0 ? "+" : "-"}{fmtUsd(Math.abs(cycle))}</span>
                                         </div>
                                         <div className="muted tiny">Entry {fmtUsd(Number(slot.paper_entry_price ?? meta.paper_entry_price ?? 0))} · Current {fmtUsd(Number(slot.paper_mark_price ?? meta.paper_mark_price ?? 0))} · Exit {fmtUsd(Number(slot.paper_exit_price ?? meta.paper_exit_price ?? 0))}</div>
                                       </div>

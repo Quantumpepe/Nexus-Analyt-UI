@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.13-ENGINE-010";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-019";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   // Default backend for production builds.
@@ -7248,6 +7248,8 @@ useEffect(() => {
   const [tradingMaxTrades, setTradingMaxTrades] = useState("6");
   const [tradingConfidenceMin, setTradingConfidenceMin] = useState("MEDIUM");
   const [tradingStyle, setTradingStyle] = useState("TACTICAL");
+  const [aggressiveRiskConsentOpen, setAggressiveRiskConsentOpen] = useState(false);
+  const [aggressiveRiskPendingValue, setAggressiveRiskPendingValue] = useState("");
   const [tradingPreparedSetup, setTradingPreparedSetup] = useState(null);
   const [tradingLearningSetups, setTradingLearningSetups] = useState([]);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useState(false);
@@ -9420,6 +9422,28 @@ useEffect(() => {
   const handleTradingConfidenceChange = useCallback((value) => {
     applyTradingRiskPreset(tradingRiskMode, value);
   }, [applyTradingRiskPreset, tradingRiskMode]);
+
+  const handleTradingPerformanceChange = useCallback((value) => {
+    const next = String(value || "TACTICAL").toUpperCase();
+    if (next === "AGGRESSIVE" && String(tradingStyle || "").toUpperCase() !== "AGGRESSIVE") {
+      setAggressiveRiskPendingValue(next);
+      setAggressiveRiskConsentOpen(true);
+      return;
+    }
+    setTradingStyle(next);
+  }, [tradingStyle, setTradingStyle, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
+
+  const confirmAggressiveRiskConsent = useCallback(() => {
+    const next = String(aggressiveRiskPendingValue || "AGGRESSIVE").toUpperCase();
+    setTradingStyle(next);
+    setAggressiveRiskPendingValue("");
+    setAggressiveRiskConsentOpen(false);
+  }, [aggressiveRiskPendingValue, setTradingStyle, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
+
+  const cancelAggressiveRiskConsent = useCallback(() => {
+    setAggressiveRiskPendingValue("");
+    setAggressiveRiskConsentOpen(false);
+  }, [setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
 
 
 
@@ -20162,14 +20186,52 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         />
                       </div>
                       <div className="formRow">
-                        <label>Style</label>
-                        <select value={tradingStyle} onChange={(e) => setTradingStyle(e.target.value)}>
+                        <label>Performance</label>
+                        <select value={tradingStyle} onChange={(e) => handleTradingPerformanceChange(e.target.value)}>
                           <option value="TACTICAL">Tactical</option>
                           <option value="DEFENSIVE">Defensive</option>
                           <option value="AGGRESSIVE">Aggressive</option>
                         </select>
                       </div>
                     </div>
+
+                    {aggressiveRiskConsentOpen && (
+                      <div
+                        className="modalBackdrop"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancelAggressiveRiskConsent(); }}
+                        style={{ zIndex: 99999 }}
+                      >
+                        <div
+                          className="modal modalHelp"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            background: "linear-gradient(180deg, rgba(34,18,12,1), rgba(12,18,17,1))",
+                            border: "1px solid rgba(255,193,7,.35)",
+                            maxWidth: 520,
+                          }}
+                        >
+                          <div className="modalHead">
+                            <div className="cardTitle">Aggressive Performance Mode Warning</div>
+                            <button
+                              className="iconBtn"
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancelAggressiveRiskConsent(); }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                          <div className="helpBody">
+                            <p><b>Warning:</b> Aggressive Performance uses a faster, legacy-style high-frequency trading profile.</p>
+                            <p>This can generate more trades, higher trading costs, stronger short-term fluctuations and possible losses. Soft defensive brakes are reduced; hard safety rules, budget limits, security checks and the net-profit exit guard remain active.</p>
+                            <p>Please confirm that you understand the increased risk and still want to activate Aggressive Performance.</p>
+                            <div className="row" style={{ gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+                              <button className="btnGhost" type="button" onClick={cancelAggressiveRiskConsent}>Cancel</button>
+                              <button className="btn" type="button" onClick={confirmAggressiveRiskConsent}>I Understand and Accept the Risk</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr", gap: isCompactMobile ? 8 : 10 }}>
                       <div className="formRow">

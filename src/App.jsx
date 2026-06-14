@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-024";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-026";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -20775,7 +20775,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                 </div>
                                 <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
-                                <div className="muted tiny">Closed trades {tradeCount} · Slots in use {counts.ACTIVE || 0}/{Math.max(1, getTradingSessionSlotCount(sess) || sessionSlots.length || 0)}</div>
+                                <div className="muted tiny">Closed trades {tradeCount} · Slots in use {counts.ACTIVE || 0}/{Math.max(1, getTradingSessionSlotCount(selectedTradingSession) || sessionSlots.length || 0)}</div>
                               </div>
 
                               <div style={{ display: "grid", gap: 5 }}>

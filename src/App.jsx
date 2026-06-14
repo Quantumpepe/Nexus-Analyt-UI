@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-023";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-024";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -20030,7 +20030,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                     </div>
                                     <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
-                                    <div className="muted tiny">Closed trades {tradeCount} · Slots: Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exit {counts.SIMULATED_EXIT || 0}</div>
+                                    <div className="muted tiny">Closed trades {tradeCount} · Slots in use {counts.ACTIVE || 0}/{Math.max(1, getTradingSessionSlotCount(sess) || sessionSlots.length || 0)}</div>
                                   </div>
 
                                   <div style={{ display: "grid", gap: 5 }}>
@@ -20040,8 +20040,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   </div>
 
                                   <div style={{ display: "grid", gap: 5 }}>
-                                    <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Reuse Profit: {Number.isFinite(reusePct) ? reusePct.toFixed(0) : "0"}% allowed</div>
-                                    <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Max Combined Slots: {Number.isFinite(maxCombined) ? maxCombined.toFixed(0) : "0"}</div>
+                                    <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Performance: {sessionStyle ? sessionStyle.charAt(0) + sessionStyle.slice(1).toLowerCase() : "Tactical"}</div>
+                                    <div className="muted tiny" style={{ color: "rgba(216,255,241,.72)", fontWeight: 850 }}>Payout: {sess?.payoutAsset || sess?.payout_asset || manualPayoutAsset || "USDC"}</div>
                                     <div className="muted tiny">Current slot: {activeSlot ? `#${activeSlot.slot || activeSlot.slot_id || "—"} · ${String(activeSlot.status || activeSlot.state || "WAIT").toUpperCase()} · ${fmtUsd(getTradingSlotAmountUsd(activeSlot))}` : "—"}</div>
                                     <div style={{ height: 6, borderRadius: 999, background: "rgba(255,255,255,.10)", overflow: "hidden", marginTop: 2 }}>
                                       <div style={{ height: "100%", width: `${Math.max(0, Math.min(100, progressPct))}%`, background: sessionProfit >= 0 ? "linear-gradient(90deg, #22c55e, #7cf7a2)" : "linear-gradient(90deg, #ff6b6b, #ffd166)" }} />
@@ -20199,7 +20199,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <div key={`${getTradingSlotSessionId(slot) || sid || "session"}-${slot.slot || slot.slot_id || idx}`} style={{ border: `1px solid ${border}`, background: bg, borderRadius: 10, padding: "8px 9px", display: "grid", gap: 5 }}>
                                           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                                             <b style={{ color: "#eafff5" }}>Slot {slot.slot || slot.slot_id || idx + 1} · {fmtUsd(getTradingSlotAmountUsd(slot))}</b>
-                                            <span className="tiny" style={{ color: isActive || isReady ? "#7cf7a2" : isWait ? "#ffc107" : isExit ? "#8bdcff" : "rgba(235,255,247,.72)", fontWeight: 950 }}>{st} · priority {Math.round(Number(slot.priority || 0))}</span>
+                                            <span className="tiny" style={{ color: isActive || isReady ? "#7cf7a2" : isWait ? "#ffc107" : isExit ? "#8bdcff" : "rgba(235,255,247,.72)", fontWeight: 950 }}>{st}</span>
                                           </div>
                                           <div className="muted tiny">{slot.symbol || slot.asset || sessionAsset} · {getTradingSlotDecisionReason(slot)}</div>
                                           <div className="tiny" style={{ color: net >= 0 ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
@@ -20212,9 +20212,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   </div>
                                 ) : null}
 
-                                <div className="muted tiny" style={{ color: "#8bdcff", borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 6 }}>
-                                  Viewing: {sid}. Strategy: {sessionStyle || "—"} · Risk: {sessionRiskMode || "—"} · Payout: {sess?.payoutAsset || sess?.payout_asset || manualPayoutAsset || "USDC"}
-                                </div>
+                                {null}
                               </div>
                             );
                           })}
@@ -20645,13 +20643,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return (
                           <div style={{ display: "grid", gap: 5 }}>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                              <span className="tiny" style={{ fontWeight: 950, color: runtimeStatus === "RUNNING" ? "#7cf7a2" : runtimeStatus === "PAUSED" ? "#ffd166" : "rgba(235,255,247,.78)" }}>Runtime: {runtimeStatus}</span>
-                              <span className="tiny" style={{ fontWeight: 950, color: status === "PASSED" ? "#7cf7a2" : status === "BLOCKED" ? "#ff8a8a" : "#ffd166" }}>Status: {status}</span>
+                              <span className="tiny" style={{ fontWeight: 950, color: runtimeStatus === "RUNNING" ? "#7cf7a2" : runtimeStatus === "PAUSED" ? "#ffd166" : "rgba(235,255,247,.78)" }}>Shadow Runtime: {runtimeStatus === "RUNNING" ? "Active" : runtimeStatus === "PAUSED" ? "Paused" : "Idle"}</span>
                               <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.78)" }}>Safety: {Number.isFinite(score) ? `${score}/100` : "—"}</span>
-                              <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.78)" }}>Readiness: {readiness}</span>
-                            </div>
-                            <div className="muted tiny">
-                              Virtual fills: {summary?.virtual_fills ?? 0} · Blocks: {summary?.virtual_blocks ?? 0} · Protect tests: {summary?.protect_tests ?? 0} · Re-entry allowed: {summary?.reentry_allowed ? "yes" : "no"}
                             </div>
                             {selectedTradingSession ? (() => {
                               const slots = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
@@ -20662,26 +20655,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     <span className="tiny" style={{ fontWeight: 950, color: snap.regimeTone.color }}>Market Regime: {snap.regimeTone.label}</span>
                                     <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.80)" }}>Elapsed {snap.elapsedPct}% · Runtime {snap.runtimeHours}h</span>
                                   </div>
-                                  <div className="muted tiny">
-                                    {snap.pacingMode === "DISABLED"
-                                      ? `Trade pacing: Disabled in Aggressive Performance · used ${snap.tradesUsed} · No Limit`
-                                      : `Trade pace: used ${snap.tradesUsed}/${snap.maxTradesLabel || snap.maxTrades} · hard ${snap.tradesUsed}/${snap.hardLimitLabel || snap.hardLimit} · allowed by time ${snap.allowedByTimeLabel || snap.allowedByTime}`}
+                                  <div className="muted tiny" style={{ color: "#d8fff1" }}>
+                                    Performance Mode: {String(selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical").toUpperCase().charAt(0) + String(selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical").toLowerCase().slice(1)}
                                   </div>
-                                  <div className="muted tiny">
-                                    Slots: active {snap.activeSlots} · ready {snap.readySlots} · wait {snap.waitSlots} · max combined {snap.maxCombined}
-                                    {Number.isFinite(snap.netEdge) ? ` · net edge ${snap.netEdge.toFixed(2)}%` : ""}
-                                    {Number.isFinite(snap.minEdge) ? ` · min edge ${snap.minEdge.toFixed(2)}%` : ""}
-                                  </div>
-                                  <div className="muted tiny" style={{ color: "#d8fff1" }}>{snap.decisionReason}</div>
-                                  {snap.combineRows.length ? (
-                                    <div style={{ display: "grid", gap: 3 }}>
-                                      {snap.combineRows.slice(0, 3).map((row, idx) => (
-                                        <div key={`${row.slot}-${idx}`} className="muted tiny" style={{ color: "#8bdcff" }}>
-                                          Combined: Slot {row.slot} · {row.symbol} · {row.count} slot(s) · {fmtUsd(row.capital)} · {row.reason}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : null}
                                 </div>
                               );
                             })() : null}
@@ -20704,7 +20680,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     const sid = String(ev?.session_id || ev?.sessionId || "").trim();
                                     const ch = String(ev?.chain || "").trim();
                                     const perf = String(ev?.performance_mode || ev?.performanceMode || "").trim();
-                                    const prefix = [sid ? `Session ${sid}` : "", ch, perf].filter(Boolean).join(" · ");
+                                    const prefix = [ev?.asset || ev?.symbol || "Session", ch, perf].filter(Boolean).join(" · ");
                                     return (
                                       <div key={`${ev?.type || "event"}-${idx}`} className="muted tiny">
                                         {ev?.type || "EVENT"}: {prefix ? `${prefix} — ` : ""}{ev?.message || "Shadow event recorded."}
@@ -20799,7 +20775,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                 </div>
                                 <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
-                                <div className="muted tiny">Closed trades {tradeCount} · Slots: Active {counts.ACTIVE || 0} · Ready {counts.READY || 0} · Wait {counts.WAIT || 0} · Exit {counts.SIMULATED_EXIT || 0}</div>
+                                <div className="muted tiny">Closed trades {tradeCount} · Slots in use {counts.ACTIVE || 0}/{Math.max(1, getTradingSessionSlotCount(sess) || sessionSlots.length || 0)}</div>
                               </div>
 
                               <div style={{ display: "grid", gap: 5 }}>
@@ -20809,8 +20785,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
 
                               <div style={{ display: "grid", gap: 5 }}>
-                                <div className="muted tiny" style={{ color: "#ffd166", fontWeight: 900 }}>Reuse Profit: {Number.isFinite(reusePct) ? reusePct.toFixed(0) : "0"}% allowed</div>
-                                <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Max Combined Slots: {Number.isFinite(maxCombined) ? maxCombined.toFixed(0) : "0"}</div>
+                                <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Performance: {String(selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical").toUpperCase().charAt(0) + String(selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical").toLowerCase().slice(1)}</div>
+                                <div className="muted tiny" style={{ color: "rgba(216,255,241,.72)", fontWeight: 850 }}>Payout: {selectedTradingSession?.payoutAsset || selectedTradingSession?.payout_asset || manualPayoutAsset || "USDC"}</div>
                                 <div className="muted tiny">Current slot: {activeSlot ? `#${activeSlot.slot || activeSlot.slot_id || "—"} · ${String(activeSlot.status || "WAIT").toUpperCase()} · ${fmtUsd(getTradingSlotAmountUsd(activeSlot))}` : "—"}</div>
                                 <div style={{ height: 6, borderRadius: 999, background: "rgba(255,255,255,.10)", overflow: "hidden", marginTop: 2 }}>
                                   <div style={{ height: "100%", width: `${Math.max(0, Math.min(100, progressPct))}%`, background: sessionProfit >= 0 ? "linear-gradient(90deg, #22c55e, #7cf7a2)" : "linear-gradient(90deg, #ff6b6b, #ffd166)" }} />
@@ -20863,7 +20839,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <div key={`${getTradingSlotSessionId(slot) || selectedTradingSessionId || "session"}-${slot.slot || slot.slot_id || idx}`} style={{ border: `1px solid ${border}`, background: bg, borderRadius: 10, padding: "8px 9px", display: "grid", gap: 5 }}>
                                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                                           <b style={{ color: "#eafff5" }}>Slot {slot.slot || slot.slot_id || idx + 1} · {fmtUsd(getTradingSlotAmountUsd(slot))}</b>
-                                          <span className="tiny" style={{ color: isActive || isReady ? "#7cf7a2" : isWait ? "#ffc107" : isExit ? "#8bdcff" : "rgba(235,255,247,.72)", fontWeight: 950 }}>{st} · priority {Math.round(Number(slot.priority || 0))}</span>
+                                          <span className="tiny" style={{ color: isActive || isReady ? "#7cf7a2" : isWait ? "#ffc107" : isExit ? "#8bdcff" : "rgba(235,255,247,.72)", fontWeight: 950 }}>{st}</span>
                                         </div>
                                         <div className="muted tiny">{slot.symbol || slot.asset || sessionAsset} · {slot.reason || slot.message || slot.note || "Strategist slot state"}</div>
                                         <div className="tiny" style={{ color: net >= 0 ? "#7cf7a2" : "#ff8a8a", fontWeight: 900 }}>
@@ -20877,9 +20853,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               ) : null}
                             </div>
 
-                            <div className="muted tiny" style={{ color: "#8bdcff", borderTop: "1px solid rgba(139,220,255,.10)", paddingTop: 6 }}>
-                              Viewing: {selectedTradingSessionId}. Strategy: {selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical"} · Risk: {selectedTradingSession?.riskMode || selectedTradingSession?.risk_mode || tradingRiskMode || "Balanced"} · Payout: {selectedTradingSession?.payoutAsset || selectedTradingSession?.payout_asset || manualPayoutAsset || "USDC"}
-                            </div>
+                            {null}
                           </div>
                           );
                         })() : null}

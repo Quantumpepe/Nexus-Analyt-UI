@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-020";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-021";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   // Default backend for production builds.
@@ -7850,7 +7850,8 @@ useEffect(() => {
 
     const timing = getTradingSessionTiming(sess);
     const runtimeHours = Number(sess?.runtimeHours ?? sess?.runtime_hours ?? meta.runtimeHours ?? meta.runtime_hours ?? runtime?.runtime_hours ?? normalizeTradingRuntimeHours()) || normalizeTradingRuntimeHours();
-    const maxTrades = Math.max(1, Math.floor(Number(sess?.maxTrades ?? sess?.max_trades ?? meta.maxTrades ?? meta.max_trades ?? runtime?.max_trades ?? tradingMaxTrades ?? 10) || 10));
+    const snapshotStyle = String(sess?.style || sess?.trading_style || sess?.strategy || meta.style || meta.trading_style || meta.strategy || tradingStyle || "TACTICAL").toUpperCase();
+    const maxTrades = snapshotStyle === "AGGRESSIVE" ? 999999 : Math.max(1, Math.floor(Number(sess?.maxTrades ?? sess?.max_trades ?? meta.maxTrades ?? meta.max_trades ?? runtime?.max_trades ?? tradingMaxTrades ?? 10) || 10));
     const hardLimit = Math.max(maxTrades, Math.floor(Number(strategist?.hard_limit ?? strategist?.hard_trade_limit ?? runtime?.hard_trade_limit ?? (maxTrades + 5)) || (maxTrades + 5)));
     const tradesUsed = getTradingSessionTradeCount(sess, slots);
 
@@ -8188,6 +8189,7 @@ useEffect(() => {
     tradingBudgetSplitInput,
     tradingAllowedAssets,
     tradingAllowedChains,
+    tradingStyle,
     tradingRiskMode,
     tradingConfidenceMin,
     tradingStyle,
@@ -8236,11 +8238,12 @@ useEffect(() => {
     if (!(runtime >= 1 && runtime <= 168)) issues.push("runtime 1-168h");
     if (!(holdHours >= 1 && holdHours <= 12)) issues.push("hold 1-12h");
     if (!Number.isFinite(slippage) || slippage <= 0 || slippage > 5) issues.push("slippage <=5%");
-    if (!Number.isFinite(maxTrades) || maxTrades < 1 || maxTrades > 50) issues.push("max trades");
+    const aggressivePerformance = String(tradingStyle || "").toUpperCase() === "AGGRESSIVE";
+    if (!aggressivePerformance && (!Number.isFinite(maxTrades) || maxTrades < 1 || maxTrades > 50)) issues.push("max trades");
     if (!Number.isFinite(cautionDd) || cautionDd < 0 || cautionDd > 25) issues.push("caution DD");
     if (!Number.isFinite(hardStop) || hardStop < 1 || hardStop > 50) issues.push("hard stop");
     if (!Number.isFinite(profitLock) || profitLock < 0 || profitLock > 80) issues.push("profit lock");
-    if (!["DEFENSIVE", "BALANCED", "DYNAMIC"].includes(String(tradingRiskMode || "").toUpperCase())) issues.push("risk mode");
+    if (!aggressivePerformance && !["DEFENSIVE", "BALANCED", "DYNAMIC"].includes(String(tradingRiskMode || "").toUpperCase())) issues.push("risk mode");
 
     return {
       ok: issues.length === 0,
@@ -8265,6 +8268,7 @@ useEffect(() => {
     tradingHoldHours,
     tradingAllowedAssets,
     tradingAllowedChains,
+    tradingStyle,
     tradingRiskMode,
     tradingCautionDrawdownPct,
     tradingHardStopPct,
@@ -8513,8 +8517,9 @@ useEffect(() => {
       const sessionReuseProfitPct = Number(sessionMeta.reuseProfitPct ?? sessionMeta.reuse_profit_pct ?? sessionMeta.profitReusePct ?? sessionMeta.profit_reuse_pct ?? normalizeTradingReuseProfitPct()) || 0;
       const sessionMaxCombinedSlots = Number(sessionMeta.maxCombinedSlots ?? sessionMeta.max_combined_slots ?? sessionMeta.slotDonorCap ?? sessionMeta.slot_donor_cap ?? normalizeTradingMaxCombinedSlots()) || 0;
       const sessionStyle = String(sessionMeta.style || sessionMeta.trading_style || sessionMeta.strategy || tradingStyle || "TACTICAL").toUpperCase();
-      const sessionRiskMode = String(sessionMeta.riskMode || sessionMeta.risk_mode || sessionMeta.trading_risk_mode || tradingRiskMode || "BALANCED").toUpperCase();
-      const sessionMaxTrades = Number(sessionMeta.maxTrades ?? sessionMeta.max_trades ?? tradingMaxTrades ?? 0) || 0;
+      const isAggressiveSession = sessionStyle === "AGGRESSIVE";
+      const sessionRiskMode = isAggressiveSession ? "LEGACY_PROTECTION" : String(sessionMeta.riskMode || sessionMeta.risk_mode || sessionMeta.trading_risk_mode || tradingRiskMode || "BALANCED").toUpperCase();
+      const sessionMaxTrades = isAggressiveSession ? 0 : (Number(sessionMeta.maxTrades ?? sessionMeta.max_trades ?? tradingMaxTrades ?? 0) || 0);
       const sessionMaxSlippagePct = Number(sessionMeta.maxSlippagePct ?? sessionMeta.max_slippage_pct ?? tradingMaxSlippagePct ?? 0) || 0;
       const sessionHardStopPct = Number(sessionMeta.hardStopPct ?? sessionMeta.hard_stop_pct ?? tradingHardStopPct ?? 0) || 0;
       const sessionProfitLockPct = Number(sessionMeta.profitLockPct ?? sessionMeta.profit_lock_pct ?? tradingProfitLockPct ?? 0) || 0;
@@ -8688,8 +8693,9 @@ useEffect(() => {
     const reuseProfitPctNum = normalizeTradingReuseProfitPct();
     const maxCombinedSlotsNum = normalizeTradingMaxCombinedSlots();
     const sessionStyle = String(tradingStyle || "TACTICAL").toUpperCase();
-    const sessionRiskMode = String(tradingRiskMode || "BALANCED").toUpperCase();
-    const sessionMaxTrades = Number(tradingMaxTrades || 0) || 0;
+    const isAggressiveSession = sessionStyle === "AGGRESSIVE";
+    const sessionRiskMode = isAggressiveSession ? "LEGACY_PROTECTION" : String(tradingRiskMode || "BALANCED").toUpperCase();
+    const sessionMaxTrades = isAggressiveSession ? 0 : (Number(tradingMaxTrades || 0) || 0);
     const sessionHardStopPct = Number(String(tradingHardStopPct || "").replace(",", ".")) || 0;
     const sessionProfitLockPct = Number(String(tradingProfitLockPct || "").replace(",", ".")) || 0;
     const sessionMaxSlippagePct = Number(String(tradingMaxSlippagePct || "").replace(",", ".")) || 0;
@@ -9174,6 +9180,12 @@ useEffect(() => {
 
   useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;
+    const selectedStyle = String(
+      selectedTradingSession?.style || selectedTradingSession?.trading_style || selectedTradingSession?.strategy ||
+      selectedTradingSession?.meta?.style || selectedTradingSession?.meta?.trading_style || selectedTradingSession?.meta?.strategy ||
+      tradingStyle || ""
+    ).toUpperCase();
+    if (selectedStyle === "AGGRESSIVE") return;
     if (!["ACTIVE", "PROTECT"].includes(tradingSessionLabel)) return;
     if (!Array.isArray(tradingExecutionQueue) || !tradingExecutionQueue.length) return;
 
@@ -9244,7 +9256,7 @@ useEffect(() => {
       clearTimeout(first);
       clearInterval(id);
     };
-  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, wallet, selectedTradingSessionId, activeTradingSessionId, applyTradingRiskDecision, refreshNexusBackendState]);
+  }, [gridMode, tradingSessionLabel, tradingExecutionQueue, selectedTradingSession, tradingStyle, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingMaxSlippagePct, wallet, selectedTradingSessionId, activeTradingSessionId, applyTradingRiskDecision, refreshNexusBackendState]);
 
   useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;
@@ -20044,9 +20056,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       {[
                                         ["Session", sid],
                                         ["Chain", sessionChain || "—"],
-                                        ["Style", sessionStyle || "—"],
-                                        ["Risk", sessionRiskMode || "—"],
-                                        ["Max Trades", Number.isFinite(sessionMaxTrades) && sessionMaxTrades > 0 ? sessionMaxTrades : "—"],
+                                        ["Performance", sessionStyle || "—"],
+                                        ["Risk", sessionStyle === "AGGRESSIVE" ? "LEGACY PROTECTION" : (sessionRiskMode || "—")],
+                                        ["Max Trades", sessionStyle === "AGGRESSIVE" ? "No Limit" : (Number.isFinite(sessionMaxTrades) && sessionMaxTrades > 0 ? sessionMaxTrades : "—")],
                                         ["Reuse", `${Number.isFinite(reusePct) ? reusePct.toFixed(0) : "0"}%`],
                                         ["Hard Stop", Number.isFinite(sessionHardStop) && sessionHardStop > 0 ? `${sessionHardStop}%` : "—"],
                                         ["Profit Lock", Number.isFinite(sessionProfitLock) && sessionProfitLock > 0 ? `${sessionProfitLock}%` : "—"],

@@ -415,7 +415,8 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-021";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-023";
+const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
   // Default backend for production builds.
@@ -7250,6 +7251,7 @@ useEffect(() => {
   const [tradingStyle, setTradingStyle] = useState("TACTICAL");
   const [aggressiveRiskConsentOpen, setAggressiveRiskConsentOpen] = useState(false);
   const [aggressiveRiskPendingValue, setAggressiveRiskPendingValue] = useState("");
+  const [aggressiveRiskAcceptedForDraft, setAggressiveRiskAcceptedForDraft] = useState(false);
   const [tradingPreparedSetup, setTradingPreparedSetup] = useState(null);
   const [tradingLearningSetups, setTradingLearningSetups] = useState([]);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useState(false);
@@ -7851,8 +7853,9 @@ useEffect(() => {
     const timing = getTradingSessionTiming(sess);
     const runtimeHours = Number(sess?.runtimeHours ?? sess?.runtime_hours ?? meta.runtimeHours ?? meta.runtime_hours ?? runtime?.runtime_hours ?? normalizeTradingRuntimeHours()) || normalizeTradingRuntimeHours();
     const snapshotStyle = String(sess?.style || sess?.trading_style || sess?.strategy || meta.style || meta.trading_style || meta.strategy || tradingStyle || "TACTICAL").toUpperCase();
-    const maxTrades = snapshotStyle === "AGGRESSIVE" ? 999999 : Math.max(1, Math.floor(Number(sess?.maxTrades ?? sess?.max_trades ?? meta.maxTrades ?? meta.max_trades ?? runtime?.max_trades ?? tradingMaxTrades ?? 10) || 10));
-    const hardLimit = Math.max(maxTrades, Math.floor(Number(strategist?.hard_limit ?? strategist?.hard_trade_limit ?? runtime?.hard_trade_limit ?? (maxTrades + 5)) || (maxTrades + 5)));
+    const isAggressiveSnapshot = snapshotStyle === "AGGRESSIVE";
+    const maxTrades = isAggressiveSnapshot ? 0 : Math.max(1, Math.floor(Number(sess?.maxTrades ?? sess?.max_trades ?? meta.maxTrades ?? meta.max_trades ?? runtime?.max_trades ?? tradingMaxTrades ?? 10) || 10));
+    const hardLimit = isAggressiveSnapshot ? 0 : Math.max(maxTrades, Math.floor(Number(strategist?.hard_limit ?? strategist?.hard_trade_limit ?? runtime?.hard_trade_limit ?? (maxTrades + 5)) || (maxTrades + 5)));
     const tradesUsed = getTradingSessionTradeCount(sess, slots);
 
     const elapsedRatio = runtimeHours > 0
@@ -7860,12 +7863,12 @@ useEffect(() => {
       : 0;
     const activeSlotsForPacing = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "ACTIVE").length;
     const readySlotsForPacing = slots.filter((slot) => String(slot?.status || slot?.state || "WAIT").toUpperCase() === "READY").length;
-    const rawAllowedByTimeFallback = Math.floor(elapsedRatio * maxTrades + 0.0001);
-    const allowedByTimeFallback = Math.max(
+    const rawAllowedByTimeFallback = isAggressiveSnapshot ? activeSlotsForPacing + readySlotsForPacing : Math.floor(elapsedRatio * maxTrades + 0.0001);
+    const allowedByTimeFallback = isAggressiveSnapshot ? activeSlotsForPacing + readySlotsForPacing : Math.max(
       (elapsedRatio > 0 && readySlotsForPacing > 0) ? 1 : 0,
       Math.min(hardLimit, rawAllowedByTimeFallback)
     );
-    const allowedByTime = Math.max(0, Math.floor(Number(
+    const allowedByTime = isAggressiveSnapshot ? (activeSlotsForPacing + readySlotsForPacing) : Math.max(0, Math.floor(Number(
       strategist?.allowed_by_time
       ?? strategist?.allowed_trades_now
       ?? strategist?.paced_soft_allowed
@@ -7928,9 +7931,13 @@ useEffect(() => {
       regimeTone,
       runtimeHours,
       maxTrades,
+      maxTradesLabel: isAggressiveSnapshot ? "No Limit" : String(maxTrades),
       hardLimit,
+      hardLimitLabel: isAggressiveSnapshot ? "No Limit" : String(hardLimit),
+      pacingMode: isAggressiveSnapshot ? "DISABLED" : "ACTIVE",
       tradesUsed,
       allowedByTime,
+      allowedByTimeLabel: isAggressiveSnapshot ? "Unlimited" : String(allowedByTime),
       activeSlots,
       readySlots,
       waitSlots,
@@ -7952,6 +7959,8 @@ useEffect(() => {
     ).trim();
     if (reason) return reason;
     if (state === "WAIT") return "Waiting: net edge is not strong enough after costs, risk and trade pace.";
+    const style = String(slot?.style || slot?.trading_style || slot?.strategy || meta.style || meta.trading_style || meta.strategy || "").toUpperCase();
+    if (state === "READY" && style === "AGGRESSIVE") return "Aggressive Performance: ready for legacy execution; core safety remains active and trade pacing is disabled.";
     if (state === "READY") return "Ready: setup passed basic checks; Strategist waits for pace/edge confirmation.";
     if (state === "ACTIVE") return "Active: Strategist allocated capital within slot and session limits.";
     if (state === "PROTECT") return "Protect: risk increased; no new add-ons until quality improves.";
@@ -8053,13 +8062,19 @@ useEffect(() => {
 
     return splits.map((amount, idx) => {
       let status = "WAIT";
-      if (suitability === "LOW" || confidence === "LOW") status = idx === 0 ? "BLOCKED" : "WAIT";
+      if (style === "AGGRESSIVE") {
+        // Aggressive Performance is a user-confirmed legacy/high-frequency mode.
+        // Prepare every slot as READY; backend core safety can still block invalid slots.
+        status = "READY";
+      } else if (suitability === "LOW" || confidence === "LOW") status = idx === 0 ? "BLOCKED" : "WAIT";
       else if (idx === 0 && ["HIGH", "MEDIUM-HIGH", "MEDIUM"].includes(confidence)) status = "READY";
       else if (idx === 1 && confidence === "HIGH" && riskMode !== "DEFENSIVE") status = "READY";
 
       const condition =
         status === "READY"
-          ? "Ready after user approval; execution still requires manual/session control."
+          ? (style === "AGGRESSIVE"
+              ? "Aggressive Performance: ready for legacy execution; core safety remains active."
+              : "Ready after user approval; execution still requires manual/session control.")
           : status === "BLOCKED"
             ? "Blocked until confidence, liquidity or risk improves."
             : idx === 1
@@ -8660,7 +8675,7 @@ useEffect(() => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [gridMode, wallet, refreshShadowExecutorState, refreshNexusBackendState]);
+  }, [gridMode, wallet, refreshShadowExecutorState, refreshNexusBackendState, aggressiveRiskAcceptedForDraft, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen, setAggressiveRiskAcceptedForDraft, setTradingStyle]);
 
   const tradingGlobalRiskState = useMemo(() => {
     const fromBackend = nexusBackendState?.risk_state || nexusBackendState?.global_risk_state || null;
@@ -8685,6 +8700,12 @@ useEffect(() => {
   const handleTradingApproveBudget = useCallback(async () => {
     if (!tradingCanApprove) {
       setErrorMsg(tradingPreflight.title || "Complete Nexus Trading preflight before approving.");
+      return;
+    }
+    if (String(tradingStyle || "").toUpperCase() === "AGGRESSIVE" && !aggressiveRiskAcceptedForDraft) {
+      setAggressiveRiskPendingValue("AGGRESSIVE");
+      setAggressiveRiskConsentOpen(true);
+      setErrorMsg("Please accept the Aggressive Performance risk warning before approving this budget.");
       return;
     }
     const now = Date.now();
@@ -8949,6 +8970,32 @@ useEffect(() => {
       }));
       await refreshNexusBackendState();
     }
+
+    if (wallet && isAggressiveSession) {
+      try {
+        await api(`/api/nexus/trading/aggressive-ack`, {
+          method: "POST",
+          wallet,
+          body: {
+            performance_mode: "AGGRESSIVE",
+            accepted: true,
+            warning_version: AGGRESSIVE_WARNING_VERSION,
+            frontend_build: FRONTEND_BUILD_ID,
+            scope: "session",
+            session_id: sessionId,
+            budget_usd: Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0,
+          },
+        });
+      } catch (e) {
+        console.warn("Aggressive session audit failed", e);
+      }
+    }
+
+    // Every new budget/session flow must start from Tactical again.
+    setTradingStyle("TACTICAL");
+    setAggressiveRiskAcceptedForDraft(false);
+    setAggressiveRiskPendingValue("");
+    setAggressiveRiskConsentOpen(false);
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
     setErrorMsg(`Trading session created: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Enter the next budget and approve/sign again when you want another independent session.`);
@@ -9427,6 +9474,26 @@ useEffect(() => {
     setTradingMaxCombinedSlots,
   ]);
 
+  const resetAggressiveDraftSelection = useCallback(() => {
+    // Aggressive consent is session/draft specific, never persistent.
+    // Any new budget input must start from Tactical again so the risk warning
+    // cannot be bypassed by a previous session.
+    setTradingStyle("TACTICAL");
+    setAggressiveRiskAcceptedForDraft(false);
+    setAggressiveRiskPendingValue("");
+    setAggressiveRiskConsentOpen(false);
+  }, [setTradingStyle, setAggressiveRiskAcceptedForDraft, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
+
+  const handleTradingBudgetInputChange = useCallback((value) => {
+    resetAggressiveDraftSelection();
+    setTradingBudgetUsd(value);
+  }, [resetAggressiveDraftSelection, setTradingBudgetUsd]);
+
+  const handleTradingBudgetSplitInputChange = useCallback((value) => {
+    resetAggressiveDraftSelection();
+    setTradingBudgetSplitInput(value);
+  }, [resetAggressiveDraftSelection, setTradingBudgetSplitInput]);
+
   const handleTradingRiskModeChange = useCallback((value) => {
     applyTradingRiskPreset(value, tradingConfidenceMin);
   }, [applyTradingRiskPreset, tradingConfidenceMin]);
@@ -9437,26 +9504,52 @@ useEffect(() => {
 
   const handleTradingPerformanceChange = useCallback((value) => {
     const next = String(value || "TACTICAL").toUpperCase();
-    if (next === "AGGRESSIVE" && String(tradingStyle || "").toUpperCase() !== "AGGRESSIVE") {
+    if (next === "AGGRESSIVE") {
+      setAggressiveRiskAcceptedForDraft(false);
       setAggressiveRiskPendingValue(next);
       setAggressiveRiskConsentOpen(true);
       return;
     }
+    setAggressiveRiskAcceptedForDraft(false);
     setTradingStyle(next);
-  }, [tradingStyle, setTradingStyle, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
+  }, [setTradingStyle, setAggressiveRiskAcceptedForDraft, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
 
-  const confirmAggressiveRiskConsent = useCallback(() => {
+  const confirmAggressiveRiskConsent = useCallback(async () => {
     const next = String(aggressiveRiskPendingValue || "AGGRESSIVE").toUpperCase();
     setTradingStyle(next);
     setTradingRiskExpanded(false);
+    setAggressiveRiskAcceptedForDraft(true);
     setAggressiveRiskPendingValue("");
     setAggressiveRiskConsentOpen(false);
-  }, [aggressiveRiskPendingValue, setTradingStyle, setTradingRiskExpanded, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
+
+    // Backend audit trail: wallet-bound proof that the user accepted
+    // the Aggressive warning for this current draft/budget flow.
+    // A second session-specific audit record is written when Approve Budget creates the session.
+    try {
+      if (wallet) {
+        await api(`/api/nexus/trading/aggressive-ack`, {
+          method: "POST",
+          wallet,
+          body: {
+            performance_mode: "AGGRESSIVE",
+            accepted: true,
+            warning_version: AGGRESSIVE_WARNING_VERSION,
+            frontend_build: FRONTEND_BUILD_ID,
+            scope: "draft",
+            budget_usd: Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0,
+          },
+        });
+      }
+    } catch (e) {
+      console.warn("Aggressive warning audit failed", e);
+    }
+  }, [aggressiveRiskPendingValue, setTradingStyle, setTradingRiskExpanded, setAggressiveRiskAcceptedForDraft, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen, wallet, api, tradingBudgetUsd]);
 
   const cancelAggressiveRiskConsent = useCallback(() => {
+    setAggressiveRiskAcceptedForDraft(false);
     setAggressiveRiskPendingValue("");
     setAggressiveRiskConsentOpen(false);
-  }, [setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
+  }, [setAggressiveRiskAcceptedForDraft, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
 
   const isTradingAggressivePerformance = String(tradingStyle || "").toUpperCase() === "AGGRESSIVE";
 
@@ -20149,7 +20242,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10, alignItems: "end" }}>
                       <div className="formRow">
                         <label>{Array.isArray(openTradingSessions) && openTradingSessions.length ? "Next Budget ($)" : "Budget ($)"}</label>
-                        <input value={tradingBudgetUsd} onChange={(e) => setTradingBudgetUsd(e.target.value)} placeholder={Array.isArray(openTradingSessions) && openTradingSessions.length ? "e.g. next 300" : "e.g. 300"} />
+                        <input value={tradingBudgetUsd} onChange={(e) => handleTradingBudgetInputChange(e.target.value)} placeholder={Array.isArray(openTradingSessions) && openTradingSessions.length ? "e.g. next 300" : "e.g. 300"} />
                       </div>
                       <div className="formRow">
                         <label>Budget slots</label>
@@ -20157,7 +20250,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           value={tradingBudgetSplitInput}
                           onChange={(e) => {
                             // Next-budget draft only. Existing approved session queues stay untouched.
-                            setTradingBudgetSplitInput(e.target.value);
+                            handleTradingBudgetSplitInputChange(e.target.value);
                           }}
                           placeholder="100,50,50,50,50"
                           title="Optional: split approved budget into controlled slots"
@@ -20570,7 +20663,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     <span className="tiny" style={{ fontWeight: 900, color: "rgba(235,255,247,.80)" }}>Elapsed {snap.elapsedPct}% · Runtime {snap.runtimeHours}h</span>
                                   </div>
                                   <div className="muted tiny">
-                                    Trade pace: used {snap.tradesUsed}/{snap.maxTrades} · hard {snap.tradesUsed}/{snap.hardLimit} · allowed by time {snap.allowedByTime}
+                                    {snap.pacingMode === "DISABLED"
+                                      ? `Trade pacing: Disabled in Aggressive Performance · used ${snap.tradesUsed} · No Limit`
+                                      : `Trade pace: used ${snap.tradesUsed}/${snap.maxTradesLabel || snap.maxTrades} · hard ${snap.tradesUsed}/${snap.hardLimitLabel || snap.hardLimit} · allowed by time ${snap.allowedByTimeLabel || snap.allowedByTime}`}
                                   </div>
                                   <div className="muted tiny">
                                     Slots: active {snap.activeSlots} · ready {snap.readySlots} · wait {snap.waitSlots} · max combined {snap.maxCombined}
@@ -20605,9 +20700,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}
                                 >Latest shadow events</summary>
                                 <div style={{ marginTop: 5, display: "grid", gap: 4 }}>
-                                  {run.events.slice(0, 5).map((ev, idx) => (
-                                    <div key={`${ev?.type || "event"}-${idx}`} className="muted tiny">{ev?.type || "EVENT"}: {ev?.message || "Shadow event recorded."}</div>
-                                  ))}
+                                  {run.events.slice(0, 8).map((ev, idx) => {
+                                    const sid = String(ev?.session_id || ev?.sessionId || "").trim();
+                                    const ch = String(ev?.chain || "").trim();
+                                    const perf = String(ev?.performance_mode || ev?.performanceMode || "").trim();
+                                    const prefix = [sid ? `Session ${sid}` : "", ch, perf].filter(Boolean).join(" · ");
+                                    return (
+                                      <div key={`${ev?.type || "event"}-${idx}`} className="muted tiny">
+                                        {ev?.type || "EVENT"}: {prefix ? `${prefix} — ` : ""}{ev?.message || "Shadow event recorded."}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </details>
                             ) : null}
@@ -20819,7 +20922,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <button
                             className="miniBtn"
                             type="button"
-                            onClick={() => { setTradingBudgetUsd(""); setTradingBudgetSplitInput(""); }}
+                            onClick={() => { resetAggressiveDraftSelection(); setTradingBudgetUsd(""); setTradingBudgetSplitInput(""); }}
                             style={{ height: 30, paddingInline: 10 }}
                             title="Clear only the next-budget draft. Existing Trading sessions remain active."
                           >

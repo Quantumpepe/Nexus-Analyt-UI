@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-027";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-028-LIVE-PRICE";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -802,6 +802,108 @@ const fmtPct = (n) => {
   const s = (x >= 0 ? "+" : "") + x.toFixed(2) + "%";
   return s;
 };
+
+function _nexusNumberOrNull(...vals) {
+  for (const v of vals) {
+    if (v === null || v === undefined || v === "") continue;
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+function _nexusChangeOrNull(...vals) {
+  for (const v of vals) {
+    if (v === null || v === undefined || v === "") continue;
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function getTradingSessionLivePriceInfo(session, slots = [], asset = "", watchRows = []) {
+  const sess = session && typeof session === "object" ? session : {};
+  const sessionMeta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+  const rows = Array.isArray(watchRows) ? watchRows : [];
+  const symbol = String(
+    asset ||
+    sess?.symbol || sess?.asset || sess?.target_symbol || sess?.targetSymbol || sess?.coin ||
+    sessionMeta?.symbol || sessionMeta?.asset || sessionMeta?.target_symbol || ""
+  ).trim().toUpperCase();
+  const row = rows.find((r) => String(r?.symbol || r?.sym || r?.asset || "").trim().toUpperCase() === symbol) || {};
+
+  let slotPrice = null;
+  let slotPrevPrice = null;
+  let slotChange = null;
+  for (const slot of Array.isArray(slots) ? slots : []) {
+    const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
+    const px = _nexusNumberOrNull(
+      slot?.live_price_usd, slot?.livePriceUsd,
+      slot?.current_price_usd, slot?.currentPriceUsd,
+      slot?.paper_mark_price, meta?.paper_mark_price,
+      slot?.mark_price_usd, meta?.mark_price_usd,
+      meta?.live_price_usd, meta?.livePriceUsd,
+      meta?.current_price_usd, meta?.currentPriceUsd
+    );
+    if (px !== null) {
+      slotPrice = px;
+      slotPrevPrice = _nexusNumberOrNull(
+        slot?.previous_price_usd, slot?.previousPriceUsd,
+        slot?.prev_price_usd, slot?.prevPriceUsd,
+        meta?.previous_price_usd, meta?.previousPriceUsd,
+        meta?.prev_price_usd, meta?.prevPriceUsd
+      );
+      slotChange = _nexusChangeOrNull(
+        slot?.live_change_pct, slot?.liveChangePct,
+        slot?.price_change_pct, slot?.priceChangePct,
+        meta?.live_change_pct, meta?.liveChangePct,
+        meta?.price_change_pct, meta?.priceChangePct
+      );
+      break;
+    }
+  }
+
+  const price = _nexusNumberOrNull(
+    sess?.live_price_usd, sess?.livePriceUsd,
+    sess?.current_price_usd, sess?.currentPriceUsd,
+    sess?.mark_price_usd, sess?.markPriceUsd,
+    sessionMeta?.live_price_usd, sessionMeta?.livePriceUsd,
+    sessionMeta?.current_price_usd, sessionMeta?.currentPriceUsd,
+    sessionMeta?.mark_price_usd, sessionMeta?.markPriceUsd,
+    slotPrice,
+    row?.price, row?.usd, row?.current_price, row?.currentPrice
+  );
+  if (price === null) return null;
+
+  const prevPrice = _nexusNumberOrNull(
+    sess?.previous_price_usd, sess?.previousPriceUsd,
+    sess?.prev_price_usd, sess?.prevPriceUsd,
+    sessionMeta?.previous_price_usd, sessionMeta?.previousPriceUsd,
+    sessionMeta?.prev_price_usd, sessionMeta?.prevPriceUsd,
+    slotPrevPrice
+  );
+  let changePct = _nexusChangeOrNull(
+    sess?.live_change_pct, sess?.liveChangePct,
+    sess?.price_change_pct, sess?.priceChangePct,
+    sessionMeta?.live_change_pct, sessionMeta?.liveChangePct,
+    sessionMeta?.price_change_pct, sessionMeta?.priceChangePct,
+    slotChange,
+    row?.change24h, row?.chg_24h, row?.usd_24h_change, row?.change_24h
+  );
+  if (changePct === null && prevPrice && prevPrice > 0) {
+    changePct = ((price - prevPrice) / prevPrice) * 100;
+  }
+
+  const tone = changePct === null ? "neutral" : changePct >= 0 ? "up" : "down";
+  return {
+    price,
+    changePct,
+    tone,
+    arrow: tone === "up" ? "▲" : tone === "down" ? "▼" : "•",
+    color: tone === "up" ? "#22c55e" : tone === "down" ? "#ff6b6b" : "rgba(216,255,241,.58)",
+  };
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function resolveWalletAddress(walletLike = "") {
@@ -20007,6 +20109,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             const sessionHardStop = Number(pickSessionValue(sess?.hardStopPct, sess?.hard_stop_pct, sessionMeta.hardStopPct, sessionMeta.hard_stop_pct, firstSessionSlot?.hardStopPct, firstSessionSlot?.hard_stop_pct, firstSessionMeta.hardStopPct, firstSessionMeta.hard_stop_pct, NaN));
                             const sessionProfitLock = Number(pickSessionValue(sess?.profitLockPct, sess?.profit_lock_pct, sessionMeta.profitLockPct, sessionMeta.profit_lock_pct, firstSessionSlot?.profitLockPct, firstSessionSlot?.profit_lock_pct, firstSessionMeta.profitLockPct, firstSessionMeta.profit_lock_pct, NaN));
                             const sessionSlippage = Number(pickSessionValue(sess?.maxSlippagePct, sess?.max_slippage_pct, sessionMeta.maxSlippagePct, sessionMeta.max_slippage_pct, firstSessionSlot?.maxSlippagePct, firstSessionSlot?.max_slippage_pct, firstSessionMeta.maxSlippagePct, firstSessionMeta.max_slippage_pct, NaN));
+                            const sessionLivePrice = getTradingSessionLivePriceInfo(sess, sessionSlots, sessionAsset, watchRows);
                             return (
                               <div
                                 key={sid || `${sessionAsset}-${sessionBudget}`}
@@ -20040,7 +20143,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   </div>
 
                                   <div style={{ display: "grid", gap: 5 }}>
-                                    <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Performance: {sessionStyle ? sessionStyle.charAt(0) + sessionStyle.slice(1).toLowerCase() : "Tactical"}</div>
+                                    <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                                      <span>Performance: {sessionStyle ? sessionStyle.charAt(0) + sessionStyle.slice(1).toLowerCase() : "Tactical"}</span>
+                                      {sessionLivePrice ? <span style={{ color: sessionLivePrice.color, fontWeight: 950 }}>· Live: {fmtUsd(sessionLivePrice.price)} {sessionLivePrice.arrow}{sessionLivePrice.changePct !== null ? ` ${fmtPct(sessionLivePrice.changePct)}` : ""}</span> : null}
+                                    </div>
                                     <div className="muted tiny" style={{ color: "rgba(216,255,241,.72)", fontWeight: 850 }}>Payout: {sess?.payoutAsset || sess?.payout_asset || manualPayoutAsset || "USDC"}</div>
                                     <div className="muted tiny">Current slot: {activeSlot ? `#${activeSlot.slot || activeSlot.slot_id || "—"} · ${String(activeSlot.status || activeSlot.state || "WAIT").toUpperCase()} · ${fmtUsd(getTradingSlotAmountUsd(activeSlot))}` : "—"}</div>
                                     <div style={{ height: 6, borderRadius: 999, background: "rgba(255,255,255,.10)", overflow: "hidden", marginTop: 2 }}>
@@ -20762,6 +20868,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const progressPct = sessionBudget > 0 ? Math.max(0, Math.min(200, 100 + sessionProfitPct)) : 0;
                           const stateLabel = String(selectedTradingSession?.status || selectedTradingSessionLabel || "ACTIVE").toUpperCase();
                           const tradeCount = getTradingSessionTradeCount(selectedTradingSession, sessionSlots);
+                          const selectedSessionLivePrice = getTradingSessionLivePriceInfo(selectedTradingSession, sessionSlots, sessionAsset, watchRows);
                           return (
                           <div
                             style={{
@@ -20791,7 +20898,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
 
                               <div style={{ display: "grid", gap: 5 }}>
-                                <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900 }}>Performance: {String(selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical").toUpperCase().charAt(0) + String(selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical").toLowerCase().slice(1)}</div>
+                                <div className="muted tiny" style={{ color: "#8bdcff", fontWeight: 900, display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                                  <span>Performance: {String(selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical").toUpperCase().charAt(0) + String(selectedTradingSession?.style || selectedTradingSession?.strategy || "Tactical").toLowerCase().slice(1)}</span>
+                                  {selectedSessionLivePrice ? <span style={{ color: selectedSessionLivePrice.color, fontWeight: 950 }}>· Live: {fmtUsd(selectedSessionLivePrice.price)} {selectedSessionLivePrice.arrow}{selectedSessionLivePrice.changePct !== null ? ` ${fmtPct(selectedSessionLivePrice.changePct)}` : ""}</span> : null}
+                                </div>
                                 <div className="muted tiny" style={{ color: "rgba(216,255,241,.72)", fontWeight: 850 }}>Payout: {selectedTradingSession?.payoutAsset || selectedTradingSession?.payout_asset || manualPayoutAsset || "USDC"}</div>
                                 <div className="muted tiny">Current slot: {activeSlot ? `#${activeSlot.slot || activeSlot.slot_id || "—"} · ${String(activeSlot.status || "WAIT").toUpperCase()} · ${fmtUsd(getTradingSlotAmountUsd(activeSlot))}` : "—"}</div>
                                 <div style={{ height: 6, borderRadius: 999, background: "rgba(255,255,255,.10)", overflow: "hidden", marginTop: 2 }}>

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-057-NKR-PORTFOLIO-CONTROL";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-058-NKR-PROFIT-RUNNER";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -10485,7 +10485,7 @@ const [aiLoading, setAiLoading] = useState(false);
           }
           return sess;
         }));
-        setRotationBackendMsg("Rotation Shadow waiting: no active Rotation session inside its runtime window.");
+        setRotationBackendMsg("NKR Shadow waiting: no active Rotation session inside its runtime window.");
         return;
       }
       const typedBudget = Number(String(rotationBudgetRelease || "").replace(",", "."));
@@ -10518,7 +10518,7 @@ const [aiLoading, setAiLoading] = useState(false);
       const assets = buildRotationShadowAssets();
 
       if (!assets.length) {
-        setRotationBackendMsg("Rotation Shadow needs Watchlist/market rows first. Add assets or wait for market data refresh.");
+        setRotationBackendMsg("NKR Shadow needs Watchlist/market rows first. Add assets or wait for market data refresh.");
         setNkrControlState("WAITING");
         setRotationShadowSnapshot({ status: "waiting", assets: [], plan: [], previews: [], ts: Date.now() });
         return;
@@ -10569,9 +10569,18 @@ const [aiLoading, setAiLoading] = useState(false);
       const minNetAdv = Number(String(minNetSource || "0.5").replace(",", "."));
       const netPct = targetUsd > 0 ? (netUsd / targetUsd) * 100 : 0;
       const isExecutableShadowEdge = netPct >= (Number.isFinite(minNetAdv) ? minNetAdv : 0.5);
-      const action = isExecutableShadowEdge ? "SIMULATED_ROTATION_CLOSED" : "WAIT_NET_EDGE";
+      const nkrModeKey = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
+      const profitLockPctByMode = { DYNAMIC: 2.0, TACTICAL: 1.7, AGGRESSIVE: 2.8, DEFENSIVE: 1.2 };
+      const profitLockPct = Number(profitLockPctByMode[nkrModeKey] ?? profitLockPctByMode.DYNAMIC);
+      const profitLockUsd = Math.max(50, targetUsd * (profitLockPct / 100));
+      const smallProfitUsd = Math.max(20, targetUsd * 0.006);
+      // NKR must not sell just because it sees a tiny +$3, +$10 or +$20 edge.
+      // Positive but small edges are kept running so the winner can mature.
+      const closesPosition = isExecutableShadowEdge && netPct >= profitLockPct && netUsd >= profitLockUsd;
+      const holdsWinner = isExecutableShadowEdge && netUsd > smallProfitUsd && !closesPosition;
+      const action = closesPosition ? "SIMULATED_ROTATION_CLOSED" : holdsWinner ? "HOLD_WINNER_MAXIMIZE" : "WAIT_NET_EDGE";
       const now = Date.now();
-      const completedEvent = isExecutableShadowEdge ? {
+      const completedEvent = closesPosition ? {
         id: `ROT-EVT-${now}`,
         ts: now,
         mode: "shadow",
@@ -10610,6 +10619,11 @@ const [aiLoading, setAiLoading] = useState(false);
         costsUsd,
         netUsd,
         netPct,
+        profitLockPct,
+        profitLockUsd,
+        smallProfitUsd,
+        closesPosition,
+        holdsWinner,
         action,
         ts: now,
       });
@@ -10617,7 +10631,7 @@ const [aiLoading, setAiLoading] = useState(false);
       setRotationShadowEvents((prev) => [{
         id: `ROT-SHADOW-${now}`,
         ts: now,
-        text: `${baseAsset} → ${bestSymbol} → ${baseAsset}: ${action} · score ${bestScore || "—"}/100 · gross ${fmtUsd(grossUsd)} · costs ${fmtUsd(costsUsd)} · net ${fmtUsd(netUsd)}`,
+        text: `${baseAsset} → ${bestSymbol} → ${baseAsset}: ${action} · score ${bestScore || "—"}/100 · gross ${fmtUsd(grossUsd)} · costs ${fmtUsd(costsUsd)} · net ${fmtUsd(netUsd)} · lock ${profitLockPct.toFixed(2)}%/${fmtUsd(profitLockUsd)}`,
       }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
 
       if (sessions.length && firstActive?.id) {
@@ -10638,9 +10652,9 @@ const [aiLoading, setAiLoading] = useState(false);
           const prevNet = Number(sess?.netProfitUsd ?? sess?.rotationProfitUsd ?? sess?.profitUsd ?? 0) || 0;
           return {
             ...sess,
-            status: action === "SIMULATED_ROTATION_CLOSED" ? "ACTIVE" : "WAITING",
-            lifecycleState: action === "SIMULATED_ROTATION_CLOSED" ? "ACTIVE" : "WAITING",
-            positionState: action === "SIMULATED_ROTATION_CLOSED" ? "CLOSED" : "WAITING",
+            status: closesPosition || holdsWinner ? "ACTIVE" : "WAITING",
+            lifecycleState: closesPosition || holdsWinner ? "ACTIVE" : "WAITING",
+            positionState: closesPosition ? "CLOSED" : holdsWinner ? "OPEN" : "WAITING",
             executionMode: "shadow",
             symbol: bestSymbol,
             sourceSymbol: bestSymbol,
@@ -10677,12 +10691,16 @@ const [aiLoading, setAiLoading] = useState(false);
               target_usd: targetUsd,
               raw_edge_pct: Number(rawEdgePct.toFixed(4)),
               net_edge_pct: Number(netPct.toFixed(4)),
+              profit_lock_pct: Number(profitLockPct.toFixed(4)),
+              profit_lock_usd: Number(profitLockUsd.toFixed(4)),
+              small_profit_no_close_usd: Number(smallProfitUsd.toFixed(4)),
+              nkr_profit_runner: "NKR_PROFIT_RUNNER_EXIT_GUARD_V1",
               market_change_24h: change24h,
               backend_plan_ts: preview?.ts || null,
               live_vault_ready: false,
               execution_mode: "shadow",
-              lifecycle_state: action === "SIMULATED_ROTATION_CLOSED" ? "ACTIVE" : "WAITING",
-              position_state: action === "SIMULATED_ROTATION_CLOSED" ? "CLOSED" : "WAITING",
+              lifecycle_state: closesPosition || holdsWinner ? "ACTIVE" : "WAITING",
+              position_state: closesPosition ? "CLOSED" : holdsWinner ? "OPEN" : "WAITING",
               reserved_usd: Number((Number(sess?.budgetUsd || baseBudgetUsd) || baseBudgetUsd).toFixed(4)),
             },
           };
@@ -10690,11 +10708,11 @@ const [aiLoading, setAiLoading] = useState(false);
       }
 
       if (!silent) {
-        setRotationBackendMsg(`${action === "SIMULATED_ROTATION_CLOSED" ? "Rotation event closed" : "Rotation Shadow waiting"}: ${baseAsset} → ${bestSymbol} → ${baseAsset} · net ${fmtUsd(netUsd)} (${netPct.toFixed(2)}%). Paper-only; no Vault swap triggered.`);
+        setRotationBackendMsg(`${closesPosition ? "NKR profit locked" : holdsWinner ? "NKR winner running" : "NKR waiting"}: ${baseAsset} → ${bestSymbol} → ${baseAsset} · net ${fmtUsd(netUsd)} (${netPct.toFixed(2)}%) · lock ${profitLockPct.toFixed(2)}%/${fmtUsd(profitLockUsd)}. Paper-only; no Vault swap triggered.`);
       }
     } catch (e) {
       console.error("ROTATION SHADOW SIM FAILED", e);
-      setRotationBackendMsg(`Rotation Shadow failed: ${e?.message || e}`);
+      setRotationBackendMsg(`NKR Shadow failed: ${e?.message || e}`);
       setRotationShadowSnapshot((prev) => ({ ...(prev || {}), status: "error", error: e?.message || String(e), ts: Date.now() }));
     } finally {
       setRotationShadowBusy(false);
@@ -20137,6 +20155,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <b style={{ color: "#ffd166" }}>Simulated NKR sessions: {rotationRows.length}</b>
                               <b>Best edge: {rotationShadowSnapshot?.bestScore ? `${rotationShadowSnapshot.bestScore}/100` : rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "—"}</b>
                               <b>Net: {Number.isFinite(Number(rotationShadowSnapshot?.netUsd)) ? fmtUsd(Number(rotationShadowSnapshot.netUsd)) : "—"}</b>
+                              <b>Profit lock: {Number.isFinite(Number(rotationShadowSnapshot?.profitLockPct)) ? `${Number(rotationShadowSnapshot.profitLockPct).toFixed(2)}%` : "—"}</b>
                               <b>Safety: paper-only</b>
                             </div>
                             {rotationShadowSnapshot?.bestSymbol ? (

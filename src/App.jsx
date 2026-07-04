@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-048-NKR-TAB-UI";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-049-NKR-ONLY-UI";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -7151,7 +7151,7 @@ useEffect(() => {
 
     const pickedCandidate = candidatePool.find((c) => !activeTargetSet.has(c.rawSymbol)) || null;
     if (!pickedCandidate?.rawSymbol) {
-      setRotationBackendMsg("No strategist target selected. Open Watchlist recommendations or let Nexus Strategist prepare a Rotation target first.");
+      setRotationBackendMsg("No strategist target selected. Open NKR recommendations or let Nexus Strategist prepare a Rotation target first.");
       return;
     }
 
@@ -11850,7 +11850,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
       message: !amountOk
         ? "Enter a Rotation budget first."
         : !hasRealTarget
-          ? "Waiting for recommendation. No fallback target is allowed."
+          ? "Waiting for NKR recommendation. No fallback target is allowed."
           : `Ready: ${resolvedSymbol}${resolvedChain ? ` on ${resolvedChain}` : ""}.`,
     };
   }, [rotationBudgetRelease, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, gridWalletCoinsByChain, rotationSessions, activeRotationSessionId]);
@@ -18873,7 +18873,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         {/* Grid */}
         <section className={`card section-grid dashboardPanel ${activePanel === "vault" ? "panelActive" : ""}`} onClick={handlePanelActivate("vault")}>
           <div className="cardHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <div className="cardTitle" style={{ flex: "0 0 auto" }}>Nexus Grid</div>
+            <div className="cardTitle" style={{ flex: "0 0 auto" }}>{gridMode === "rotation" ? "NKR" : gridMode === "trading" ? "Nexus Trading" : "Nexus Grid"}</div>
 
             {!isCompactMobile && (
               <div
@@ -18966,7 +18966,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                       <p><b>Nexus Grid:</b> manual order mode. You choose network, coin, budget, side, price, and payout asset. <b>Approve Budget</b> reserves the Grid budget locally; <b>Add Order</b> creates the order. The budget is shared across all open Grid orders, not per order.</p>
 
-                      <p><b>NKR:</b> recommendation-based order mode. You select a Watchlist/Rotation recommendation, set a Rotation budget, choose the payout asset, then create a Rotation order. Technically it uses the same order structure, but is marked internally as <b>source = ROTATION</b>.</p>
+                      <p><b>NKR:</b> recommendation-based order mode. You select a Watchlist/Rotation recommendation, set a Rotation budget, choose the payout asset, then create a NKR order. Technically it uses the same order structure, but is marked internally as <b>source = ROTATION</b>.</p>
 
                       <p><b>Nexus Trading:</b> autonomous trading mode after budget approval. The user defines budget, slots, runtime, style, allowed assets/chains, risk mode, drawdown, profit lock, slippage and max trades. After that, Nexus Trading works independently inside those limits.</p>
                       <p><b>HOLD / OBSERVE:</b> After a Risk Exit, Protect or Stop, capital is protected first. HOLD is a minimum protection period from 1-12h. When it expires, Nexus must not blindly re-enter; the Strategist keeps checking market structure, liquidity, RVOL and risk.</p>
@@ -19495,7 +19495,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 alignItems: "center",
                               }}
                             >
-                              <span>NKR Setup & Presets</span>
+                              <span>NKR Setup</span>
                               <span className="muted tiny">Show ▼</span>
                             </summary>
                             <div style={{ padding: "10px", display: "grid", gap: 12 }}>
@@ -19507,31 +19507,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         gap: isCompactMobile ? 8 : 10,
                       }}
                     >
-                      <div className="formRow">
-                        <label>Network scope</label>
-                        <select value={rotationNetworkScope} onChange={(e) => { setRotationNetworkScope(e.target.value); setRotationBudgetReleased(false); }}>
-                          <option value="ALL">All wallet networks</option>
-                          {gridWalletChains.map((ck) => (
-                            <option key={`rotation-scope-${ck}`} value={ck}>{ck}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="formRow">
-                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                          Mode
-                          <span
-                            title="Recommendation first uses Nexus ranking before creating Rotation orders. Manual confirm lets you select and confirm targets yourself. Auto after release is more aggressive and should only be used when the budget/risk setup is clear."
-                            style={{ opacity: 0.75, cursor: "help", fontSize: 12 }}
-                          >
-                            ⓘ
-                          </span>
-                        </label>
-                        <select value={rotationMode} onChange={(e) => { setRotationMode(e.target.value); setRotationBudgetReleased(false); }}>
-                          <option value="RECOMMENDATION">Recommendation first</option>
-                          <option value="MANUAL_CONFIRM">Manual confirm</option>
-                          <option value="AUTO_AFTER_RELEASE">Auto after release</option>
-                        </select>
-                      </div>
                       <div className="formRow">
                         <label>NKR Capital Mode</label>
                         <select value={nkrCapitalMode} onChange={(e) => { setNkrCapitalMode(e.target.value); setRotationBudgetReleased(false); }}>
@@ -19577,46 +19552,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         />
                       </div>
                       <div className="formRow">
-                        <label>Risk limit (%)</label>
-                        <input
-                          value={rotationRiskLimit}
-                          onChange={(e) => { setRotationRiskLimit(e.target.value); setRotationBudgetReleased(false); }}
-                          placeholder="Max loss for this Rotation"
-                        />
-                      </div>
-                      <div className="formRow">
-                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                          Min net advantage (%)
-                          <span
-                            title="Minimum estimated edge required before a Rotation order is allowed. Higher values are more selective and reduce noise. Lower values allow more opportunities but behave more aggressively."
-                            style={{ opacity: 0.75, cursor: "help", fontSize: 12 }}
-                          >
-                            ⓘ
-                          </span>
-                        </label>
-                        <input
-                          value={rotationMinNetAdvantage}
-                          onChange={(e) => { setRotationMinNetAdvantage(e.target.value); setRotationBudgetReleased(false); }}
-                          placeholder="e.g. 0.5"
-                        />
-                      </div>
-                      <div className="formRow">
-                        <label>Max slippage (%)</label>
-                        <input
-                          value={rotationMaxSlippage}
-                          onChange={(e) => { setRotationMaxSlippage(e.target.value); setRotationBudgetReleased(false); }}
-                          placeholder="e.g. 1"
-                        />
-                      </div>
-                      <div className="formRow">
-                        <label>Rotation Runtime (hours)</label>
-                        <input
-                          value={rotationRuntimeHours}
-                          onChange={(e) => { setRotationRuntimeHours(e.target.value); setRotationBudgetReleased(false); }}
-                          placeholder="e.g. 24"
-                        />
-                      </div>
-                      <div className="formRow">
                         <label>Max Active NKR Assets</label>
                         <input
                           value={rotationMaxActiveSessions}
@@ -19627,6 +19562,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
 
                     {renderPayoutAssetSelector("Payout asset", { allowExtraAssets: false })}
+
+                    <div className="muted tiny" style={{ marginTop: -4, lineHeight: 1.35 }}>
+                      NKR uses backend policy for reserve, release, risk, slippage and routing. Technical values stay in System Info, not in this user panel.
+                    </div>
 
                     <div
                       className="muted tiny"
@@ -19650,13 +19589,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <span style={{ opacity: 0.75 }}>
                         {(() => {
                           const preflight = getRotationPreflight();
-                          return preflight.ok && preflight.symbol ? `${preflight.symbol}${preflight.chain ? ` / ${preflight.chain}` : ""}` : "Waiting for recommendation";
+                          return preflight.ok && preflight.symbol ? `${preflight.symbol}${preflight.chain ? ` / ${preflight.chain}` : ""}` : "Waiting for NKR recommendation";
                         })()}
                       </span>
                     </div>
 
                     <div className="muted tiny" style={{ marginTop: -4, lineHeight: 1.35 }}>
-                      Rotation preflight: {getRotationPreflight().message}
+                      NKR preflight: {getRotationPreflight().message}
                     </div>
 
                     {renderFundingPrompt("ROTATION")}
@@ -19682,9 +19621,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           setRotationRecommendationsExpanded((v) => !v);
                         }}
                         style={{ justifyContent: "space-between", width: "100%", padding: 0, background: "transparent", border: 0 }}
-                        title="Show or hide Watchlist recommendations"
+                        title="Show or hide NKR recommendations"
                       >
-                        <span className="label" style={{ marginBottom: 0 }}>Watchlist recommendations</span>
+                        <span className="label" style={{ marginBottom: 0 }}>NKR recommendations</span>
                         <span style={{ opacity: 0.75 }}>{rotationRecommendationsExpanded ? "▲" : "▼"}</span>
                       </button>
                       {rotationRecommendationsExpanded ? (() => {
@@ -20024,11 +19963,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }}
                           >
                             <div>
-                              <b style={{ color: "#eafff5" }}>Rotation Status: Session {rotationRows.length ? "Active" : "Waiting"} · Shadow {rotationShadowWorkStatus}</b>
-                              <div className="muted tiny">Rotation system uses recommendation-first setup. Shadow can keep searching during the active runtime; Live Vault rebalancing is not executed from this Shadow panel.</div>
-                            </div>
-                            <div className="muted tiny">
-                              Risk limit: {firstRotation?.riskLimitPct || firstRotation?.meta?.risk_limit_pct || rotationRiskLimit || "—"}% · Max slippage: {firstRotation?.maxSlippagePct || firstRotation?.meta?.max_slippage_pct || rotationMaxSlippage || "—"}% · Min net advantage: {firstRotation?.minNetAdvantagePct || firstRotation?.meta?.min_net_advantage_pct || rotationMinNetAdvantage || "—"}%
+                              <b style={{ color: "#eafff5" }}>NKR Status: Session {rotationRows.length ? "Active" : "Waiting"} · Shadow {rotationShadowWorkStatus}</b>
+                              <div className="muted tiny">NKR uses capital mode, observation window, profit mode and period settings. Live Vault rebalancing is not executed from this Shadow panel.</div>
                             </div>
                           </div>
                         </>

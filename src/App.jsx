@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-056-NKR-BACKEND-CONTROL-LOCK";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-057-NKR-PORTFOLIO-CONTROL";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -10331,48 +10331,147 @@ const [aiLoading, setAiLoading] = useState(false);
       const nowStart = Date.now();
       const typedBudgetStart = Number(String(rotationBudgetRelease || "").replace(",", "."));
       if (!sessions.length && !silent && Number.isFinite(typedBudgetStart) && typedBudgetStart > 0) {
-        const sid = makeNexusSessionId("NKR");
         const periodDays = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
-        const newSession = {
-          id: sid,
-          session_id: sid,
-          type: "NKR",
-          status: "ACTIVE",
-          lifecycleState: "ACTIVE",
-          positionState: "WAITING",
-          executionMode: "shadow",
-          budgetUsd: Number(typedBudgetStart.toFixed(4)),
-          workingCapitalUsd: Number(typedBudgetStart.toFixed(4)),
-          sessionCapitalUsd: Number(typedBudgetStart.toFixed(4)),
-          reservedUsd: Number(typedBudgetStart.toFixed(4)),
-          baseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
-          payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
-          nkrCapitalMode,
-          nkrObservationWindow,
-          nkrProfitMode,
-          nkrPeriodDays,
-          chain: String(rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase(),
-          createdAt: nowStart,
-          updatedAt: nowStart,
-          expiresAt: nowStart + periodDays * 24 * 60 * 60 * 1000,
-          meta: {
-            nkr_session: true,
-            wallet_bound: true,
-            execution_mode: "shadow",
-            lifecycle_state: "ACTIVE",
-            position_state: "WAITING",
-            base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
-            nkr_capital_mode: nkrCapitalMode,
-            nkr_observation_window: nkrObservationWindow,
-            nkr_profit_mode: nkrProfitMode,
-            nkr_period_days: nkrPeriodDays,
-            reserved_usd: Number(typedBudgetStart.toFixed(4)),
-          },
+        const activeLimitRaw = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));
+        const activeLimit = Math.max(1, Math.min(12, Number.isFinite(activeLimitRaw) ? Math.floor(activeLimitRaw) : 3));
+        const modeU = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
+        const reservePct = modeU === "AGGRESSIVE" ? 10 : modeU === "DEFENSIVE" ? 35 : modeU === "TACTICAL" ? 25 : 20;
+        const maxPerAssetPct = modeU === "AGGRESSIVE" ? 40 : modeU === "DEFENSIVE" ? 25 : 35;
+        const investableUsd = Math.max(0, typedBudgetStart * (1 - reservePct / 100));
+        const perAssetCapUsd = Math.max(0, typedBudgetStart * (maxPerAssetPct / 100));
+        const baseAssetNew = String(manualPayoutAsset || "USDC").toUpperCase();
+        const normalizeCandidateSym = (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
+        const candidateMap = new Map();
+        const pushCandidate = (sym, meta = {}) => {
+          const raw = normalizeCandidateSym(sym);
+          if (!raw || ["USDC", "USDT", "USD", "EUR"].includes(raw)) return;
+          const prev = candidateMap.get(raw) || {};
+          const score = Number(meta.score ?? meta.strategistScore ?? prev.score ?? 50);
+          candidateMap.set(raw, { ...prev, ...meta, rawSymbol: raw, score: Number.isFinite(score) ? score : 50 });
         };
-        sessions = [newSession];
-        setRotationSessions([newSession]);
-        setActiveRotationSessionId(sid);
+        if (rotationSelectedPick?.source || rotationSelectedPick?.coin) {
+          pushCandidate(rotationSelectedPick?.source || rotationSelectedPick?.coin, {
+            chain: rotationSelectedPick?.chain,
+            coin: rotationSelectedPick?.coin,
+            score: rotationSelectedPick?.score,
+            rank: rotationSelectedPick?.rank,
+            source: "selected_nkr_target",
+            ok: rotationSelectedPick?.ok,
+          });
+        }
+        for (const cand of Array.isArray(strategistRotationCandidates) ? strategistRotationCandidates : []) {
+          if (String(cand?.rank || "").toUpperCase() === "AVOID") continue;
+          pushCandidate(cand?.sym || cand?.symbol, {
+            chain: cand?.chain,
+            coin: cand?.coin,
+            score: cand?.score ?? cand?.strategistScore,
+            rank: cand?.rank,
+            source: "strategist_candidate",
+            strategistScore: cand?.strategistScore,
+          });
+        }
+        for (const row of Array.isArray(watchRows) ? watchRows : []) {
+          const sym = normalizeCandidateSym(row?.symbol || row?.sym || row?.asset);
+          if (!sym) continue;
+          const ch = Number(row?.change24h ?? row?.chg_24h ?? row?.usd_24h_change ?? 0);
+          const score = typeof watchSystemScore === "function" ? watchSystemScore(row) : (Number.isFinite(ch) ? Math.max(35, Math.min(90, 55 + ch * 3)) : 55);
+          pushCandidate(sym, { score, source: "watchlist", change24h: ch, chain: row?.chain || rotationNetworkScope || activeGridChainKey || "ALL" });
+        }
+        const selectedCandidates = Array.from(candidateMap.values())
+          .filter((c) => c.ok !== false)
+          .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+          .slice(0, Math.max(1, activeLimit));
+        if (!selectedCandidates.length) {
+          setRotationBackendMsg("NKR needs at least one Strategist/Watchlist target before it can split capital.");
+          setNkrControlState("WAITING");
+          setRotationShadowBusy(false);
+          return;
+        }
+        const weights = selectedCandidates.map((c) => Math.max(1, Number(c.score || 50)));
+        const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+        let allocatedSoFar = 0;
+        const rawAllocations = selectedCandidates.map((c, idx) => {
+          const rawAmount = investableUsd * (weights[idx] / totalWeight);
+          const amount = Math.min(perAssetCapUsd || rawAmount, rawAmount);
+          allocatedSoFar += amount;
+          return { candidate: c, amount };
+        });
+        let leftover = Math.max(0, investableUsd - allocatedSoFar);
+        for (const row of rawAllocations) {
+          if (leftover <= 0.01) break;
+          const room = Math.max(0, perAssetCapUsd - row.amount);
+          const add = Math.min(room, leftover);
+          row.amount += add;
+          leftover -= add;
+        }
+        const newSessions = rawAllocations
+          .filter((r) => Number(r.amount) > 0)
+          .map((r, idx) => {
+            const c = r.candidate || {};
+            const sid = makeNexusSessionId("NKR");
+            const candidateSymbol = String(c.coin || c.rawSymbol || "ASSET").toUpperCase();
+            const sourceSymbol = String(c.rawSymbol || candidateSymbol).toUpperCase();
+            const candidateChain = String(c.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
+            const amount = Number(Number(r.amount || 0).toFixed(4));
+            return {
+              id: sid,
+              session_id: sid,
+              type: "NKR",
+              status: "ACTIVE",
+              lifecycleState: "ACTIVE",
+              positionState: "WAITING",
+              executionMode: "shadow",
+              budgetUsd: amount,
+              workingCapitalUsd: amount,
+              sessionCapitalUsd: amount,
+              reservedUsd: amount,
+              totalNkrBudgetUsd: Number(typedBudgetStart.toFixed(4)),
+              nkrCashReserveUsd: Number(Math.max(0, typedBudgetStart - rawAllocations.reduce((s, x) => s + Number(x.amount || 0), 0)).toFixed(4)),
+              nkrAllocationPct: typedBudgetStart > 0 ? Number(((amount / typedBudgetStart) * 100).toFixed(2)) : 0,
+              baseAsset: baseAssetNew,
+              payoutAsset: baseAssetNew,
+              nkrCapitalMode,
+              nkrObservationWindow,
+              nkrProfitMode,
+              nkrPeriodDays,
+              chain: candidateChain,
+              symbol: candidateSymbol,
+              sourceSymbol,
+              targetAsset: candidateSymbol,
+              confidence: Number(c.score || 0),
+              score: Number(c.score || 0),
+              createdAt: nowStart,
+              updatedAt: nowStart,
+              expiresAt: nowStart + periodDays * 24 * 60 * 60 * 1000,
+              meta: {
+                nkr_session: true,
+                wallet_bound: true,
+                execution_mode: "shadow",
+                lifecycle_state: "ACTIVE",
+                position_state: "WAITING",
+                base_asset: baseAssetNew,
+                nkr_capital_mode: nkrCapitalMode,
+                nkr_observation_window: nkrObservationWindow,
+                nkr_profit_mode: nkrProfitMode,
+                nkr_period_days: nkrPeriodDays,
+                nkr_portfolio_allocation: true,
+                nkr_allocation_rank: idx + 1,
+                nkr_allocation_pct: typedBudgetStart > 0 ? Number(((amount / typedBudgetStart) * 100).toFixed(2)) : 0,
+                total_nkr_budget_usd: Number(typedBudgetStart.toFixed(4)),
+                cash_reserve_pct: reservePct,
+                max_per_asset_pct: maxPerAssetPct,
+                reserved_usd: amount,
+                source_symbol: sourceSymbol,
+                selected_symbol: candidateSymbol,
+                candidate_source: c.source || "watchlist",
+              },
+            };
+          });
+        sessions = newSessions;
+        setRotationSessions(newSessions);
+        setActiveRotationSessionId(newSessions[0]?.id ? String(newSessions[0].id) : "");
         setNkrControlState("RUNNING");
+        setRotationBackendMsg(`NKR portfolio started: ${newSessions.length} sessions, ${fmtUsd(newSessions.reduce((s, x) => s + Number(x.budgetUsd || 0), 0))} allocated, ${fmtUsd(Math.max(0, typedBudgetStart - newSessions.reduce((s, x) => s + Number(x.budgetUsd || 0), 0)))} stable reserve.`);
       }
       const firstActive = sessions.find((s) => String(s?.id || "") === String(activeRotationSessionId || "") && isRotationSessionRunnable(s, nowStart))
         || sessions.find((s) => isRotationSessionRunnable(s, nowStart))
@@ -19487,8 +19586,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <b style={{ fontSize: 16, color: "#eafff5" }}>{baseAsset} → {sym} → {baseAsset}</b>
                                         <span className={`pill ${statusTone.pill}`} style={{ color: statusTone.color, fontWeight: 950 }}>{status}</span>
                                       </div>
-                                      <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Base: {baseAsset} · NKR #{idx + 1}</div>
-                                      <div className="muted tiny" style={{ marginTop: 4 }}>NKR-managed capital · limits are controlled internally</div>
+                                      <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Allocation: {Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct || 0) ? `${Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct).toFixed(1)}%` : "controlled"} · NKR #{idx + 1}</div>
+                                      <div className="muted tiny" style={{ marginTop: 4 }}>NKR portfolio session · reserve and limits are controlled by NKR mode</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}>ID: {String(sess?.id || "").slice(0, 28)}</div>
                                     </div>
 
@@ -19509,63 +19608,38 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     </div>
 
                                     <div style={{ display: "grid", gap: 6, minWidth: 112 }}>
-                                      <button className="miniBtn" type="button">Details</button>
                                       {sessionStatus === "STOPPED" ? (
-                                        <button
-                                          className="miniBtn danger"
-                                          type="button"
-                                          title="Delete this stopped NKR session from the wallet-bound NKR DB"
-                                          onClick={async () => {
-                                            const sid = String(sess?.id || "");
-                                            if (!sid) return;
-                                            rotationDeletedSessionIdsRef.current.add(sid);
-                                            const removeLocal = (rowsInput) => {
-                                              const rows = Array.isArray(rowsInput) ? rowsInput : [];
-                                              const next = rows.filter((x) => String(x?.id || x?.session_id || "") !== sid);
-                                              setActiveRotationSessionId((cur) => {
-                                                if (String(cur || "") !== sid) return cur;
-                                                const fallback = next.find((x) => isRotationSessionRunnable(x, Date.now())) || next[0] || null;
-                                                return fallback?.id ? String(fallback.id) : "";
-                                              });
-                                              return next;
-                                            };
-                                            setRotationSessions(removeLocal);
-                                            setRotationBackendMsg(`Deleted NKR session ${sid}.`);
-                                            try {
-                                              const saved = await api(`/api/rotation-sessions/${encodeURIComponent(sid)}`, { method: "DELETE", token, wallet });
-                                              const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
-                                              const serverRows = Array.isArray(saved?.sessions)
-                                                ? saved.sessions.filter((x) => x && typeof x === "object" && !deletedIds.has(String(x?.id || x?.session_id || "")))
-                                                : [];
-                                              setRotationSessions(serverRows);
-                                              const serverActive = String(saved?.activeRotationSessionId || "").trim();
-                                              setActiveRotationSessionId(serverActive && !deletedIds.has(serverActive) ? serverActive : (serverRows[0]?.id ? String(serverRows[0].id) : ""));
-                                            } catch (e) {
-                                              setRotationBackendMsg(`NKR delete failed: ${e?.message || e}. Session remains hidden locally until refresh.`);
-                                            }
-                                          }}
-                                        >
-                                          Delete
-                                        </button>
+                                        <>
+                                          <button
+                                            className="miniBtn"
+                                            type="button"
+                                            onClick={() => applyNkrBackendControl("RESUME", { sessionId: String(sess?.id || sess?.session_id || "") })}
+                                          >
+                                            Resume
+                                          </button>
+                                          <button
+                                            className="miniBtn danger"
+                                            type="button"
+                                            title="Delete this stopped NKR session forever from the wallet-bound backend state."
+                                            onClick={() => applyNkrBackendControl("DELETE", { sessionId: String(sess?.id || sess?.session_id || "") })}
+                                          >
+                                            Delete
+                                          </button>
+                                        </>
                                       ) : (
                                         <>
                                           <button
                                             className="miniBtn"
                                             type="button"
-                                            onClick={() => setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === String(sess?.id || "") ? { ...x, status: String(x?.status || "").toUpperCase() === "PAUSED" ? "ACTIVE" : "PAUSED", updatedAt: Date.now() } : x))}
+                                            onClick={() => applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: String(sess?.id || sess?.session_id || "") })}
                                           >
                                             {sessionStatus === "PAUSED" ? "Resume" : "Pause"}
                                           </button>
                                           <button
                                             className="miniBtn danger"
                                             type="button"
-                                            onClick={() => {
-                                              const sid = String(sess?.id || "");
-                                              setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((x) => String(x?.id || "") === sid ? { ...x, status: "STOPPED", lifecycleState: "STOPPED", positionState: "STOPPED", reservedUsd: 0, updatedAt: Date.now(), stoppedAt: Date.now(), active: false, meta: { ...(x?.meta || {}), lifecycle_state: "STOPPED", position_state: "STOPPED", reserved_usd: 0 } } : x));
-                                              setActiveRotationSessionId((cur) => String(cur || "") === sid ? "" : cur);
-                                            }}
+                                            onClick={() => applyNkrBackendControl("STOP", { sessionId: String(sess?.id || sess?.session_id || "") })}
                                           >Protect / Stop</button>
-                                          <button className="miniBtn" type="button">Show Routes ▾</button>
                                         </>
                                       )}
                                     </div>

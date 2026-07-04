@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-050-NKR-UI-CLEAN-FINAL";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-051-NKR-PAUSE-STOP";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -19243,6 +19243,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return sum + (Number.isFinite(v) ? v : 0);
                       }, 0);
                       const activeRotations = rotationRows.filter((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(getRotationDerivedStatus(s))).length;
+                      const pausedRotations = rotationRows.filter((s) => ["PAUSED"].includes(getRotationDerivedStatus(s))).length;
+                      const controllableRotations = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s))).length;
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
                       const leader = String(firstRotation?.sourceSymbol || firstRotation?.symbol || rotationSelectedPick?.sym || gridItem || "—").toUpperCase();
                       const targetChain = String(firstRotation?.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
@@ -19253,8 +19255,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
                       const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
                       const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
-                      const rotationShadowRuntimeStatus = rotationShadowBusy ? "READING LIVE DATA" : activeRotations > 0 ? "RUNNING" : "READY";
-                      const rotationShadowWorkStatus = rotationShadowBusy ? "SCANNING" : activeRotations > 0 ? "RUNNING" : "WAITING";
+                      const rotationShadowRuntimeStatus = rotationShadowBusy ? "READING LIVE DATA" : activeRotations > 0 ? "RUNNING" : pausedRotations > 0 ? "PAUSED" : "READY";
+                      const rotationShadowWorkStatus = rotationShadowBusy ? "SCANNING" : activeRotations > 0 ? "RUNNING" : pausedRotations > 0 ? "PAUSED" : "WAITING";
                       const rotationShadowReadiness = rotationShadowBusy
                         ? "SCANNING_MARKET"
                         : rotationShadowSnapshot?.action
@@ -19895,6 +19897,86 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   title="Backend safety-readiness check only. No transaction is sent."
                                 >
                                   {rotationBackendLoading ? "Checking..." : "Safety Check"}
+                                </button>
+                                <button
+                                  className="miniBtn"
+                                  type="button"
+                                  disabled={!controllableRotations || rotationShadowBusy}
+                                  onClick={() => {
+                                    const now = Date.now();
+                                    setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
+                                      const status = getRotationDerivedStatus(sess);
+                                      if (["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(status)) return sess;
+                                      const nextStatus = status === "PAUSED" ? "ACTIVE" : "PAUSED";
+                                      return {
+                                        ...sess,
+                                        status: nextStatus,
+                                        lifecycleState: nextStatus,
+                                        positionState: nextStatus === "PAUSED" ? "PAUSED" : (sess?.positionState || "WAITING"),
+                                        updatedAt: now,
+                                        pausedAt: nextStatus === "PAUSED" ? now : sess?.pausedAt,
+                                        resumedAt: nextStatus === "ACTIVE" ? now : sess?.resumedAt,
+                                        meta: {
+                                          ...(sess?.meta || {}),
+                                          lifecycle_state: nextStatus,
+                                          position_state: nextStatus === "PAUSED" ? "PAUSED" : (sess?.meta?.position_state || "WAITING"),
+                                          nkr_user_control: nextStatus === "PAUSED" ? "PAUSED_BY_USER" : "RESUMED_BY_USER",
+                                        },
+                                      };
+                                    }));
+                                    setRotationShadowEvents((prev) => [{
+                                      id: `NKR-CTRL-${now}`,
+                                      ts: now,
+                                      text: pausedRotations > 0 ? "NKR resumed by user. Paper shadow can continue." : "NKR paused by user. Auto shadow loop is stopped.",
+                                    }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+                                    setRotationBackendMsg(pausedRotations > 0 ? "NKR resumed. Paper shadow can continue." : "NKR paused. No new NKR shadow actions will run until resumed.");
+                                  }}
+                                  title="Pause or resume all active NKR sessions. Paper-only; no Vault transaction is sent."
+                                >
+                                  {pausedRotations > 0 && activeRotations === 0 ? "Resume NKR" : "Pause NKR"}
+                                </button>
+                                <button
+                                  className="miniBtn"
+                                  type="button"
+                                  disabled={!controllableRotations}
+                                  onClick={() => {
+                                    const now = Date.now();
+                                    setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
+                                      const status = getRotationDerivedStatus(sess);
+                                      if (["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(status)) return sess;
+                                      const sid = String(sess?.id || sess?.session_id || "");
+                                      if (sid) rotationDeletedSessionIdsRef.current.add(sid);
+                                      return {
+                                        ...sess,
+                                        status: "STOPPED",
+                                        lifecycleState: "STOPPED",
+                                        positionState: "STOPPED",
+                                        reservedUsd: 0,
+                                        updatedAt: now,
+                                        stoppedAt: now,
+                                        active: false,
+                                        meta: {
+                                          ...(sess?.meta || {}),
+                                          lifecycle_state: "STOPPED",
+                                          position_state: "STOPPED",
+                                          reserved_usd: 0,
+                                          nkr_user_control: "STOPPED_BY_USER",
+                                        },
+                                      };
+                                    }));
+                                    setActiveRotationSessionId("");
+                                    setRotationShadowSnapshot((prev) => ({ ...(prev || {}), action: "USER_STOPPED_NKR", status: "stopped", ts: now }));
+                                    setRotationShadowEvents((prev) => [{
+                                      id: `NKR-STOP-${now}`,
+                                      ts: now,
+                                      text: "NKR stopped by user. Active paper sessions were closed and reserved capital was released.",
+                                    }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+                                    setRotationBackendMsg("NKR stopped. Paper sessions closed; no Vault transaction was sent.");
+                                  }}
+                                  title="Stop all active NKR sessions and release paper-reserved capital. No Vault transaction is sent."
+                                  style={{ borderColor: "rgba(255,107,107,.45)", color: "#ff8a8a" }}
+                                >
+                                  Stop NKR
                                 </button>
                               </div>
                             </div>

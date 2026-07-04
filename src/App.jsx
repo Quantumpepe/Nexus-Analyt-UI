@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-051-NKR-PAUSE-STOP";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-052-NKR-PAUSE-STOP-FIX";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -7227,7 +7227,7 @@ useEffect(() => {
             locked_base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
             runtime_hours: runtimeHours,
             expires_at: expiresAt,
-            max_active_NKR sessions: activeLimit,
+            max_active_nkr_sessions: activeLimit,
             risk_limit_pct: rotationRiskLimit,
             min_net_advantage_pct: rotationMinNetAdvantage,
             max_slippage_pct: rotationMaxSlippage,

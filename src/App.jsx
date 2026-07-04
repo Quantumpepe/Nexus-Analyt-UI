@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-049-NKR-ONLY-UI";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-050-NKR-UI-CLEAN-FINAL";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -1278,7 +1278,7 @@ function RotationInfoTrigger() {
             }}
           >
             <div className="modalHead">
-              <div className="cardTitle">NKR Capital Rotation</div>
+              <div className="cardTitle">NKR</div>
               <button
                 className="iconBtn"
                 type="button"
@@ -1293,8 +1293,8 @@ function RotationInfoTrigger() {
                   <>
                     <p><b>NKR</b> ist ein datenbasiertes System, das Kapital zwischen verschiedenen Assets verschiebt.</p>
                     <p><b>Ziel:</b> Kapital wird dort eingesetzt, wo Score, Momentum, Volumen und Marktstruktur am stärksten sind.</p>
-                    <p><b>Demo Mode:</b> Rotation zeigt echte Marktdaten und simuliert, was passieren würde. Es wird nichts wirklich ausgeführt.</p>
-                    <p><b>Live Mode:</b> Nach Zahlung oder Redeem Code kann der Vault echte Rotation-Aktionen ausführen, aber nur nach User-Bestätigung / Privy-Signatur.</p>
+                    <p><b>Demo Mode:</b> NKR zeigt echte Marktdaten und simuliert, was passieren würde. Es wird nichts wirklich ausgeführt.</p>
+                    <p><b>Live Mode:</b> Nach Zahlung oder Redeem Code kann Nexus später echte NKR-Aktionen ausführen, aber nur nach User-Bestätigung / Privy-Signatur.</p>
                     <p><b>Wichtig:</b> NKR garantiert keinen Gewinn. Es ist ein Risiko- und Rebalancing-System auf Basis von Daten.</p>
                   </>
                 }
@@ -1302,8 +1302,8 @@ function RotationInfoTrigger() {
                   <>
                     <p><b>NKR</b> is a data-driven system that shifts capital between different assets.</p>
                     <p><b>Goal:</b> capital is allocated where score, momentum, volume and market structure are strongest.</p>
-                    <p><b>Demo Mode:</b> Rotation shows real market data and simulates what would happen. Nothing is executed for real.</p>
-                    <p><b>Live Mode:</b> After payment or redeem code, the Vault can execute real rotation actions, but only after user confirmation / Privy signature.</p>
+                    <p><b>Demo Mode:</b> NKR shows real market data and simulates what would happen. Nothing is executed for real.</p>
+                    <p><b>Live Mode:</b> Later, Nexus can execute real NKR actions, but only after user confirmation / Privy signature.</p>
                     <p><b>Important:</b> NKR does not guarantee profit. It is a risk and rebalancing system based on data.</p>
                   </>
                 }
@@ -7097,11 +7097,11 @@ useEffect(() => {
       return !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st) && (!exp || exp > now);
     }).length;
     if (activeExisting >= activeLimit) {
-      setRotationBackendMsg(`Max Active NKR Assets reached (${activeExisting}/${activeLimit}). Pause/stop one rotation or increase the limit.`);
+      setRotationBackendMsg(`Max Active NKR Assets reached (${activeExisting}/${activeLimit}). Pause/stop one NKR session or increase the limit.`);
       return;
     }
 
-    // Pick the next Rotation target from the same pipeline that the Strategist uses.
+    // Pick the next NKR target from the same pipeline that the Strategist uses.
     // Important: do not create duplicate active sessions for the same target while other
     // Strategist candidates are available. The visible session target must match the
     // candidate that will be sent into Shadow/Vault-preview.
@@ -7151,7 +7151,7 @@ useEffect(() => {
 
     const pickedCandidate = candidatePool.find((c) => !activeTargetSet.has(c.rawSymbol)) || null;
     if (!pickedCandidate?.rawSymbol) {
-      setRotationBackendMsg("No strategist target selected. Open NKR recommendations or let Nexus Strategist prepare a Rotation target first.");
+      setRotationBackendMsg("No strategist target selected. Open NKR recommendations or let Nexus Strategist prepare a NKR target first.");
       return;
     }
 
@@ -7189,7 +7189,7 @@ useEffect(() => {
           riskLimitPct: rotationRiskLimit,
           minNetAdvantagePct: rotationMinNetAdvantage,
           maxSlippagePct: rotationMaxSlippage,
-          maxActiveRotations: activeLimit,
+          maxActiveNkrSessions: activeLimit,
           payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
           baseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
           lockedTargetSymbol: sourceSymbol,
@@ -7227,7 +7227,7 @@ useEffect(() => {
             locked_base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
             runtime_hours: runtimeHours,
             expires_at: expiresAt,
-            max_active_rotations: activeLimit,
+            max_active_NKR sessions: activeLimit,
             risk_limit_pct: rotationRiskLimit,
             min_net_advantage_pct: rotationMinNetAdvantage,
             max_slippage_pct: rotationMaxSlippage,
@@ -7237,7 +7237,7 @@ useEffect(() => {
         ...existing,
       ].slice(0, 20);
     });
-    setRotationBackendMsg(`Rotation session approved ✓ ${sessionId}. Runtime ${runtimeHours}h, max active rotations ${activeLimit}. Paper-only until live Vault permissions are connected.`);
+    setRotationBackendMsg(`NKR session approved ✓ ${sessionId}. Runtime ${runtimeHours}h, max active NKR sessions ${activeLimit}. Paper-only until live permissions are connected.`);
   }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset]);
 
   const startRotationSafeMode = useCallback(async () => {
@@ -7286,10 +7286,10 @@ useEffect(() => {
       });
       console.log("NEXUS EXECUTION CHECK", exec);
 
-      setRotationBackendMsg("Vault check sent ✓");
+      setRotationBackendMsg("Safety check sent ✓");
     } catch (e) {
       console.error("NEXUS VAULT CHECK FAILED", e);
-      setRotationBackendMsg(`Vault check failed: ${e?.message || e}`);
+      setRotationBackendMsg(`Safety check failed: ${e?.message || e}`);
     } finally {
       setRotationBackendLoading(false);
     }
@@ -11848,7 +11848,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
       selected: Boolean(pick?.ok || candidate?.sym || candidate?.symbol),
       score: pick.score ?? candidate?.score,
       message: !amountOk
-        ? "Enter a Rotation budget first."
+        ? "Enter a NKR budget first."
         : !hasRealTarget
           ? "Waiting for NKR recommendation. No fallback target is allowed."
           : `Ready: ${resolvedSymbol}${resolvedChain ? ` on ${resolvedChain}` : ""}.`,
@@ -11859,7 +11859,7 @@ setGridBusy((s) => ({ ...s, stop: true }));
     const pick = rotationSelectedPick || {};
     const preflight = getRotationPreflight();
     if (!preflight.ok) {
-      setRotationBackendMsg(preflight.message || "Rotation preflight is not ready.");
+      setRotationBackendMsg(preflight.message || "NKR preflight is not ready.");
       return;
     }
     const chain = preflight.chain;
@@ -16518,7 +16518,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   }}>
                     <div style={{ fontWeight: 900 }}>Subscription expired</div>
                     <div className="hint" style={{ marginTop: 5, opacity: 0.9 }}>
-                      Existing grids continue running, but new grids and new rotation actions require renewal.
+                      Existing grids continue running, but new grids and new NKR actions require renewal.
                     </div>
                     <button
                       type="button"
@@ -18966,7 +18966,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                       <p><b>Nexus Grid:</b> manual order mode. You choose network, coin, budget, side, price, and payout asset. <b>Approve Budget</b> reserves the Grid budget locally; <b>Add Order</b> creates the order. The budget is shared across all open Grid orders, not per order.</p>
 
-                      <p><b>NKR:</b> recommendation-based order mode. You select a Watchlist/Rotation recommendation, set a Rotation budget, choose the payout asset, then create a NKR order. Technically it uses the same order structure, but is marked internally as <b>source = ROTATION</b>.</p>
+                      <p><b>NKR:</b> recommendation-based order mode. You select a Watchlist/Rotation recommendation, set a NKR budget, choose the payout asset, then create a NKR order. Technically it uses the same order structure, but is marked internally as <b>source = ROTATION</b>.</p>
 
                       <p><b>Nexus Trading:</b> autonomous trading mode after budget approval. The user defines budget, slots, runtime, style, allowed assets/chains, risk mode, drawdown, profit lock, slippage and max trades. After that, Nexus Trading works independently inside those limits.</p>
                       <p><b>HOLD / OBSERVE:</b> After a Risk Exit, Protect or Stop, capital is protected first. HOLD is a minimum protection period from 1-12h. When it expires, Nexus must not blindly re-enter; the Strategist keeps checking market structure, liquidity, RVOL and risk.</p>
@@ -19287,14 +19287,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
-                              <div><b>Rotation allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
-                              <div><b>Grid allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
+                              <div><b>NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
+                              <div><b>Other allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
-                              <div><b>Active Rotations:</b> {activeRotations} / {rotationMaxActive}</div>
+                              <div><b>Active NKR Sessions:</b> {activeRotations} / {rotationMaxActive}</div>
                               <div><b>Leader:</b> <span style={{ color: "#8bdcff", fontWeight: 900 }}>{leader}</span></div>
                               <div><b>Target / Scope:</b> {targetChain}</div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
-                              <div><b>Mode:</b> {String(rotationMode || "RECOMMENDATION").replaceAll("_", " ")}</div>
+                              <div><b>NKR Control:</b> Capital Manager</div>
                               <div><b>NKR Mode:</b> {String(nkrCapitalMode || "DYNAMIC").replaceAll("_", " ")}</div>
                               <div><b>Observation:</b> {nkrObservationWindow}</div>
                               <div><b>Profit Mode:</b> {String(nkrProfitMode || "REINVEST").replaceAll("_", " ")}</div>
@@ -19317,9 +19317,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                               <div>
                                 <div className="label" style={{ marginBottom: 0 }}>Active NKR Sessions</div>
-                                <div className="muted tiny">full rotation cards · first sessions visible · scroll for more</div>
+                                <div className="muted tiny">full NKR session cards · first sessions visible · scroll for more</div>
                               </div>
-                              <span className="pill silver">{rotationRows.length} rotations</span>
+                              <span className="pill silver">{rotationRows.length} NKR sessions</span>
                             </div>
 
                             <div
@@ -19373,8 +19373,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <b style={{ fontSize: 16, color: "#eafff5" }}>{baseAsset} → {sym} → {baseAsset}</b>
                                         <span className={`pill ${statusTone.pill}`} style={{ color: statusTone.color, fontWeight: 950 }}>{status}</span>
                                       </div>
-                                      <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Base: {baseAsset} · Rotation #{idx + 1}</div>
-                                      <div className="muted tiny" style={{ marginTop: 4 }}>Risk {sess?.riskLimitPct || sess?.meta?.risk_limit_pct || rotationRiskLimit || "—"}% · Slippage {sess?.maxSlippagePct || sess?.meta?.max_slippage_pct || rotationMaxSlippage || "—"}% · Min Net {sess?.minNetAdvantagePct || sess?.meta?.min_net_advantage_pct || rotationMinNetAdvantage || "—"}%</div>
+                                      <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Base: {baseAsset} · NKR #{idx + 1}</div>
+                                      <div className="muted tiny" style={{ marginTop: 4 }}>NKR-managed capital · limits are controlled internally</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}>ID: {String(sess?.id || "").slice(0, 28)}</div>
                                     </div>
 
@@ -19400,7 +19400,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <button
                                           className="miniBtn danger"
                                           type="button"
-                                          title="Delete this stopped Rotation session from the wallet-bound Rotation DB"
+                                          title="Delete this stopped NKR session from the wallet-bound NKR DB"
                                           onClick={async () => {
                                             const sid = String(sess?.id || "");
                                             if (!sid) return;
@@ -19416,7 +19416,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                               return next;
                                             };
                                             setRotationSessions(removeLocal);
-                                            setRotationBackendMsg(`Deleted Rotation session ${sid}.`);
+                                            setRotationBackendMsg(`Deleted NKR session ${sid}.`);
                                             try {
                                               const saved = await api(`/api/rotation-sessions/${encodeURIComponent(sid)}`, { method: "DELETE", token, wallet });
                                               const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
@@ -19427,7 +19427,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                               const serverActive = String(saved?.activeRotationSessionId || "").trim();
                                               setActiveRotationSessionId(serverActive && !deletedIds.has(serverActive) ? serverActive : (serverRows[0]?.id ? String(serverRows[0].id) : ""));
                                             } catch (e) {
-                                              setRotationBackendMsg(`Rotation delete failed: ${e?.message || e}. Session remains hidden locally until refresh.`);
+                                              setRotationBackendMsg(`NKR delete failed: ${e?.message || e}. Session remains hidden locally until refresh.`);
                                             }
                                           }}
                                         >
@@ -19803,7 +19803,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         );
                       })() : (
-                        <div className="muted tiny">Recommendations are hidden. Open this section to select a Rotation target.</div>
+                        <div className="muted tiny">Recommendations are hidden. Open this section to select a NKR target.</div>
                       )}
                     </div>
 
@@ -19885,25 +19885,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   onClick={() => runRotationShadowSimulation()}
                                   title="Run paper-only NKR simulation with current Watchlist/market data and backend safety preview."
                                 >
-                                  {rotationShadowBusy ? "Reading..." : "Run Shadow"}
+                                  {rotationShadowBusy ? "Reading..." : "Run NKR Shadow"}
                                 </button>
                                 <button
                                   className="miniBtn"
                                   type="button"
                                   disabled={rotationBackendLoading}
                                   onClick={startRotationSafeMode}
-                                  title="Backend Vault-readiness check only. No transaction is sent."
+                                  title="Backend safety-readiness check only. No transaction is sent."
                                 >
-                                  {rotationBackendLoading ? "Checking..." : "Vault Check"}
+                                  {rotationBackendLoading ? "Checking..." : "Safety Check"}
                                 </button>
                               </div>
                             </div>
-                            <div className="muted tiny">Paper rotation only: capital manager flow is Base → Target → Base. Profit is collected, working capital stays controlled, and no Vault swap is triggered here.</div>
+                            <div className="muted tiny">Paper NKR only: capital manager flow is Base → Target → Base. Profit is collected, working capital stays controlled, and no Vault swap is triggered here.</div>
                             <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                               <b style={{ color: rotationShadowSnapshot?.status === "error" ? "#ff8a8a" : "#86efac" }}>Runtime: {rotationShadowRuntimeStatus}</b>
                               <b style={{ color: rotationShadowWorkStatus === "RUNNING" ? "#86efac" : "#ffd166" }}>Status: {rotationShadowWorkStatus}</b>
                               <b style={{ color: "#8bdcff" }}>Readiness: {rotationShadowReadiness}</b>
-                              <b style={{ color: "#ffd166" }}>Simulated rotations: {rotationRows.length}</b>
+                              <b style={{ color: "#ffd166" }}>Simulated NKR sessions: {rotationRows.length}</b>
                               <b>Best edge: {rotationShadowSnapshot?.bestScore ? `${rotationShadowSnapshot.bestScore}/100` : rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "—"}</b>
                               <b>Net: {Number.isFinite(Number(rotationShadowSnapshot?.netUsd)) ? fmtUsd(Number(rotationShadowSnapshot.netUsd)) : "—"}</b>
                               <b>Safety: paper-only</b>
@@ -19936,7 +19936,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     textAlign: "left",
                                   }}
                                 >
-                                  {rotationShadowEventsOpen ? "▼" : "▶"} Latest rotation shadow events
+                                  {rotationShadowEventsOpen ? "▼" : "▶"} Latest NKR shadow events
                                 </button>
                                 {rotationShadowEventsOpen ? (
                                   <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
@@ -20013,7 +20013,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return (
                             <>
                               <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
-                              <div><b>Grid allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
+                              <div><b>Other allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div><b>Trading allocated:</b> {tradingAllocatedUsd ? fmtUsd(tradingAllocatedUsd) : "$0.00"}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
                               <div style={{ color: tradingCollectedProfitUsd >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}><b>Collected Profit:</b> {`${tradingCollectedProfitUsd >= 0 ? "+" : "-"}${fmtUsd(Math.abs(tradingCollectedProfitUsd))}`}</div>
@@ -22390,18 +22390,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       ? "Diese Idee in Nexus Grid vorbereiten. Es wird keine Order erstellt."
                                       : section.key === "nexus_trading"
                                         ? "Diese Idee in Nexus Trading vorbereiten. Die Automation wird nicht aktiviert."
-                                        : "Diese Spread-/Rotation-Idee in NKR vorbereiten. Es wird kein Swap ausgeführt.")
+                                        : "Diese NKR-Idee vorbereiten. Es wird kein Swap ausgeführt.")
                                     : (section.key === "nexus_grid"
                                       ? "Prepare this idea in Nexus Grid. This does not create an order."
                                       : section.key === "nexus_trading"
                                         ? "Prepare this idea in Nexus Trading. This does not activate automation."
-                                        : "Prepare this spread/rotation idea in NKR. This does not execute a swap.")
+                                        : "Prepare this NKR idea. This does not execute a swap.")
                                 }
                                 style={{ height: 28, paddingInline: 10, fontSize: 12 }}
                               >
                                 {aiOutputLanguage === "de"
-                                  ? (section.key === "nexus_grid" ? "In Grid nutzen" : section.key === "nexus_trading" ? "In Trading nutzen" : "In Rotation nutzen")
-                                  : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Rotation")}
+                                  ? (section.key === "nexus_grid" ? "In Grid nutzen" : section.key === "nexus_trading" ? "In Trading nutzen" : "In NKR nutzen")
+                                  : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in NKR")}
                               </button>
                             </div>
                           ) : null}

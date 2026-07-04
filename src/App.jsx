@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-053-NKR-BUDGET-TARGET-FIX";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-056-NKR-BACKEND-CONTROL-LOCK";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -6850,6 +6850,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [nkrObservationWindow, setNkrObservationWindow] = useState("1h");
   const [nkrProfitMode, setNkrProfitMode] = useState("REINVEST");
   const [nkrPeriodDays, setNkrPeriodDays] = useState("10");
+  const [nkrControlState, setNkrControlState] = useState("WAITING");
   const [rotationBudgetRelease, setRotationBudgetRelease] = useState("");
   const [rotationRiskLimit, setRotationRiskLimit] = useState("");
   const [rotationMinNetAdvantage, setRotationMinNetAdvantage] = useState("0.5");
@@ -9973,6 +9974,10 @@ useEffect(() => {
         if (rotationSettingsSource.nkrObservationWindow != null) setNkrObservationWindow(String(rotationSettingsSource.nkrObservationWindow));
         if (rotationSettingsSource.nkrProfitMode != null) setNkrProfitMode(String(rotationSettingsSource.nkrProfitMode));
         if (rotationSettingsSource.nkrPeriodDays != null) setNkrPeriodDays(String(rotationSettingsSource.nkrPeriodDays));
+        if (rotationSettingsSource.nkrControlState != null) setNkrControlState(String(rotationSettingsSource.nkrControlState || "WAITING").toUpperCase());
+        if (rotationSettingsSource.rotationBudgetRelease != null) setRotationBudgetRelease(String(rotationSettingsSource.rotationBudgetRelease));
+        if (rotationSettingsSource.rotationShadowSnapshot && typeof rotationSettingsSource.rotationShadowSnapshot === "object") setRotationShadowSnapshot(rotationSettingsSource.rotationShadowSnapshot);
+        if (Array.isArray(rotationSettingsSource.rotationShadowEvents)) setRotationShadowEvents(rotationSettingsSource.rotationShadowEvents.slice(0, 20));
         if (rotationSettingsSource.rotationNetworkScope != null) setRotationNetworkScope(String(rotationSettingsSource.rotationNetworkScope));
         if (serverTradingSessions.length) {
           setTradingSessions(serverTradingSessions);
@@ -10041,6 +10046,10 @@ useEffect(() => {
         nkrObservationWindow,
         nkrProfitMode,
         nkrPeriodDays,
+        nkrControlState,
+        rotationBudgetRelease,
+        rotationShadowSnapshot,
+        rotationShadowEvents: (Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []).slice(0, 20),
         rotationNetworkScope,
       },
     };
@@ -10058,7 +10067,7 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, nkrControlState, rotationBudgetRelease, rotationShadowSnapshot, rotationShadowEvents, rotationNetworkScope, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   // Rotation runtime persistence: backend-first, wallet-bound, Trading-style.
   // The Rotation lifecycle is stored through /api/rotation-sessions. /api/app-state only keeps settings/display state.
@@ -10164,6 +10173,7 @@ useEffect(() => {
     try { setActiveRotationSessionId(""); } catch {}
     try { setRotationShadowSnapshot(null); } catch {}
     try { setRotationShadowEvents([]); } catch {}
+    try { setNkrControlState("WAITING"); } catch {}
     if (clearAuth) {
       try { setWallet(""); } catch {}
       try { setToken(""); } catch {}
@@ -10188,7 +10198,16 @@ useEffect(() => {
     for (const key of keys) {
       try { localStorage.removeItem(key); } catch {}
     }
-  }, [setWatchItems, setWatchRows, setCompareSet, setTimeframe, setIndexMode, setAiSelected, setCompareSeries, setWatchSyncedWallet, setAppStateSyncedWallet, setGridOrders, setGridMeta, setGridVaultStats, setGridUiHydrated, setRotationSessions, setActiveRotationSessionId, setRotationShadowSnapshot, setRotationShadowEvents, setWallet, setToken, setPrivyJwt]);
+
+    // Reset is local-clean only. If wallet/auth remains connected, immediately rehydrate
+    // wallet-bound backend state so NKR budget/sessions/control are not lost.
+    if (!clearAuth) {
+      setTimeout(() => {
+        try { syncAppStateFromServer(); } catch {}
+        try { syncRotationSessionsFromServer(); } catch {}
+      }, 100);
+    }
+  }, [setWatchItems, setWatchRows, setCompareSet, setTimeframe, setIndexMode, setAiSelected, setCompareSeries, setWatchSyncedWallet, setAppStateSyncedWallet, setGridOrders, setGridMeta, setGridVaultStats, setGridUiHydrated, setRotationSessions, setActiveRotationSessionId, setRotationShadowSnapshot, setRotationShadowEvents, setNkrControlState, setWallet, setToken, setPrivyJwt, syncAppStateFromServer, syncRotationSessionsFromServer]);
 
   useEffect(() => {
     const prev = prevWalletRef.current || "";
@@ -10268,15 +10287,93 @@ const [aiLoading, setAiLoading] = useState(false);
     return Array.from(bySymbol.values()).filter((a) => a.symbol).slice(0, 16);
   }, [rotationSelectedPick, activeGridChainKey, watchRows, strategistRotationCandidates, rotationSessions]);
 
+
+  const applyNkrBackendControl = useCallback(async (action, opts = {}) => {
+    const actionU = String(action || "").toUpperCase();
+    const now = Date.now();
+    const localStatus = actionU === "PAUSE" ? "PAUSED" : actionU === "RESUME" ? "RUNNING" : actionU === "STOP" ? "STOPPED" : actionU === "DELETE" ? "WAITING" : actionU;
+    try {
+      const resp = await api("/api/nkr/control", { method: "POST", token, wallet, body: { action: actionU, sessionId: opts.sessionId || "" } });
+      if (Array.isArray(resp?.sessions)) {
+        setRotationSessions(resp.sessions);
+      } else {
+        await syncRotationSessionsFromServer();
+      }
+      if (resp?.controlState) setNkrControlState(String(resp.controlState).toUpperCase());
+      else setNkrControlState(localStatus);
+      await syncAppStateFromServer();
+      setRotationShadowEvents((prev) => [{
+        id: `NKR-CTRL-${now}`,
+        ts: now,
+        text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" ? "NKR stopped/protected and stored in backend." : "NKR deleted forever from backend.",
+      }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+      setRotationBackendMsg(resp?.message || (actionU === "DELETE" ? "NKR deleted forever." : `NKR ${actionU.toLowerCase()} stored in backend.`));
+    } catch (e) {
+      console.error("NKR BACKEND CONTROL FAILED", e);
+      setRotationBackendMsg(`NKR control failed: ${e?.message || e}`);
+      setNkrControlState(localStatus);
+    }
+  }, [token, wallet, syncRotationSessionsFromServer, syncAppStateFromServer, setRotationSessions, setNkrControlState]);
+
   const runRotationShadowSimulation = useCallback(async ({ silent = false } = {}) => {
     if (rotationShadowBusy) return;
+    const control = String(nkrControlState || "WAITING").toUpperCase();
+    if (["PAUSED", "STOPPED"].includes(control)) {
+      if (!silent) setRotationBackendMsg(control === "PAUSED" ? "NKR is paused. Resume NKR before running Shadow." : "NKR is stopped. Approve/run a new NKR budget before continuing.");
+      return;
+    }
     setRotationShadowBusy(true);
-    if (!silent) setRotationBackendMsg("Rotation Shadow is reading live market context...");
+    if (!silent) setRotationBackendMsg("NKR Shadow is reading live market context...");
 
     try {
       const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
-      const sessions = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((s) => !deletedIds.has(String(s?.id || s?.session_id || "")));
+      let sessions = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((s) => !deletedIds.has(String(s?.id || s?.session_id || "")));
       const nowStart = Date.now();
+      const typedBudgetStart = Number(String(rotationBudgetRelease || "").replace(",", "."));
+      if (!sessions.length && !silent && Number.isFinite(typedBudgetStart) && typedBudgetStart > 0) {
+        const sid = makeNexusSessionId("NKR");
+        const periodDays = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
+        const newSession = {
+          id: sid,
+          session_id: sid,
+          type: "NKR",
+          status: "ACTIVE",
+          lifecycleState: "ACTIVE",
+          positionState: "WAITING",
+          executionMode: "shadow",
+          budgetUsd: Number(typedBudgetStart.toFixed(4)),
+          workingCapitalUsd: Number(typedBudgetStart.toFixed(4)),
+          sessionCapitalUsd: Number(typedBudgetStart.toFixed(4)),
+          reservedUsd: Number(typedBudgetStart.toFixed(4)),
+          baseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+          payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+          nkrCapitalMode,
+          nkrObservationWindow,
+          nkrProfitMode,
+          nkrPeriodDays,
+          chain: String(rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase(),
+          createdAt: nowStart,
+          updatedAt: nowStart,
+          expiresAt: nowStart + periodDays * 24 * 60 * 60 * 1000,
+          meta: {
+            nkr_session: true,
+            wallet_bound: true,
+            execution_mode: "shadow",
+            lifecycle_state: "ACTIVE",
+            position_state: "WAITING",
+            base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
+            nkr_capital_mode: nkrCapitalMode,
+            nkr_observation_window: nkrObservationWindow,
+            nkr_profit_mode: nkrProfitMode,
+            nkr_period_days: nkrPeriodDays,
+            reserved_usd: Number(typedBudgetStart.toFixed(4)),
+          },
+        };
+        sessions = [newSession];
+        setRotationSessions([newSession]);
+        setActiveRotationSessionId(sid);
+        setNkrControlState("RUNNING");
+      }
       const firstActive = sessions.find((s) => String(s?.id || "") === String(activeRotationSessionId || "") && isRotationSessionRunnable(s, nowStart))
         || sessions.find((s) => isRotationSessionRunnable(s, nowStart))
         || null;
@@ -10323,6 +10420,7 @@ const [aiLoading, setAiLoading] = useState(false);
 
       if (!assets.length) {
         setRotationBackendMsg("Rotation Shadow needs Watchlist/market rows first. Add assets or wait for market data refresh.");
+        setNkrControlState("WAITING");
         setRotationShadowSnapshot({ status: "waiting", assets: [], plan: [], previews: [], ts: Date.now() });
         return;
       }
@@ -10395,6 +10493,7 @@ const [aiLoading, setAiLoading] = useState(false);
         liveVaultTx: null,
       } : null;
 
+      setNkrControlState("RUNNING");
       setRotationShadowSnapshot({
         status: "ok",
         chain,
@@ -10501,17 +10600,17 @@ const [aiLoading, setAiLoading] = useState(false);
     } finally {
       setRotationShadowBusy(false);
     }
-  }, [rotationShadowBusy, rotationSessions, activeRotationSessionId, rotationBudgetRelease, rotationSelectedPick, activeGridChainKey, gridItem, rotationMaxSlippage, buildRotationShadowAssets, wallet, token, rotationMinNetAdvantage, rotationRiskLimit, isRotationSessionRunnable, manualPayoutAsset]);
+  }, [rotationShadowBusy, rotationSessions, activeRotationSessionId, rotationBudgetRelease, rotationSelectedPick, activeGridChainKey, gridItem, rotationMaxSlippage, buildRotationShadowAssets, wallet, token, rotationMinNetAdvantage, rotationRiskLimit, isRotationSessionRunnable, manualPayoutAsset, nkrControlState, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, makeNexusSessionId]);
 
   useInterval(() => {
     const now = Date.now();
     const sessions = Array.isArray(rotationSessions) ? rotationSessions : [];
     const hasRunnable = sessions.some((sess) => isRotationSessionRunnable(sess, now));
-    if (!hasRunnable || rotationShadowBusy) return;
+    if (!hasRunnable || rotationShadowBusy || ["PAUSED", "STOPPED"].includes(String(nkrControlState || "").toUpperCase())) return;
     if (now - Number(rotationAutoShadowRef.current || 0) < 90_000) return;
     rotationAutoShadowRef.current = now;
     runRotationShadowSimulation({ silent: true });
-  }, 30_000, Boolean(Array.isArray(rotationSessions) && rotationSessions.length));
+  }, 30_000, Boolean(Array.isArray(rotationSessions) && rotationSessions.length && !["PAUSED", "STOPPED"].includes(String(nkrControlState || "").toUpperCase())));
 
 
   // watch snapshot polling
@@ -16951,11 +17050,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                   <button
                     type="button"
-                    className="btnPill"
+                    className="btn"
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(true); }}
                     disabled={!wallet}
-                    title={!wallet ? "Connect wallet first" : "Open Withdraw & Send"}
-                    className="btn" style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14 }}
+                    title={!wallet ? "Connect wallet first" : "Open Withdraw & Send"} style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14 }}
                   >
                     Open Withdraw &amp; Send
                   </button>
@@ -17355,10 +17453,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                     <button
                       type="button"
-                      className="btnPill"
+                      className="btn"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
-                      disabled={txBusy || !wallet}
-                      className="btn" style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
+                      disabled={txBusy || !wallet} style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
                     >
                       {txBusy ? "…" : "Withdraw"}
                     </button>
@@ -17389,10 +17486,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                     <button
                       type="button"
-                      className="btnPill"
+                      className="btn"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
-                      disabled={txBusy || !wallet}
-                      className="btn" style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap" }}
+                      disabled={txBusy || !wallet} style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap" }}
                     >
                       {txBusy ? "…" : "Send"}
                     </button>
@@ -17423,9 +17519,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                   <button
                     type="button"
-                    className="btnPill"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }}
-                    className="btn" style={{ height: 42, flex: 1 }}
+                    className="btn"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }} style={{ height: 42, flex: 1 }}
                   >
                     Close
                   </button>
@@ -19270,8 +19365,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
                       const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
                       const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
-                      const rotationShadowRuntimeStatus = rotationShadowBusy ? "READING LIVE DATA" : activeRotations > 0 ? "RUNNING" : pausedRotations > 0 ? "PAUSED" : "READY";
-                      const rotationShadowWorkStatus = rotationShadowBusy ? "SCANNING" : activeRotations > 0 ? "RUNNING" : pausedRotations > 0 ? "PAUSED" : "WAITING";
+                      const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
+                      const rotationShadowRuntimeStatus = rotationShadowBusy ? "READING LIVE DATA" : nkrCtrl === "STOPPED" ? "STOPPED" : nkrCtrl === "PAUSED" || pausedRotations > 0 ? "PAUSED" : activeRotations > 0 || nkrCtrl === "RUNNING" ? "RUNNING" : "READY";
+                      const rotationShadowWorkStatus = rotationShadowBusy ? "SCANNING" : nkrCtrl === "STOPPED" ? "STOPPED" : nkrCtrl === "PAUSED" || pausedRotations > 0 ? "PAUSED" : activeRotations > 0 || nkrCtrl === "RUNNING" ? "RUNNING" : "WAITING";
                       const rotationShadowReadiness = rotationShadowBusy
                         ? "SCANNING_MARKET"
                         : rotationShadowSnapshot?.action
@@ -19917,83 +20013,46 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <button
                                   className="miniBtn"
                                   type="button"
-                                  disabled={!controllableRotations || rotationShadowBusy}
+                                  disabled={rotationShadowBusy || (!controllableRotations && String(nkrControlState || "WAITING").toUpperCase() === "STOPPED")}
                                   onClick={() => {
-                                    const now = Date.now();
-                                    setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
-                                      const status = getRotationDerivedStatus(sess);
-                                      if (["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(status)) return sess;
-                                      const nextStatus = status === "PAUSED" ? "ACTIVE" : "PAUSED";
-                                      return {
-                                        ...sess,
-                                        status: nextStatus,
-                                        lifecycleState: nextStatus,
-                                        positionState: nextStatus === "PAUSED" ? "PAUSED" : (sess?.positionState || "WAITING"),
-                                        updatedAt: now,
-                                        pausedAt: nextStatus === "PAUSED" ? now : sess?.pausedAt,
-                                        resumedAt: nextStatus === "ACTIVE" ? now : sess?.resumedAt,
-                                        meta: {
-                                          ...(sess?.meta || {}),
-                                          lifecycle_state: nextStatus,
-                                          position_state: nextStatus === "PAUSED" ? "PAUSED" : (sess?.meta?.position_state || "WAITING"),
-                                          nkr_user_control: nextStatus === "PAUSED" ? "PAUSED_BY_USER" : "RESUMED_BY_USER",
-                                        },
-                                      };
-                                    }));
-                                    setRotationShadowEvents((prev) => [{
-                                      id: `NKR-CTRL-${now}`,
-                                      ts: now,
-                                      text: pausedRotations > 0 ? "NKR resumed by user. Paper shadow can continue." : "NKR paused by user. Auto shadow loop is stopped.",
-                                    }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
-                                    setRotationBackendMsg(pausedRotations > 0 ? "NKR resumed. Paper shadow can continue." : "NKR paused. No new NKR shadow actions will run until resumed.");
+                                    const isPaused = String(nkrControlState || "").toUpperCase() === "PAUSED" || (pausedRotations > 0 && activeRotations === 0);
+                                    applyNkrBackendControl(isPaused ? "RESUME" : "PAUSE");
                                   }}
                                   title="Pause or resume all active NKR sessions. Paper-only; no Vault transaction is sent."
                                 >
-                                  {pausedRotations > 0 && activeRotations === 0 ? "Resume NKR" : "Pause NKR"}
+                                  {String(nkrControlState || "").toUpperCase() === "PAUSED" || (pausedRotations > 0 && activeRotations === 0) ? "Resume NKR" : "Pause NKR"}
                                 </button>
                                 <button
                                   className="miniBtn"
                                   type="button"
-                                  disabled={!controllableRotations}
-                                  onClick={() => {
-                                    const now = Date.now();
-                                    setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
-                                      const status = getRotationDerivedStatus(sess);
-                                      if (["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(status)) return sess;
-                                      const sid = String(sess?.id || sess?.session_id || "");
-                                      if (sid) rotationDeletedSessionIdsRef.current.add(sid);
-                                      return {
-                                        ...sess,
-                                        status: "STOPPED",
-                                        lifecycleState: "STOPPED",
-                                        positionState: "STOPPED",
-                                        reservedUsd: 0,
-                                        updatedAt: now,
-                                        stoppedAt: now,
-                                        active: false,
-                                        meta: {
-                                          ...(sess?.meta || {}),
-                                          lifecycle_state: "STOPPED",
-                                          position_state: "STOPPED",
-                                          reserved_usd: 0,
-                                          nkr_user_control: "STOPPED_BY_USER",
-                                        },
-                                      };
-                                    }));
-                                    setActiveRotationSessionId("");
-                                    setRotationShadowSnapshot((prev) => ({ ...(prev || {}), action: "USER_STOPPED_NKR", status: "stopped", ts: now }));
-                                    setRotationShadowEvents((prev) => [{
-                                      id: `NKR-STOP-${now}`,
-                                      ts: now,
-                                      text: "NKR stopped by user. Active paper sessions were closed and reserved capital was released.",
-                                    }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
-                                    setRotationBackendMsg("NKR stopped. Paper sessions closed; no Vault transaction was sent.");
-                                  }}
+                                  disabled={!controllableRotations && String(nkrControlState || "WAITING").toUpperCase() === "WAITING"}
+                                  onClick={() => applyNkrBackendControl("STOP")}
                                   title="Stop all active NKR sessions and release paper-reserved capital. No Vault transaction is sent."
                                   style={{ borderColor: "rgba(255,107,107,.45)", color: "#ff8a8a" }}
                                 >
                                   Stop NKR
                                 </button>
+                                {String(nkrControlState || "").toUpperCase() === "STOPPED" ? (
+                                  <>
+                                    <button
+                                      className="miniBtn"
+                                      type="button"
+                                      onClick={() => applyNkrBackendControl("RESUME")}
+                                      title="Resume a stopped NKR session by explicit user action."
+                                    >
+                                      Resume NKR
+                                    </button>
+                                    <button
+                                      className="miniBtn"
+                                      type="button"
+                                      onClick={() => applyNkrBackendControl("DELETE")}
+                                      title="Delete stopped NKR sessions forever from backend. They will not come back after reload or on another device."
+                                      style={{ borderColor: "rgba(255,107,107,.65)", color: "#ff8a8a" }}
+                                    >
+                                      Delete NKR
+                                    </button>
+                                  </>
+                                ) : null}
                               </div>
                             </div>
                             <div className="muted tiny">Paper NKR only: capital manager flow is Base → Target → Base. Profit is collected, working capital stays controlled, and no Vault swap is triggered here.</div>

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-028-LIVE-PRICE";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-044-SYSTEM-INFO-PANEL";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -23122,6 +23122,8 @@ export default function App() {
   const [showSystemInfo, setShowSystemInfo] = useState(false);
   const [buildInfo, setBuildInfo] = useState(null);
   const [shadowHealth, setShadowHealth] = useState(null);
+  const [systemInfoStatus, setSystemInfoStatus] = useState(null);
+  const [shadowReadiness, setShadowReadiness] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -23163,20 +23165,91 @@ export default function App() {
   useEffect(() => {
     if (!canOpenSystemInfo) return;
     let alive = true;
-    const loadShadowHealth = () => {
-      const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";
-      fetch(`${API_BASE}/api/shadow/health${walletParam}`, { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => { if (alive && data) setShadowHealth(data); })
-        .catch(() => { if (alive) setShadowHealth(null); });
+
+    const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";
+
+    const loadJson = async (path) => {
+      try {
+        const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+        return res.ok ? await res.json() : null;
+      } catch {
+        return null;
+      }
     };
-    loadShadowHealth();
-    const id = setInterval(loadShadowHealth, 15000);
+
+    const loadOwnerSystemInfo = async () => {
+      const [health, statusPanel, readiness] = await Promise.all([
+        loadJson(`/api/shadow/health${walletParam}`),
+        loadJson(`/api/nexus/system-info-owner-panel${walletParam}`),
+        loadJson(`/api/nexus/shadow-readiness-check${walletParam}`),
+      ]);
+
+      if (!alive) return;
+      setShadowHealth(health);
+      setSystemInfoStatus(statusPanel);
+      setShadowReadiness(readiness);
+    };
+
+    loadOwnerSystemInfo();
+    const id = setInterval(loadOwnerSystemInfo, 15000);
     return () => {
       alive = false;
       clearInterval(id);
     };
   }, [canOpenSystemInfo, footerWallet]);
+
+  const normalizeStatusRows = (value) => {
+    if (!value || typeof value !== "object") return [];
+    if (Array.isArray(value)) return value;
+    const candidates = [
+      value.modules,
+      value.module_status,
+      value.moduleStatus,
+      value.status,
+      value.data?.modules,
+      value.data?.module_status,
+      value.data?.status,
+      value.owner_panel?.modules,
+      value.ownerPanel?.modules,
+      value.system_info?.modules,
+      value.systemInfo?.modules,
+    ];
+    for (const c of candidates) {
+      if (Array.isArray(c)) return c;
+      if (c && typeof c === "object") return Object.entries(c).map(([name, row]) => ({ name, ...(row && typeof row === "object" ? row : { status: row }) }));
+    }
+    return [];
+  };
+
+  const statusTone = (statusLike) => {
+    const s = String(statusLike || "").toUpperCase();
+    if (s.includes("READY") || s.includes("RUNNING") || s.includes("ONLINE") || s.includes("ALLOWED")) return { dot: "🟢", color: "#8dffd0", border: "rgba(68,255,180,0.26)", bg: "rgba(0,255,140,0.055)" };
+    if (s.includes("PREVIEW") || s.includes("PREP") || s.includes("DISABLED") || s.includes("ONLY")) return { dot: "🟡", color: "#ffe08a", border: "rgba(255,224,138,0.24)", bg: "rgba(255,224,138,0.055)" };
+    if (s.includes("ERROR") || s.includes("MISSING") || s.includes("STALLED") || s.includes("FAILED")) return { dot: "🔴", color: "#ffb4b4", border: "rgba(255,80,80,0.32)", bg: "rgba(120,0,0,0.14)" };
+    return { dot: "⚪", color: "rgba(232,242,240,.80)", border: "rgba(255,255,255,0.12)", bg: "rgba(255,255,255,0.035)" };
+  };
+
+  const pickSystemInfoValue = (obj, keys, fallback = "unknown") => {
+    for (const key of keys) {
+      const v = key.split(".").reduce((acc, part) => (acc && acc[part] !== undefined ? acc[part] : undefined), obj);
+      if (v !== undefined && v !== null && v !== "") return v;
+    }
+    return fallback;
+  };
+
+  const defaultModuleRows = [
+    { name: "Trading Logic", status: "READY", note: exitMode },
+    { name: "Decision Log", status: buildInfo?.decision_log || "READY", note: buildInfo?.decision_log || "DECISION_LOG_V1" },
+    { name: "Stable Capital", status: buildInfo?.default_capital_state ? "READY" : "UNKNOWN", note: buildInfo?.default_capital_state || "USDC_USDT" },
+    { name: "Asset Router", status: buildInfo?.asset_router ? "READY" : "UNKNOWN", note: buildInfo?.asset_router || "ASSET_ABSTRACTION_ROUTER_V1" },
+    { name: "NKR Core", status: pickSystemInfoValue(shadowReadiness || systemInfoStatus || buildInfo, ["nkr.status", "nkr_core", "nkrCore", "nkr_status"], "READY / PREVIEW") },
+    { name: "Withdraw Quote", status: pickSystemInfoValue(systemInfoStatus || buildInfo, ["withdraw.status", "withdraw_quote", "withdrawQuote", "withdraw_status"], "PREVIEW ONLY") },
+    { name: "Vault Core", status: pickSystemInfoValue(systemInfoStatus || buildInfo, ["vault.status", "vault_core", "vaultCore", "vault_status"], "PREP ONLY") },
+    { name: "Live Execution", status: pickSystemInfoValue(systemInfoStatus || shadowReadiness || buildInfo, ["live_execution", "liveExecution", "guards.live_execution"], "DISABLED") },
+    { name: "Private Keys", status: pickSystemInfoValue(systemInfoStatus || buildInfo, ["private_keys", "privateKeys", "guards.private_keys"], "NOT IN BACKEND") },
+  ];
+
+  const moduleRows = normalizeStatusRows(systemInfoStatus).length ? normalizeStatusRows(systemInfoStatus) : defaultModuleRows;
 
   return (
     <>
@@ -23295,6 +23368,63 @@ export default function App() {
                   Process Tick: {shadowHealth?.process_tick_count ?? "?"} / {shadowHealth?.process_tick_source || "?"}
                 </div>
 
+                <div style={{
+                  border: "1px solid rgba(68,255,180,0.20)",
+                  borderRadius: 10,
+                  padding: 10,
+                  background: "rgba(0,255,140,0.04)",
+                }}>
+                  <b>Module Status</b>
+                  <div style={{ marginTop: 8, display: "grid", gap: 7 }}>
+                    {moduleRows.map((row, idx) => {
+                      const name = row?.name || row?.module || row?.key || row?.id || `Module ${idx + 1}`;
+                      const status = row?.status || row?.state || row?.mode || row?.value || "unknown";
+                      const note = row?.note || row?.description || row?.detail || row?.policy || row?.stage || "";
+                      const t = statusTone(status);
+                      return (
+                        <div
+                          key={`${name}-${idx}`}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr auto",
+                            gap: 8,
+                            alignItems: "center",
+                            border: `1px solid ${t.border}`,
+                            borderRadius: 8,
+                            padding: "7px 8px",
+                            background: t.bg,
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 900 }}>{name}</div>
+                            {note ? <div style={{ fontSize: 11, opacity: 0.72, marginTop: 2 }}>{String(note)}</div> : null}
+                          </div>
+                          <div style={{ color: t.color, fontWeight: 900, whiteSpace: "nowrap", fontSize: 12 }}>
+                            {t.dot} {String(status).toUpperCase()}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{
+                  border: `1px solid ${statusTone(pickSystemInfoValue(shadowReadiness || {}, ["shadow_test_allowed", "shadowTestAllowed", "allowed"], "unknown")).border}`,
+                  borderRadius: 10,
+                  padding: 10,
+                  background: statusTone(pickSystemInfoValue(shadowReadiness || {}, ["shadow_test_allowed", "shadowTestAllowed", "allowed"], "unknown")).bg,
+                }}>
+                  <b>Shadow Readiness</b>
+                  <br />
+                  Shadow Test: {String(pickSystemInfoValue(shadowReadiness || {}, ["shadow_test_allowed", "shadowTestAllowed", "allowed"], "unknown")).toUpperCase()}
+                  <br />
+                  Live Execution: {String(pickSystemInfoValue(shadowReadiness || systemInfoStatus || {}, ["live_execution", "liveExecution", "guards.live_execution"], "DISABLED")).toUpperCase()}
+                  <br />
+                  Vault: {String(pickSystemInfoValue(shadowReadiness || systemInfoStatus || {}, ["vault.status", "vault", "vault_core", "vaultCore"], "PREP ONLY")).toUpperCase()}
+                  <br />
+                  Withdraw: {String(pickSystemInfoValue(shadowReadiness || systemInfoStatus || {}, ["withdraw.status", "withdraw", "withdraw_quote", "withdrawQuote"], "PREVIEW ONLY")).toUpperCase()}
+                </div>
+
                 <div>
                   <b>Raw Build Payload</b>
                   <pre style={{
@@ -23308,7 +23438,7 @@ export default function App() {
                     maxHeight: 180,
                     overflow: "auto",
                   }}>
-                    {JSON.stringify({ buildInfo: buildInfo || { error: "build-info not loaded" }, shadowHealth: shadowHealth || { error: "shadow health not loaded" } }, null, 2)}
+                    {JSON.stringify({ buildInfo: buildInfo || { error: "build-info not loaded" }, shadowHealth: shadowHealth || { error: "shadow health not loaded" }, systemInfoStatus: systemInfoStatus || { error: "system-info-owner-panel not loaded" }, shadowReadiness: shadowReadiness || { error: "shadow-readiness-check not loaded" } }, null, 2)}
                   </pre>
                 </div>
               </div>

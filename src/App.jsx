@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-052-NKR-PAUSE-STOP-FIX";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-053-NKR-BUDGET-TARGET-FIX";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -19246,7 +19246,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const pausedRotations = rotationRows.filter((s) => ["PAUSED"].includes(getRotationDerivedStatus(s))).length;
                       const controllableRotations = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s))).length;
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
-                      const leader = String(firstRotation?.sourceSymbol || firstRotation?.symbol || rotationSelectedPick?.sym || gridItem || "—").toUpperCase();
+                      const typedNkrBudgetUsd = Number(String(rotationBudgetRelease || "").replace(",", "."));
+                      const activeNkrBudgetUsd = Number(firstRotation?.budgetUsd || firstRotation?.approvedBudgetUsd || firstRotation?.reservedCapitalUsd || firstRotation?.allocatedUsd || 0);
+                      const nkrBudgetUsd = Number.isFinite(activeNkrBudgetUsd) && activeNkrBudgetUsd > 0
+                        ? activeNkrBudgetUsd
+                        : Number.isFinite(typedNkrBudgetUsd) && typedNkrBudgetUsd > 0
+                          ? typedNkrBudgetUsd
+                          : 0;
+                      const nkrTarget = String(
+                        firstRotation?.sourceSymbol ||
+                        firstRotation?.symbol ||
+                        firstRotation?.targetAsset ||
+                        rotationSelectedPick?.sym ||
+                        rotationSelectedPick?.coin ||
+                        rotationSelectedPick?.source ||
+                        "waiting"
+                      ).toUpperCase();
                       const targetChain = String(firstRotation?.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
                       const vaultTotalNative = Number(manualVaultTotalQty || 0);
                       const gridAllocatedNative = Number(manualVaultAllocatedQty || 0);
@@ -19292,8 +19307,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
                               <div><b>Other allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
+                              <div><b>NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : "not set"}</span></div>
                               <div><b>Active NKR Sessions:</b> {activeRotations} / {rotationMaxActive}</div>
-                              <div><b>Leader:</b> <span style={{ color: "#8bdcff", fontWeight: 900 }}>{leader}</span></div>
+                              <div><b>NKR Target:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTarget}</span></div>
                               <div><b>Target / Scope:</b> {targetChain}</div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
                               <div><b>NKR Control:</b> Capital Manager</div>

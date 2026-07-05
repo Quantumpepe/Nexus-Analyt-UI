@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-065-NKR-REBALANCE-STOP-SESSIONS";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-066-NKR-UI-CLEAN-NEXUS-NKR";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -1260,7 +1260,7 @@ function RotationInfoTrigger() {
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
         style={{ marginTop: 14 }}
       >
-        NKR Info
+        Nexus NKR Info
       </button>
 
       {open && (
@@ -1279,7 +1279,7 @@ function RotationInfoTrigger() {
             }}
           >
             <div className="modalHead">
-              <div className="cardTitle">NKR</div>
+              <div className="cardTitle">Nexus NKR</div>
               <button
                 className="iconBtn"
                 type="button"
@@ -1292,20 +1292,22 @@ function RotationInfoTrigger() {
               <Help
                 de={
                   <>
-                    <p><b>NKR</b> ist ein datenbasiertes System, das Kapital zwischen verschiedenen Assets verschiebt.</p>
-                    <p><b>Ziel:</b> Kapital wird dort eingesetzt, wo Score, Momentum, Volumen und Marktstruktur am stärksten sind.</p>
-                    <p><b>Demo Mode:</b> NKR zeigt echte Marktdaten und simuliert, was passieren würde. Es wird nichts wirklich ausgeführt.</p>
-                    <p><b>Live Mode:</b> Nach Zahlung oder Redeem Code kann Nexus später echte NKR-Aktionen ausführen, aber nur nach User-Bestätigung / Privy-Signatur.</p>
-                    <p><b>Wichtig:</b> NKR garantiert keinen Gewinn. Es ist ein Risiko- und Rebalancing-System auf Basis von Daten.</p>
+                    <p><b>Nexus NKR</b> ist der Kapitalmanager von Nexus. Er beobachtet die erlaubten Assets laufend und verteilt Kapital nur dorthin, wo Momentum, Score, Volumen, Relative Strength und Risiko zusammenpassen.</p>
+                    <p><b>Max Sessions:</b> Die Zahl ist nur die Obergrenze des Users. Nexus NKR muss nicht alle Slots füllen und darf Sessions stoppen, wenn bessere Chancen entstehen.</p>
+                    <p><b>Rotation:</b> Schwache oder rote Sessions können in den Watch Pool zurückfallen. Kapital kann zu stärkeren Assets wie BTC, BNB oder anderen aktuellen Gewinnern verschoben werden.</p>
+                    <p><b>Ausführung:</b> Nexus NKR entscheidet Asset und Kapital. Der Executor verarbeitet Entry, Tracking, Kosten, Net Edge und Exit.</p>
+                    <p><b>Live später:</b> Nicht-EVM Assets werden für den User einfach als BTC, SOL oder XRP angezeigt. Im Vault darf intern nur der geprüfte, erlaubte Wrapped Contract genutzt werden.</p>
+                    <p><b>Wichtig:</b> Nexus NKR garantiert keinen Gewinn. Es ist ein Risiko-, Kapital- und Rebalancing-System auf Basis von Marktdaten.</p>
                   </>
                 }
                 en={
                   <>
-                    <p><b>NKR</b> is a data-driven system that shifts capital between different assets.</p>
-                    <p><b>Goal:</b> capital is allocated where score, momentum, volume and market structure are strongest.</p>
-                    <p><b>Demo Mode:</b> NKR shows real market data and simulates what would happen. Nothing is executed for real.</p>
-                    <p><b>Live Mode:</b> Later, Nexus can execute real NKR actions, but only after user confirmation / Privy signature.</p>
-                    <p><b>Important:</b> NKR does not guarantee profit. It is a risk and rebalancing system based on data.</p>
+                    <p><b>Nexus NKR</b> is the Nexus capital manager. It continuously watches allowed assets and allocates capital only where momentum, score, volume, relative strength and risk fit together.</p>
+                    <p><b>Max Sessions:</b> The number is only the user's ceiling. Nexus NKR does not have to fill all slots and may stop sessions when better opportunities appear.</p>
+                    <p><b>Rotation:</b> Weak or red sessions can return to the watch pool. Capital can be redirected toward stronger assets such as BTC, BNB or other current winners.</p>
+                    <p><b>Execution:</b> Nexus NKR decides asset and capital. The executor handles entry, tracking, costs, net edge and exit.</p>
+                    <p><b>Later live:</b> Non-EVM assets remain simple for the user as BTC, SOL or XRP. Internally the Vault may only use the verified allowlisted wrapped contract.</p>
+                    <p><b>Important:</b> Nexus NKR does not guarantee profit. It is a risk, capital and rebalancing system based on market data.</p>
                   </>
                 }
               />
@@ -10765,7 +10767,7 @@ const [aiLoading, setAiLoading] = useState(false);
         setRotationShadowEvents((prev) => [{
           id: `NKR-REBALANCE-STOP-${nowStart}`,
           ts: nowStart,
-          text: `NKR REBALANCE: stopped ${weakForRebalance.map((s) => String(s?.targetAsset || s?.symbol || "ASSET").toUpperCase()).join(", ")} and redirected ${fmtUsd(weakForRebalance.reduce((sum, w) => sum + (Number(w?.budgetUsd || w?.workingCapitalUsd || 0) || 0), 0))} toward ${targetSym}. Session cards may change because max sessions is only a ceiling, not a fixed basket.`,
+          text: `NKR REBALANCE: stopped ${weakForRebalance.map((s) => String(s?.targetAsset || s?.symbol || "ASSET").toUpperCase()).join(", ")} and redirected ${fmtUsd(weakForRebalance.reduce((sum, w) => sum + (Number(w?.budgetUsd || w?.workingCapitalUsd || 0) || 0), 0))} toward ${targetSym}.`,
         }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
       }
 
@@ -13546,7 +13548,7 @@ useInterval(fetchGridOrders, 30000, false);
     setStrategistBridge({
       type: "rotation",
       sym: preparedSym,
-      label: "NKR",
+      label: "Nexus NKR",
       confidence: preset.confidence,
       note: candidates.length > 1
         ? `Prepared ${preparedSym} first. ${candidates.length} Strategist candidates were detected: ${candidates.map((c) => c.sym).join(", ")}. Candidates are ranked by Strategist quality. Select another candidate in the Strategist candidates list if needed.`
@@ -14525,7 +14527,7 @@ function aiTaskPlaceholder(kind) {
       direct_view: { title: "Direkte Einschätzung", sub: "Nexus Strategist" },
       exchange_spread: { title: "Exchange / Spread", sub: "Preisunterschiede" },
       market_read: { title: "Marktlage", sub: "Aktuelle Struktur" },
-      nexus_rotation: { title: "NKR", sub: "Relative Stärke / Rotation" },
+      nexus_rotation: { title: "Nexus NKR", sub: "Kapitalrotation" },
       nexus_grid: { title: "Nexus Grid", sub: "Range / Zyklus" },
       nexus_trading: { title: "Nexus Trading", sub: "Kontrollierte autonome Ausführung" },
       risk_context: { title: "Risikokontext", sub: "Was kippen kann" },
@@ -14538,7 +14540,7 @@ function aiTaskPlaceholder(kind) {
       direct_view: { title: "Direct Assessment", sub: "Nexus Strategist" },
       exchange_spread: { title: "Exchange / Spread", sub: "Price differences" },
       market_read: { title: "Market Read", sub: "Current structure" },
-      nexus_rotation: { title: "NKR", sub: "Relative strength / rotation" },
+      nexus_rotation: { title: "Nexus NKR", sub: "Capital rotation" },
       nexus_grid: { title: "Nexus Grid", sub: "Range / cycle" },
       nexus_trading: { title: "Nexus Trading", sub: "Controlled autonomous execution" },
       risk_context: { title: "Risk Context", sub: "What can go wrong" },
@@ -14551,7 +14553,7 @@ function aiTaskPlaceholder(kind) {
       direct_view: { title: "Évaluation directe", sub: "Nexus Strategist" },
       exchange_spread: { title: "Exchange / Spread", sub: "Différences de prix" },
       market_read: { title: "Lecture du marché", sub: "Structure actuelle" },
-      nexus_rotation: { title: "NKR", sub: "Force relative / rotation" },
+      nexus_rotation: { title: "Nexus NKR", sub: "Rotation du capital" },
       nexus_grid: { title: "Nexus Grid", sub: "Range / cycle" },
       nexus_trading: { title: "Nexus Trading", sub: "Exécution autonome contrôlée" },
       risk_context: { title: "Contexte de risque", sub: "Ce qui peut mal tourner" },
@@ -14563,7 +14565,7 @@ function aiTaskPlaceholder(kind) {
       direct_view: { title: "Evaluación directa", sub: "Nexus Strategist" },
       exchange_spread: { title: "Exchange / Spread", sub: "Diferencias de precio" },
       market_read: { title: "Lectura del mercado", sub: "Estructura actual" },
-      nexus_rotation: { title: "NKR", sub: "Fuerza relativa / rotación" },
+      nexus_rotation: { title: "Nexus NKR", sub: "Rotación de capital" },
       nexus_grid: { title: "Nexus Grid", sub: "Rango / ciclo" },
       nexus_trading: { title: "Nexus Trading", sub: "Ejecución autónoma controlada" },
       risk_context: { title: "Contexto de riesgo", sub: "Qué puede fallar" },
@@ -14576,7 +14578,7 @@ function aiTaskPlaceholder(kind) {
       direct_view: { title: "Valutazione diretta", sub: "Nexus Strategist" },
       exchange_spread: { title: "Exchange / Spread", sub: "Differenze di prezzo" },
       market_read: { title: "Lettura del mercato", sub: "Struttura attuale" },
-      nexus_rotation: { title: "NKR", sub: "Forza relativa / rotazione" },
+      nexus_rotation: { title: "Nexus NKR", sub: "Rotazione capitale" },
       nexus_grid: { title: "Nexus Grid", sub: "Range / ciclo" },
       nexus_trading: { title: "Nexus Trading", sub: "Esecuzione autonoma controllata" },
       risk_context: { title: "Contesto di rischio", sub: "Cosa può andare storto" },
@@ -14589,7 +14591,7 @@ function aiTaskPlaceholder(kind) {
       direct_view: { title: "Avaliação direta", sub: "Nexus Strategist" },
       exchange_spread: { title: "Exchange / Spread", sub: "Diferenças de preço" },
       market_read: { title: "Leitura do mercado", sub: "Estrutura atual" },
-      nexus_rotation: { title: "NKR", sub: "Força relativa / rotação" },
+      nexus_rotation: { title: "Nexus NKR", sub: "Rotação de capital" },
       nexus_grid: { title: "Nexus Grid", sub: "Range / ciclo" },
       nexus_trading: { title: "Nexus Trading", sub: "Execução autônoma controlada" },
       risk_context: { title: "Contexto de risco", sub: "O que pode dar errado" },
@@ -14601,7 +14603,7 @@ function aiTaskPlaceholder(kind) {
       direct_view: { title: "Doğrudan değerlendirme", sub: "Nexus Strategist" },
       exchange_spread: { title: "Exchange / Spread", sub: "Fiyat farkları" },
       market_read: { title: "Piyasa okuması", sub: "Mevcut yapı" },
-      nexus_rotation: { title: "NKR", sub: "Göreceli güç / rotasyon" },
+      nexus_rotation: { title: "Nexus NKR", sub: "Sermaye rotasyonu" },
       nexus_grid: { title: "Nexus Grid", sub: "Aralık / döngü" },
       nexus_trading: { title: "Nexus Trading", sub: "Kontrollü otonom yürütme" },
       risk_context: { title: "Risk bağlamı", sub: "Ne ters gidebilir" },
@@ -14613,7 +14615,7 @@ function aiTaskPlaceholder(kind) {
       direct_view: { title: "Directe beoordeling", sub: "Nexus Strategist" },
       exchange_spread: { title: "Exchange / Spread", sub: "Prijsverschillen" },
       market_read: { title: "Marktlezing", sub: "Huidige structuur" },
-      nexus_rotation: { title: "NKR", sub: "Relatieve sterkte / rotatie" },
+      nexus_rotation: { title: "Nexus NKR", sub: "Kapitaalrotatie" },
       nexus_grid: { title: "Nexus Grid", sub: "Range / cyclus" },
       nexus_trading: { title: "Nexus Trading", sub: "Gecontroleerde autonome uitvoering" },
       risk_context: { title: "Risicocontext", sub: "Wat mis kan gaan" },
@@ -19445,7 +19447,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         {/* Grid */}
         <section className={`card section-grid dashboardPanel ${activePanel === "vault" ? "panelActive" : ""}`} onClick={handlePanelActivate("vault")}>
           <div className="cardHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <div className="cardTitle" style={{ flex: "0 0 auto" }}>{gridMode === "rotation" ? "NKR" : gridMode === "trading" ? "Nexus Trading" : "Nexus Grid"}</div>
+            <div className="cardTitle" style={{ flex: "0 0 auto" }}>{gridMode === "rotation" ? "Nexus NKR" : gridMode === "trading" ? "Nexus Trading" : "Nexus Grid"}</div>
 
             {!isCompactMobile && (
               <div
@@ -19464,7 +19466,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               >
                 {[
                   ["normal", "Nexus Grid"],
-                  ["rotation", "NKR"],
+                  ["rotation", "Nexus NKR"],
                   ["trading", "Nexus Trading"],
                 ].map(([mode, label]) => {
                   const active = String(gridMode || "normal") === mode;
@@ -19498,8 +19500,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <Help showClose dismissable
                   de={
                     <>
-                      <p><b>Grid Trader</b> ist der gemeinsame Order-Bereich fuer <b>Nexus Grid</b>, <b>NKR</b> und <b>Nexus Trading</b>.</p>
-                      <p>Alle drei Bereiche erstellen Orders ueber denselben zentralen Order-Core. Sichtbare Orders werden wallet-gebunden in <b>SQLite grid_orders</b> gespeichert. Stop/Delete/Resume nutzen denselben schnellen Flow.</p>
+                      <p><b>Grid Trader</b> ist der gemeinsame Order-Bereich fuer <b>Nexus Grid</b>, <b>Nexus NKR</b> und <b>Nexus Trading</b>.</p>
+                      <p>Alle drei Bereiche nutzen denselben sauberen Order-Flow. Stop, Delete und Resume bleiben wallet-gebunden und werden synchron gehalten.</p>
 
                       <p><b>Budget-System:</b> Das Budget ist der maximale Betrag, den der jeweilige Modus verwenden darf. Nexus Trading darf nach der Freigabe nicht mehr Kapital einsetzen als vom User genehmigt wurde.</p>
                       <p><b>Slot-System:</b> Das Budget wird in einzelne Slots aufgeteilt. Jeder Slot ist ein eigenes taktisches Setup mit eigener Prioritaet. Ein Slot kann warten, aktiv werden oder blockiert bleiben, je nach Confidence, Liquiditaet, Risiko und Marktstruktur.</p>
@@ -19511,7 +19513,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                       <p><b>Nexus Grid:</b> manueller Order-Modus. Du waehlst Network, Coin, Budget, Side, Preis und Payout Asset. <b>Approve Budget</b> reserviert das Grid-Budget lokal; <b>Add Order</b> erstellt die Order. Das Budget gilt fuer alle offenen Grid-Orders zusammen, nicht pro Order.</p>
 
-                      <p><b>NKR:</b> Recommendation-basierter Order-Modus. Du waehlst eine Watchlist-/Rotation-Empfehlung, setzt ein Rotation-Budget, waehlst das Payout Asset und erstellst danach eine Rotation-Order. Die Order bleibt technisch dieselbe Order-Struktur, wird aber intern als <b>source = ROTATION</b> markiert.</p>
+                      <p><b>Nexus NKR:</b> Kapitalrotation. Nexus NKR beobachtet die Watchlist laufend, nutzt die besten Marktchancen, kann schwache Sessions stoppen und Kapital zu staerkeren Assets verschieben. Die eingestellte Session-Zahl ist nur das Maximum, nicht eine Pflichtanzahl.</p>
 
                       <p><b>Nexus Trading:</b> autonomer Trading-Modus nach Budget-Freigabe. Du definierst Budget, Slots, Runtime, Style, erlaubte Assets/Chains, Risk Mode, Drawdown, Profit Lock, Slippage und Max Trades. Danach arbeitet Nexus Trading innerhalb dieser Grenzen selbststaendig.</p>
                       <p><b>HOLD / OBSERVE:</b> Nach einem Risk Exit, Protect oder Stop wird Kapital zuerst geschuetzt. Die HOLD-Zeit ist ein Mindestschutz von 1-12h. Nach Ablauf darf Nexus nicht blind neu einsteigen; der Strategist prueft weiter Marktstruktur, Liquiditaet, RVOL und Risiko.</p>
@@ -19525,8 +19527,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   }
                   en={
                     <>
-                      <p><b>Grid Trader</b> is the shared order area for <b>Nexus Grid</b>, <b>NKR</b>, and <b>Nexus Trading</b>.</p>
-                      <p>All three areas create orders through the same central order core. Visible orders are wallet-bound and stored in <b>SQLite grid_orders</b>. Stop/Delete/Resume use the same fast path.</p>
+                      <p><b>Grid Trader</b> is the shared order area for <b>Nexus Grid</b>, <b>Nexus NKR</b>, and <b>Nexus Trading</b>.</p>
+                      <p>All three areas use the same clean order flow. Stop, Delete and Resume stay wallet-bound and synchronized.</p>
 
                       <p><b>Budget System:</b> The budget is the maximum amount the selected mode may use. Nexus Trading may not use more capital than the user has approved.</p>
                       <p><b>Slot System:</b> The budget is divided into tactical slots. Each slot is its own setup with its own priority. A slot can wait, activate or stay blocked depending on confidence, liquidity, risk and market structure.</p>
@@ -19538,7 +19540,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                       <p><b>Nexus Grid:</b> manual order mode. You choose network, coin, budget, side, price, and payout asset. <b>Approve Budget</b> reserves the Grid budget locally; <b>Add Order</b> creates the order. The budget is shared across all open Grid orders, not per order.</p>
 
-                      <p><b>NKR:</b> recommendation-based order mode. You select a Watchlist/Rotation recommendation, set a NKR budget, choose the payout asset, then create a NKR order. Technically it uses the same order structure, but is marked internally as <b>source = ROTATION</b>.</p>
+                      <p><b>Nexus NKR:</b> capital rotation. Nexus NKR continuously watches the watchlist, uses the strongest market opportunities, can stop weak sessions and redirect capital toward stronger assets. The selected session number is only the maximum, not a required count.</p>
 
                       <p><b>Nexus Trading:</b> autonomous trading mode after budget approval. The user defines budget, slots, runtime, style, allowed assets/chains, risk mode, drawdown, profit lock, slippage and max trades. After that, Nexus Trading works independently inside those limits.</p>
                       <p><b>HOLD / OBSERVE:</b> After a Risk Exit, Protect or Stop, capital is protected first. HOLD is a minimum protection period from 1-12h. When it expires, Nexus must not blindly re-enter; the Strategist keeps checking market structure, liquidity, RVOL and risk.</p>
@@ -19572,7 +19574,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               >
                 {[
                   ["normal", "Nexus Grid"],
-                  ["rotation", "NKR"],
+                  ["rotation", "Nexus NKR"],
                   ["trading", "Nexus Trading"],
                 ].map(([mode, label]) => {
                   const active = String(gridMode || "normal") === mode;
@@ -19866,7 +19868,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               gap: 8,
                             }}
                           >
-                            <div className="label" style={{ marginBottom: 0 }}>NKR overview</div>
+                            <div className="label" style={{ marginBottom: 0 }}>Nexus NKR overview</div>
                             <div
                               className="muted tiny"
                               style={{
@@ -19878,16 +19880,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
-                              <div><b>NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
+                              <div><b>Nexus NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
                               <div><b>Other allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
-                              <div><b>NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : "not set"}</span></div>
+                              <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : "not set"}</span></div>
                               <div><b>Active NKR Sessions:</b> {activeRotations} / {rotationMaxActive}</div>
-                              <div><b>NKR Target:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTarget}</span></div>
+                              <div><b>Nexus NKR Target:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTarget}</span></div>
                               <div><b>Target / Scope:</b> {targetChain}</div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
-                              <div><b>NKR Control:</b> Capital Manager</div>
-                              <div><b>NKR Mode:</b> {String(nkrCapitalMode || "DYNAMIC").replaceAll("_", " ")}</div>
+                              <div><b>Nexus NKR Control:</b> Capital Manager</div>
+                              <div><b>Nexus NKR Mode:</b> {String(nkrCapitalMode || "DYNAMIC").replaceAll("_", " ")}</div>
                               <div><b>Observation:</b> {nkrObservationWindow}</div>
                               <div><b>Profit Mode:</b> {String(nkrProfitMode || "REINVEST").replaceAll("_", " ")}</div>
                               <div><b>Period:</b> {nkrPeriodDays} days</div>
@@ -19909,7 +19911,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                               <div>
                                 <div className="label" style={{ marginBottom: 0 }}>Active NKR Sessions</div>
-                                <div className="muted tiny">full NKR session cards · first sessions visible · scroll for more</div>
+                                
                               </div>
                               <span className="pill silver">{activeRotations} active / {rotationRows.length} total</span>
                             </div>
@@ -19972,7 +19974,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       </div>
                                       <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Allocation: {Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct || 0) ? `${Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct).toFixed(1)}%` : "controlled"} · NKR #{idx + 1}</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}><b style={{ color: liveTone }}>Live:</b> {livePrice > 0 ? fmtUsd(livePrice) : "waiting"} · <span style={{ color: liveTone, fontWeight: 900 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>{liveVol > 0 ? ` · Vol ${fmtCompactUsd(liveVol)}` : ""}</div>
-                                      <div className="muted tiny" style={{ marginTop: 4 }}>NKR portfolio session · reserve and limits are controlled by NKR mode</div>
+                                      
                                       <div className="muted tiny" style={{ marginTop: 4 }}>ID: {String(sess?.id || "").slice(0, 28)}</div>
                                     </div>
 
@@ -20068,7 +20070,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 alignItems: "center",
                               }}
                             >
-                              <span>NKR Setup</span>
+                              <span>Nexus NKR Setup</span>
                               <span className="muted tiny">Show ▼</span>
                             </summary>
                             <div style={{ padding: "10px", display: "grid", gap: 12 }}>
@@ -20081,7 +20083,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }}
                     >
                       <div className="formRow">
-                        <label>NKR Capital Mode</label>
+                        <label>Nexus NKR Capital Mode</label>
                         <select value={nkrCapitalMode} onChange={(e) => { setNkrCapitalMode(e.target.value); setRotationBudgetReleased(false); }}>
                           <option value="DYNAMIC">Dynamic</option>
                           <option value="TACTICAL">Tactical</option>
@@ -20196,7 +20198,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         style={{ justifyContent: "space-between", width: "100%", padding: 0, background: "transparent", border: 0 }}
                         title="Show or hide NKR recommendations"
                       >
-                        <span className="label" style={{ marginBottom: 0 }}>NKR recommendations</span>
+                        <span className="label" style={{ marginBottom: 0 }}>Nexus NKR recommendations</span>
                         <span style={{ opacity: 0.75 }}>{rotationRecommendationsExpanded ? "▲" : "▼"}</span>
                       </button>
                       {rotationRecommendationsExpanded ? (() => {
@@ -20449,7 +20451,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }}
                           >
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                              <div style={{ color: "#8bdcff", fontWeight: 950 }}>NKR Shadow Executor</div>
+                              <div style={{ color: "#8bdcff", fontWeight: 950 }}>Nexus NKR Shadow</div>
                               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                                 <button
                                   className="miniBtn"
@@ -20580,8 +20582,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }}
                           >
                             <div>
-                              <b style={{ color: "#eafff5" }}>NKR Status: Session {rotationRows.length ? "Active" : "Waiting"} · Shadow {rotationShadowWorkStatus}</b>
-                              <div className="muted tiny">NKR uses capital mode, observation window, profit mode and period settings. Live Vault rebalancing is not executed from this Shadow panel.</div>
+                              <b style={{ color: "#eafff5" }}>Nexus NKR Status: Session {rotationRows.length ? "Active" : "Waiting"} · Shadow {rotationShadowWorkStatus}</b>
+                              <div className="muted tiny">Nexus NKR uses capital mode, observation window, profit mode and period settings. Live Vault execution is still disabled in Shadow mode.</div>
                             </div>
                           </div>
                         </>
@@ -23018,7 +23020,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               >
                                 {aiOutputLanguage === "de"
                                   ? (section.key === "nexus_grid" ? "In Grid nutzen" : section.key === "nexus_trading" ? "In Trading nutzen" : "In NKR nutzen")
-                                  : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in NKR")}
+                                  : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Nexus NKR")}
                               </button>
                             </div>
                           ) : null}

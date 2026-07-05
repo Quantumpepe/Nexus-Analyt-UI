@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-072-NKR-BACKEND-EXECUTOR-LOGIC";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-074-NKR-RESERVE-DISPLAY";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -19894,8 +19894,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const px = Number(activeGridNativeUsd || 0);
                       const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
                       const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
-                      const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
-                      const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
+                      const modeForReserve = String(nkrCapitalMode || "DYNAMIC").trim().toUpperCase();
+                      const nkrReservePct = modeForReserve === "AGGRESSIVE" ? 10 : modeForReserve === "DEFENSIVE" ? 25 : 20;
+                      const nkrProtectedReserveUsd = nkrBudgetUsd > 0 ? Math.max(0, nkrBudgetUsd * (nkrReservePct / 100)) : 0;
+                      const nkrAvailableUsd = nkrBudgetUsd > 0 ? Math.max(0, nkrBudgetUsd - nkrProtectedReserveUsd - rotationAllocatedUsd) : 0;
+                      const availableUsd = nkrBudgetUsd > 0 ? nkrAvailableUsd : Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
+                      const usagePct = nkrBudgetUsd > 0 ? Math.min(100, Math.max(0, (rotationAllocatedUsd / nkrBudgetUsd) * 100)) : vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
                       const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
                       const rotationShadowRuntimeStatus = rotationShadowBusy ? "READING LIVE DATA" : nkrCtrl === "STOPPED" ? "STOPPED" : nkrCtrl === "PAUSED" || pausedRotations > 0 ? "PAUSED" : activeRotations > 0 || nkrCtrl === "RUNNING" ? "RUNNING" : "READY";
                       const rotationShadowWorkStatus = rotationShadowBusy ? "SCANNING" : nkrCtrl === "STOPPED" ? "STOPPED" : nkrCtrl === "PAUSED" || pausedRotations > 0 ? "PAUSED" : activeRotations > 0 || nkrCtrl === "RUNNING" ? "RUNNING" : "WAITING";
@@ -19930,7 +19934,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               }}
                             >
                               <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
-                              <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
+                              <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {nkrBudgetUsd > 0 ? fmtUsd(availableUsd) : (vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending")}</div>
+                              <div><b>Protected Reserve:</b> {nkrBudgetUsd > 0 ? fmtUsd(nkrProtectedReserveUsd) : "—"}</div>
                               <div><b>Nexus NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : "not set"}</span></div>

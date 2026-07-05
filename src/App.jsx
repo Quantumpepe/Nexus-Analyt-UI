@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-058-NKR-PROFIT-RUNNER";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-060-NKR-WATCH-POOL-PROMOTION";
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -10377,26 +10377,44 @@ const [aiLoading, setAiLoading] = useState(false);
           const score = typeof watchSystemScore === "function" ? watchSystemScore(row) : (Number.isFinite(ch) ? Math.max(35, Math.min(90, 55 + ch * 3)) : 55);
           pushCandidate(sym, { score, source: "watchlist", change24h: ch, chain: row?.chain || rotationNetworkScope || activeGridChainKey || "ALL" });
         }
-        const selectedCandidates = Array.from(candidateMap.values())
+        const rankedCandidates = Array.from(candidateMap.values())
           .filter((c) => c.ok !== false)
-          .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
-          .slice(0, Math.max(1, activeLimit));
+          .map((c) => ({ ...c, score: Number.isFinite(Number(c.score)) ? Number(c.score) : 50 }))
+          .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+        const bestCandidateScore = Number(rankedCandidates[0]?.score || 0);
+        const minScoreByMode = { AGGRESSIVE: 58, DYNAMIC: 62, TACTICAL: 65, DEFENSIVE: 70 };
+        const minScore = Number(minScoreByMode[modeU] ?? minScoreByMode.DYNAMIC);
+        const dynamicQualityCut = Math.max(minScore, bestCandidateScore - 14);
+        const qualityCandidates = rankedCandidates.filter((c) => Number(c.score || 0) >= dynamicQualityCut);
+        const supportCandidates = rankedCandidates.filter((c) => Number(c.score || 0) >= minScore && Number(c.score || 0) < dynamicQualityCut);
+        const desiredCount = Math.max(
+          1,
+          Math.min(
+            activeLimit,
+            qualityCandidates.length + Math.min(2, supportCandidates.length)
+          )
+        );
+        const selectedCandidates = [...qualityCandidates, ...supportCandidates].slice(0, desiredCount);
         if (!selectedCandidates.length) {
-          setRotationBackendMsg("NKR needs at least one Strategist/Watchlist target before it can split capital.");
+          setRotationBackendMsg("NKR waiting: no asset clears Smart Allocation quality. Max sessions is only a limit, not a target.");
           setNkrControlState("WAITING");
           setRotationShadowBusy(false);
           return;
         }
-        const weights = selectedCandidates.map((c) => Math.max(1, Number(c.score || 50)));
+        const convictionPower = modeU === "AGGRESSIVE" ? 1.45 : modeU === "DEFENSIVE" ? 1.9 : 1.65;
+        const weights = selectedCandidates.map((c) => Math.pow(Math.max(1, Number(c.score || 0) - minScore + 6), convictionPower));
         const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+        const minUsefulAllocationUsd = Math.min(500, Math.max(100, typedBudgetStart * 0.025));
         let allocatedSoFar = 0;
         const rawAllocations = selectedCandidates.map((c, idx) => {
           const rawAmount = investableUsd * (weights[idx] / totalWeight);
-          const amount = Math.min(perAssetCapUsd || rawAmount, rawAmount);
+          const capped = Math.min(perAssetCapUsd || rawAmount, rawAmount);
+          const amount = capped >= minUsefulAllocationUsd || idx < Math.min(2, selectedCandidates.length) ? capped : 0;
           allocatedSoFar += amount;
           return { candidate: c, amount };
-        });
+        }).filter((r) => Number(r.amount || 0) > 0);
         let leftover = Math.max(0, investableUsd - allocatedSoFar);
+        // Redistribute leftover only to already selected high-conviction sessions.
         for (const row of rawAllocations) {
           if (leftover <= 0.01) break;
           const room = Math.max(0, perAssetCapUsd - row.amount);
@@ -10464,6 +10482,8 @@ const [aiLoading, setAiLoading] = useState(false);
                 source_symbol: sourceSymbol,
                 selected_symbol: candidateSymbol,
                 candidate_source: c.source || "watchlist",
+                nkr_watch_pool: "NKR_WATCH_POOL_PROMOTION_V1",
+                nkr_promotion_policy: "weak_assets_stay_scanned_promote_when_strong",
               },
             };
           });
@@ -10544,6 +10564,117 @@ const [aiLoading, setAiLoading] = useState(false);
       const plan = Array.isArray(preview?.plan) ? preview.plan : [];
       const previews = Array.isArray(preview?.previews) ? preview.previews : [];
       const candidateRows = plan.filter((row) => ["INCREASE", "HOLD"].includes(String(row?.action || "").toUpperCase()));
+
+      // ENGINE-060: Watch Pool + Promotion.
+      // Max sessions is only a ceiling. Coins that are too weak get no capital,
+      // but they stay in the scan pool and may be promoted immediately when they become stronger.
+      const modeForPromotion = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
+      const promotionMinScore = modeForPromotion === "DEFENSIVE" ? 70 : modeForPromotion === "TACTICAL" ? 65 : modeForPromotion === "AGGRESSIVE" ? 58 : 62;
+      const activeLimitRawPromo = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));
+      const maxNkrSessions = Math.max(1, Math.min(12, Number.isFinite(activeLimitRawPromo) ? Math.floor(activeLimitRawPromo) : 3));
+      const activeSymbols = new Set((Array.isArray(sessions) ? sessions : [])
+        .filter((s) => isRotationSessionRunnable(s, nowStart))
+        .map((s) => String(s?.targetAsset || s?.sourceSymbol || s?.symbol || s?.meta?.source_symbol || "").toUpperCase())
+        .filter(Boolean));
+      const watchPoolRows = (Array.isArray(plan) ? plan : [])
+        .map((row) => ({
+          ...row,
+          symbol: String(row?.symbol || "").toUpperCase(),
+          score: Number(row?.score || 0) || 0,
+          state: activeSymbols.has(String(row?.symbol || "").toUpperCase()) ? "ACTIVE" : "WATCH_POOL",
+        }))
+        .filter((row) => row.symbol)
+        .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+      const promotionCandidate = watchPoolRows.find((row) =>
+        row.state !== "ACTIVE" &&
+        row.score >= promotionMinScore &&
+        ["INCREASE", "HOLD", "WATCH"].includes(String(row?.action || "WATCH").toUpperCase())
+      ) || null;
+      if (promotionCandidate && !silent) {
+        const runnableSessions = (Array.isArray(sessions) ? sessions : []).filter((s) => isRotationSessionRunnable(s, nowStart));
+        const totalNkrBudget = Number(String(rotationBudgetRelease || "").replace(",", "."));
+        const modeReservePct = modeForPromotion === "AGGRESSIVE" ? 10 : modeForPromotion === "DEFENSIVE" ? 35 : modeForPromotion === "TACTICAL" ? 25 : 20;
+        const modeMaxPerAssetPct = modeForPromotion === "AGGRESSIVE" ? 40 : modeForPromotion === "DEFENSIVE" ? 25 : 35;
+        const totalBudgetForPromotion = Number.isFinite(totalNkrBudget) && totalNkrBudget > 0 ? totalNkrBudget : runnableSessions.reduce((s, x) => s + Number(x?.budgetUsd || 0), 0);
+        const investableForPromotion = Math.max(0, totalBudgetForPromotion * (1 - modeReservePct / 100));
+        const allocatedForPromotion = runnableSessions.reduce((s, x) => s + Number(x?.budgetUsd || x?.workingCapitalUsd || 0), 0);
+        const freeForPromotion = Math.max(0, investableForPromotion - allocatedForPromotion);
+        const weakestActive = runnableSessions
+          .slice()
+          .sort((a, b) => Number(a?.score || a?.confidence || 0) - Number(b?.score || b?.confidence || 0))[0] || null;
+        const weakestScore = Number(weakestActive?.score || weakestActive?.confidence || 0) || 0;
+        const canAddFreeSlot = runnableSessions.length < maxNkrSessions && freeForPromotion >= Math.max(100, totalBudgetForPromotion * 0.02);
+        const canReplaceWeakest = weakestActive && promotionCandidate.score >= Math.max(promotionMinScore, weakestScore + 5);
+        if (canAddFreeSlot || canReplaceWeakest) {
+          const promoteUsd = canAddFreeSlot
+            ? Math.min(freeForPromotion, Math.max(100, totalBudgetForPromotion * 0.08), totalBudgetForPromotion * (modeMaxPerAssetPct / 100))
+            : Number(weakestActive?.budgetUsd || weakestActive?.workingCapitalUsd || Math.max(100, totalBudgetForPromotion * 0.08));
+          const sid = canAddFreeSlot ? makeNexusSessionId("NKR") : String(weakestActive?.id || weakestActive?.session_id || makeNexusSessionId("NKR"));
+          const promotedSession = {
+            ...(canReplaceWeakest ? weakestActive : {}),
+            id: sid,
+            session_id: sid,
+            type: "NKR",
+            status: "ACTIVE",
+            lifecycleState: "ACTIVE",
+            positionState: "READY_DISPATCHED",
+            executionMode: "shadow",
+            budgetUsd: Number(Number(promoteUsd || 0).toFixed(4)),
+            workingCapitalUsd: Number(Number(promoteUsd || 0).toFixed(4)),
+            sessionCapitalUsd: Number(Number(promoteUsd || 0).toFixed(4)),
+            reservedUsd: Number(Number(promoteUsd || 0).toFixed(4)),
+            totalNkrBudgetUsd: Number(Number(totalBudgetForPromotion || 0).toFixed(4)),
+            nkrCashReserveUsd: Number(Math.max(0, totalBudgetForPromotion - investableForPromotion).toFixed(4)),
+            nkrAllocationPct: totalBudgetForPromotion > 0 ? Number(((promoteUsd / totalBudgetForPromotion) * 100).toFixed(2)) : 0,
+            baseAsset,
+            payoutAsset: baseAsset,
+            nkrCapitalMode,
+            nkrObservationWindow,
+            nkrProfitMode,
+            nkrPeriodDays,
+            chain: String(promotionCandidate?.chain || chain || activeGridChainKey || "ALL").toUpperCase(),
+            symbol: promotionCandidate.symbol,
+            sourceSymbol: promotionCandidate.symbol,
+            targetAsset: promotionCandidate.symbol,
+            confidence: promotionCandidate.score,
+            score: promotionCandidate.score,
+            createdAt: canAddFreeSlot ? nowStart : (weakestActive?.createdAt || nowStart),
+            updatedAt: nowStart,
+            promotedAt: nowStart,
+            meta: {
+              ...((canReplaceWeakest && weakestActive?.meta) || {}),
+              nkr_session: true,
+              wallet_bound: true,
+              execution_mode: "shadow",
+              lifecycle_state: "ACTIVE",
+              position_state: "READY_DISPATCHED",
+              base_asset: baseAsset,
+              selected_symbol: promotionCandidate.symbol,
+              source_symbol: promotionCandidate.symbol,
+              nkr_watch_pool: "NKR_WATCH_POOL_PROMOTION_V1",
+              nkr_promotion_reason: canAddFreeSlot ? "free_slot_candidate_became_strong" : "candidate_replaced_weaker_active_session",
+              replaced_symbol: canReplaceWeakest ? String(weakestActive?.targetAsset || weakestActive?.symbol || "").toUpperCase() : "",
+              replaced_score: canReplaceWeakest ? weakestScore : null,
+              promotion_score: promotionCandidate.score,
+              nkr_max_sessions_policy: "maximum_not_target",
+              live_vault_ready: false,
+              reserved_usd: Number(Number(promoteUsd || 0).toFixed(4)),
+            },
+          };
+          setRotationSessions((prev) => {
+            const arr = Array.isArray(prev) ? prev : [];
+            if (canReplaceWeakest) {
+              return arr.map((s) => String(s?.id || s?.session_id || "") === sid ? promotedSession : s);
+            }
+            return [promotedSession, ...arr].slice(0, maxNkrSessions);
+          });
+          setRotationShadowEvents((prev) => [{
+            id: `NKR-PROMOTE-${nowStart}`,
+            ts: nowStart,
+            text: `WATCH_POOL → READY_DISPATCHED: ${promotionCandidate.symbol} score ${promotionCandidate.score}/100 ${canReplaceWeakest ? `replaced weaker ${String(weakestActive?.targetAsset || weakestActive?.symbol || "session").toUpperCase()} (${weakestScore}/100)` : "used free NKR slot"}.`,
+          }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+        }
+      }
       const lockedPlanRow = lockedSessionTarget
         ? (plan.find((row) => String(row?.symbol || "").toUpperCase() === lockedSessionTarget)
             || candidateRows.find((row) => String(row?.symbol || "").toUpperCase() === lockedSessionTarget)
@@ -10558,17 +10689,22 @@ const [aiLoading, setAiLoading] = useState(false);
       const assetRow = assets.find((a) => String(a.symbol).toUpperCase() === bestSymbol) || assets[0] || {};
       const change24h = Number(assetRow?.change24h || 0) || 0;
 
-      // Conservative paper estimate from real market context: score + 24h momentum - estimated shadow costs.
+      // NKR is a dispatcher/capital manager. Use the same soft Shadow cost style as Trader:
+      // costs are a realism drag capped near 0.05% of notional, not a hard pre-executor brake.
       const rawEdgePct = Math.max(-3, Math.min(8, ((bestScore - 50) * 0.055) + (change24h * 0.08)));
-      const slipCostPct = (Number.isFinite(slippagePct) ? Math.max(0, slippagePct) : 1) * 0.35;
-      const dexCostPct = 0.6;
-      const gasUsd = bestChain === "ETH" ? 3.0 : bestChain === "BNB" ? 0.15 : 0.05;
+      const shadowGasCapUsd = bestChain === "ETH" ? 0.20 : bestChain === "BNB" ? 0.03 : 0.01;
+      const dexFeeBps = 3;
+      const slippageBps = Math.min(5, Math.max(0, (Number.isFinite(slippagePct) ? slippagePct : 1) * 100 * 0.02));
+      const uncappedCostsUsd = shadowGasCapUsd + targetUsd * ((dexFeeBps + slippageBps) / 10000);
+      const costsUsd = Math.min(uncappedCostsUsd, Math.max(0.01, targetUsd * 0.0005));
       const grossUsd = targetUsd * (rawEdgePct / 100);
-      const costsUsd = gasUsd + targetUsd * ((slipCostPct + dexCostPct) / 100);
       const netUsd = grossUsd - costsUsd;
       const minNetAdv = Number(String(minNetSource || "0.5").replace(",", "."));
       const netPct = targetUsd > 0 ? (netUsd / targetUsd) * 100 : 0;
-      const isExecutableShadowEdge = netPct >= (Number.isFinite(minNetAdv) ? minNetAdv : 0.5);
+      const dispatchMinScore = nkrCapitalMode === "DEFENSIVE" ? 70 : nkrCapitalMode === "TACTICAL" ? 65 : nkrCapitalMode === "AGGRESSIVE" ? 58 : 62;
+      const isDispatcherApproved = bestScore >= dispatchMinScore && rawEdgePct > -0.25;
+      const isExecutorNetPositive = netUsd >= 0 || netPct >= (Number.isFinite(minNetAdv) ? Math.min(minNetAdv, 0.2) : 0.2);
+      const isExecutableShadowEdge = isDispatcherApproved && isExecutorNetPositive;
       const nkrModeKey = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
       const profitLockPctByMode = { DYNAMIC: 2.0, TACTICAL: 1.7, AGGRESSIVE: 2.8, DEFENSIVE: 1.2 };
       const profitLockPct = Number(profitLockPctByMode[nkrModeKey] ?? profitLockPctByMode.DYNAMIC);
@@ -10578,7 +10714,7 @@ const [aiLoading, setAiLoading] = useState(false);
       // Positive but small edges are kept running so the winner can mature.
       const closesPosition = isExecutableShadowEdge && netPct >= profitLockPct && netUsd >= profitLockUsd;
       const holdsWinner = isExecutableShadowEdge && netUsd > smallProfitUsd && !closesPosition;
-      const action = closesPosition ? "SIMULATED_ROTATION_CLOSED" : holdsWinner ? "HOLD_WINNER_MAXIMIZE" : "WAIT_NET_EDGE";
+      const action = closesPosition ? "SIMULATED_ROTATION_CLOSED" : holdsWinner ? "HOLD_WINNER_MAXIMIZE" : isDispatcherApproved ? "READY_DISPATCHED" : "WAIT_SCORE";
       const now = Date.now();
       const completedEvent = closesPosition ? {
         id: `ROT-EVT-${now}`,
@@ -10610,6 +10746,9 @@ const [aiLoading, setAiLoading] = useState(false);
         assets,
         plan,
         previews,
+        watchPool: watchPoolRows,
+        promotionCandidate,
+        watchPoolMode: "NKR_WATCH_POOL_PROMOTION_V1",
         best,
         bestSymbol,
         bestChain,
@@ -10652,9 +10791,9 @@ const [aiLoading, setAiLoading] = useState(false);
           const prevNet = Number(sess?.netProfitUsd ?? sess?.rotationProfitUsd ?? sess?.profitUsd ?? 0) || 0;
           return {
             ...sess,
-            status: closesPosition || holdsWinner ? "ACTIVE" : "WAITING",
-            lifecycleState: closesPosition || holdsWinner ? "ACTIVE" : "WAITING",
-            positionState: closesPosition ? "CLOSED" : holdsWinner ? "OPEN" : "WAITING",
+            status: closesPosition || holdsWinner || isDispatcherApproved ? "ACTIVE" : "WAITING",
+            lifecycleState: closesPosition || holdsWinner || isDispatcherApproved ? "ACTIVE" : "WAITING",
+            positionState: closesPosition ? "CLOSED" : holdsWinner ? "OPEN" : isDispatcherApproved ? "READY_DISPATCHED" : "WAITING",
             executionMode: "shadow",
             symbol: bestSymbol,
             sourceSymbol: bestSymbol,
@@ -10691,6 +10830,10 @@ const [aiLoading, setAiLoading] = useState(false);
               target_usd: targetUsd,
               raw_edge_pct: Number(rawEdgePct.toFixed(4)),
               net_edge_pct: Number(netPct.toFixed(4)),
+              nkr_dispatcher_approved: Boolean(isDispatcherApproved),
+              nkr_executor_net_positive: Boolean(isExecutorNetPositive),
+              nkr_cost_model: "aligned_shadow_trader_cost_cap_0_05pct",
+              nkr_max_sessions_policy: "maximum_not_target",
               profit_lock_pct: Number(profitLockPct.toFixed(4)),
               profit_lock_usd: Number(profitLockUsd.toFixed(4)),
               small_profit_no_close_usd: Number(smallProfitUsd.toFixed(4)),
@@ -10699,8 +10842,8 @@ const [aiLoading, setAiLoading] = useState(false);
               backend_plan_ts: preview?.ts || null,
               live_vault_ready: false,
               execution_mode: "shadow",
-              lifecycle_state: closesPosition || holdsWinner ? "ACTIVE" : "WAITING",
-              position_state: closesPosition ? "CLOSED" : holdsWinner ? "OPEN" : "WAITING",
+              lifecycle_state: closesPosition || holdsWinner || isDispatcherApproved ? "ACTIVE" : "WAITING",
+              position_state: closesPosition ? "CLOSED" : holdsWinner ? "OPEN" : isDispatcherApproved ? "READY_DISPATCHED" : "WAITING",
               reserved_usd: Number((Number(sess?.budgetUsd || baseBudgetUsd) || baseBudgetUsd).toFixed(4)),
             },
           };
@@ -10708,7 +10851,7 @@ const [aiLoading, setAiLoading] = useState(false);
       }
 
       if (!silent) {
-        setRotationBackendMsg(`${closesPosition ? "NKR profit locked" : holdsWinner ? "NKR winner running" : "NKR waiting"}: ${baseAsset} → ${bestSymbol} → ${baseAsset} · net ${fmtUsd(netUsd)} (${netPct.toFixed(2)}%) · lock ${profitLockPct.toFixed(2)}%/${fmtUsd(profitLockUsd)}. Paper-only; no Vault swap triggered.`);
+        setRotationBackendMsg(`${closesPosition ? "NKR profit locked" : holdsWinner ? "NKR winner running" : isDispatcherApproved ? "NKR dispatched to executor" : "NKR waiting"}: ${baseAsset} → ${bestSymbol} → ${baseAsset} · net ${fmtUsd(netUsd)} (${netPct.toFixed(2)}%) · lock ${profitLockPct.toFixed(2)}%/${fmtUsd(profitLockUsd)}. Paper-only; no Vault swap triggered.`);
       }
     } catch (e) {
       console.error("ROTATION SHADOW SIM FAILED", e);
@@ -19419,7 +19562,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return derived === "CLOSED" ? "COMPLETE" : derived;
                         }
                         const action = String(sess?.meta?.rotation_action || sess?.rotationAction || rotationShadowSnapshot?.action || "").toUpperCase();
-                        if (["WAIT_NET_EDGE", "SEARCHING", "READY", "WAIT"].includes(action)) return "WAITING";
+                        if (["WAIT_NET_EDGE", "SEARCHING", "READY", "WAIT", "WAIT_SCORE"].includes(action)) return "WAITING";
+                        if (["READY_DISPATCHED", "EXECUTOR_ACTIVE", "DISPATCHED"].includes(action)) return "EXECUTOR";
                         if (["ROTATION_OPEN", "POSITION_OPEN", "OPEN"].includes(action)) return "OPEN";
                         if (["EXIT_PENDING", "EXITING"].includes(action)) return "EXITING";
                         if (["USER_PAUSED"].includes(action)) return "PAUSED";
@@ -19430,7 +19574,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       };
                       const getRotationStatusTone = (status) => {
                         const st = String(status || "").toUpperCase();
-                        if (["OPEN", "ACTIVE", "RUNNING"].includes(st)) return { border: "rgba(34,197,94,.38)", bg: "rgba(34,197,94,.08)", pill: "green", color: "#86efac" };
+                        if (["OPEN", "ACTIVE", "RUNNING", "EXECUTOR"].includes(st)) return { border: "rgba(34,197,94,.38)", bg: "rgba(34,197,94,.08)", pill: "green", color: "#86efac" };
                         if (["WAITING", "WAIT_NET_EDGE", "SEARCHING"].includes(st)) return { border: "rgba(255,209,102,.34)", bg: "rgba(255,209,102,.07)", pill: "silver", color: "#ffd166" };
                         if (["EXITING"].includes(st)) return { border: "rgba(139,220,255,.34)", bg: "rgba(139,220,255,.07)", pill: "silver", color: "#8bdcff" };
                         if (["PAUSED"].includes(st)) return { border: "rgba(255,193,7,.32)", bg: "rgba(255,193,7,.07)", pill: "silver", color: "#ffc107" };

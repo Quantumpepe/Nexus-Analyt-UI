@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-066-NKR-UI-CLEAN-NEXUS-NKR";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-067-NKR-ALLOCATION-PERCENT-SYNC";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -10652,6 +10652,11 @@ const [aiLoading, setAiLoading] = useState(false);
           const arr = Array.isArray(prev) ? prev : [];
           const weakIds = new Set(weakForRebalance.map((s) => String(s?.id || s?.session_id || "")));
           const releasedUsd = weakForRebalance.reduce((sum, w) => sum + (Number(w?.budgetUsd || w?.workingCapitalUsd || 0) || 0), 0);
+          const typedTotalBudgetForRebalance = Number(String(rotationBudgetRelease || "").replace(",", "."));
+          const totalBudgetForRebalance = Number.isFinite(typedTotalBudgetForRebalance) && typedTotalBudgetForRebalance > 0
+            ? typedTotalBudgetForRebalance
+            : arr.reduce((sum, x) => sum + (Number(x?.budgetUsd || x?.workingCapitalUsd || 0) || 0), 0);
+          const allocationPctFromBudget = (usd) => totalBudgetForRebalance > 0 ? Number(((Number(usd || 0) / totalBudgetForRebalance) * 100).toFixed(2)) : 0;
           const existingTarget = arr.find((s) =>
             String(s?.targetAsset || s?.sourceSymbol || s?.symbol || "").toUpperCase() === targetSym &&
             !weakIds.has(String(s?.id || s?.session_id || "")) &&
@@ -10690,6 +10695,7 @@ const [aiLoading, setAiLoading] = useState(false);
                   workingCapitalUsd: Number(nextBudget.toFixed(4)),
                   sessionCapitalUsd: Number(nextBudget.toFixed(4)),
                   reservedUsd: Number(nextBudget.toFixed(4)),
+                  nkrAllocationPct: allocationPctFromBudget(nextBudget),
                   updatedAt: nowStart,
                   rebalancedFrom: sym,
                   rotationEvents: [{
@@ -10719,6 +10725,8 @@ const [aiLoading, setAiLoading] = useState(false);
                     nkr_rebalance_reason: `red_weak_no_executor_progress_stopped_and_replaced_by_${targetSym}`,
                     nkr_previous_symbol: sym,
                     nkr_last_rebalance_ts: nowStart,
+                    nkr_allocation_pct: allocationPctFromBudget(nextBudget),
+                    nkr_total_budget_usd: totalBudgetForRebalance,
                   },
                 }];
               }
@@ -10734,6 +10742,7 @@ const [aiLoading, setAiLoading] = useState(false);
                 workingCapitalUsd: Number(nextBudget.toFixed(4)),
                 sessionCapitalUsd: Number(nextBudget.toFixed(4)),
                 reservedUsd: Number(nextBudget.toFixed(4)),
+                nkrAllocationPct: allocationPctFromBudget(nextBudget),
                 updatedAt: nowStart,
                 rotationEvents: [{
                   id: `NKR-REBALANCE-STOP-IN-${nowStart}`,
@@ -10757,6 +10766,8 @@ const [aiLoading, setAiLoading] = useState(false);
                   nkr_rebalance_in_usd: Number(releasedUsd.toFixed(4)),
                   nkr_rebalance_mode: "STOP_WEAK_SESSION_AND_REDIRECT_CAPITAL",
                   nkr_last_rebalance_ts: nowStart,
+                  nkr_allocation_pct: allocationPctFromBudget(nextBudget),
+                  nkr_total_budget_usd: totalBudgetForRebalance,
                 },
               }];
             }
@@ -19823,10 +19834,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
                       const typedNkrBudgetUsd = Number(String(rotationBudgetRelease || "").replace(",", "."));
                       const activeNkrBudgetUsd = Number(firstRotation?.budgetUsd || firstRotation?.approvedBudgetUsd || firstRotation?.reservedCapitalUsd || firstRotation?.allocatedUsd || 0);
-                      const nkrBudgetUsd = Number.isFinite(activeNkrBudgetUsd) && activeNkrBudgetUsd > 0
-                        ? activeNkrBudgetUsd
-                        : Number.isFinite(typedNkrBudgetUsd) && typedNkrBudgetUsd > 0
-                          ? typedNkrBudgetUsd
+                      const nkrBudgetUsd = Number.isFinite(typedNkrBudgetUsd) && typedNkrBudgetUsd > 0
+                        ? typedNkrBudgetUsd
+                        : Number.isFinite(activeNkrBudgetUsd) && activeNkrBudgetUsd > 0
+                          ? activeNkrBudgetUsd
                           : 0;
                       const nkrTarget = String(
                         firstRotation?.sourceSymbol ||
@@ -19943,6 +19954,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const leftText = expiresTs ? (expiresTs > rotationNow ? fmtRotationDuration(expiresTs - rotationNow) : "expired") : "—";
                                 const baseAsset = String(sess?.baseAsset || sess?.payoutAsset || sess?.meta?.base_asset || manualPayoutAsset || "USDC").toUpperCase();
                                 const workingCapital = Number(sess?.workingCapitalUsd ?? sess?.sessionCapitalUsd ?? budget) || budget;
+                                const allocationBaseUsd = Number(sess?.nkrTotalBudgetUsd || sess?.meta?.nkr_total_budget_usd || typedNkrBudgetUsd || rotationAllocatedUsd || 0) || 0;
+                                const savedAllocationPct = Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct || 0) || 0;
+                                const liveAllocationPct = allocationBaseUsd > 0 ? (workingCapital / allocationBaseUsd) * 100 : savedAllocationPct;
+                                const allocationLabel = Number.isFinite(liveAllocationPct) && liveAllocationPct > 0 ? `${liveAllocationPct.toFixed(1)}%` : "controlled";
                                 const eventsCount = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents.length : 0;
                                 const lastEvent = sess?.lastRotationEvent || (Array.isArray(sess?.rotationEvents) ? sess.rotationEvents[0] : null) || null;
                                 const profit = Number(sess?.collectedProfitUsd ?? sess?.profitUsd ?? sess?.sessionProfitUsd ?? sess?.rotationProfitUsd ?? 0) || 0;
@@ -19972,7 +19987,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <b style={{ fontSize: 16, color: "#eafff5" }}>{baseAsset} → {sym} → {baseAsset}</b>
                                         <span className={`pill ${statusTone.pill}`} style={{ color: statusTone.color, fontWeight: 950 }}>{status}</span>
                                       </div>
-                                      <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Allocation: {Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct || 0) ? `${Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct).toFixed(1)}%` : "controlled"} · NKR #{idx + 1}</div>
+                                      <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Allocation: {allocationLabel} · NKR #{idx + 1}</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}><b style={{ color: liveTone }}>Live:</b> {livePrice > 0 ? fmtUsd(livePrice) : "waiting"} · <span style={{ color: liveTone, fontWeight: 900 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>{liveVol > 0 ? ` · Vol ${fmtCompactUsd(liveVol)}` : ""}</div>
                                       
                                       <div className="muted tiny" style={{ marginTop: 4 }}>ID: {String(sess?.id || "").slice(0, 28)}</div>

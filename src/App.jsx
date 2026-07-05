@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-069-TRADING-TEXT-CLEAN";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-070-NKR-NO-PROGRESS-BAR";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -19963,8 +19963,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const net = Number(sess?.netProfitUsd ?? sess?.meta?.netProfitUsd ?? profit) || 0;
                                 const confidence = Number(sess?.confidence ?? sess?.score ?? rotationSelectedPick?.score ?? 0);
                                 const roi = budget > 0 ? (profit / budget) * 100 : 0;
-                                const progress = Math.max(0, Math.min(100, Math.abs(roi) * 20));
-
                                 return (
                                   <div
                                     key={sess?.id || `rotation-${idx}-${sym}-${chain}`}
@@ -20000,9 +19998,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <div><b style={{ color: profit >= 0 ? "#86efac" : "#ff8a8a" }}>Collected Profit:</b> {profit >= 0 ? "+" : ""}{fmtUsd(profit)} {budget > 0 ? `(${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%)` : ""}</div>
                                       <div><b style={{ color: "#86efac" }}>Gross:</b> {gross >= 0 ? "+" : ""}{fmtUsd(gross)} · <b style={{ color: "#ffd166" }}>Costs:</b> {costs ? fmtUsd(costs) : "$0"} · <b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
                                       {lastEvent?.flow ? <div><b style={{ color: "#8bdcff" }}>Last:</b> {lastEvent.flow} · {fmtUsd(Number(lastEvent.netUsd || 0))}</div> : null}
-                                      <div style={{ height: 6, borderRadius: 99, background: "rgba(255,255,255,.11)", overflow: "hidden", marginTop: 2 }}>
-                                        <div style={{ width: `${progress}%`, height: "100%", background: "linear-gradient(90deg, rgba(34,197,94,.95), rgba(134,239,172,.75))" }} />
-                                      </div>
                                     </div>
 
                                     <div style={{ display: "grid", gap: 6, minWidth: 112 }}>

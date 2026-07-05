@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-076-NKR-EVENT-COUNTER-UNLIMITED";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-078-WALLET-UI-CLEAN";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -3575,6 +3575,11 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [depositAmt, setDepositAmt] = useState(""); // deposit into vault (native units, e.g., POL)
   const [sendTo, setSendTo] = useState("");
   const [sendAmt, setSendAmt] = useState(""); // in native units
+  const [profitPayoutEnabled, setProfitPayoutEnabled] = useState(false);
+  const [profitPayoutPct, setProfitPayoutPct] = useState("50");
+  const [profitPayoutAsset, setProfitPayoutAsset] = useState("USDT");
+  const [profitPayoutPreview, setProfitPayoutPreview] = useState(null);
+  const [profitPayoutBusy, setProfitPayoutBusy] = useState(false);
 
   // Vault state (on-chain) + operator authorization
   const [vaultState, setVaultState] = useState({
@@ -3916,6 +3921,52 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       setTxBusy(false);
     }
   };
+
+  const refreshProfitPayoutSettings = async () => {
+    try {
+      if (!wallet) return;
+      const r = await api(`/api/vault/profit-payout-settings`, { method: "GET", token, wallet });
+      const st = r?.settings || {};
+      setProfitPayoutEnabled(!!st.enabled);
+      setProfitPayoutPct(String(st.payoutPct ?? "50"));
+      setProfitPayoutAsset(String(st.asset || "USDT").toUpperCase());
+      setProfitPayoutPreview(r || null);
+    } catch (e) {
+      // keep UI stable; this panel is a settings layer and must not block Withdraw.
+    }
+  };
+
+  const saveProfitPayoutSettings = async () => {
+    try {
+      if (!wallet) throw new Error("Wallet not connected.");
+      setProfitPayoutBusy(true);
+      const pct = Math.max(0, Math.min(100, Number(String(profitPayoutPct || "0").replace(",", ".")) || 0));
+      const r = await api(`/api/vault/profit-payout-settings`, {
+        method: "POST",
+        token,
+        wallet,
+        body: {
+          enabled: !!profitPayoutEnabled,
+          frequency: "WEEKLY",
+          payoutPct: pct,
+          asset: profitPayoutAsset || "USDT",
+          destination: "CONNECTED_WALLET",
+          source: "SECURED_PROFIT_ONLY",
+        },
+      });
+      setProfitPayoutPreview(r || null);
+      setTxMsg(`Profit payout settings saved${r?.estimatedNetToWalletUsd != null ? ` · weekly preview net ≈ $${r.estimatedNetToWalletUsd}` : ""}.`);
+    } catch (e) {
+      setTxMsg(String(e?.message || e || "Profit payout settings failed"));
+    } finally {
+      setProfitPayoutBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!withdrawSendOpen) return;
+    refreshProfitPayoutSettings();
+  }, [withdrawSendOpen, wallet]);
 
   // ---------
   // Vault on-chain reads (polBalance / inCycle / heldToken / heldTokenBal / operatorEnabled)
@@ -17294,23 +17345,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </button>
               </div>
 
-              <div
-                style={{
-                  marginTop: 10,
-                  padding: "8px 10px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(202,138,4,0.45)",
-                  background: "rgba(133,77,14,0.22)",
-                  color: "#facc15",
-                  fontSize: 12,
-                  lineHeight: 1.45,
-                  fontWeight: 700,
-                }}
-              >
-                <div style={{ fontWeight: 900, marginBottom: 3 }}>Wrapped asset notice</div>
-                <div>BTC is handled only via WBTC (ETH) / BTCB (BNB).</div>
-                <div>SOL is handled only via WSOL.</div>
-              </div>
 
               <div className="muted" style={{ marginTop: 10, wordBreak: "break-all" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
@@ -18034,6 +18068,74 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     >
                       Refresh
                     </button>
+                  </div>
+
+
+                  <div style={{
+                    marginTop: 12,
+                    padding: 12,
+                    borderRadius: 14,
+                    background: "rgba(0, 255, 166, 0.055)",
+                    border: "1px solid rgba(0, 255, 166, 0.16)"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                      <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>NKR profit payout</div>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 800 }}>
+                        <input
+                          type="checkbox"
+                          checked={profitPayoutEnabled}
+                          onChange={(e) => setProfitPayoutEnabled(e.target.checked)}
+                        />
+                        Weekly
+                      </label>
+                    </div>
+                    <div className="muted" style={{ fontSize: 12, lineHeight: 1.35, marginBottom: 10 }}>
+                      Pays out from secured NKR profit only. The protected base capital stays in the Vault unless the user manually withdraws more. Live payout will still use Vault quote/withdraw checks.
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 90px auto", gap: 8, alignItems: "end" }}>
+                      <div>
+                        <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Source</div>
+                        <div className="pill" style={{ height: 34, display: "flex", alignItems: "center", justifyContent: "center" }}>Secured profit only</div>
+                      </div>
+                      <div>
+                        <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Weekly %</div>
+                        <input
+                          className="input"
+                          value={profitPayoutPct}
+                          onChange={(e) => setProfitPayoutPct(e.target.value)}
+                          placeholder="50"
+                          inputMode="decimal"
+                          style={{ width: "100%", height: 36, fontSize: 13, borderRadius: 10, padding: "0 10px" }}
+                        />
+                      </div>
+                      <div>
+                        <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Asset</div>
+                        <select
+                          value={profitPayoutAsset}
+                          onChange={(e) => setProfitPayoutAsset(e.target.value)}
+                          style={{ width: "100%", height: 36, borderRadius: 10, padding: "0 8px" }}
+                        >
+                          <option value="USDT">USDT</option>
+                          <option value="USDC">USDC</option>
+                        </select>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveProfitPayoutSettings(); }}
+                        disabled={profitPayoutBusy || !wallet}
+                        style={{ height: 36, paddingInline: 14, fontSize: 13, whiteSpace: "nowrap" }}
+                      >
+                        {profitPayoutBusy ? "…" : "Save"}
+                      </button>
+                    </div>
+                    {profitPayoutPreview ? (
+                      <div className="muted" style={{ fontSize: 12, marginTop: 9, lineHeight: 1.35 }}>
+                        Secured profit: <b>{fmtUsd(Number(profitPayoutPreview.securedProfitUsd || 0))}</b> ·
+                        Weekly gross: <b>{fmtUsd(Number(profitPayoutPreview.payoutGrossUsd || 0))}</b> ·
+                        Est. net to wallet: <b>{fmtUsd(Number(profitPayoutPreview.estimatedNetToWalletUsd || 0))}</b>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>

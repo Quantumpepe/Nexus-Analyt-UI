@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-070-NKR-NO-PROGRESS-BAR";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-072-NKR-BACKEND-EXECUTOR-LOGIC";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -10333,6 +10333,45 @@ const [aiLoading, setAiLoading] = useState(false);
       let sessions = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((s) => !deletedIds.has(String(s?.id || s?.session_id || "")));
       const nowStart = Date.now();
       const typedBudgetStart = Number(String(rotationBudgetRelease || "").replace(",", "."));
+
+      // ENGINE-072: NKR executor/profit logic belongs in the backend, not in UI-only state.
+      // If sessions already exist, let /api/nkr/executor-tick update events, net profit and
+      // collected profit wallet-bound in SQLite. UI keeps only display/polling responsibility.
+      if (sessions.length) {
+        try {
+          const tick = await api(`/api/nkr/executor-tick`, {
+            method: "POST",
+            token,
+            wallet,
+            body: {
+              sessions,
+              marketRows: Array.isArray(watchRows) ? watchRows : [],
+              settings: {
+                nkrCapitalMode,
+                nkrProfitMode,
+                nkrObservationWindow,
+                nkrPeriodDays,
+                nkrBudgetUsd: Number.isFinite(typedBudgetStart) ? typedBudgetStart : 0,
+                totalNkrBudgetUsd: Number.isFinite(typedBudgetStart) ? typedBudgetStart : 0,
+              },
+            },
+          });
+          if (Array.isArray(tick?.sessions)) {
+            setRotationSessions(tick.sessions);
+            setNkrControlState("RUNNING");
+            const msg = Array.isArray(tick?.summary?.messages) && tick.summary.messages.length
+              ? tick.summary.messages.join(" · ")
+              : "NKR backend executor tick completed.";
+            setRotationShadowSnapshot((prev) => ({ ...(prev || {}), status: "ok", backendExecutor: true, summary: tick?.summary || {}, ts: Date.now() }));
+            setRotationShadowEvents((prev) => [{ id: `NKR-BACKEND-TICK-${Date.now()}`, ts: Date.now(), text: msg }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+            if (!silent) setRotationBackendMsg(msg);
+            return;
+          }
+        } catch (e) {
+          console.warn("NKR backend executor tick unavailable; falling back to UI preview", e);
+          if (!silent) setRotationBackendMsg(`NKR backend tick unavailable, using preview fallback: ${e?.message || e}`);
+        }
+      }
       if (!sessions.length && !silent && Number.isFinite(typedBudgetStart) && typedBudgetStart > 0) {
         const periodDays = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
         const activeLimitRaw = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));

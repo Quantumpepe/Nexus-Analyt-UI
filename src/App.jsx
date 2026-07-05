@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-062-NKR-USER-SESSION-LIMIT";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-063-NKR-EXECUTOR-BRIDGE";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -10715,7 +10715,7 @@ const [aiLoading, setAiLoading] = useState(false);
       // Positive but small edges are kept running so the winner can mature.
       const closesPosition = isExecutableShadowEdge && netPct >= profitLockPct && netUsd >= profitLockUsd;
       const holdsWinner = isExecutableShadowEdge && netUsd > smallProfitUsd && !closesPosition;
-      const action = closesPosition ? "SIMULATED_ROTATION_CLOSED" : holdsWinner ? "HOLD_WINNER_MAXIMIZE" : isDispatcherApproved ? "READY_DISPATCHED" : "WAIT_SCORE";
+      const action = closesPosition ? "SIMULATED_ROTATION_CLOSED" : holdsWinner ? "HOLD_WINNER_MAXIMIZE" : isExecutableShadowEdge ? "EXECUTOR_ACTIVE" : isDispatcherApproved ? "READY_DISPATCHED" : "WAIT_SCORE";
       const now = Date.now();
       const completedEvent = closesPosition ? {
         id: `ROT-EVT-${now}`,
@@ -10737,6 +10737,28 @@ const [aiLoading, setAiLoading] = useState(false);
         flow: `${baseAsset} → ${bestSymbol} → ${baseAsset}`,
         liveVaultTx: null,
       } : null;
+      const sessionEvent = completedEvent || (isDispatcherApproved ? {
+        id: `ROT-EXEC-${now}`,
+        ts: now,
+        mode: "shadow",
+        status: isExecutableShadowEdge ? "POSITION_OPEN" : "DISPATCHED",
+        executorState: isExecutableShadowEdge ? "EXECUTOR_ACTIVE" : "READY_DISPATCHED",
+        baseAsset,
+        fromAsset: baseAsset,
+        targetAsset: bestSymbol,
+        backToAsset: baseAsset,
+        chain: bestChain,
+        buyUsd: Number(targetUsd.toFixed(4)),
+        sellUsd: null,
+        grossUsd: Number(grossUsd.toFixed(4)),
+        costsUsd: Number(costsUsd.toFixed(4)),
+        netUsd: Number(netUsd.toFixed(4)),
+        netPct: Number(netPct.toFixed(4)),
+        confidence: bestScore,
+        flow: `${baseAsset} → ${bestSymbol} → ${baseAsset}`,
+        reason: isExecutableShadowEdge ? "nkr_dispatcher_executor_shadow_position_tracking" : "nkr_dispatched_waiting_executor_entry_check",
+        liveVaultTx: null,
+      } : null);
 
       setNkrControlState("RUNNING");
       setRotationShadowSnapshot({
@@ -10783,7 +10805,7 @@ const [aiLoading, setAiLoading] = useState(false);
           const currentStatus = String(sess?.status || "").toUpperCase();
           if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED", "ARCHIVED"].includes(currentStatus)) return sess;
           const prevEvents = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [];
-          const nextEvents = completedEvent ? [completedEvent, ...prevEvents].slice(0, 50) : prevEvents;
+          const nextEvents = sessionEvent ? [sessionEvent, ...prevEvents].slice(0, 50) : prevEvents;
           const prevCollected = Number(sess?.collectedProfitUsd ?? sess?.meta?.collectedProfitUsd ?? 0) || 0;
           const addCollected = completedEvent ? Math.max(0, Number(netUsd) || 0) : 0;
           const nextCollected = prevCollected + addCollected;
@@ -10794,7 +10816,7 @@ const [aiLoading, setAiLoading] = useState(false);
             ...sess,
             status: closesPosition || holdsWinner || isDispatcherApproved ? "ACTIVE" : "WAITING",
             lifecycleState: closesPosition || holdsWinner || isDispatcherApproved ? "ACTIVE" : "WAITING",
-            positionState: closesPosition ? "CLOSED" : holdsWinner ? "OPEN" : isDispatcherApproved ? "READY_DISPATCHED" : "WAITING",
+            positionState: closesPosition ? "CLOSED" : isExecutableShadowEdge ? "OPEN" : isDispatcherApproved ? "READY_DISPATCHED" : "WAITING",
             executionMode: "shadow",
             symbol: bestSymbol,
             sourceSymbol: bestSymbol,
@@ -10810,12 +10832,21 @@ const [aiLoading, setAiLoading] = useState(false);
             collectedProfitUsd: Number(nextCollected.toFixed(4)),
             profitUsd: Number(nextCollected.toFixed(4)),
             rotationProfitUsd: Number(nextCollected.toFixed(4)),
-            grossProfitUsd: Number((prevGross + (completedEvent ? grossUsd : 0)).toFixed(4)),
-            costsUsd: Number((prevCosts + (completedEvent ? costsUsd : 0)).toFixed(4)),
-            netProfitUsd: Number((prevNet + (completedEvent ? netUsd : 0)).toFixed(4)),
-            lastRotationEvent: completedEvent || sess?.lastRotationEvent || null,
+            grossProfitUsd: Number((completedEvent ? (prevGross + grossUsd) : (sessionEvent ? grossUsd : prevGross)).toFixed(4)),
+            costsUsd: Number((completedEvent ? (prevCosts + costsUsd) : (sessionEvent ? costsUsd : prevCosts)).toFixed(4)),
+            netProfitUsd: Number((completedEvent ? (prevNet + netUsd) : (sessionEvent ? netUsd : prevNet)).toFixed(4)),
+            lastRotationEvent: sessionEvent || sess?.lastRotationEvent || null,
             rotationEvents: nextEvents,
-            openRotation: null,
+            openRotation: closesPosition ? null : (isExecutableShadowEdge ? {
+              openedAt: sess?.openRotation?.openedAt || now,
+              baseAsset,
+              targetAsset: bestSymbol,
+              chain: bestChain,
+              entryUsd: Number(targetUsd.toFixed(4)),
+              currentNetUsd: Number(netUsd.toFixed(4)),
+              currentNetPct: Number(netPct.toFixed(4)),
+              state: "POSITION_TRACKING",
+            } : (sess?.openRotation || null)),
             riskLimitPct: riskLimitSource,
             minNetAdvantagePct: minNetSource,
             maxSlippagePct: slippageSource,
@@ -10844,7 +10875,7 @@ const [aiLoading, setAiLoading] = useState(false);
               live_vault_ready: false,
               execution_mode: "shadow",
               lifecycle_state: closesPosition || holdsWinner || isDispatcherApproved ? "ACTIVE" : "WAITING",
-              position_state: closesPosition ? "CLOSED" : holdsWinner ? "OPEN" : isDispatcherApproved ? "READY_DISPATCHED" : "WAITING",
+              position_state: closesPosition ? "CLOSED" : isExecutableShadowEdge ? "OPEN" : isDispatcherApproved ? "READY_DISPATCHED" : "WAITING",
               reserved_usd: Number((Number(sess?.budgetUsd || baseBudgetUsd) || baseBudgetUsd).toFixed(4)),
             },
           };
@@ -10852,7 +10883,7 @@ const [aiLoading, setAiLoading] = useState(false);
       }
 
       if (!silent) {
-        setRotationBackendMsg(`${closesPosition ? "NKR profit locked" : holdsWinner ? "NKR winner running" : isDispatcherApproved ? "NKR dispatched to executor" : "NKR waiting"}: ${baseAsset} → ${bestSymbol} → ${baseAsset} · net ${fmtUsd(netUsd)} (${netPct.toFixed(2)}%) · lock ${profitLockPct.toFixed(2)}%/${fmtUsd(profitLockUsd)}. Paper-only; no Vault swap triggered.`);
+        setRotationBackendMsg(`${closesPosition ? "NKR profit locked" : holdsWinner ? "NKR winner running" : isExecutableShadowEdge ? "NKR executor active" : isDispatcherApproved ? "NKR dispatched to executor" : "NKR waiting"}: ${baseAsset} → ${bestSymbol} → ${baseAsset} · net ${fmtUsd(netUsd)} (${netPct.toFixed(2)}%) · lock ${profitLockPct.toFixed(2)}%/${fmtUsd(profitLockUsd)}. Paper-only; no Vault swap triggered.`);
       }
     } catch (e) {
       console.error("ROTATION SHADOW SIM FAILED", e);

@@ -415,7 +415,8 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-060-NKR-WATCH-POOL-PROMOTION";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-062-NKR-USER-SESSION-LIMIT";
+const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -7088,7 +7089,7 @@ useEffect(() => {
     if (!Number.isFinite(amount) || amount <= 0) return;
 
     const activeLimitRaw = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));
-    const activeLimit = Math.max(1, Math.min(12, Number.isFinite(activeLimitRaw) ? Math.floor(activeLimitRaw) : 3));
+    const activeLimit = Math.max(1, Number.isFinite(activeLimitRaw) ? Math.floor(activeLimitRaw) : 3);
     const runtimeRaw = Number(String(rotationRuntimeHours || "24").replace(",", "."));
     const runtimeHours = Math.max(1, Math.min(168, Number.isFinite(runtimeRaw) ? runtimeRaw : 24));
     const now = Date.now();
@@ -10333,7 +10334,7 @@ const [aiLoading, setAiLoading] = useState(false);
       if (!sessions.length && !silent && Number.isFinite(typedBudgetStart) && typedBudgetStart > 0) {
         const periodDays = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
         const activeLimitRaw = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));
-        const activeLimit = Math.max(1, Math.min(12, Number.isFinite(activeLimitRaw) ? Math.floor(activeLimitRaw) : 3));
+        const activeLimit = Math.max(1, Number.isFinite(activeLimitRaw) ? Math.floor(activeLimitRaw) : 3);
         const modeU = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
         const reservePct = modeU === "AGGRESSIVE" ? 10 : modeU === "DEFENSIVE" ? 35 : modeU === "TACTICAL" ? 25 : 20;
         const maxPerAssetPct = modeU === "AGGRESSIVE" ? 40 : modeU === "DEFENSIVE" ? 25 : 35;
@@ -10565,13 +10566,13 @@ const [aiLoading, setAiLoading] = useState(false);
       const previews = Array.isArray(preview?.previews) ? preview.previews : [];
       const candidateRows = plan.filter((row) => ["INCREASE", "HOLD"].includes(String(row?.action || "").toUpperCase()));
 
-      // ENGINE-060: Watch Pool + Promotion.
+      // ENGINE-061: Watch Pool + Promotion + dynamic max sessions (max is a ceiling, not a target).
       // Max sessions is only a ceiling. Coins that are too weak get no capital,
       // but they stay in the scan pool and may be promoted immediately when they become stronger.
       const modeForPromotion = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
       const promotionMinScore = modeForPromotion === "DEFENSIVE" ? 70 : modeForPromotion === "TACTICAL" ? 65 : modeForPromotion === "AGGRESSIVE" ? 58 : 62;
       const activeLimitRawPromo = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));
-      const maxNkrSessions = Math.max(1, Math.min(12, Number.isFinite(activeLimitRawPromo) ? Math.floor(activeLimitRawPromo) : 3));
+      const maxNkrSessions = Math.max(1, Number.isFinite(activeLimitRawPromo) ? Math.floor(activeLimitRawPromo) : 3);
       const activeSymbols = new Set((Array.isArray(sessions) ? sessions : [])
         .filter((s) => isRotationSessionRunnable(s, nowStart))
         .map((s) => String(s?.targetAsset || s?.sourceSymbol || s?.symbol || s?.meta?.source_symbol || "").toUpperCase())
@@ -17950,7 +17951,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         {/* Compare */}
         <section className={`card section-compare dashboardPanel ${activePanel === "compare" ? "panelActive" : ""}`} onClick={handlePanelActivate("compare")}>
           <div className="cardHead">
-            <div className="cardTitle">Compare (max 20)</div>
+            <div className="cardTitle">Compare (user-defined)</div>
             <div className="cardActions">
               {TIMEFRAMES.map((tf) => {
                 const k = String(tf.key || "").toUpperCase();
@@ -19581,7 +19582,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         if (["PROTECTED", "STOPPED"].includes(st)) return { border: "rgba(255,107,107,.36)", bg: "rgba(255,107,107,.07)", pill: "silver", color: "#ff8a8a" };
                         return { border: "rgba(255,255,255,.12)", bg: "rgba(255,255,255,.025)", pill: "silver", color: "rgba(235,255,247,.78)" };
                       };
-                      const rotationMaxActive = Math.max(1, Math.min(12, Math.floor(Number(String(rotationMaxActiveSessions || "3").replace(",", ".")) || 3)));
+                      const rotationMaxActive = Math.max(1, Math.floor(Number(String(rotationMaxActiveSessions || "3").replace(",", ".")) || 3));
                       const rotationAllocatableRows = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s)));
                       const rotationAllocatedUsd = rotationAllocatableRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
                       const rotationProfitUsd = rotationRows.reduce((sum, sess) => {
@@ -19906,7 +19907,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <input
                           value={rotationMaxActiveSessions}
                           onChange={(e) => { setRotationMaxActiveSessions(e.target.value); setRotationBudgetReleased(false); }}
-                          placeholder="e.g. 3"
+                          placeholder="e.g. 3, 15, 21"
                         />
                       </div>
                     </div>
@@ -22047,7 +22048,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <p><b>Farben:</b> Grün = positiv, Rot = negativ, Gelb = neutral/früh.</p>
                       </div>
 
-                      <p><b>Compare</b> Checkbox steuert die Compare-Auswahl (max 20).</p>
+                      <p><b>Compare</b> Checkbox steuert die Compare-Auswahl (user-defined).</p>
                       <p><b>Drag & Drop</b> über den Griff links ändert die Reihenfolge. Diese Reihenfolge wird mit deiner Wallet auf dem Server gespeichert.</p>
                       <p><b>Market</b> ist ein Coin über CoinGecko-ID. <b>Token</b> ist ein DEX-Asset und braucht eine Contract-Address.</p>
                     </>
@@ -22069,7 +22070,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <p><b>Colors:</b> Green = positive, Red = negative, Yellow = neutral/early.</p>
                       </div>
 
-                      <p><b>Compare</b> checkbox controls the compare set (max 20).</p>
+                      <p><b>Compare</b> checkbox controls the compare set (user-defined).</p>
                       <p><b>Drag & Drop</b> using the handle on the left changes the order. This order is saved on the server for your wallet.</p>
                       <p><b>Market</b> is a coin via CoinGecko ID. <b>Token</b> is a DEX asset and needs a contract address.</p>
                     </>

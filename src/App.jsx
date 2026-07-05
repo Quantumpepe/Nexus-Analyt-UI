@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-075-NKR-AGGRESSIVE-CONFIRM-TARGET-PROFIT";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-076-NKR-EVENT-COUNTER-UNLIMITED";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -11105,7 +11105,9 @@ const [aiLoading, setAiLoading] = useState(false);
           const currentStatus = String(sess?.status || "").toUpperCase();
           if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED", "ARCHIVED"].includes(currentStatus)) return sess;
           const prevEvents = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [];
-          const nextEvents = sessionEvent ? [sessionEvent, ...prevEvents].slice(0, 50) : prevEvents;
+          const nextEvents = sessionEvent ? [sessionEvent, ...prevEvents].slice(0, 50) : prevEvents.slice(0, 50);
+          const prevTotalEvents = Number(sess?.totalEventCount ?? sess?.eventCount ?? sess?.meta?.nkr_total_event_count ?? prevEvents.length) || prevEvents.length;
+          const nextTotalEvents = prevTotalEvents + (sessionEvent ? 1 : 0);
           const prevCollected = Number(sess?.collectedProfitUsd ?? sess?.meta?.collectedProfitUsd ?? 0) || 0;
           const addCollected = completedEvent ? Math.max(0, Number(netUsd) || 0) : 0;
           const nextCollected = prevCollected + addCollected;
@@ -11137,6 +11139,9 @@ const [aiLoading, setAiLoading] = useState(false);
             netProfitUsd: Number((completedEvent ? (prevNet + netUsd) : (sessionEvent ? netUsd : prevNet)).toFixed(4)),
             lastRotationEvent: sessionEvent || sess?.lastRotationEvent || null,
             rotationEvents: nextEvents,
+            totalEventCount: nextTotalEvents,
+            eventCount: nextTotalEvents,
+            rotationEventHistoryCount: nextEvents.length,
             openRotation: closesPosition ? null : (isExecutableShadowEdge ? {
               openedAt: sess?.openRotation?.openedAt || now,
               baseAsset,
@@ -20083,7 +20088,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const savedAllocationPct = Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct || 0) || 0;
                                 const liveAllocationPct = allocationBaseUsd > 0 ? (workingCapital / allocationBaseUsd) * 100 : savedAllocationPct;
                                 const allocationLabel = Number.isFinite(liveAllocationPct) && liveAllocationPct > 0 ? `${liveAllocationPct.toFixed(1)}%` : "controlled";
-                                const eventsCount = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents.length : 0;
+                                const eventsHistoryCount = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents.length : 0;
+                                const rawTotalEvents = Number(sess?.totalEventCount ?? sess?.eventCount ?? sess?.meta?.nkr_total_event_count ?? 0);
+                                const eventsCount = Number.isFinite(rawTotalEvents) && rawTotalEvents > 0 ? rawTotalEvents : eventsHistoryCount;
                                 const lastEvent = sess?.lastRotationEvent || (Array.isArray(sess?.rotationEvents) ? sess.rotationEvents[0] : null) || null;
                                 const profit = Number(sess?.collectedProfitUsd ?? sess?.profitUsd ?? sess?.sessionProfitUsd ?? sess?.rotationProfitUsd ?? 0) || 0;
                                 const gross = Number(sess?.grossProfitUsd ?? sess?.meta?.grossProfitUsd ?? profit) || 0;

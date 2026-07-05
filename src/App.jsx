@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-074-NKR-RESERVE-DISPLAY";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-075-NKR-AGGRESSIVE-CONFIRM-TARGET-PROFIT";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -6874,6 +6874,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationShadowSnapshot, setRotationShadowSnapshot] = useState(null);
   const [rotationShadowEvents, setRotationShadowEvents] = useState([]);
   const [rotationShadowEventsOpen, setRotationShadowEventsOpen] = useState(false);
+  const [nkrAggressiveConsentOpen, setNkrAggressiveConsentOpen] = useState(false);
+  const [nkrAggressivePendingValue, setNkrAggressivePendingValue] = useState("");
+  const [nkrAggressiveAcceptedForDraft, setNkrAggressiveAcceptedForDraft] = useState(false);
   const rotationAutoShadowRef = useRef(0);
   // Wallet-bound delete tombstones: prevents a just-deleted Rotation session from
   // being resurrected by a delayed GET/POST sync or by the auto Shadow loop.
@@ -9587,6 +9590,66 @@ useEffect(() => {
     setTradingMaxTrades,
     setTradingMaxCombinedSlots,
   ]);
+
+  const resetNkrAggressiveDraftSelection = useCallback(() => {
+    // Nexus NKR Aggressive consent is budget/draft specific, never persistent.
+    // A new budget starts from Dynamic again so Aggressive cannot be reused silently.
+    setNkrCapitalMode("DYNAMIC");
+    setNkrAggressiveAcceptedForDraft(false);
+    setNkrAggressivePendingValue("");
+    setNkrAggressiveConsentOpen(false);
+  }, [setNkrCapitalMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
+
+  const handleNkrBudgetInputChange = useCallback((value) => {
+    resetNkrAggressiveDraftSelection();
+    setRotationBudgetRelease(value);
+    setRotationBudgetReleased(false);
+  }, [resetNkrAggressiveDraftSelection, setRotationBudgetRelease, setRotationBudgetReleased]);
+
+  const handleNkrCapitalModeChange = useCallback((value) => {
+    const next = String(value || "DYNAMIC").toUpperCase();
+    setRotationBudgetReleased(false);
+    if (next === "AGGRESSIVE") {
+      setNkrAggressiveAcceptedForDraft(false);
+      setNkrAggressivePendingValue(next);
+      setNkrAggressiveConsentOpen(true);
+      return;
+    }
+    setNkrAggressiveAcceptedForDraft(false);
+    setNkrCapitalMode(next);
+  }, [setRotationBudgetReleased, setNkrCapitalMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
+
+  const confirmNkrAggressiveConsent = useCallback(async () => {
+    const next = String(nkrAggressivePendingValue || "AGGRESSIVE").toUpperCase();
+    setNkrCapitalMode(next);
+    setNkrAggressiveAcceptedForDraft(true);
+    setNkrAggressivePendingValue("");
+    setNkrAggressiveConsentOpen(false);
+    try {
+      if (wallet) {
+        await api(`/api/nexus/nkr/aggressive-ack`, {
+          method: "POST",
+          wallet,
+          body: {
+            performance_mode: "AGGRESSIVE",
+            accepted: true,
+            warning_version: AGGRESSIVE_WARNING_VERSION,
+            frontend_build: FRONTEND_BUILD_ID,
+            scope: "draft",
+            budget_usd: Number(String(rotationBudgetRelease || "0").replace(",", ".")) || 0,
+          },
+        });
+      }
+    } catch (e) {
+      console.warn("NKR Aggressive warning audit failed", e);
+    }
+  }, [nkrAggressivePendingValue, setNkrCapitalMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, wallet, api, rotationBudgetRelease]);
+
+  const cancelNkrAggressiveConsent = useCallback(() => {
+    setNkrAggressiveAcceptedForDraft(false);
+    setNkrAggressivePendingValue("");
+    setNkrAggressiveConsentOpen(false);
+  }, [setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
 
   const resetAggressiveDraftSelection = useCallback(() => {
     // Aggressive consent is session/draft specific, never persistent.
@@ -19879,7 +19942,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         : Number.isFinite(activeNkrBudgetUsd) && activeNkrBudgetUsd > 0
                           ? activeNkrBudgetUsd
                           : 0;
+                      const topProfitRotation = rotationRows
+                        .filter((sess) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(sess)))
+                        .map((sess) => {
+                          const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+                          const profit = Number(
+                            sess?.collectedProfitUsd ??
+                            sess?.rotationProfitUsd ??
+                            sess?.sessionProfitUsd ??
+                            sess?.profitUsd ??
+                            meta?.collectedProfitUsd ??
+                            meta?.rotationProfitUsd ??
+                            meta?.sessionProfitUsd ??
+                            meta?.profitUsd ??
+                            0
+                          ) || 0;
+                          const sym = String(sess?.sourceSymbol || sess?.symbol || sess?.targetAsset || meta?.sourceSymbol || meta?.symbol || "").toUpperCase();
+                          return { sess, profit, sym };
+                        })
+                        .filter((x) => x.sym)
+                        .sort((a, b) => b.profit - a.profit)[0] || null;
                       const nkrTarget = String(
+                        (topProfitRotation && topProfitRotation.profit > 0 ? topProfitRotation.sym : "") ||
                         firstRotation?.sourceSymbol ||
                         firstRotation?.symbol ||
                         firstRotation?.targetAsset ||
@@ -19940,7 +20024,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : "not set"}</span></div>
                               <div><b>Active NKR Sessions:</b> {activeRotations} / {rotationMaxActive}</div>
-                              <div><b>Nexus NKR Target:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTarget}</span></div>
+                              <div><b>Top Profit Asset:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTarget}</span></div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
                               <div><b>Nexus NKR Mode:</b> {String(nkrCapitalMode || "DYNAMIC").replaceAll("_", " ")}</div>
                               <div><b>Observation:</b> {nkrObservationWindow}</div>
@@ -20134,7 +20218,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     >
                       <div className="formRow">
                         <label>Nexus NKR Capital Mode</label>
-                        <select value={nkrCapitalMode} onChange={(e) => { setNkrCapitalMode(e.target.value); setRotationBudgetReleased(false); }}>
+                        <select value={nkrCapitalMode} onChange={(e) => handleNkrCapitalModeChange(e.target.value)}>
                           <option value="DYNAMIC">Dynamic</option>
                           <option value="TACTICAL">Tactical</option>
                           <option value="AGGRESSIVE">Aggressive</option>
@@ -20172,7 +20256,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <label>{Array.isArray(rotationSessions) && rotationSessions.length ? "Next NKR Budget ($)" : "NKR Budget ($)"}</label>
                         <input
                           value={rotationBudgetRelease}
-                          onChange={(e) => { setRotationBudgetRelease(e.target.value); setRotationBudgetReleased(false); }}
+                          onChange={(e) => handleNkrBudgetInputChange(e.target.value)}
                           placeholder={Array.isArray(rotationSessions) && rotationSessions.length ? "e.g. next 500" : "e.g. 500"}
                         />
                       </div>
@@ -20185,6 +20269,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         />
                       </div>
                     </div>
+
+                    {nkrAggressiveConsentOpen && (
+                      <div
+                        className="modalBackdrop"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancelNkrAggressiveConsent(); }}
+                        style={{ zIndex: 99999 }}
+                      >
+                        <div
+                          className="modal modalHelp"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{
+                            background: "linear-gradient(180deg, rgba(34,18,12,1), rgba(12,18,17,1))",
+                            border: "1px solid rgba(255,193,7,.35)",
+                            maxWidth: 540,
+                          }}
+                        >
+                          <div className="modalHead">
+                            <div className="cardTitle">Nexus NKR Aggressive Mode Warning</div>
+                            <button
+                              className="iconBtn"
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); cancelNkrAggressiveConsent(); }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                          <div className="helpBody">
+                            <p><b>Warning:</b> Nexus NKR Aggressive gives the capital manager more freedom to rotate faster, stop weak sessions sooner and concentrate more capital into stronger assets.</p>
+                            <p>This can create higher costs, stronger short-term fluctuations and losses. Hard safety, reserve, net-cost and Vault validation rules remain active.</p>
+                            <p>Please confirm that you understand the increased risk before activating Nexus NKR Aggressive.</p>
+                            <div className="row" style={{ gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+                              <button className="btnGhost" type="button" onClick={cancelNkrAggressiveConsent}>Cancel</button>
+                              <button className="btn" type="button" onClick={confirmNkrAggressiveConsent}>I Understand and Accept the Risk</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {renderPayoutAssetSelector("Payout asset", { allowExtraAssets: false })}
 

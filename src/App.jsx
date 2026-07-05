@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-067-NKR-ALLOCATION-PERCENT-SYNC";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-068-NKR-USER-UI-CLEAN-OVERVIEW";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -19804,12 +19804,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       };
                       const getRotationStatusTone = (status) => {
                         const st = String(status || "").toUpperCase();
-                        if (["OPEN", "ACTIVE", "RUNNING", "EXECUTOR"].includes(st)) return { border: "rgba(34,197,94,.38)", bg: "rgba(34,197,94,.08)", pill: "green", color: "#86efac" };
-                        if (["WAITING", "WAIT_NET_EDGE", "SEARCHING"].includes(st)) return { border: "rgba(255,209,102,.34)", bg: "rgba(255,209,102,.07)", pill: "silver", color: "#ffd166" };
-                        if (["EXITING"].includes(st)) return { border: "rgba(139,220,255,.34)", bg: "rgba(139,220,255,.07)", pill: "silver", color: "#8bdcff" };
-                        if (["PAUSED"].includes(st)) return { border: "rgba(255,193,7,.32)", bg: "rgba(255,193,7,.07)", pill: "silver", color: "#ffc107" };
-                        if (["PROTECTED", "STOPPED"].includes(st)) return { border: "rgba(255,107,107,.36)", bg: "rgba(255,107,107,.07)", pill: "silver", color: "#ff8a8a" };
-                        return { border: "rgba(255,255,255,.12)", bg: "rgba(255,255,255,.025)", pill: "silver", color: "rgba(235,255,247,.78)" };
+                        const cardBg = "rgba(0,0,0,.16)"; // User UI: cards stay neutral; market/live price text carries green/red meaning.
+                        if (["OPEN", "ACTIVE", "RUNNING", "EXECUTOR"].includes(st)) return { border: "rgba(34,197,94,.38)", bg: cardBg, pill: "green", color: "#86efac" };
+                        if (["WAITING", "WAIT_NET_EDGE", "SEARCHING"].includes(st)) return { border: "rgba(255,209,102,.34)", bg: cardBg, pill: "silver", color: "#ffd166" };
+                        if (["EXITING"].includes(st)) return { border: "rgba(139,220,255,.34)", bg: cardBg, pill: "silver", color: "#8bdcff" };
+                        if (["PAUSED"].includes(st)) return { border: "rgba(255,193,7,.32)", bg: cardBg, pill: "silver", color: "#ffc107" };
+                        if (["PROTECTED", "STOPPED"].includes(st)) return { border: "rgba(255,107,107,.36)", bg: cardBg, pill: "silver", color: "#ff8a8a" };
+                        return { border: "rgba(255,255,255,.12)", bg: cardBg, pill: "silver", color: "rgba(235,255,247,.78)" };
                       };
                       const rotationMaxActive = Math.max(1, Math.floor(Number(String(rotationMaxActiveSessions || "3").replace(",", ".")) || 3));
                       const rotationAllocatableRows = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s)));
@@ -19892,19 +19893,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
                               <div><b>Nexus NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
-                              <div><b>Other allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : "not set"}</span></div>
                               <div><b>Active NKR Sessions:</b> {activeRotations} / {rotationMaxActive}</div>
                               <div><b>Nexus NKR Target:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTarget}</span></div>
-                              <div><b>Target / Scope:</b> {targetChain}</div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
-                              <div><b>Nexus NKR Control:</b> Capital Manager</div>
                               <div><b>Nexus NKR Mode:</b> {String(nkrCapitalMode || "DYNAMIC").replaceAll("_", " ")}</div>
                               <div><b>Observation:</b> {nkrObservationWindow}</div>
                               <div><b>Profit Mode:</b> {String(nkrProfitMode || "REINVEST").replaceAll("_", " ")}</div>
                               <div><b>Period:</b> {nkrPeriodDays} days</div>
-                              <div><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
                               <div><b>Status:</b> <span style={{ color: "#22c55e", fontWeight: 900 }}>{rotationRows.length ? "ACTIVE" : "WAITING"}</span></div>
                             </div>
                           </div>
@@ -19987,10 +19984,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <b style={{ fontSize: 16, color: "#eafff5" }}>{baseAsset} → {sym} → {baseAsset}</b>
                                         <span className={`pill ${statusTone.pill}`} style={{ color: statusTone.color, fontWeight: 950 }}>{status}</span>
                                       </div>
-                                      <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Allocation: {allocationLabel} · NKR #{idx + 1}</div>
+                                      <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Allocation: {allocationLabel}</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}><b style={{ color: liveTone }}>Live:</b> {livePrice > 0 ? fmtUsd(livePrice) : "waiting"} · <span style={{ color: liveTone, fontWeight: 900 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>{liveVol > 0 ? ` · Vol ${fmtCompactUsd(liveVol)}` : ""}</div>
                                       
-                                      <div className="muted tiny" style={{ marginTop: 4 }}>ID: {String(sess?.id || "").slice(0, 28)}</div>
                                     </div>
 
                                     <div className="muted tiny" style={{ display: "grid", gap: 5 }}>
@@ -20531,7 +20527,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 ) : null}
                               </div>
                             </div>
-                            <div className="muted tiny">Paper NKR only: capital manager flow is Base → Target → Base. Profit is collected, working capital stays controlled, and no Vault swap is triggered here.</div>
                             <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                               <b style={{ color: rotationShadowSnapshot?.status === "error" ? "#ff8a8a" : "#86efac" }}>Runtime: {rotationShadowRuntimeStatus}</b>
                               <b style={{ color: rotationShadowWorkStatus === "RUNNING" ? "#86efac" : "#ffd166" }}>Status: {rotationShadowWorkStatus}</b>
@@ -20647,12 +20642,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return (
                             <>
                               <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
-                              <div><b>Other allocated:</b> {vaultTotalUsd ? fmtUsd(gridAllocatedUsd) : `${gridAllocatedNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
                               <div><b>Trading allocated:</b> {tradingAllocatedUsd ? fmtUsd(tradingAllocatedUsd) : "$0.00"}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
                               <div style={{ color: tradingCollectedProfitUsd >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}><b>Collected Profit:</b> {`${tradingCollectedProfitUsd >= 0 ? "+" : "-"}${fmtUsd(Math.abs(tradingCollectedProfitUsd))}`}</div>
                               <div style={{ color: "#8bdcff", fontWeight: 900 }}><b>Runtime:</b> {getTradingVaultRuntimeLabel(activeTradingSessions)}</div>
-                              <div><b>Usage:</b> {vaultTotalUsd ? `${usagePct.toFixed(1)}%` : "waiting for price"}</div>
                             </>
                           );
                         })()}

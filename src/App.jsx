@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-063-NKR-EXECUTOR-BRIDGE";
+const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-065-NKR-REBALANCE-STOP-SESSIONS";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -1279,7 +1279,7 @@ function RotationInfoTrigger() {
             }}
           >
             <div className="modalHead">
-              <div className="cardTitle">Nexus NKR</div>
+              <div className="cardTitle">NKR</div>
               <button
                 className="iconBtn"
                 type="button"
@@ -6880,7 +6880,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const isRotationSessionRunnable = useCallback((sess, now = Date.now()) => {
     if (!sess || typeof sess !== "object") return false;
     const st = String(sess?.status || "APPROVED").toUpperCase();
-    if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st)) return false;
+    if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "WATCH_POOL"].includes(st)) return false;
     const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
     return !exp || exp > now;
   }, []);
@@ -10586,6 +10586,189 @@ const [aiLoading, setAiLoading] = useState(false);
         }))
         .filter((row) => row.symbol)
         .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
+      const nkrMarketBySymbol = new Map();
+      for (const a of Array.isArray(assets) ? assets : []) {
+        const sym = String(a?.symbol || "").toUpperCase();
+        if (!sym) continue;
+        nkrMarketBySymbol.set(sym, {
+          symbol: sym,
+          price: Number(a?.price ?? a?.usd ?? a?.current_price ?? 0) || 0,
+          change24h: Number(a?.change24h ?? a?.chg_24h ?? a?.usd_24h_change ?? 0) || 0,
+          score: Number(a?.score ?? a?.strategistScore ?? 0) || 0,
+          source: "assets",
+        });
+      }
+      for (const row of Array.isArray(watchRows) ? watchRows : []) {
+        const sym = String(row?.symbol || row?.sym || row?.asset || "").toUpperCase();
+        if (!sym) continue;
+        const prev = nkrMarketBySymbol.get(sym) || {};
+        nkrMarketBySymbol.set(sym, {
+          ...prev,
+          symbol: sym,
+          price: Number(row?.price ?? row?.usd ?? row?.current_price ?? prev.price ?? 0) || 0,
+          change24h: Number(row?.change24h ?? row?.chg_24h ?? row?.usd_24h_change ?? prev.change24h ?? 0) || 0,
+          score: Number(prev.score || (typeof watchSystemScore === "function" ? watchSystemScore(row) : 0) || 0),
+          source: "watchlist",
+        });
+      }
+      for (const row of Array.isArray(watchPoolRows) ? watchPoolRows : []) {
+        const sym = String(row?.symbol || "").toUpperCase();
+        if (!sym) continue;
+        const prev = nkrMarketBySymbol.get(sym) || {};
+        nkrMarketBySymbol.set(sym, {
+          ...prev,
+          symbol: sym,
+          score: Math.max(Number(prev.score || 0), Number(row?.score || 0) || 0),
+          action: String(row?.action || prev.action || "").toUpperCase(),
+        });
+      }
+
+      // ENGINE-065: weak-session stop + rebalance. Active NKR sessions are not permanent.
+      // If a session is red/weak with no executor progress, NKR may stop/remove its card and
+      // redirect capital to the strongest green/outperforming setup. Cards may change dynamically.
+      const runnableForRebalance = (Array.isArray(sessions) ? sessions : []).filter((s) => isRotationSessionRunnable(s, nowStart));
+      const greenRebalanceTargets = Array.from(nkrMarketBySymbol.values())
+        .filter((m) => String(m?.symbol || "").toUpperCase() && Number(m?.change24h || 0) >= 0 && Number(m?.score || 0) >= promotionMinScore)
+        .sort((a, b) => ((Number(b.change24h || 0) * 18) + Number(b.score || 0)) - ((Number(a.change24h || 0) * 18) + Number(a.score || 0)));
+      const bestRebalanceTarget = greenRebalanceTargets[0] || null;
+      const weakForRebalance = runnableForRebalance.filter((sess) => {
+        const sym = String(sess?.targetAsset || sess?.sourceSymbol || sess?.symbol || sess?.meta?.source_symbol || "").toUpperCase();
+        const m = nkrMarketBySymbol.get(sym) || {};
+        const ch = Number(m?.change24h || 0) || 0;
+        const score = Number(sess?.score || sess?.confidence || m?.score || 0) || 0;
+        const events = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents.length : 0;
+        const ageMin = (nowStart - Number(sess?.createdAt || sess?.startedAt || nowStart)) / 60000;
+        const lastRebalanceAge = nowStart - Number(sess?.meta?.nkr_last_rebalance_ts || 0);
+        const hasOpenProgress = !!sess?.openRotation || events > 0;
+        if (!sym || !bestRebalanceTarget?.symbol || sym === String(bestRebalanceTarget.symbol).toUpperCase()) return false;
+        if (lastRebalanceAge < 5 * 60 * 1000) return false;
+        return !hasOpenProgress && ageMin >= 20 && ch < -0.25 && score < Number(bestRebalanceTarget.score || 0) + 8;
+      });
+      if (bestRebalanceTarget && weakForRebalance.length) {
+        const targetSym = String(bestRebalanceTarget.symbol || "").toUpperCase();
+        setRotationSessions((prev) => {
+          const arr = Array.isArray(prev) ? prev : [];
+          const weakIds = new Set(weakForRebalance.map((s) => String(s?.id || s?.session_id || "")));
+          const releasedUsd = weakForRebalance.reduce((sum, w) => sum + (Number(w?.budgetUsd || w?.workingCapitalUsd || 0) || 0), 0);
+          const existingTarget = arr.find((s) =>
+            String(s?.targetAsset || s?.sourceSymbol || s?.symbol || "").toUpperCase() === targetSym &&
+            !weakIds.has(String(s?.id || s?.session_id || "")) &&
+            !["STOPPED", "CLOSED", "EXPIRED", "REBALANCED_OUT", "RELEASED"].includes(String(s?.status || "").toUpperCase())
+          );
+
+          // If the stronger target already exists, stop/remove weak cards completely and add their capital to the target.
+          // If the stronger target does not exist yet, convert the first weak card into the stronger target and remove the rest.
+          const primaryWeakId = String(weakForRebalance[0]?.id || weakForRebalance[0]?.session_id || "");
+          let convertedPrimary = false;
+
+          return arr.flatMap((sess) => {
+            const id = String(sess?.id || sess?.session_id || "");
+            const sym = String(sess?.targetAsset || sess?.sourceSymbol || sess?.symbol || sess?.meta?.source_symbol || "").toUpperCase();
+
+            if (weakIds.has(id)) {
+              if (existingTarget) {
+                // Full stop: card disappears from Active NKR Sessions. The global event log keeps the audit trail.
+                return [];
+              }
+
+              if (!convertedPrimary && id === primaryWeakId) {
+                convertedPrimary = true;
+                const nextBudget = Math.max(Number(sess?.budgetUsd || sess?.workingCapitalUsd || 0) || 0, releasedUsd);
+                return [{
+                  ...sess,
+                  status: "ACTIVE",
+                  lifecycleState: "ACTIVE",
+                  positionState: "READY_DISPATCHED",
+                  symbol: targetSym,
+                  sourceSymbol: targetSym,
+                  targetAsset: targetSym,
+                  score: Number(bestRebalanceTarget.score || sess?.score || 0),
+                  confidence: Number(bestRebalanceTarget.score || sess?.confidence || 0),
+                  budgetUsd: Number(nextBudget.toFixed(4)),
+                  workingCapitalUsd: Number(nextBudget.toFixed(4)),
+                  sessionCapitalUsd: Number(nextBudget.toFixed(4)),
+                  reservedUsd: Number(nextBudget.toFixed(4)),
+                  updatedAt: nowStart,
+                  rebalancedFrom: sym,
+                  rotationEvents: [{
+                    id: `NKR-REBALANCE-STOP-IN-${nowStart}`,
+                    ts: nowStart,
+                    mode: "shadow",
+                    status: "REBALANCED_IN",
+                    flow: `${sym} → ${targetSym}`,
+                    fromAsset: sym,
+                    targetAsset: targetSym,
+                    reason: "weak_session_stopped_and_replaced_by_stronger_asset",
+                    netUsd: 0,
+                  }, ...(Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [])].slice(0, 50),
+                  lastRotationEvent: {
+                    id: `NKR-REBALANCE-STOP-IN-${nowStart}`,
+                    ts: nowStart,
+                    status: "REBALANCED_IN",
+                    flow: `${sym} → ${targetSym}`,
+                    netUsd: 0,
+                  },
+                  meta: {
+                    ...(sess?.meta || {}),
+                    selected_symbol: targetSym,
+                    source_symbol: targetSym,
+                    position_state: "READY_DISPATCHED",
+                    nkr_rebalance_mode: "STOP_WEAK_SESSION_AND_REDIRECT_CAPITAL",
+                    nkr_rebalance_reason: `red_weak_no_executor_progress_stopped_and_replaced_by_${targetSym}`,
+                    nkr_previous_symbol: sym,
+                    nkr_last_rebalance_ts: nowStart,
+                  },
+                }];
+              }
+
+              return [];
+            }
+
+            if (existingTarget && id === String(existingTarget?.id || existingTarget?.session_id || "")) {
+              const nextBudget = Number(sess?.budgetUsd || sess?.workingCapitalUsd || 0) + releasedUsd;
+              return [{
+                ...sess,
+                budgetUsd: Number(nextBudget.toFixed(4)),
+                workingCapitalUsd: Number(nextBudget.toFixed(4)),
+                sessionCapitalUsd: Number(nextBudget.toFixed(4)),
+                reservedUsd: Number(nextBudget.toFixed(4)),
+                updatedAt: nowStart,
+                rotationEvents: [{
+                  id: `NKR-REBALANCE-STOP-IN-${nowStart}`,
+                  ts: nowStart,
+                  mode: "shadow",
+                  status: "REBALANCE_INCREASE",
+                  flow: `${String(sess?.baseAsset || baseAsset)} → ${targetSym}`,
+                  targetAsset: targetSym,
+                  reason: "capital_redirected_from_stopped_weak_sessions",
+                  netUsd: 0,
+                }, ...(Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [])].slice(0, 50),
+                lastRotationEvent: {
+                  id: `NKR-REBALANCE-STOP-IN-${nowStart}`,
+                  ts: nowStart,
+                  status: "REBALANCE_INCREASE",
+                  flow: `stopped weak sessions → ${targetSym}`,
+                  netUsd: 0,
+                },
+                meta: {
+                  ...(sess?.meta || {}),
+                  nkr_rebalance_in_usd: Number(releasedUsd.toFixed(4)),
+                  nkr_rebalance_mode: "STOP_WEAK_SESSION_AND_REDIRECT_CAPITAL",
+                  nkr_last_rebalance_ts: nowStart,
+                },
+              }];
+            }
+
+            return [sess];
+          });
+        });
+        setRotationShadowEvents((prev) => [{
+          id: `NKR-REBALANCE-STOP-${nowStart}`,
+          ts: nowStart,
+          text: `NKR REBALANCE: stopped ${weakForRebalance.map((s) => String(s?.targetAsset || s?.symbol || "ASSET").toUpperCase()).join(", ")} and redirected ${fmtUsd(weakForRebalance.reduce((sum, w) => sum + (Number(w?.budgetUsd || w?.workingCapitalUsd || 0) || 0), 0))} toward ${targetSym}. Session cards may change because max sessions is only a ceiling, not a fixed basket.`,
+        }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+      }
+
       const promotionCandidate = watchPoolRows.find((row) =>
         row.state !== "ACTIVE" &&
         row.score >= promotionMinScore &&
@@ -10771,6 +10954,8 @@ const [aiLoading, setAiLoading] = useState(false);
         previews,
         watchPool: watchPoolRows,
         promotionCandidate,
+        rebalanceTarget: bestRebalanceTarget,
+        weakRebalanceSessions: weakForRebalance.map((s) => String(s?.targetAsset || s?.symbol || "").toUpperCase()).filter(Boolean),
         watchPoolMode: "NKR_WATCH_POOL_PROMOTION_V1",
         best,
         bestSymbol,
@@ -19585,12 +19770,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const getRotationDerivedStatus = (sess) => {
                         const st = String(sess?.status || "APPROVED").toUpperCase();
                         const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
-                        if (!["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE"].includes(st) && exp && exp <= rotationNow) return "EXPIRED";
+                        if (!["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "RELEASED", "REBALANCED_OUT"].includes(st) && exp && exp <= rotationNow) return "EXPIRED";
                         return st;
                       };
                       const getRotationDisplayStatus = (sess) => {
                         const derived = getRotationDerivedStatus(sess);
-                        if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "PROTECTED"].includes(derived)) {
+                        if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "PROTECTED", "RELEASED", "REBALANCED_OUT"].includes(derived)) {
                           return derived === "CLOSED" ? "COMPLETE" : derived;
                         }
                         const action = String(sess?.meta?.rotation_action || sess?.rotationAction || rotationShadowSnapshot?.action || "").toUpperCase();
@@ -19630,7 +19815,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const v = candidates.map(Number).find((n) => Number.isFinite(n));
                         return sum + (Number.isFinite(v) ? v : 0);
                       }, 0);
-                      const activeRotations = rotationRows.filter((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(getRotationDerivedStatus(s))).length;
+                      const activeRotations = rotationRows.filter((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "ARCHIVED"].includes(getRotationDerivedStatus(s))).length;
                       const pausedRotations = rotationRows.filter((s) => ["PAUSED"].includes(getRotationDerivedStatus(s))).length;
                       const controllableRotations = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s))).length;
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
@@ -19726,7 +19911,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div className="label" style={{ marginBottom: 0 }}>Active NKR Sessions</div>
                                 <div className="muted tiny">full NKR session cards · first sessions visible · scroll for more</div>
                               </div>
-                              <span className="pill silver">{rotationRows.length} NKR sessions</span>
+                              <span className="pill silver">{activeRotations} active / {rotationRows.length} total</span>
                             </div>
 
                             <div
@@ -19740,6 +19925,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               {rotationRows.length ? rotationRows.map((sess, idx) => {
                                 const sym = String(sess?.symbol || "ASSET").toUpperCase();
+                                const liveRow = (Array.isArray(watchRows) ? watchRows : []).find((r) => String(r?.symbol || r?.sym || r?.asset || "").toUpperCase() === sym) || null;
+                                const livePrice = Number(liveRow?.price ?? liveRow?.usd ?? liveRow?.current_price ?? sess?.livePriceUsd ?? sess?.meta?.live_price_usd ?? 0) || 0;
+                                const liveChange = Number(liveRow?.change24h ?? liveRow?.chg_24h ?? liveRow?.usd_24h_change ?? sess?.marketChange24h ?? sess?.meta?.market_change_24h ?? 0) || 0;
+                                const liveVol = Number(liveRow?.volume24h ?? liveRow?.vol ?? liveRow?.total_volume ?? 0) || 0;
+                                const liveTone = liveChange > 0 ? "#86efac" : liveChange < 0 ? "#ff8a8a" : "#d8fff1";
                                 const chain = String(sess?.chain || "CHAIN").toUpperCase();
                                 const budget = Number(sess?.budgetUsd || 0);
                                 const sessionStatus = getRotationDerivedStatus(sess);
@@ -19781,6 +19971,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <span className={`pill ${statusTone.pill}`} style={{ color: statusTone.color, fontWeight: 950 }}>{status}</span>
                                       </div>
                                       <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Allocation: {Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct || 0) ? `${Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct).toFixed(1)}%` : "controlled"} · NKR #{idx + 1}</div>
+                                      <div className="muted tiny" style={{ marginTop: 4 }}><b style={{ color: liveTone }}>Live:</b> {livePrice > 0 ? fmtUsd(livePrice) : "waiting"} · <span style={{ color: liveTone, fontWeight: 900 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>{liveVol > 0 ? ` · Vol ${fmtCompactUsd(liveVol)}` : ""}</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}>NKR portfolio session · reserve and limits are controlled by NKR mode</div>
                                       <div className="muted tiny" style={{ marginTop: 4 }}>ID: {String(sess?.id || "").slice(0, 28)}</div>
                                     </div>

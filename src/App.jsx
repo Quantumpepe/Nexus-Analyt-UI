@@ -1279,7 +1279,7 @@ function RotationInfoTrigger() {
             }}
           >
             <div className="modalHead">
-              <div className="cardTitle">NKR</div>
+              <div className="cardTitle">Nexus NKR</div>
               <button
                 className="iconBtn"
                 type="button"

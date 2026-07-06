@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.06-ENGINE-079-NKR-FULL-EVENT-HISTORY";
+const FRONTEND_BUILD_ID = "F-2026.07.06-ENGINE-081-NKR-REAL-PRICE-PNL-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -20830,9 +20830,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 return arr.map((ev) => ({ ...ev, sessionSymbol: sess?.targetAsset || sess?.symbol || ev?.targetAsset || "" }));
                               });
                               const localEvents = (Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []).map((ev) => ({ ...ev, localOnly: true }));
+                              const normalizedEvents = [...sessionEvents, ...localEvents]
+                                .filter((ev) => ev && typeof ev === "object")
+                                .map((ev) => ({
+                                  ...ev,
+                                  event_id: ev.event_id || ev.id || ev.eventId || "",
+                                  trade_id: ev.trade_id || ev.tradeId || "",
+                                  session_id: ev.session_id || ev.sessionId || "",
+                                  buyPriceUsd: ev.buyPriceUsd ?? ev.entryPriceUsd ?? ev.entry_price_usd ?? ev.entryPrice ?? "",
+                                  sellPriceUsd: ev.sellPriceUsd ?? ev.exitPriceUsd ?? ev.exit_price_usd ?? ev.exitPrice ?? "",
+                                  buyUsd: ev.buyUsd ?? ev.amountInUsd ?? "",
+                                  sellUsd: ev.sellUsd ?? ev.amountOutUsd ?? "",
+                                  grossUsd: ev.grossUsd ?? ev.grossProfitUsd ?? "",
+                                  netUsd: ev.netUsd ?? ev.netProfitUsd ?? "",
+                                }))
+                                .filter((ev) => ev.status || ev.action || ev.targetAsset || ev.event_id || ev.trade_id);
                               const byId = new Map();
-                              [...sessionEvents, ...localEvents].forEach((ev) => {
-                                const key = String(ev?.event_id || ev?.id || `${ev?.trade_id || "EV"}-${ev?.ts || Math.random()}`);
+                              normalizedEvents.forEach((ev) => {
+                                const key = String(ev?.event_id || `${ev?.trade_id || "EV"}-${ev?.status || ev?.action || "EVENT"}-${ev?.ts || Math.random()}`);
                                 if (!byId.has(key)) byId.set(key, ev);
                               });
                               const allEvents = Array.from(byId.values()).sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
@@ -20840,7 +20855,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               const filteredEvents = allEvents.filter((ev) => {
                                 const st = String(ev?.status || ev?.action || "").toUpperCase();
                                 if (filter === "ALL") return true;
-                                if (filter === "OPEN") return ["POSITION_TRACKING", "EXECUTOR_ACTIVE", "DISPATCHED", "READY_DISPATCHED", "OPEN"].includes(st);
+                                if (filter === "OPEN") return ["OPEN_POSITION", "BUY_OPEN", "POSITION_TRACKING", "EXECUTOR_ACTIVE", "DISPATCHED", "READY_DISPATCHED", "OPEN"].includes(st);
                                 if (filter === "CLOSED_PROFIT") return st === "CLOSED_PROFIT" || st === "SIMULATED_ROTATION_CLOSED";
                                 if (filter === "CLOSED_LOSS") return st === "CLOSED_LOSS";
                                 if (filter === "PROTECTED") return st.includes("PROTECT");
@@ -20857,8 +20872,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               };
                               const exportCsv = () => {
                                 const cols = ["event_id","trade_id","session_id","status","action","targetAsset","route","buyTime","sellTime","buyPriceUsd","sellPriceUsd","buyUsd","sellUsd","grossUsd","costsUsd","netUsd","netPct","addedToCollectedProfit","alreadyCounted","reason"];
+                                const val = (ev, c) => {
+                                  if (c === "event_id") return ev?.event_id || ev?.id || ev?.eventId || "";
+                                  if (c === "trade_id") return ev?.trade_id || ev?.tradeId || "";
+                                  if (c === "session_id") return ev?.session_id || ev?.sessionId || "";
+                                  if (c === "buyPriceUsd") return ev?.buyPriceUsd ?? ev?.entryPriceUsd ?? ev?.entry_price_usd ?? ev?.entryPrice ?? "";
+                                  if (c === "sellPriceUsd") return ev?.sellPriceUsd ?? ev?.exitPriceUsd ?? ev?.exit_price_usd ?? ev?.exitPrice ?? "";
+                                  if (c === "buyUsd") return ev?.buyUsd ?? ev?.amountInUsd ?? "";
+                                  if (c === "sellUsd") return ev?.sellUsd ?? ev?.amountOutUsd ?? "";
+                                  if (c === "grossUsd") return ev?.grossUsd ?? ev?.grossProfitUsd ?? "";
+                                  if (c === "netUsd") return ev?.netUsd ?? ev?.netProfitUsd ?? "";
+                                  return ev?.[c] ?? "";
+                                };
                                 const esc = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
-                                const lines = [cols.join(","), ...filteredEvents.map((ev) => cols.map((c) => esc(ev?.[c])).join(","))];
+                                const exportRows = filteredEvents.filter((ev) => ev && (ev.status || ev.action || ev.targetAsset || ev.event_id || ev.trade_id));
+                                const lines = [cols.join(","), ...exportRows.map((ev) => cols.map((c) => esc(val(ev, c))).join(","))];
                                 const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
                                 const url = URL.createObjectURL(blob);
                                 const a = document.createElement("a");

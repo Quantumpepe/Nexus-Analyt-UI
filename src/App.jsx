@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.06.14-ENGINE-078-WALLET-UI-CLEAN";
+const FRONTEND_BUILD_ID = "F-2026.07.06-ENGINE-079-NKR-FULL-EVENT-HISTORY";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -6925,6 +6925,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationShadowSnapshot, setRotationShadowSnapshot] = useState(null);
   const [rotationShadowEvents, setRotationShadowEvents] = useState([]);
   const [rotationShadowEventsOpen, setRotationShadowEventsOpen] = useState(false);
+  const [rotationShadowEventsShowAll, setRotationShadowEventsShowAll] = useState(false);
+  const [rotationShadowEventsFilter, setRotationShadowEventsFilter] = useState("ALL");
   const [nkrAggressiveConsentOpen, setNkrAggressiveConsentOpen] = useState(false);
   const [nkrAggressivePendingValue, setNkrAggressivePendingValue] = useState("");
   const [nkrAggressiveAcceptedForDraft, setNkrAggressiveAcceptedForDraft] = useState(false);
@@ -10094,7 +10096,7 @@ useEffect(() => {
         if (rotationSettingsSource.nkrControlState != null) setNkrControlState(String(rotationSettingsSource.nkrControlState || "WAITING").toUpperCase());
         if (rotationSettingsSource.rotationBudgetRelease != null) setRotationBudgetRelease(String(rotationSettingsSource.rotationBudgetRelease));
         if (rotationSettingsSource.rotationShadowSnapshot && typeof rotationSettingsSource.rotationShadowSnapshot === "object") setRotationShadowSnapshot(rotationSettingsSource.rotationShadowSnapshot);
-        if (Array.isArray(rotationSettingsSource.rotationShadowEvents)) setRotationShadowEvents(rotationSettingsSource.rotationShadowEvents.slice(0, 20));
+        if (Array.isArray(rotationSettingsSource.rotationShadowEvents)) setRotationShadowEvents(rotationSettingsSource.rotationShadowEvents);
         if (rotationSettingsSource.rotationNetworkScope != null) setRotationNetworkScope(String(rotationSettingsSource.rotationNetworkScope));
         if (serverTradingSessions.length) {
           setTradingSessions(serverTradingSessions);
@@ -10166,7 +10168,7 @@ useEffect(() => {
         nkrControlState,
         rotationBudgetRelease,
         rotationShadowSnapshot,
-        rotationShadowEvents: (Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []).slice(0, 20),
+        rotationShadowEvents: (Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []),
         rotationNetworkScope,
       },
     };
@@ -10423,7 +10425,7 @@ const [aiLoading, setAiLoading] = useState(false);
         id: `NKR-CTRL-${now}`,
         ts: now,
         text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" ? "NKR stopped/protected and stored in backend." : "NKR deleted forever from backend.",
-      }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+      }, ...(Array.isArray(prev) ? prev : [])]);
       setRotationBackendMsg(resp?.message || (actionU === "DELETE" ? "NKR deleted forever." : `NKR ${actionU.toLowerCase()} stored in backend.`));
     } catch (e) {
       console.error("NKR BACKEND CONTROL FAILED", e);
@@ -10477,7 +10479,7 @@ const [aiLoading, setAiLoading] = useState(false);
               ? tick.summary.messages.join(" · ")
               : "NKR backend executor tick completed.";
             setRotationShadowSnapshot((prev) => ({ ...(prev || {}), status: "ok", backendExecutor: true, summary: tick?.summary || {}, ts: Date.now() }));
-            setRotationShadowEvents((prev) => [{ id: `NKR-BACKEND-TICK-${Date.now()}`, ts: Date.now(), text: msg }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+            setRotationShadowEvents((prev) => [{ id: `NKR-BACKEND-TICK-${Date.now()}`, ts: Date.now(), text: msg }, ...(Array.isArray(prev) ? prev : [])]);
             if (!silent) setRotationBackendMsg(msg);
             return;
           }
@@ -10861,7 +10863,7 @@ const [aiLoading, setAiLoading] = useState(false);
                     targetAsset: targetSym,
                     reason: "weak_session_stopped_and_replaced_by_stronger_asset",
                     netUsd: 0,
-                  }, ...(Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [])].slice(0, 50),
+                  }, ...(Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [])],
                   lastRotationEvent: {
                     id: `NKR-REBALANCE-STOP-IN-${nowStart}`,
                     ts: nowStart,
@@ -10906,7 +10908,7 @@ const [aiLoading, setAiLoading] = useState(false);
                   targetAsset: targetSym,
                   reason: "capital_redirected_from_stopped_weak_sessions",
                   netUsd: 0,
-                }, ...(Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [])].slice(0, 50),
+                }, ...(Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [])],
                 lastRotationEvent: {
                   id: `NKR-REBALANCE-STOP-IN-${nowStart}`,
                   ts: nowStart,
@@ -10932,7 +10934,7 @@ const [aiLoading, setAiLoading] = useState(false);
           id: `NKR-REBALANCE-STOP-${nowStart}`,
           ts: nowStart,
           text: `NKR REBALANCE: stopped ${weakForRebalance.map((s) => String(s?.targetAsset || s?.symbol || "ASSET").toUpperCase()).join(", ")} and redirected ${fmtUsd(weakForRebalance.reduce((sum, w) => sum + (Number(w?.budgetUsd || w?.workingCapitalUsd || 0) || 0), 0))} toward ${targetSym}.`,
-        }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+        }, ...(Array.isArray(prev) ? prev : [])]);
       }
 
       const promotionCandidate = watchPoolRows.find((row) =>
@@ -11022,7 +11024,7 @@ const [aiLoading, setAiLoading] = useState(false);
             id: `NKR-PROMOTE-${nowStart}`,
             ts: nowStart,
             text: `WATCH_POOL → READY_DISPATCHED: ${promotionCandidate.symbol} score ${promotionCandidate.score}/100 ${canReplaceWeakest ? `replaced weaker ${String(weakestActive?.targetAsset || weakestActive?.symbol || "session").toUpperCase()} (${weakestScore}/100)` : "used free NKR slot"}.`,
-          }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+          }, ...(Array.isArray(prev) ? prev : [])]);
         }
       }
       const lockedPlanRow = lockedSessionTarget
@@ -11145,7 +11147,7 @@ const [aiLoading, setAiLoading] = useState(false);
         id: `ROT-SHADOW-${now}`,
         ts: now,
         text: `${baseAsset} → ${bestSymbol} → ${baseAsset}: ${action} · score ${bestScore || "—"}/100 · gross ${fmtUsd(grossUsd)} · costs ${fmtUsd(costsUsd)} · net ${fmtUsd(netUsd)} · lock ${profitLockPct.toFixed(2)}%/${fmtUsd(profitLockUsd)}`,
-      }, ...(Array.isArray(prev) ? prev : [])].slice(0, 12));
+      }, ...(Array.isArray(prev) ? prev : [])]);
 
       if (sessions.length && firstActive?.id) {
         setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
@@ -11156,11 +11158,18 @@ const [aiLoading, setAiLoading] = useState(false);
           const currentStatus = String(sess?.status || "").toUpperCase();
           if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED", "ARCHIVED"].includes(currentStatus)) return sess;
           const prevEvents = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [];
-          const nextEvents = sessionEvent ? [sessionEvent, ...prevEvents].slice(0, 50) : prevEvents.slice(0, 50);
+          const nextEvents = sessionEvent ? [sessionEvent, ...prevEvents] : prevEvents;
           const prevTotalEvents = Number(sess?.totalEventCount ?? sess?.eventCount ?? sess?.meta?.nkr_total_event_count ?? prevEvents.length) || prevEvents.length;
           const nextTotalEvents = prevTotalEvents + (sessionEvent ? 1 : 0);
           const prevCollected = Number(sess?.collectedProfitUsd ?? sess?.meta?.collectedProfitUsd ?? 0) || 0;
-          const addCollected = completedEvent ? Math.max(0, Number(netUsd) || 0) : 0;
+          const countedProfitIds = new Set(sess?.countedProfitTradeIds || sess?.meta?.nkr_counted_profit_trade_ids || []);
+          const localTradeId = String(sessionEvent?.trade_id || sessionEvent?.id || "");
+          const addCollected = completedEvent && localTradeId && !countedProfitIds.has(localTradeId) ? Math.max(0, Number(netUsd) || 0) : 0;
+          if (addCollected > 0) countedProfitIds.add(localTradeId);
+          if (sessionEvent && completedEvent) {
+            sessionEvent.addedToCollectedProfit = addCollected > 0;
+            sessionEvent.alreadyCounted = addCollected <= 0;
+          }
           const nextCollected = prevCollected + addCollected;
           const prevGross = Number(sess?.grossProfitUsd ?? 0) || 0;
           const prevCosts = Number(sess?.costsUsd ?? 0) || 0;
@@ -11207,8 +11216,10 @@ const [aiLoading, setAiLoading] = useState(false);
             minNetAdvantagePct: minNetSource,
             maxSlippagePct: slippageSource,
             updatedAt: now,
+            countedProfitTradeIds: Array.from(countedProfitIds),
             meta: {
               ...(sess?.meta || {}),
+              nkr_counted_profit_trade_ids: Array.from(countedProfitIds),
               rotation_shadow: true,
               rotation_action: action,
               capital_flow: "BASE_TO_TARGET_TO_BASE",
@@ -20813,7 +20824,48 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div>Gross {fmtUsd(Number(rotationShadowSnapshot.grossUsd || 0))} · Costs {fmtUsd(Number(rotationShadowSnapshot.costsUsd || 0))} · Net {fmtUsd(Number(rotationShadowSnapshot.netUsd || 0))} {Number.isFinite(Number(rotationShadowSnapshot.netPct)) ? `(${Number(rotationShadowSnapshot.netPct).toFixed(2)}%)` : ""}</div>
                               </div>
                             ) : null}
-                            {Array.isArray(rotationShadowEvents) && rotationShadowEvents.length ? (
+                            {(() => {
+                              const sessionEvents = (Array.isArray(rotationRows) ? rotationRows : []).flatMap((sess) => {
+                                const arr = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [];
+                                return arr.map((ev) => ({ ...ev, sessionSymbol: sess?.targetAsset || sess?.symbol || ev?.targetAsset || "" }));
+                              });
+                              const localEvents = (Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []).map((ev) => ({ ...ev, localOnly: true }));
+                              const byId = new Map();
+                              [...sessionEvents, ...localEvents].forEach((ev) => {
+                                const key = String(ev?.event_id || ev?.id || `${ev?.trade_id || "EV"}-${ev?.ts || Math.random()}`);
+                                if (!byId.has(key)) byId.set(key, ev);
+                              });
+                              const allEvents = Array.from(byId.values()).sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
+                              const filter = String(rotationShadowEventsFilter || "ALL").toUpperCase();
+                              const filteredEvents = allEvents.filter((ev) => {
+                                const st = String(ev?.status || ev?.action || "").toUpperCase();
+                                if (filter === "ALL") return true;
+                                if (filter === "OPEN") return ["POSITION_TRACKING", "EXECUTOR_ACTIVE", "DISPATCHED", "READY_DISPATCHED", "OPEN"].includes(st);
+                                if (filter === "CLOSED_PROFIT") return st === "CLOSED_PROFIT" || st === "SIMULATED_ROTATION_CLOSED";
+                                if (filter === "CLOSED_LOSS") return st === "CLOSED_LOSS";
+                                if (filter === "PROTECTED") return st.includes("PROTECT");
+                                if (filter === "SAFETY") return st.includes("SAFETY") || st.includes("PANIC");
+                                if (filter === "ERROR") return st.includes("ERROR") || st.includes("FAIL");
+                                return true;
+                              });
+                              const visibleEvents = rotationShadowEventsShowAll ? filteredEvents : filteredEvents.slice(0, 10);
+                              const exportJson = () => {
+                                const blob = new Blob([JSON.stringify(filteredEvents, null, 2)], { type: "application/json" });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url; a.download = `nkr-event-history-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
+                              };
+                              const exportCsv = () => {
+                                const cols = ["event_id","trade_id","session_id","status","action","targetAsset","route","buyTime","sellTime","buyUsd","sellUsd","grossUsd","costsUsd","netUsd","netPct","addedToCollectedProfit","alreadyCounted","reason"];
+                                const esc = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+                                const lines = [cols.join(","), ...filteredEvents.map((ev) => cols.map((c) => esc(ev?.[c])).join(","))];
+                                const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement("a");
+                                a.href = url; a.download = `nkr-event-history-${Date.now()}.csv`; a.click(); URL.revokeObjectURL(url);
+                              };
+                              if (!allEvents.length) return null;
+                              return (
                               <div
                                 style={{ borderRadius: 10, border: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.10)", padding: "6px 8px" }}
                                 onMouseDown={(e) => { e.stopPropagation(); }}
@@ -20824,28 +20876,38 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   className="muted tiny"
                                   onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRotationShadowEventsOpen((v) => !v); }}
-                                  style={{
-                                    width: "100%",
-                                    cursor: "pointer",
-                                    fontWeight: 900,
-                                    color: "#8bdcff",
-                                    background: "transparent",
-                                    border: 0,
-                                    padding: 0,
-                                    textAlign: "left",
-                                  }}
+                                  style={{ width: "100%", cursor: "pointer", fontWeight: 900, color: "#8bdcff", background: "transparent", border: 0, padding: 0, textAlign: "left" }}
                                 >
-                                  {rotationShadowEventsOpen ? "▼" : "▶"} Latest NKR shadow events
+                                  {rotationShadowEventsOpen ? "▼" : "▶"} NKR Event History · {allEvents.length} saved
                                 </button>
                                 {rotationShadowEventsOpen ? (
-                                  <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
-                                    {rotationShadowEvents.slice(0, 5).map((ev) => (
-                                      <div key={ev.id} className="muted tiny">{new Date(ev.ts).toLocaleTimeString()} · {ev.text}</div>
-                                    ))}
+                                  <div style={{ display: "grid", gap: 7, marginTop: 8 }}>
+                                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                                      {["ALL","OPEN","CLOSED_PROFIT","CLOSED_LOSS","PROTECTED","SAFETY","ERROR"].map((f) => (
+                                        <button key={f} type="button" className="miniBtn" onClick={() => setRotationShadowEventsFilter(f)} style={{ opacity: rotationShadowEventsFilter === f ? 1 : 0.68 }}>{f.replace("_", " ")}</button>
+                                      ))}
+                                      <button type="button" className="miniBtn" onClick={() => setRotationShadowEventsShowAll((v) => !v)}>{rotationShadowEventsShowAll ? "Show latest 10" : "Show Full History"}</button>
+                                      <button type="button" className="miniBtn" onClick={exportCsv}>Export CSV</button>
+                                      <button type="button" className="miniBtn" onClick={exportJson}>Export JSON</button>
+                                    </div>
+                                    {visibleEvents.map((ev) => {
+                                      const st = String(ev?.status || ev?.action || "EVENT").toUpperCase();
+                                      const buyTs = ev?.buyTime || ev?.openedAt || ev?.ts;
+                                      const sellTs = ev?.sellTime || ev?.closedAt;
+                                      return (
+                                        <div key={ev.event_id || ev.id || `${ev.trade_id}-${ev.ts}`} className="muted tiny" style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 5 }}>
+                                          <div><b style={{ color: st.includes("CLOSED") ? "#86efac" : "#8bdcff" }}>{new Date(ev.ts).toLocaleTimeString()} · {ev.targetAsset || ev.sessionSymbol || "ASSET"} · {st}</b> {ev.addedToCollectedProfit ? "· added to Collected Profit" : ""}</div>
+                                          <div>Buy {buyTs ? new Date(buyTs).toLocaleTimeString() : "—"} → Sell {sellTs ? new Date(sellTs).toLocaleTimeString() : "open"} · Route {ev.route || ev.flow || "—"}</div>
+                                          <div>In {fmtUsd(Number(ev.buyUsd || ev.amountInUsd || 0))} · Out {ev.sellUsd ? fmtUsd(Number(ev.sellUsd)) : "open"} · Gross {fmtUsd(Number(ev.grossUsd || ev.grossProfitUsd || 0))} · Costs {fmtUsd(Number(ev.costsUsd || 0))} · Net {fmtUsd(Number(ev.netUsd || ev.netProfitUsd || 0))}</div>
+                                          <div>Trade {ev.trade_id || "—"} · Event {ev.event_id || ev.id || "—"}</div>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 ) : null}
                               </div>
-                            ) : null}
+                              );
+                            })()}
                           </div>
 
                           <div

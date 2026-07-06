@@ -20856,7 +20856,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 a.href = url; a.download = `nkr-event-history-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
                               };
                               const exportCsv = () => {
-                                const cols = ["event_id","trade_id","session_id","status","action","targetAsset","route","buyTime","sellTime","buyUsd","sellUsd","grossUsd","costsUsd","netUsd","netPct","addedToCollectedProfit","alreadyCounted","reason"];
+                                const cols = ["event_id","trade_id","session_id","status","action","targetAsset","route","buyTime","sellTime","buyPriceUsd","sellPriceUsd","buyUsd","sellUsd","grossUsd","costsUsd","netUsd","netPct","addedToCollectedProfit","alreadyCounted","reason"];
                                 const esc = (v) => `"${String(v ?? "").replaceAll('"', '""')}"`;
                                 const lines = [cols.join(","), ...filteredEvents.map((ev) => cols.map((c) => esc(ev?.[c])).join(","))];
                                 const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
@@ -20894,10 +20894,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       const st = String(ev?.status || ev?.action || "EVENT").toUpperCase();
                                       const buyTs = ev?.buyTime || ev?.openedAt || ev?.ts;
                                       const sellTs = ev?.sellTime || ev?.closedAt;
+                                      const buyPrice = Number(ev?.buyPriceUsd ?? ev?.entryPriceUsd ?? ev?.entry_price_usd ?? ev?.entryPrice ?? 0);
+                                      const sellPrice = Number(ev?.sellPriceUsd ?? ev?.exitPriceUsd ?? ev?.exit_price_usd ?? ev?.exitPrice ?? 0);
                                       return (
                                         <div key={ev.event_id || ev.id || `${ev.trade_id}-${ev.ts}`} className="muted tiny" style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 5 }}>
                                           <div><b style={{ color: st.includes("CLOSED") ? "#86efac" : "#8bdcff" }}>{new Date(ev.ts).toLocaleTimeString()} · {ev.targetAsset || ev.sessionSymbol || "ASSET"} · {st}</b> {ev.addedToCollectedProfit ? "· added to Collected Profit" : ""}</div>
-                                          <div>Buy {buyTs ? new Date(buyTs).toLocaleTimeString() : "—"} → Sell {sellTs ? new Date(sellTs).toLocaleTimeString() : "open"} · Route {ev.route || ev.flow || "—"}</div>
+                                          <div>Buy {buyTs ? new Date(buyTs).toLocaleTimeString() : "—"} @ {buyPrice > 0 ? fmtUsd(buyPrice) : "price missing"} → Sell {sellTs ? new Date(sellTs).toLocaleTimeString() : "open"} @ {sellPrice > 0 ? fmtUsd(sellPrice) : (sellTs ? "price missing" : "open")}</div>
+                                          <div>Route {ev.route || ev.flow || "—"}</div>
                                           <div>In {fmtUsd(Number(ev.buyUsd || ev.amountInUsd || 0))} · Out {ev.sellUsd ? fmtUsd(Number(ev.sellUsd)) : "open"} · Gross {fmtUsd(Number(ev.grossUsd || ev.grossProfitUsd || 0))} · Costs {fmtUsd(Number(ev.costsUsd || 0))} · Net {fmtUsd(Number(ev.netUsd || ev.netProfitUsd || 0))}</div>
                                           <div>Trade {ev.trade_id || "—"} · Event {ev.event_id || ev.id || "—"}</div>
                                         </div>

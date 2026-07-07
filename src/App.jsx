@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.07-ENGINE-084-NKR-AGGRESSIVE-REPLACEMENT-UNBLOCKED";
+const FRONTEND_BUILD_ID = "F-2026.07.07-ENGINE-086-NKR-CAPITAL-MOVEMENT-LEDGER";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -10962,7 +10962,8 @@ const [aiLoading, setAiLoading] = useState(false);
           .slice()
           .sort((a, b) => Number(a?.score || a?.confidence || 0) - Number(b?.score || b?.confidence || 0))[0] || null;
         const weakestScore = Number(weakestActive?.score || weakestActive?.confidence || 0) || 0;
-        const canAddFreeSlot = runnableSessions.length < maxNkrSessions && freeForPromotion >= Math.max(100, totalBudgetForPromotion * 0.02);
+        // ENGINE-085: no automatic free-slot fill. Max sessions is a ceiling, not a target.
+        const canAddFreeSlot = false;
         const canReplaceWeakest = weakestActive && promotionCandidate.score >= Math.max(promotionMinScore, weakestScore + 5);
         if (canAddFreeSlot || canReplaceWeakest) {
           const promoteUsd = canAddFreeSlot
@@ -11011,7 +11012,7 @@ const [aiLoading, setAiLoading] = useState(false);
               selected_symbol: promotionCandidate.symbol,
               source_symbol: promotionCandidate.symbol,
               nkr_watch_pool: "NKR_WATCH_POOL_PROMOTION_V1",
-              nkr_promotion_reason: canAddFreeSlot ? "free_slot_candidate_became_strong" : "candidate_replaced_weaker_active_session",
+              nkr_promotion_reason: "candidate_replaced_weaker_active_session_no_autofill",
               replaced_symbol: canReplaceWeakest ? String(weakestActive?.targetAsset || weakestActive?.symbol || "").toUpperCase() : "",
               replaced_score: canReplaceWeakest ? weakestScore : null,
               promotion_score: promotionCandidate.score,
@@ -11030,7 +11031,7 @@ const [aiLoading, setAiLoading] = useState(false);
           setRotationShadowEvents((prev) => [{
             id: `NKR-PROMOTE-${nowStart}`,
             ts: nowStart,
-            text: `WATCH_POOL → READY_DISPATCHED: ${promotionCandidate.symbol} score ${promotionCandidate.score}/100 ${canReplaceWeakest ? `replaced weaker ${String(weakestActive?.targetAsset || weakestActive?.symbol || "session").toUpperCase()} (${weakestScore}/100)` : "used free NKR slot"}.`,
+            text: `WATCH_POOL → READY_DISPATCHED: ${promotionCandidate.symbol} score ${promotionCandidate.score}/100 replaced weaker ${String(weakestActive?.targetAsset || weakestActive?.symbol || "session").toUpperCase()} (${weakestScore}/100). No free-slot autofill.`,
           }, ...(Array.isArray(prev) ? prev : [])]);
         }
       }
@@ -11163,7 +11164,7 @@ const [aiLoading, setAiLoading] = useState(false);
           if (deletedIds.has(String(sess?.id || sess?.session_id || ""))) return sess;
           if (String(sess?.id || "") !== String(firstActive?.id || "")) return sess;
           const currentStatus = String(sess?.status || "").toUpperCase();
-          if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED", "ARCHIVED"].includes(currentStatus)) return sess;
+          if (["STOPPED", "CLOSED", "CANCELLED", "EXPIRED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL"].includes(currentStatus)) return sess;
           const prevEvents = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [];
           const nextEvents = sessionEvent ? [sessionEvent, ...prevEvents] : prevEvents;
           const prevTotalEvents = Number(sess?.totalEventCount ?? sess?.eventCount ?? sess?.meta?.nkr_total_event_count ?? prevEvents.length) || prevEvents.length;
@@ -20042,7 +20043,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return { border: "rgba(255,255,255,.12)", bg: cardBg, pill: "silver", color: "rgba(235,255,247,.78)" };
                       };
                       const rotationMaxActive = Math.max(1, Math.floor(Number(String(rotationMaxActiveSessions || "3").replace(",", ".")) || 3));
-                      const rotationAllocatableRows = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s)));
+                      const rotationAllocatableRows = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL"].includes(getRotationDerivedStatus(s)));
                       const rotationAllocatedUsd = rotationAllocatableRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
                       const rotationProfitUsd = rotationRows.reduce((sum, sess) => {
                         const candidates = [

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.07-ENGINE-083-NKR-AGGRESSIVE-REALLOCATION";
+const FRONTEND_BUILD_ID = "F-2026.07.07-ENGINE-084-NKR-AGGRESSIVE-REPLACEMENT-UNBLOCKED";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -10780,9 +10780,9 @@ const [aiLoading, setAiLoading] = useState(false);
         });
       }
 
-      // ENGINE-065: weak-session stop + rebalance. Active NKR sessions are not permanent.
-      // If a session is red/weak with no executor progress, NKR may stop/remove its card and
-      // redirect capital to the strongest green/outperforming setup. Cards may change dynamically.
+      // ENGINE-084: aggressive replacement unblocked. Active NKR sessions are not permanent.
+      // In Aggressive mode, open weak sessions may be replaced after a shorter age window
+      // when stronger green assets are available. 10 means max sessions, not fixed holdings.
       const runnableForRebalance = (Array.isArray(sessions) ? sessions : []).filter((s) => isRotationSessionRunnable(s, nowStart));
       const greenRebalanceTargets = Array.from(nkrMarketBySymbol.values())
         .filter((m) => String(m?.symbol || "").toUpperCase() && Number(m?.change24h || 0) >= 0 && Number(m?.score || 0) >= promotionMinScore)
@@ -10796,10 +10796,17 @@ const [aiLoading, setAiLoading] = useState(false);
         const events = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents.length : 0;
         const ageMin = (nowStart - Number(sess?.createdAt || sess?.startedAt || nowStart)) / 60000;
         const lastRebalanceAge = nowStart - Number(sess?.meta?.nkr_last_rebalance_ts || 0);
-        const hasOpenProgress = !!sess?.openRotation || events > 0;
+        const isAggressiveNkr = modeForPromotion === "AGGRESSIVE";
         if (!sym || !bestRebalanceTarget?.symbol || sym === String(bestRebalanceTarget.symbol).toUpperCase()) return false;
         if (lastRebalanceAge < 5 * 60 * 1000) return false;
-        return !hasOpenProgress && ageMin >= 20 && ch < -0.25 && score < Number(bestRebalanceTarget.score || 0) + 8;
+        const bestScore = Number(bestRebalanceTarget.score || 0);
+        const bestChange = Number(bestRebalanceTarget.change24h || 0);
+        if (isAggressiveNkr) {
+          // OpenRotation/events are NOT a brake in Aggressive. Hard Safety still applies in backend.
+          return ageMin >= 60 && bestChange >= 0 && ch < 0.15 && score <= bestScore - 5;
+        }
+        const hasOpenProgress = !!sess?.openRotation || events > 0;
+        return !hasOpenProgress && ageMin >= 20 && ch < -0.25 && score < bestScore - 8;
       });
       if (bestRebalanceTarget && weakForRebalance.length) {
         const targetSym = String(bestRebalanceTarget.symbol || "").toUpperCase();
@@ -10861,7 +10868,7 @@ const [aiLoading, setAiLoading] = useState(false);
                     flow: `${sym} → ${targetSym}`,
                     fromAsset: sym,
                     targetAsset: targetSym,
-                    reason: "weak_session_stopped_and_replaced_by_stronger_asset",
+                    reason: "aggressive_weak_session_replaced_by_stronger_green_asset",
                     netUsd: 0,
                   }, ...(Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [])],
                   lastRotationEvent: {
@@ -10877,7 +10884,7 @@ const [aiLoading, setAiLoading] = useState(false);
                     source_symbol: targetSym,
                     position_state: "READY_DISPATCHED",
                     nkr_rebalance_mode: "STOP_WEAK_SESSION_AND_REDIRECT_CAPITAL",
-                    nkr_rebalance_reason: `red_weak_no_executor_progress_stopped_and_replaced_by_${targetSym}`,
+                    nkr_rebalance_reason: `aggressive_weak_session_replaced_by_stronger_green_${targetSym}`,
                     nkr_previous_symbol: sym,
                     nkr_last_rebalance_ts: nowStart,
                     nkr_allocation_pct: allocationPctFromBudget(nextBudget),

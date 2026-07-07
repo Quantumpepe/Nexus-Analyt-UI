@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.07-ENGINE-086-NKR-CAPITAL-MOVEMENT-LEDGER";
+const FRONTEND_BUILD_ID = "F-2026.07.07-ENGINE-087-NKR-ACTIVE-ONLY-REBALANCE-AUDIT";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -20043,7 +20043,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return { border: "rgba(255,255,255,.12)", bg: cardBg, pill: "silver", color: "rgba(235,255,247,.78)" };
                       };
                       const rotationMaxActive = Math.max(1, Math.floor(Number(String(rotationMaxActiveSessions || "3").replace(",", ".")) || 3));
-                      const rotationAllocatableRows = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL"].includes(getRotationDerivedStatus(s)));
+                      const NKR_INACTIVE_STATUSES = ["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL", "CAPITAL_RELEASED", "INACTIVE"];
+                      const rotationVisibleActiveRows = rotationRows.filter((s) => !NKR_INACTIVE_STATUSES.includes(getRotationDerivedStatus(s)));
+                      const rotationAllocatableRows = rotationVisibleActiveRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL"].includes(getRotationDerivedStatus(s)));
                       const rotationAllocatedUsd = rotationAllocatableRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
                       const rotationProfitUsd = rotationRows.reduce((sum, sess) => {
                         const candidates = [
@@ -20059,7 +20061,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const v = candidates.map(Number).find((n) => Number.isFinite(n));
                         return sum + (Number.isFinite(v) ? v : 0);
                       }, 0);
-                      const activeRotations = rotationRows.filter((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "ARCHIVED"].includes(getRotationDerivedStatus(s))).length;
+                      const activeRotations = rotationVisibleActiveRows.length;
                       const pausedRotations = rotationRows.filter((s) => ["PAUSED"].includes(getRotationDerivedStatus(s))).length;
                       const controllableRotations = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s))).length;
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
@@ -20177,7 +20179,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div className="label" style={{ marginBottom: 0 }}>Active NKR Sessions</div>
                                 
                               </div>
-                              <span className="pill silver">{activeRotations} active / {rotationRows.length} total</span>
+                              <span className="pill silver">{activeRotations} active / {rotationMaxActive} max</span>
                             </div>
 
                             <div
@@ -20189,7 +20191,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 paddingRight: isCompactMobile ? 0 : 5,
                               }}
                             >
-                              {rotationRows.length ? rotationRows.map((sess, idx) => {
+                              {rotationVisibleActiveRows.length ? rotationVisibleActiveRows.map((sess, idx) => {
                                 const sym = String(sess?.symbol || "ASSET").toUpperCase();
                                 const liveRow = (Array.isArray(watchRows) ? watchRows : []).find((r) => String(r?.symbol || r?.sym || r?.asset || "").toUpperCase() === sym) || null;
                                 const livePrice = Number(liveRow?.price ?? liveRow?.usd ?? liveRow?.current_price ?? sess?.livePriceUsd ?? sess?.meta?.live_price_usd ?? 0) || 0;
@@ -20822,7 +20824,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <b style={{ color: rotationShadowSnapshot?.status === "error" ? "#ff8a8a" : "#86efac" }}>Runtime: {rotationShadowRuntimeStatus}</b>
                               <b style={{ color: rotationShadowWorkStatus === "RUNNING" ? "#86efac" : "#ffd166" }}>Status: {rotationShadowWorkStatus}</b>
                               <b style={{ color: "#8bdcff" }}>Readiness: {rotationShadowReadiness}</b>
-                              <b style={{ color: "#ffd166" }}>Simulated NKR sessions: {rotationRows.length}</b>
+                              <b style={{ color: "#ffd166" }}>Simulated NKR sessions: {activeRotations}</b>
                               <b>Best edge: {rotationShadowSnapshot?.bestScore ? `${rotationShadowSnapshot.bestScore}/100` : rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "—"}</b>
                               <b>Net: {Number.isFinite(Number(rotationShadowSnapshot?.netUsd)) ? fmtUsd(Number(rotationShadowSnapshot.netUsd)) : "—"}</b>
                               <b>Profit lock: {Number.isFinite(Number(rotationShadowSnapshot?.profitLockPct)) ? `${Number(rotationShadowSnapshot.profitLockPct).toFixed(2)}%` : "—"}</b>
@@ -20853,6 +20855,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   sellUsd: ev.sellUsd ?? ev.amountOutUsd ?? "",
                                   grossUsd: ev.grossUsd ?? ev.grossProfitUsd ?? "",
                                   netUsd: ev.netUsd ?? ev.netProfitUsd ?? "",
+                                  capitalMovedUsd: ev.capitalMovedUsd ?? ev.availableStableDeltaUsd ?? "",
+                                  capitalBeforeUsd: ev.capitalBeforeUsd ?? "",
+                                  capitalAfterUsd: ev.capitalAfterUsd ?? "",
                                 }))
                                 .filter((ev) => ev.status || ev.action || ev.targetAsset || ev.event_id || ev.trade_id);
                               const byId = new Map();
@@ -20867,7 +20872,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 if (filter === "ALL") return true;
                                 if (filter === "OPEN") return ["OPEN_POSITION", "BUY_OPEN", "POSITION_TRACKING", "EXECUTOR_ACTIVE", "DISPATCHED", "READY_DISPATCHED", "OPEN"].includes(st);
                                 if (filter === "CLOSED_PROFIT") return st === "CLOSED_PROFIT" || st === "SIMULATED_ROTATION_CLOSED";
-                                if (filter === "CLOSED_LOSS") return st === "CLOSED_LOSS";
+                                if (filter === "CLOSED_LOSS") return st === "CLOSED_LOSS" || st === "CLOSED_LOSS_REALLOCATE" || st === "REBALANCED_OUT";
+                                if (filter === "CAPITAL") return st === "CAPITAL_MOVEMENT" || st.includes("CAPITAL") || st.includes("REBALANCE");
                                 if (filter === "PROTECTED") return st.includes("PROTECT");
                                 if (filter === "SAFETY") return st.includes("SAFETY") || st.includes("PANIC");
                                 if (filter === "ERROR") return st.includes("ERROR") || st.includes("FAIL");
@@ -20881,7 +20887,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 a.href = url; a.download = `nkr-event-history-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
                               };
                               const exportCsv = () => {
-                                const cols = ["event_id","trade_id","session_id","status","action","targetAsset","route","buyTime","sellTime","buyPriceUsd","sellPriceUsd","buyUsd","sellUsd","grossUsd","costsUsd","netUsd","netPct","addedToCollectedProfit","alreadyCounted","reason"];
+                                const cols = ["event_id","trade_id","session_id","status","action","fromAsset","toAsset","targetAsset","route","buyTime","sellTime","buyPriceUsd","sellPriceUsd","buyUsd","sellUsd","grossUsd","costsUsd","netUsd","capitalBeforeUsd","capitalMovedUsd","capitalAfterUsd","netPct","addedToCollectedProfit","alreadyCounted","reason"];
                                 const val = (ev, c) => {
                                   if (c === "event_id") return ev?.event_id || ev?.id || ev?.eventId || "";
                                   if (c === "trade_id") return ev?.trade_id || ev?.tradeId || "";
@@ -20921,7 +20927,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 {rotationShadowEventsOpen ? (
                                   <div style={{ display: "grid", gap: 7, marginTop: 8 }}>
                                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                                      {["ALL","OPEN","CLOSED_PROFIT","CLOSED_LOSS","PROTECTED","SAFETY","ERROR"].map((f) => (
+                                      {["ALL","OPEN","CLOSED_PROFIT","CLOSED_LOSS","CAPITAL","PROTECTED","SAFETY","ERROR"].map((f) => (
                                         <button key={f} type="button" className="miniBtn" onClick={() => setRotationShadowEventsFilter(f)} style={{ opacity: rotationShadowEventsFilter === f ? 1 : 0.68 }}>{f.replace("_", " ")}</button>
                                       ))}
                                       <button type="button" className="miniBtn" onClick={() => setRotationShadowEventsShowAll((v) => !v)}>{rotationShadowEventsShowAll ? "Show latest 10" : "Show Full History"}</button>
@@ -20939,6 +20945,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           <div><b style={{ color: st.includes("CLOSED") ? "#86efac" : "#8bdcff" }}>{new Date(ev.ts).toLocaleTimeString()} · {ev.targetAsset || ev.sessionSymbol || "ASSET"} · {st}</b> {ev.addedToCollectedProfit ? "· added to Collected Profit" : ""}</div>
                                           <div>Buy {buyTs ? new Date(buyTs).toLocaleTimeString() : "—"} @ {buyPrice > 0 ? fmtUsd(buyPrice) : "price missing"} → Sell {sellTs ? new Date(sellTs).toLocaleTimeString() : "open"} @ {sellPrice > 0 ? fmtUsd(sellPrice) : (sellTs ? "price missing" : "open")}</div>
                                           <div>Route {ev.route || ev.flow || "—"}</div>
+                                          {st === "CAPITAL_MOVEMENT" ? (
+                                            <div><b style={{ color: "#ffd166" }}>Capital movement:</b> {ev.fromAsset || "—"} → {ev.toAsset || ev.baseAsset || "USDT"} · Before {fmtUsd(Number(ev.capitalBeforeUsd || 0))} · Moved {fmtUsd(Number(ev.capitalMovedUsd || ev.availableStableDeltaUsd || 0))} · After {fmtUsd(Number(ev.capitalAfterUsd || 0))} · not profit</div>
+                                          ) : null}
                                           <div>In {fmtUsd(Number(ev.buyUsd || ev.amountInUsd || 0))} · Out {ev.sellUsd ? fmtUsd(Number(ev.sellUsd)) : "open"} · Gross {fmtUsd(Number(ev.grossUsd || ev.grossProfitUsd || 0))} · Costs {fmtUsd(Number(ev.costsUsd || 0))} · Net {fmtUsd(Number(ev.netUsd || ev.netProfitUsd || 0))}</div>
                                           <div>Trade {ev.trade_id || "—"} · Event {ev.event_id || ev.id || "—"}</div>
                                         </div>
@@ -20965,7 +20974,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }}
                           >
                             <div>
-                              <b style={{ color: "#eafff5" }}>Nexus NKR Status: Session {rotationRows.length ? "Active" : "Waiting"} · Shadow {rotationShadowWorkStatus}</b>
+                              <b style={{ color: "#eafff5" }}>Nexus NKR Status: Session {activeRotations ? "Active" : "Waiting"} · Shadow {rotationShadowWorkStatus}</b>
                               <div className="muted tiny">Nexus NKR uses capital mode, observation window, profit mode and period settings. Live Vault execution is still disabled in Shadow mode.</div>
                             </div>
                           </div>

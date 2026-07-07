@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.06-ENGINE-081-NKR-REAL-PRICE-PNL-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.06-ENGINE-082-NKR-BACKEND-ONLY-PROFIT-AUDIT";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -11161,16 +11161,18 @@ const [aiLoading, setAiLoading] = useState(false);
           const nextEvents = sessionEvent ? [sessionEvent, ...prevEvents] : prevEvents;
           const prevTotalEvents = Number(sess?.totalEventCount ?? sess?.eventCount ?? sess?.meta?.nkr_total_event_count ?? prevEvents.length) || prevEvents.length;
           const nextTotalEvents = prevTotalEvents + (sessionEvent ? 1 : 0);
+          // ENGINE-082: frontend may display shadow activity, but it must NEVER book collected profit.
+          // Collected Profit is backend-owned only, otherwise the same close can be counted once in UI
+          // and once again by /api/nkr/executor-tick.
           const prevCollected = Number(sess?.collectedProfitUsd ?? sess?.meta?.collectedProfitUsd ?? 0) || 0;
           const countedProfitIds = new Set(sess?.countedProfitTradeIds || sess?.meta?.nkr_counted_profit_trade_ids || []);
-          const localTradeId = String(sessionEvent?.trade_id || sessionEvent?.id || "");
-          const addCollected = completedEvent && localTradeId && !countedProfitIds.has(localTradeId) ? Math.max(0, Number(netUsd) || 0) : 0;
-          if (addCollected > 0) countedProfitIds.add(localTradeId);
+          const addCollected = 0;
           if (sessionEvent && completedEvent) {
-            sessionEvent.addedToCollectedProfit = addCollected > 0;
-            sessionEvent.alreadyCounted = addCollected <= 0;
+            sessionEvent.addedToCollectedProfit = false;
+            sessionEvent.alreadyCounted = true;
+            sessionEvent.reason = `${sessionEvent.reason || "frontend_shadow"}_display_only_backend_books_profit`;
           }
-          const nextCollected = prevCollected + addCollected;
+          const nextCollected = prevCollected;
           const prevGross = Number(sess?.grossProfitUsd ?? 0) || 0;
           const prevCosts = Number(sess?.costsUsd ?? 0) || 0;
           const prevNet = Number(sess?.netProfitUsd ?? sess?.rotationProfitUsd ?? sess?.profitUsd ?? 0) || 0;

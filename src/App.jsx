@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-090-NKR-DEPLOY-AVAILABLE-CAPITAL-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-094-TRADING-ROOT-RUNTIME-PRICE-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -864,14 +864,20 @@ function getTradingSessionLivePriceInfo(session, slots = [], asset = "", watchRo
     }
   }
 
+  // ENGINE-094 ROOT FIX:
+  // Trading live display must use the backend paper mark price first. Session/card
+  // values and watchlist rows can be stale or cached; using them above the slot mark
+  // made Trader live prices look wrong even when the backend tick had the correct mark.
   const price = _nexusNumberOrNull(
+    slotPrice,
+    sess?.paper_mark_price, sess?.paperMarkPrice,
+    sessionMeta?.paper_mark_price, sessionMeta?.paperMarkPrice,
     sess?.live_price_usd, sess?.livePriceUsd,
     sess?.current_price_usd, sess?.currentPriceUsd,
     sess?.mark_price_usd, sess?.markPriceUsd,
     sessionMeta?.live_price_usd, sessionMeta?.livePriceUsd,
     sessionMeta?.current_price_usd, sessionMeta?.currentPriceUsd,
     sessionMeta?.mark_price_usd, sessionMeta?.markPriceUsd,
-    slotPrice,
     row?.price, row?.usd, row?.current_price, row?.currentPrice
   );
   if (price === null) return null;
@@ -8061,11 +8067,11 @@ useEffect(() => {
       ? "STRONG_GREEN"
       : (frontendMarketScore >= 60 && frontendBreadth >= 45 && frontendMcap >= 0.3)
         ? "GREEN"
-        : (frontendMarketScore < 35 || frontendMcap <= -1 || frontendBreadth <= 30)
+        : ((frontendMarketScore < 30 && frontendBreadth <= 35) || frontendMcap <= -1.8 || frontendBreadth <= 20)
           ? "RED"
           : "NEUTRAL";
     const regimeRaw = String(
-      strategist?.market_regime ?? strategist?.regime ?? runtime?.market_regime ?? runtime?.regime ?? summary?.market_regime ?? frontendRegime ?? "NEUTRAL"
+      strategist?.market_regime ?? strategist?.stable_market_regime ?? strategist?.regime ?? runtime?.market_regime ?? runtime?.stable_market_regime ?? runtime?.regime ?? summary?.market_regime ?? frontendRegime ?? "NEUTRAL"
     ).toUpperCase();
     const regime = regimeRaw.includes("STRONG") ? "STRONG_GREEN" : regimeRaw.includes("GREEN") ? "GREEN" : regimeRaw.includes("RED") || regimeRaw.includes("RISK_OFF") ? "RED" : "NEUTRAL";
     const regimeTone = regime === "RED"
@@ -8741,6 +8747,10 @@ useEffect(() => {
           global_market: shadowMarketContext,
           globalMarket: shadowMarketContext,
           persist_state: true,
+          run_all_sessions: true,
+          runAllSessions: true,
+          multi_session_runtime: true,
+          multiSessionRuntime: true,
         },
       };
       // Runtime actions are backend-first. Do NOT send the visible frontend queue
@@ -8768,7 +8778,7 @@ useEffect(() => {
       }
 
       setShadowExecutorState({ ...(shadowExecutorState || {}), ...(res || {}), last_run: shadowRun, run: shadowRun });
-      const strategist = shadowRun?.summary?.runtime?.strategist || {};
+      const strategist = shadowRun?.summary?.runtime?.strategist || res?.runtime?.strategist || res?.strategist || {};
       const extra = strategist?.driver ? ` Strategist: ${strategist.active_slots ?? 0} active, ${strategist.ready_slots ?? 0} ready, ${strategist.simulated_exits ?? 0} exited.` : "";
       setShadowExecutorMsg(`Shadow runtime ${runtimeStatus}.${extra} Paper-only; no Vault transaction triggered.`);
       await refreshNexusBackendState();

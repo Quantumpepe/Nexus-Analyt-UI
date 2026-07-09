@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-094-TRADING-ROOT-RUNTIME-PRICE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-095-TRADING-REGIME-PRICE-SINGLE-SOURCE-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -8070,8 +8070,10 @@ useEffect(() => {
         : ((frontendMarketScore < 30 && frontendBreadth <= 35) || frontendMcap <= -1.8 || frontendBreadth <= 20)
           ? "RED"
           : "NEUTRAL";
+    // ENGINE-095: use backend smoothed/stable regime first. Do not recompute RED/GREEN
+    // from local frontend context if the backend already provides a stable regime.
     const regimeRaw = String(
-      strategist?.market_regime ?? strategist?.stable_market_regime ?? strategist?.regime ?? runtime?.market_regime ?? runtime?.stable_market_regime ?? runtime?.regime ?? summary?.market_regime ?? frontendRegime ?? "NEUTRAL"
+      strategist?.stable_market_regime ?? strategist?.market_regime ?? runtime?.stable_market_regime ?? runtime?.market_regime ?? summary?.stable_market_regime ?? summary?.market_regime ?? frontendRegime ?? "NEUTRAL"
     ).toUpperCase();
     const regime = regimeRaw.includes("STRONG") ? "STRONG_GREEN" : regimeRaw.includes("GREEN") ? "GREEN" : regimeRaw.includes("RED") || regimeRaw.includes("RISK_OFF") ? "RED" : "NEUTRAL";
     const regimeTone = regime === "RED"

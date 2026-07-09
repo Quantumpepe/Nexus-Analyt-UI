@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-088-NKR-WATCHLIST-GREEN-PROMOTION-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-089-NKR-ALLOCATED-OVERVIEW-SUM-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -20046,7 +20046,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const NKR_INACTIVE_STATUSES = ["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL", "CAPITAL_RELEASED", "INACTIVE"];
                       const rotationVisibleActiveRows = rotationRows.filter((s) => !NKR_INACTIVE_STATUSES.includes(getRotationDerivedStatus(s)));
                       const rotationAllocatableRows = rotationVisibleActiveRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL"].includes(getRotationDerivedStatus(s)));
-                      const rotationAllocatedUsd = rotationAllocatableRows.reduce((sum, sess) => sum + (Number(sess?.budgetUsd) || 0), 0);
+                      const getNkrSessionWorkingCapitalUsd = (sess) => {
+                        const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+                        const candidates = [
+                          sess?.workingCapitalUsd,
+                          sess?.sessionCapitalUsd,
+                          sess?.currentCapitalUsd,
+                          sess?.allocatedUsd,
+                          sess?.reservedCapitalUsd,
+                          sess?.budgetUsd,
+                          meta?.workingCapitalUsd,
+                          meta?.working_capital_usd,
+                          meta?.sessionCapitalUsd,
+                          meta?.session_capital_usd,
+                          meta?.currentCapitalUsd,
+                          meta?.current_capital_usd,
+                          meta?.allocatedUsd,
+                          meta?.allocated_usd,
+                          meta?.reservedCapitalUsd,
+                          meta?.reserved_capital_usd,
+                          meta?.budgetUsd,
+                          meta?.budget_usd,
+                        ];
+                        for (const v of candidates) {
+                          const n = Number(v);
+                          if (Number.isFinite(n) && n > 0) return n;
+                        }
+                        return 0;
+                      };
+                      const rotationAllocatedUsd = rotationAllocatableRows.reduce((sum, sess) => sum + getNkrSessionWorkingCapitalUsd(sess), 0);
                       const rotationProfitUsd = rotationRows.reduce((sum, sess) => {
                         const candidates = [
                           sess?.profitUsd,
@@ -20208,7 +20236,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const runtimeText = fmtRotationDuration(rotationNow - startTs);
                                 const leftText = expiresTs ? (expiresTs > rotationNow ? fmtRotationDuration(expiresTs - rotationNow) : "expired") : "—";
                                 const baseAsset = String(sess?.baseAsset || sess?.payoutAsset || sess?.meta?.base_asset || manualPayoutAsset || "USDC").toUpperCase();
-                                const workingCapital = Number(sess?.workingCapitalUsd ?? sess?.sessionCapitalUsd ?? budget) || budget;
+                                const workingCapital = getNkrSessionWorkingCapitalUsd(sess) || budget;
                                 const allocationBaseUsd = Number(sess?.nkrTotalBudgetUsd || sess?.meta?.nkr_total_budget_usd || typedNkrBudgetUsd || rotationAllocatedUsd || 0) || 0;
                                 const savedAllocationPct = Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct || 0) || 0;
                                 const liveAllocationPct = allocationBaseUsd > 0 ? (workingCapital / allocationBaseUsd) * 100 : savedAllocationPct;

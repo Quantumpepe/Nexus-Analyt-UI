@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-095-TRADING-REGIME-PRICE-SINGLE-SOURCE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-097-NKR-ACTIVE-HOT-PRICE-CACHE";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -20112,8 +20112,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         : Number.isFinite(activeNkrBudgetUsd) && activeNkrBudgetUsd > 0
                           ? activeNkrBudgetUsd
                           : 0;
-                      const topProfitRotation = rotationRows
-                        .filter((sess) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(sess)))
+                      // ENGINE-096: Top Profit Asset must describe the currently active NKR book.
+                      // Rebalanced-out/closed sessions remain in Event History, but must not keep
+                      // POL or any old winner displayed as top asset after it was removed.
+                      const topProfitRotation = rotationVisibleActiveRows
                         .map((sess) => {
                           const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
                           const profit = Number(

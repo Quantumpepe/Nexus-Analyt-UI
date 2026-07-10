@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-097-NKR-ACTIVE-HOT-PRICE-CACHE";
+const FRONTEND_BUILD_ID = "F-2026.07.10-ENGINE-101-NKR-TOPUP-STATE-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -6912,6 +6912,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [nkrPeriodDays, setNkrPeriodDays] = useState("10");
   const [nkrControlState, setNkrControlState] = useState("WAITING");
   const [rotationBudgetRelease, setRotationBudgetRelease] = useState("");
+  // ENGINE-101: separate draft input for adding capital to an active NKR run.
+  // Never bind this field to rotationBudgetRelease, which is the authoritative current total budget.
+  const [rotationCapitalTopup, setRotationCapitalTopup] = useState("");
   const [rotationRiskLimit, setRotationRiskLimit] = useState("");
   const [rotationMinNetAdvantage, setRotationMinNetAdvantage] = useState("0.5");
   const [rotationMaxSlippage, setRotationMaxSlippage] = useState("1");
@@ -7363,7 +7366,8 @@ useEffect(() => {
 
 
   const topUpActiveNkrCapital = useCallback(async () => {
-    const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+    // ENGINE-101: the top-up draft is independent from the running total budget.
+    const amount = Number(String(rotationCapitalTopup || "").replace(",", "."));
     if (!Number.isFinite(amount) || amount <= 0) return;
     try {
       setRotationBackendLoading(true);
@@ -7371,7 +7375,11 @@ useEffect(() => {
         method: "POST", token, wallet, body: { amountUsd: amount },
       });
       if (Array.isArray(res?.sessions)) setRotationSessions(res.sessions);
-      if (Number.isFinite(Number(res?.newBudgetUsd))) setRotationBudgetRelease(String(Number(res.newBudgetUsd)));
+      if (Number.isFinite(Number(res?.newBudgetUsd))) {
+        // Only the confirmed backend total may update the authoritative NKR budget.
+        setRotationBudgetRelease(String(Number(res.newBudgetUsd)));
+      }
+      setRotationCapitalTopup("");
       setRotationBudgetReleased(true);
       setNkrControlState("RUNNING");
       setRotationBackendMsg(res?.message || `Capital added: ${fmtUsd(amount)}.`);
@@ -7380,7 +7388,7 @@ useEffect(() => {
     } finally {
       setRotationBackendLoading(false);
     }
-  }, [rotationBudgetRelease, token, wallet]);
+  }, [rotationCapitalTopup, token, wallet]);
 
 
   const resetRotationBudgetRelease = useCallback(() => {
@@ -20452,12 +20460,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         />
                       </div>
                       <div className="formRow">
-                        <label>{Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? "Add Capital ($)" : "NKR Budget ($)"}</label>
-                        <input
-                          value={rotationBudgetRelease}
-                          onChange={(e) => handleNkrBudgetInputChange(e.target.value)}
-                          placeholder={Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? "e.g. add 3000" : "e.g. 12000"}
-                        />
+                        {(() => {
+                          const hasActiveNkrRun = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase()));
+                          return (
+                            <>
+                              <label>{hasActiveNkrRun ? "Add Capital ($)" : "NKR Budget ($)"}</label>
+                              <input
+                                value={hasActiveNkrRun ? rotationCapitalTopup : rotationBudgetRelease}
+                                onChange={(e) => {
+                                  if (hasActiveNkrRun) {
+                                    setRotationCapitalTopup(e.target.value);
+                                  } else {
+                                    handleNkrBudgetInputChange(e.target.value);
+                                  }
+                                }}
+                                placeholder={hasActiveNkrRun ? "e.g. add 3000" : "e.g. 12000"}
+                              />
+                            </>
+                          );
+                        })()}
                       </div>
                       <div className="formRow">
                         <label>Max Active NKR Assets</label>
@@ -20778,7 +20799,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         className={rotationBudgetReleased ? "miniBtn" : "btn"}
                         type="button"
                         disabled={(() => {
-                          const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+                          const hasActiveNkrRun = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase()));
+                          const rawAmount = hasActiveNkrRun ? rotationCapitalTopup : rotationBudgetRelease;
+                          const amount = Number(String(rawAmount || "").replace(",", "."));
                           return !Number.isFinite(amount) || amount <= 0;
                         })()}
                         onClick={Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? topUpActiveNkrCapital : releaseRotationBudget}

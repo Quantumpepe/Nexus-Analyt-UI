@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-098-NKR-CUSTOM-PERIOD-SESSION-START-MODE";
+const FRONTEND_BUILD_ID = "F-2026.07.10-ENGINE-099-NKR-PERIOD-ISOLATED-CAPITAL-STATE-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -20148,13 +20148,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const pausedRotations = rotationRows.filter((s) => ["PAUSED"].includes(getRotationDerivedStatus(s))).length;
                       const controllableRotations = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s))).length;
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
+                      // ENGINE-099: Setup form values describe the NEXT budget only. They must never
+                      // overwrite the accounting view of an already-running NKR book.
+                      const activeBookSession = rotationVisibleActiveRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationVisibleActiveRows[0] || firstRotation || null;
+                      const activeBookMeta = activeBookSession?.meta && typeof activeBookSession.meta === "object" ? activeBookSession.meta : {};
                       const typedNkrBudgetUsd = Number(String(rotationBudgetRelease || "").replace(",", "."));
-                      const activeNkrBudgetUsd = Number(firstRotation?.budgetUsd || firstRotation?.approvedBudgetUsd || firstRotation?.reservedCapitalUsd || firstRotation?.allocatedUsd || 0);
-                      const nkrBudgetUsd = Number.isFinite(typedNkrBudgetUsd) && typedNkrBudgetUsd > 0
-                        ? typedNkrBudgetUsd
-                        : Number.isFinite(activeNkrBudgetUsd) && activeNkrBudgetUsd > 0
-                          ? activeNkrBudgetUsd
-                          : 0;
+                      const activeTotalBudgetCandidates = [
+                        activeBookSession?.totalNkrBudgetUsd,
+                        activeBookSession?.totalBudgetUsd,
+                        activeBookSession?.approvedTotalBudgetUsd,
+                        activeBookMeta?.totalNkrBudgetUsd,
+                        activeBookMeta?.total_nkr_budget_usd,
+                        activeBookMeta?.totalBudgetUsd,
+                        activeBookMeta?.total_budget_usd,
+                      ];
+                      const activeTotalBudgetUsd = activeTotalBudgetCandidates.map(Number).find((n) => Number.isFinite(n) && n > 0) || 0;
+                      const hasActiveNkrBook = rotationVisibleActiveRows.length > 0;
+                      const nkrBudgetUsd = hasActiveNkrBook
+                        ? (activeTotalBudgetUsd > 0 ? activeTotalBudgetUsd : Math.max(0, rotationAllocatedUsd))
+                        : (Number.isFinite(typedNkrBudgetUsd) && typedNkrBudgetUsd > 0 ? typedNkrBudgetUsd : 0);
                       // ENGINE-096: Top Profit Asset must describe the currently active NKR book.
                       // Rebalanced-out/closed sessions remain in Event History, but must not keep
                       // POL or any old winner displayed as top asset after it was removed.
@@ -20193,10 +20205,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const px = Number(activeGridNativeUsd || 0);
                       const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
                       const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
-                      const modeForReserve = String(nkrCapitalMode || "DYNAMIC").trim().toUpperCase();
-                      const nkrReservePct = modeForReserve === "AGGRESSIVE" ? 10 : modeForReserve === "DEFENSIVE" ? 25 : 20;
+                      const activeModeRaw = activeBookSession?.nkrCapitalMode ?? activeBookMeta?.nkrCapitalMode ?? activeBookMeta?.nkr_capital_mode;
+                      const modeForReserve = String((hasActiveNkrBook ? activeModeRaw : nkrCapitalMode) || "DYNAMIC").trim().toUpperCase();
+                      const storedReservePct = Number(activeBookSession?.cashReservePct ?? activeBookMeta?.cashReservePct ?? activeBookMeta?.cash_reserve_pct);
+                      // Keep this mapping identical to the allocator. Period/queue UI must not alter it.
+                      const policyReservePct = modeForReserve === "AGGRESSIVE" ? 10 : modeForReserve === "DEFENSIVE" ? 35 : modeForReserve === "TACTICAL" ? 25 : 20;
+                      const nkrReservePct = hasActiveNkrBook && Number.isFinite(storedReservePct) && storedReservePct >= 0 && storedReservePct <= 100
+                        ? storedReservePct
+                        : policyReservePct;
                       const nkrProtectedReserveUsd = nkrBudgetUsd > 0 ? Math.max(0, nkrBudgetUsd * (nkrReservePct / 100)) : 0;
                       const nkrAvailableUsd = nkrBudgetUsd > 0 ? Math.max(0, nkrBudgetUsd - nkrProtectedReserveUsd - rotationAllocatedUsd) : 0;
+                      const nkrCapitalStateDeltaUsd = nkrBudgetUsd > 0 ? nkrBudgetUsd - (rotationAllocatedUsd + nkrProtectedReserveUsd + nkrAvailableUsd) : 0;
                       const availableUsd = nkrBudgetUsd > 0 ? nkrAvailableUsd : Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
                       const usagePct = nkrBudgetUsd > 0 ? Math.min(100, Math.max(0, (rotationAllocatedUsd / nkrBudgetUsd) * 100)) : vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
                       const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
@@ -20236,12 +20255,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {nkrBudgetUsd > 0 ? fmtUsd(availableUsd) : (vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending")}</div>
                               <div><b>Protected Reserve:</b> {nkrBudgetUsd > 0 ? fmtUsd(nkrProtectedReserveUsd) : "—"}</div>
                               <div><b>Nexus NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
+                              {Math.abs(nkrCapitalStateDeltaUsd) > 0.02 && <div style={{ color: "#ff8a8a", fontWeight: 900 }}><b>Capital audit:</b> mismatch {fmtUsd(nkrCapitalStateDeltaUsd)}</div>}
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : "not set"}</span></div>
                               <div><b>Active NKR Sessions:</b> {activeRotations} / {rotationMaxActive}</div>
                               <div><b>Top Profit Asset:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTarget}</span></div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
-                              <div><b>Nexus NKR Mode:</b> {String(nkrCapitalMode || "DYNAMIC").replaceAll("_", " ")}</div>
+                              <div><b>Nexus NKR Mode:</b> {modeForReserve.replaceAll("_", " ")}</div>
                               <div><b>Observation:</b> {nkrObservationWindow}</div>
                               <div><b>Profit Mode:</b> {String(nkrProfitMode || "REINVEST").replaceAll("_", " ")}</div>
                               <div><b>Period:</b> {nkrPeriodDays} days</div>

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-097-NKR-ACTIVE-HOT-PRICE-CACHE";
+const FRONTEND_BUILD_ID = "F-2026.07.09-ENGINE-098-NKR-CUSTOM-PERIOD-SESSION-START-MODE";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -6910,6 +6910,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [nkrObservationWindow, setNkrObservationWindow] = useState("1h");
   const [nkrProfitMode, setNkrProfitMode] = useState("REINVEST");
   const [nkrPeriodDays, setNkrPeriodDays] = useState("10");
+  const [nkrSessionStartMode, setNkrSessionStartMode] = useState("QUEUE");
   const [nkrControlState, setNkrControlState] = useState("WAITING");
   const [rotationBudgetRelease, setRotationBudgetRelease] = useState("");
   const [rotationRiskLimit, setRotationRiskLimit] = useState("");
@@ -6944,7 +6945,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const isRotationSessionRunnable = useCallback((sess, now = Date.now()) => {
     if (!sess || typeof sess !== "object") return false;
     const st = String(sess?.status || "APPROVED").toUpperCase();
-    if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "WATCH_POOL"].includes(st)) return false;
+    if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "WATCH_POOL", "QUEUED"].includes(st)) return false;
     const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
     return !exp || exp > now;
   }, []);
@@ -6955,6 +6956,29 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [activeTradingSessionId, setActiveTradingSessionId] = useState("");
   const [rotationSessions, setRotationSessions] = useState([]);
   const [activeRotationSessionId, setActiveRotationSessionId] = useState("");
+
+  // Start-after-current support: queued NKR budgets remain isolated until every
+  // earlier runnable NKR session has ended. The first queued session is then
+  // promoted without deleting its configuration or history.
+  useEffect(() => {
+    const now = Date.now();
+    const rows = Array.isArray(rotationSessions) ? rotationSessions : [];
+    const hasRunning = rows.some((s) => {
+      const st = String(s?.status || "").toUpperCase();
+      const exp = Number(s?.expiresAt || s?.expires_at || 0);
+      return !["QUEUED", "STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "WATCH_POOL"].includes(st) && (!exp || exp > now);
+    });
+    if (hasRunning) return;
+    const queued = rows.find((s) => String(s?.status || "").toUpperCase() === "QUEUED");
+    if (!queued?.id) return;
+    setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((s) =>
+      String(s?.id || "") === String(queued.id)
+        ? { ...s, status: "WAITING", lifecycleState: "WAITING", positionState: "WAITING", startedAt: now, updatedAt: now, meta: { ...(s.meta || {}), queued_at: s?.meta?.queued_at || s?.createdAt || now, activated_from_queue_at: now } }
+        : s
+    ));
+    setActiveRotationSessionId(String(queued.id));
+    setRotationBackendMsg(`Queued NKR session activated: ${String(queued.id).slice(0, 24)}`);
+  }, [rotationSessions]);
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
   const uiChainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
@@ -7157,13 +7181,23 @@ useEffect(() => {
     const runtimeRaw = Number(String(rotationRuntimeHours || "24").replace(",", "."));
     const runtimeHours = Math.max(1, Math.min(168, Number.isFinite(runtimeRaw) ? runtimeRaw : 24));
     const now = Date.now();
-    const activeExisting = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((s) => {
+    const currentRows = Array.isArray(rotationSessions) ? rotationSessions : [];
+    const activeRows = currentRows.filter((s) => {
       const st = String(s?.status || "").toUpperCase();
       const exp = Number(s?.expiresAt || s?.expires_at || 0);
-      return !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st) && (!exp || exp > now);
-    }).length;
-    if (activeExisting >= activeLimit) {
-      setRotationBackendMsg(`Max Active NKR Assets reached (${activeExisting}/${activeLimit}). Pause/stop one NKR session or increase the limit.`);
+      return !["QUEUED", "STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "WATCH_POOL"].includes(st) && (!exp || exp > now);
+    });
+    const activeExisting = activeRows.length;
+    const startMode = String(nkrSessionStartMode || "QUEUE").toUpperCase();
+    if (activeExisting > 0 && startMode === "REPLACE") {
+      setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((s) =>
+        activeRows.some((a) => String(a?.id || "") === String(s?.id || ""))
+          ? { ...s, status: "STOPPED", lifecycleState: "STOPPED", positionState: "CLOSED", stoppedAt: now, updatedAt: now, meta: { ...(s.meta || {}), stop_reason: "replaced_by_user_new_budget", replaced_at: now } }
+          : s
+      ));
+    }
+    if (activeExisting >= activeLimit && startMode !== "QUEUE" && startMode !== "REPLACE") {
+      setRotationBackendMsg(`Max Active NKR Assets reached (${activeExisting}/${activeLimit}).`);
       return;
     }
 
@@ -7225,7 +7259,9 @@ useEffect(() => {
     const candidateSymbol = String(pickedCandidate.coin || pickedCandidate.rawSymbol).toUpperCase();
     const sourceSymbol = String(pickedCandidate.rawSymbol).toUpperCase();
     const sessionId = makeNexusSessionId("ROT");
-    const expiresAt = now + runtimeHours * 60 * 60 * 1000;
+    const periodDays = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
+    const expiresAt = now + periodDays * 24 * 60 * 60 * 1000;
+    const shouldQueue = activeExisting > 0 && startMode === "QUEUE";
     setRotationBudgetReleased(true);
     setActiveRotationSessionId(sessionId);
     setRotationSessions((prev) => {
@@ -7239,15 +7275,16 @@ useEffect(() => {
           symbol: candidateSymbol,
           sourceSymbol,
           targetAsset: candidateSymbol,
-          status: "WAITING",
-          lifecycleState: "WAITING",
-          positionState: "WAITING",
+          status: shouldQueue ? "QUEUED" : "WAITING",
+          lifecycleState: shouldQueue ? "QUEUED" : "WAITING",
+          positionState: shouldQueue ? "QUEUED" : "WAITING",
           executionMode: "shadow",
           mode: rotationMode,
           nkrCapitalMode,
           nkrObservationWindow,
           nkrProfitMode,
-          nkrPeriodDays,
+          nkrPeriodDays: String(periodDays),
+          startMode,
           networkScope: rotationNetworkScope,
           runtimeHours,
           startedAt: now,
@@ -7286,8 +7323,11 @@ useEffect(() => {
             base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
             live_vault_ready: false,
             execution_mode: "shadow",
-            lifecycle_state: "WAITING",
-            position_state: "WAITING",
+            lifecycle_state: shouldQueue ? "QUEUED" : "WAITING",
+            position_state: shouldQueue ? "QUEUED" : "WAITING",
+            nkr_period_days: periodDays,
+            start_mode: startMode,
+            queued_at: shouldQueue ? now : null,
             locked_target_symbol: sourceSymbol,
             locked_chain: candidateChain,
             locked_base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
@@ -7303,8 +7343,11 @@ useEffect(() => {
         ...existing,
       ].slice(0, 20);
     });
-    setRotationBackendMsg(`NKR session approved ✓ ${sessionId}. Runtime ${runtimeHours}h, max active NKR sessions ${activeLimit}. Paper-only until live permissions are connected.`);
-  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset]);
+    setRotationBackendMsg(shouldQueue
+      ? `NKR budget queued ✓ ${sessionId}. It will start after the current NKR session. Period ${periodDays} days.`
+      : `NKR session approved ✓ ${sessionId}. Period ${periodDays} days, max active NKR assets ${activeLimit}. Paper-only until live permissions are connected.`
+    );
+  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, nkrSessionStartMode]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -20419,11 +20462,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </select>
                       </div>
                       <div className="formRow">
-                        <label>NKR Period</label>
-                        <select value={nkrPeriodDays} onChange={(e) => { setNkrPeriodDays(e.target.value); setRotationBudgetReleased(false); }}>
-                          <option value="10">10 days</option>
-                          <option value="20">20 days</option>
-                          <option value="30">Monthly / 30 days</option>
+                        <label>NKR Period (days)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          step="1"
+                          inputMode="numeric"
+                          value={nkrPeriodDays}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            setNkrPeriodDays(raw);
+                            setRotationBudgetReleased(false);
+                          }}
+                          onBlur={() => {
+                            const days = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
+                            setNkrPeriodDays(String(days));
+                          }}
+                          placeholder="e.g. 7, 14, 45"
+                        />
+                        <div className="muted tiny">Choose any whole number of days. This is independent of budget and observation window.</div>
+                      </div>
+                      <div className="formRow">
+                        <label>New budget start mode</label>
+                        <select value={nkrSessionStartMode} onChange={(e) => { setNkrSessionStartMode(e.target.value); setRotationBudgetReleased(false); }}>
+                          <option value="QUEUE">Start after current NKR session</option>
+                          <option value="REPLACE">Replace current NKR session now</option>
                         </select>
                       </div>
                       <div className="formRow">
@@ -20757,9 +20820,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return !Number.isFinite(amount) || amount <= 0;
                         })()}
                         onClick={releaseRotationBudget}
-                        title="Approve the NKR budget locally. Vault safety is checked internally when an order is created."
+                        title={nkrSessionStartMode === "REPLACE" ? "Stop the current NKR session and start this budget now." : "Queue this budget to start after the current NKR session."}
                       >
-                        {rotationBudgetReleased ? "Approve New NKR Session" : "Approve Budget"}
+                        {rotationBudgetReleased ? (nkrSessionStartMode === "REPLACE" ? "Replace with New Budget" : "Queue Next Budget") : "Approve Budget"}
                       </button>
                       {rotationBudgetReleased && (
                         <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>

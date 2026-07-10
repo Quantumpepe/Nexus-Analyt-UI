@@ -7362,6 +7362,27 @@ useEffect(() => {
   }, [rotationSelectedPick, activeGridChainKey, gridItem, rotationBudgetRelease, rotationMaxSlippage, rotationRiskLimit, rotationMinNetAdvantage, rotationSessions, activeRotationSessionId, token, wallet]);
 
 
+  const topUpActiveNkrCapital = useCallback(async () => {
+    const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    try {
+      setRotationBackendLoading(true);
+      const res = await api("/api/nkr/capital-topup", {
+        method: "POST", token, wallet, body: { amountUsd: amount },
+      });
+      if (Array.isArray(res?.sessions)) setRotationSessions(res.sessions);
+      if (Number.isFinite(Number(res?.newBudgetUsd))) setRotationBudgetRelease(String(Number(res.newBudgetUsd)));
+      setRotationBudgetReleased(true);
+      setNkrControlState("RUNNING");
+      setRotationBackendMsg(res?.message || `Capital added: ${fmtUsd(amount)}.`);
+    } catch (e) {
+      setRotationBackendMsg(`Capital top-up failed: ${e?.message || e}`);
+    } finally {
+      setRotationBackendLoading(false);
+    }
+  }, [rotationBudgetRelease, token, wallet]);
+
+
   const resetRotationBudgetRelease = useCallback(() => {
     setRotationBudgetReleased(false);
   }, []);
@@ -20419,19 +20440,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </select>
                       </div>
                       <div className="formRow">
-                        <label>NKR Period</label>
-                        <select value={nkrPeriodDays} onChange={(e) => { setNkrPeriodDays(e.target.value); setRotationBudgetReleased(false); }}>
-                          <option value="10">10 days</option>
-                          <option value="20">20 days</option>
-                          <option value="30">Monthly / 30 days</option>
-                        </select>
+                        <label>NKR Period (days)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="3650"
+                          step="1"
+                          value={nkrPeriodDays}
+                          onChange={(e) => { setNkrPeriodDays(e.target.value); setRotationBudgetReleased(false); }}
+                          placeholder="e.g. 7, 14, 45"
+                        />
                       </div>
                       <div className="formRow">
-                        <label>{Array.isArray(rotationSessions) && rotationSessions.length ? "Next NKR Budget ($)" : "NKR Budget ($)"}</label>
+                        <label>{Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? "Add Capital ($)" : "NKR Budget ($)"}</label>
                         <input
                           value={rotationBudgetRelease}
                           onChange={(e) => handleNkrBudgetInputChange(e.target.value)}
-                          placeholder={Array.isArray(rotationSessions) && rotationSessions.length ? "e.g. next 500" : "e.g. 500"}
+                          placeholder={Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? "e.g. add 3000" : "e.g. 12000"}
                         />
                       </div>
                       <div className="formRow">
@@ -20756,10 +20781,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
                           return !Number.isFinite(amount) || amount <= 0;
                         })()}
-                        onClick={releaseRotationBudget}
-                        title="Approve the NKR budget locally. Vault safety is checked internally when an order is created."
+                        onClick={Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? topUpActiveNkrCapital : releaseRotationBudget}
+                        title={Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? "Add capital to the existing NKR run." : "Approve the NKR budget locally. Vault safety is checked internally when an order is created."}
                       >
-                        {rotationBudgetReleased ? "Approve New NKR Session" : "Approve Budget"}
+                        {rotationBackendLoading ? "Working..." : (Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? "Add Capital" : (rotationBudgetReleased ? "Approve Budget" : "Approve Budget"))}
                       </button>
                       {rotationBudgetReleased && (
                         <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>

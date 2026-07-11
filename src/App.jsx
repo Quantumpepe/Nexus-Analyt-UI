@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-117-INTELLIGENCE-ONLY-REMOVED";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-118-SHADOW-LIVE-PAYMENT-RULES";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -4306,32 +4306,32 @@ useEffect(() => {
   const [gridBudgets, setGridBudgets] = useState({ totals: { locked_usd: 0, available_usd: 0 }, by_chain: {}, items: [], ts: null });
   const [gridBudgetsErr, setGridBudgetsErr] = useState("");
 
+  const [coreVaultAccounting, setCoreVaultAccounting] = useState(null);
+  const refreshCoreVaultAccounting = useCallback(async () => {
+    if (!wallet) { setCoreVaultAccounting(null); return; }
+    try {
+      const res = await api(`/api/nexus/core-vault/accounting`, { wallet });
+      setCoreVaultAccounting(res?.accounting || res || null);
+    } catch (_) { setCoreVaultAccounting(null); }
+  }, [wallet, api]);
+  useEffect(() => { refreshCoreVaultAccounting(); }, [refreshCoreVaultAccounting]);
+
   const coreVaultOverview = useMemo(() => {
-    let stableBalanceUsd = 0;
-    for (const row of Object.values(balByChain || {})) {
-      for (const value of Object.values(row?.stables || {})) {
-        const n = Number(value || 0);
-        if (Number.isFinite(n) && n > 0) stableBalanceUsd += n;
-      }
-    }
-    const securedProfitUsd = Math.max(0, Number(profitPayoutPreview?.securedProfitUsd || 0));
-    const protectedBaseUsd = Math.max(0, stableBalanceUsd - securedProfitUsd);
-    const allocatedUsd = Math.max(0, Number(gridBudgets?.totals?.locked_usd || 0));
-    const reserveUsd = Math.max(0, stableBalanceUsd - allocatedUsd - securedProfitUsd);
-    const availableBySource = {
-      SECURED_PROFIT_ONLY: securedProfitUsd,
-      BASE_CAPITAL: protectedBaseUsd,
-      ALL_STABLE: stableBalanceUsd,
+    const a = coreVaultAccounting || {};
+    const stableBalanceUsd = Math.max(0, Number(a.stableBalanceUsd || 0));
+    const securedProfitUsd = Math.max(0, Number(a.securedProfitUsd || 0));
+    const protectedBaseUsd = Math.max(0, Number(a.baseCapitalUsd || 0));
+    const allocatedUsd = Math.max(0, Number(a.allocatedUsd || 0));
+    const reserveUsd = Math.max(0, Number(a.reserveUsd || 0));
+    const isShadow = String(a.mode || "SHADOW").toUpperCase() !== "LIVE";
+    const availableBySource = isShadow ? { SECURED_PROFIT_ONLY: 0, BASE_CAPITAL: 0, ALL_STABLE: 0 } : {
+      SECURED_PROFIT_ONLY: securedProfitUsd, BASE_CAPITAL: protectedBaseUsd, ALL_STABLE: stableBalanceUsd,
     };
-    return {
-      stableBalanceUsd,
-      protectedBaseUsd,
-      securedProfitUsd,
-      allocatedUsd,
-      reserveUsd,
+    return { stableBalanceUsd, protectedBaseUsd, securedProfitUsd, allocatedUsd, reserveUsd,
       availableForWithdrawUsd: Math.max(0, Number(availableBySource[coreWithdrawSource] || 0)),
+      mode: isShadow ? "SHADOW" : "LIVE", isShadow, note: String(a.note || ""),
     };
-  }, [balByChain, profitPayoutPreview, gridBudgets, coreWithdrawSource]);
+  }, [coreVaultAccounting, coreWithdrawSource]);
 
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
@@ -5710,7 +5710,7 @@ const byChain = {};
   const STRATEGIST_MONTHLY_PRICE_USD = 50;
   const [subPlan, setSubPlan] = useState("core"); // core | strategist_weekly | strategist_monthly
   const [subChain, setSubChain] = useState("ETH"); // ETH | BNB | POL
-  const [subToken, setSubToken] = useState("USDT"); // USDC | USDT only
+  const [subToken, setSubToken] = useState("USDT"); // Core/monthly: USDC|USDT; weekly: NKR
 
   const selectedSubPlan = subPlan === "strategist_weekly" || subPlan === "strategist_monthly" ? subPlan : SUB_PLAN;
   const selectedSubPriceUsd =
@@ -5721,6 +5721,11 @@ const byChain = {};
     subPlan === "strategist_weekly" ? "Strategist Weekly" :
     subPlan === "strategist_monthly" ? "Strategist Monthly" :
     "Nexus Core";
+  const selectedSubPaymentAssets = subPlan === "strategist_weekly" ? ["NKR"] : ["USDT", "USDC"];
+  useEffect(() => {
+    if (subPlan === "strategist_weekly") setSubToken("NKR");
+    else if (subToken === "NKR") setSubToken("USDT");
+  }, [subPlan]);
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState("");
   const [autoRenewBusy, setAutoRenewBusy] = useState(false);
@@ -6008,13 +6013,11 @@ const byChain = {};
       if (!chainId) throw new Error("Unsupported chain.");
 
       const payToken = String(subToken || "").toUpperCase();
-      if (!["USDC", "USDT"].includes(payToken)) {
-        throw new Error("Subscription payment must be USDC or USDT.");
-      }
-
       const cfg = await fetchSubscribeConfig();
-      const treasury = String(cfg?.treasury || "").trim();
-      if (!/^0x[a-fA-F0-9]{40}$/.test(treasury)) throw new Error("Treasury address is not configured.");
+      const allowed = Array.isArray(cfg?.plans?.[subPlan]?.payment_assets) ? cfg.plans[subPlan].payment_assets : selectedSubPaymentAssets;
+      if (!allowed.includes(payToken)) throw new Error(`${selectedSubLabel} must be paid with ${allowed.join(" or ")}.`);
+      const recipient = payToken === "NKR" ? String(cfg?.nkr?.recipient || "").trim() : String(cfg?.treasury || "").trim();
+      if (!/^0x[a-fA-F0-9]{40}$/.test(recipient)) throw new Error(`${payToken} payment recipient is not configured.`);
 
       // Use the Privy embedded wallet provider for payment.
       // Do NOT use window.ethereum here: with Privy embedded wallets it can throw
@@ -6031,15 +6034,22 @@ const byChain = {};
 
       // Pay with stablecoin (USDC/USDT) on the selected chain.
       // Token address + decimals come from backend config first, then local safe fallback.
-      const spec = getSubscribeTokenSpec(cfg, chainKey, payToken);
-      if (!/^0x[a-fA-F0-9]{40}$/.test(String(spec.address || ""))) {
-        throw new Error(`${payToken} address is not configured for ${chainKey}.`);
+      let spec;
+      let paymentAmount;
+      if (payToken === "NKR") {
+        const nkr = cfg?.nkr || {};
+        if (Number(nkr.chain_id || 0) !== Number(chainId)) throw new Error(`NKR payment is available only on ${nkr.chain || "the configured network"}.`);
+        if (!nkr.configured) throw new Error("NKR payment is not configured yet.");
+        spec = { address: nkr.address, decimals: Number(nkr.decimals || 18) };
+        paymentAmount = Number(selectedSubPriceUsd) / Number(nkr.price_usd || 0);
+      } else {
+        spec = getSubscribeTokenSpec(cfg, chainKey, payToken);
+        paymentAmount = Number(selectedSubPriceUsd ?? cfg?.price_usd ?? SUB_PRICE_USD ?? 25);
       }
-
-      const priceUsd = String(selectedSubPriceUsd ?? cfg?.price_usd ?? SUB_PRICE_USD ?? "25");
-      const amountUnits = decimalStringToUnits(priceUsd, spec.decimals || 6);
-      if (amountUnits <= 0n) throw new Error("Payment amount is zero.");
-      const data = _erc20TransferData(treasury, amountUnits);
+      if (!/^0x[a-fA-F0-9]{40}$/.test(String(spec.address || ""))) throw new Error(`${payToken} address is not configured for ${chainKey}.`);
+      if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) throw new Error("Payment quote is unavailable.");
+      const amountUnits = decimalStringToUnits(String(paymentAmount), spec.decimals || 6);
+      const data = _erc20TransferData(recipient, amountUnits);
 
       const txHash = await provider.request({
         method: "eth_sendTransaction",
@@ -6070,7 +6080,7 @@ const byChain = {};
     } finally {
       setSubBusy(false);
     }
-  }, [wallet, subChain, subToken, selectedSubPlan, selectedSubPriceUsd, selectedSubLabel, billingEmail, token, api, refreshAccess, _getEmbeddedProvider, _trySwitchChain]);
+  }, [wallet, subChain, subToken, subPlan, selectedSubPlan, selectedSubPriceUsd, selectedSubLabel, selectedSubPaymentAssets, billingEmail, token, api, refreshAccess, _getEmbeddedProvider, _trySwitchChain]);
 
   // Best-pair explain (click -> modal)
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }
@@ -17427,7 +17437,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 ) : (
                   <div>
                                         <div className="hint" style={{ marginBottom: 8 }}>
-                      Select <b>Nexus Core</b> or the separate <b>Strategist</b> add-on. Pay with <b>USDC or USDT only</b>.
+                      Select <b>Nexus Core</b> or the separate <b>Strategist</b> add-on. Core and Monthly use <b>USDC/USDT</b>; Strategist Weekly uses <b>NKR only</b>.
                     </div>
 
                     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 10 }}>
@@ -17481,26 +17491,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </select>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                      <div style={{ flex: 1 }} />
-                      <button
-                        type="button"
-                        className={`pill ${subToken === "USDC" ? "active" : ""}`}
-                        style={{ color: "#fff", background: subToken === "USDC" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
-                        onClick={() => setSubToken("USDC")}
-                      >
-                        USDC
-                      </button>
-                      <button
-                        type="button"
-                        className={`pill ${subToken === "USDT" ? "active" : ""}`}
-                        style={{ color: "#fff", background: subToken === "USDT" ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
-                        onClick={() => setSubToken("USDT")}
-                      >
-                        USDT
-                      </button>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+                      <div className="hint" style={{ flex: 1, margin: 0 }}>Payment asset:</div>
+                      {selectedSubPaymentAssets.map((asset) => (
+                        <button
+                          key={asset}
+                          type="button"
+                          className={`pill ${subToken === asset ? "active" : ""}`}
+                          style={{ color: "#fff", background: subToken === asset ? "rgba(57,217,138,0.22)" : "rgba(0,0,0,0.18)", border: "none", cursor: "pointer" }}
+                          onClick={() => setSubToken(asset)}
+                        >
+                          {asset}
+                        </button>
+                      ))}
                     </div><div className="hint" style={{ marginBottom: 8, opacity: 0.9 }}>
-                      Selected: <b>{selectedSubLabel} ${selectedSubPriceUsd}</b> · <b>{subToken}</b>
+                      Selected: <b>{selectedSubLabel} · ${selectedSubPriceUsd}</b> · <b>{subToken}</b>
+                      {subToken === "NKR" ? " (NKR amount is quoted from the configured NKR/USD price before signing)" : ""}
                     </div>
 
                     <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.02)", margin: "10px 0" }}>
@@ -17508,14 +17514,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div>
                           <div style={{ fontWeight: 900 }}>Auto Renew</div>
                           <div className="hint" style={{ marginTop: 4, opacity: 0.82 }}>
-                            Optional. Keeps access active every 30 days with your Privy permission. USDC/USDT only.
+                            Optional for stablecoin plans. Core and Strategist Monthly use USDC/USDT. Strategist Weekly is NKR only.
                           </div>
                         </div>
                         <button
                           type="button"
                           className={`pill ${access?.auto_renew_enabled ? "active" : ""}`}
-                          disabled={autoRenewBusy}
-                          onClick={() => setAutoRenewPreference(!access?.auto_renew_enabled)}
+                          disabled={autoRenewBusy || subToken === "NKR"}
+                          onClick={() => subToken !== "NKR" && setAutoRenewPreference(!access?.auto_renew_enabled)}
                           style={{
                             color: "#fff",
                             background: access?.auto_renew_enabled ? "rgba(57,217,138,0.24)" : "rgba(0,0,0,0.18)",
@@ -17523,7 +17529,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             cursor: autoRenewBusy ? "wait" : "pointer"
                           }}
                         >
-                          {autoRenewBusy ? "..." : (access?.auto_renew_enabled ? "Auto Renew: ON" : "Auto Renew: OFF")}
+                          {subToken === "NKR" ? "Not available for NKR" : (autoRenewBusy ? "..." : (access?.auto_renew_enabled ? "Auto Renew: ON" : "Auto Renew: OFF"))}
                         </button>
                       </div>
 
@@ -17538,7 +17544,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     <div className="row" style={{ gap: 8, marginTop: 8 }}>
                       <button className="btn" disabled={subBusy} onClick={subscribePay}>
-                        {subBusy ? "..." : `Pay ${selectedSubPriceUsd} ${subToken} & Activate`}
+                        {subBusy ? "..." : `Pay ${subToken === "NKR" ? "NKR quote" : selectedSubPriceUsd + " " + subToken} & Activate`}
                       </button>
                       <button
                         className="btnGhost"
@@ -17706,6 +17712,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </>
               ) : (
                 <>
+                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: coreVaultOverview.isShadow ? "rgba(255,193,7,0.10)" : "rgba(0,255,166,0.08)", border: coreVaultOverview.isShadow ? "1px solid rgba(255,193,7,0.32)" : "1px solid rgba(0,255,166,0.25)" }}>
+                    <div style={{ fontWeight: 900 }}>Mode: {coreVaultOverview.mode}</div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{coreVaultOverview.note || (coreVaultOverview.isShadow ? "Simulated funds only." : "Live Vault accounting starts at zero until a real deposit is confirmed.")}</div>
+                  </div>
                   <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     {[
                       ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd, "USDC / USDT held by the Core Vault"],
@@ -17723,7 +17733,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
                   <div className="hint" style={{ marginTop: 10, fontSize: 10 }}>Vault deposits are fail-closed: Chain ID, exact contract, Owner approval and GoPlus security must all pass. A symbol alone is never trusted.</div>
                   <button type="button" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
-                  <button type="button" className="btnGhost" onClick={() => refreshBalances()} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
+                  <button type="button" className="btnGhost" onClick={() => { refreshBalances(); refreshCoreVaultAccounting(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
                 </>
               )}
 

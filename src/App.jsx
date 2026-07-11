@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-111-SHADOW-DRAWER-EVENT-HISTORY-CLEANUP";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-112-CORE-VAULT-MULTI-EVM";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -12168,7 +12168,7 @@ setGridBusy((s) => ({ ...s, start: true }));
     // Friendly UI guidance instead of crashing:
     // If prerequisites are missing, open the Vault modal and pre-fill the required deposit amount.
     if (!vaultState?.operatorEnabled) {
-      setErrorMsg("Vault setup required: Please enable the Grid Operator (Vault → Enable Operator) once.");
+      setErrorMsg("Core Vault setup required: configure the Core Vault and Executor authorization for this EVM network.");
       setWsChainKey(chainKeyPre);
       setWithdrawSendOpen(true);
       // (no hard return)
@@ -17992,10 +17992,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                           <div style={{ opacity: 0.95 }}>
                             <b>Important:</b><br />
-                            • Make sure you are on the correct blockchain (ETH / BNB / POL)<br />
+                            • Make sure you are on the selected enabled EVM network<br />
                             • Withdraw and Send are two separate steps<br />
                             • In Demo Mode this is only shown/simulated; real withdrawal needs Live access<br />
-                            • Gas fees are paid in the native coin (ETH / BNB / POL)
+                            • Gas fees are paid in the native coin of the selected EVM network
                           </div>
 
                           <hr style={{ margin: "12px 0", borderColor: "rgba(40, 255, 160, 0.35)" }} />
@@ -18011,10 +18011,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                           <div style={{ opacity: 0.95 }}>
                             <b>Wichtig:</b><br />
-                            • Du musst auf der richtigen Blockchain sein (ETH / BNB / POL)<br />
+                            • Du musst auf dem ausgewählten freigegebenen EVM-Netzwerk sein<br />
                             • Withdraw und Send sind zwei getrennte Schritte<br />
                             • Im Demo Mode wird das nur angezeigt/simuliert; echter Withdraw braucht Live-Zugang<br />
-                            • Gas-Gebühren werden in der Native Coin bezahlt (ETH / BNB / POL)
+                            • Gas-Gebühren werden im nativen Coin des ausgewählten EVM-Netzwerks bezahlt
                           </div>
                         </div>
                       </div>
@@ -18022,199 +18022,54 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   )}
                 </span>
                   <div style={{ marginTop: 4 }}>
-                    Withdraw returns funds to this Privy wallet first (vault pays msg.sender). Then you can send to any address.
+                    Nexus Core Vault represents all enabled EVM networks through one common interface. Each network uses its own Core Vault instance, while the user sees one combined Vault.
                   </div>
                 </div>
 
                 <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
-                    <div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Deposit to Vault (native • security gate ready)</div>
-                      <input
-                        className="input"
-                        value={depositAmt}
-                        onChange={(e) => setDepositAmt(e.target.value)}
-                        placeholder="0.25"
-                        inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
-                      />
+                  <div style={{
+                    padding: 14,
+                    borderRadius: 14,
+                    background: "rgba(0, 255, 166, 0.055)",
+                    border: "1px solid rgba(0, 255, 166, 0.16)"
+                  }}>
+                    <div className="cardTitle" style={{ marginBottom: 8 }}>Nexus Core Vault</div>
+                    <div className="muted" style={{ fontSize: 12, lineHeight: 1.45 }}>
+                      One Vault interface for every enabled EVM network. The old ETH / POL / BNB cycle controls are disconnected.
+                      New Core Vault addresses can be changed in the backend environment without rebuilding this frontend.
                     </div>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); depositToVault(); }}
-                      disabled={txBusy || !wallet}
-                      className="btn" style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
-                    >
-                      {txBusy ? "…" : "Deposit"}
-                    </button>
-                  </div>
-
-                  {securityState && (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        fontWeight: 800,
-                        lineHeight: 1.28,
-                        color: "#fff",
-                        background:
-                          securityState === "loading"
-                            ? "rgba(181,159,0,0.22)"
-                            : securityState === "ok"
-                            ? "rgba(31,139,76,0.24)"
-                            : securityState === "cancelled"
-                            ? "rgba(181,159,0,0.22)"
-                            : "rgba(168,50,50,0.24)",
-                        border:
-                          securityState === "loading"
-                            ? "1px solid rgba(255,221,87,.45)"
-                            : securityState === "ok"
-                            ? "1px solid rgba(40,255,160,.38)"
-                            : securityState === "cancelled"
-                            ? "1px solid rgba(255,221,87,.45)"
-                            : "1px solid rgba(255,88,88,.42)",
-                        boxShadow: "0 10px 26px rgba(0,0,0,.16)",
-                      }}
-                    >
-                      {securityMsg}
-                      <div
-                        style={{
-                          marginTop: 6,
-                          fontSize: 12,
-                          fontWeight: 700,
-                          opacity: 0.9,
-                          color: "rgba(232,242,240,.86)",
-                        }}
-                      >
-                        🛡 powered by GoPlus
-                      </div>
+                    <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                      {(contracts?.enabledEvmChains || []).map((chainKey) => {
+                        const cfg = contracts?.chains?.[chainKey] || {};
+                        const configured = !!(cfg?.coreVault || cfg?.vault);
+                        return (
+                          <div key={chainKey} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
+                            <span><b>{CHAIN_LABELS?.[chainKey] || chainKey}</b> · Chain ID {cfg?.chainId || "—"}</span>
+                            <span style={{ color: configured ? "#54f0a4" : "#ffd166", fontWeight: 900 }}>
+                              {configured ? "CORE VAULT READY" : "ADDRESS PENDING"}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
-                  )}
-
-                  {/* Vault status + Operator (one-time enable for autonomous grid) */}
-                  <div className="muted tiny" style={{ marginTop: 6 }}>
-                    <div>
-                      {tB("Vault Balance", "Vault balance")}: <b>{vaultState?.polBalance != null ? String(vaultState.polBalance) : "—"}</b>{" "}
-                      | {tB("Cycle", "Cycle")}: <b>{vaultState?.inCycle ? tB("LÄUFT", "RUNNING") : tB("STOP", "STOPPED")}</b>{" "}
-                      | {tB("Operator", "Operator")}: <b>{vaultState?.operatorEnabled ? tB("AKTIV", "ENABLED") : tB("INAKTIV", "DISABLED")}</b>
+                    <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
+                      Non-EVM assets use owner-approved wrapped routes only. Nexus validates the EVM chain and exact token contract address; symbols alone are never trusted.
                     </div>
-
-                    {!vaultState?.operatorEnabled && (
-                      <div style={{ marginTop: 4 }}>
-                        ⚠️ {tB("Schritt 1: Operator aktivieren. Danach kann der Grid autonom handeln.", "Step 1: Enable operator. After that the grid can trade autonomously.")}
+                    {Object.keys(contracts?.nonEvmAssetRoutes || {}).length > 0 ? (
+                      <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {Object.entries(contracts.nonEvmAssetRoutes).flatMap(([asset, routes]) =>
+                          (Array.isArray(routes) ? routes : []).map((route, idx) => (
+                            <span key={`${asset}-${route?.chain || idx}-${idx}`} className="pill" style={{ fontSize: 11 }}>
+                              {asset} → {route?.tokenSymbol || "WRAPPED"} · {route?.chain || "—"} · {route?.active ? "ACTIVE" : "PAUSED"}
+                            </span>
+                          ))
+                        )}
                       </div>
-                    )}
-
-                    {vaultState?.operatorEnabled && !(Number(vaultState?.polBalance || 0) > 0) && (
-                      <div style={{ marginTop: 4 }}>
-                        ⚠️ {tB("Schritt 2: Bitte zuerst in den Vault einzahlen (Deposit).", "Step 2: Please deposit funds into the Vault first.")}
-                      </div>
-                    )}
-
-                    {vaultState?.operatorEnabled && (Number(vaultState?.polBalance || 0) > 0) && !vaultState?.inCycle && (
-                      <div style={{ marginTop: 4 }}>
-                      </div>
-                    )}
-
-                    {vaultState?.inCycle && (
-                      <div style={{ marginTop: 4 }}>
-                        ✅ {tB("Cycle läuft. Du kannst Orders stoppen/löschen. Für neue Parameter: Cycle beenden und neu starten.", "Cycle is running. You can stop/delete orders. For new parameters: end the cycle and start again.")}
-                      </div>
+                    ) : (
+                      <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>No non-EVM wrapped routes approved yet.</div>
                     )}
                   </div>
-
-                  <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setVaultOperator(true); }}
-                      disabled={txBusy || !wallet || vaultState?.operatorEnabled}
-                      className="btn"
-                      style={{ height: 40, paddingInline: 14, fontSize: 13 }}
-                      title="Allow the backend Grid Bot to trade from your Vault balance without further signatures."
-                    >
-                      {vaultState?.operatorEnabled ? "Operator Enabled" : (txBusy ? "…" : "Enable Operator")}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setVaultOperator(false); }}
-                      disabled={txBusy || !wallet || !vaultState?.operatorEnabled}
-                      className="btn secondary"
-                      style={{ height: 40, paddingInline: 14, fontSize: 13 }}
-                      title="Revoke operator permission (stops autonomous trading)."
-                    >
-                      {txBusy ? "…" : "Disable Operator"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={async (e) => {
-                        e.preventDefault(); e.stopPropagation();
-                        try {
-                          const bal = Number(vaultState?.polBalance || 0);
-                          const op = !!vaultState?.operatorEnabled;
-                          const inC = !!vaultState?.inCycle;
-
-                          if (inC) {
-                            const ok = window.confirm(tB(
-                              "Cycle läuft bereits. Möchtest du den Cycle beenden?",
-                              "Cycle is already running. Do you want to end the cycle?"
-                            ));
-                            if (!ok) return;
-                            await endVaultCycle();
-                            return;
-                          }
-
-                          if (!op) {
-                            alert(tB(
-                              "Operator ist nicht aktiviert. Bitte zuerst 'Enable Operator' klicken.",
-                              "Operator is not enabled. Please click 'Enable Operator' first."
-                            ));
-                            return;
-                          }
-
-                          if (!(bal > 0)) {
-                            alert(tB(
-                              "Vault ist leer. Bitte zuerst einen Betrag in den Vault einzahlen (Deposit).",
-                              "Vault is empty. Please deposit funds into the Vault first."
-                            ));
-                            return;
-                          }
-
-                          await startVaultCycle();
-                        } catch (err) {
-                          // errors are shown via txMsg; keep UI stable
-                          console.warn(err);
-                        }
-                      }}
-                      disabled={txBusy || !wallet || (!vaultState?.inCycle && (!vaultState?.operatorEnabled || !(Number(vaultState?.polBalance || 0) > 0)))}
-                      className="btn"
-                      style={{ height: 40, paddingInline: 14, fontSize: 13 }}
-                      title={vaultState?.inCycle
-                        ? tB("Beendet den laufenden Cycle (Stop).", "Ends the running cycle (stop).")
-                        : tB("Startet einen Trading-Cycle im Vault (einmal pro Session).", "Starts a trading cycle in the Vault (once per session).")
-                      }
-                    >
-                      {vaultState?.inCycle
-                        ? tB("Cycle läuft", "Cycle running")
-                        : (txBusy ? "…" : tB("Cycle starten", "Start cycle"))
-                      }
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); refreshVaultState("", { force: true }); }}
-                      disabled={txBusy || !wallet}
-                      className="btn ghost"
-                      style={{ height: 40, paddingInline: 14, fontSize: 13 }}
-                      title="Refresh Vault state"
-                    >
-                      Refresh
-                    </button>
-                  </div>
-
 
                   <div style={{
                     marginTop: 12,
@@ -18283,26 +18138,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ) : null}
                   </div>
 
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
-                    <div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Withdraw amount</div>
-                      <input
-                        className="input"
-                        value={withdrawAmt}
-                        onChange={(e) => setWithdrawAmt(e.target.value)}
-                        placeholder="0.25"
-                        inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); withdrawFromVault(); }}
-                      disabled={txBusy || !wallet} style={{ height: 44, paddingInline: 16, fontSize: 14, whiteSpace: "nowrap" }}
-                    >
-                      {txBusy ? "…" : "Withdraw"}
-                    </button>
+                  <div style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    background: "rgba(255, 193, 7, 0.07)",
+                    border: "1px solid rgba(255, 193, 7, 0.22)",
+                    fontSize: 12,
+                    lineHeight: 1.45
+                  }}>
+                    <b>Core Vault withdraw execution is not enabled yet.</b><br />
+                    The old chain-specific withdraw contracts are disconnected. The existing quote, secured-profit payout and safety preparation remain available until the new audited Core Vault addresses and ABI are connected.
                   </div>
 
                   <div>

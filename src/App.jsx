@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-124-ETH-CORE-VAULT-READ-ONLY";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-125-WALLET-INFO-CLEAN";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -17694,7 +17694,66 @@ const handlePanelActivate = useCallback((name) => (e) => {
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div>
-                  <div className="cardTitle" style={{ margin: 0 }}>{walletPanelTab === "WALLET" ? "Privy Wallet" : "Nexus Core Vault"}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <div className="cardTitle" style={{ margin: 0 }}>{walletPanelTab === "WALLET" ? "Privy Wallet" : "Nexus Core Vault"}</div>
+                    <InfoButton title={walletPanelTab === "WALLET" ? "Privy Wallet explained" : "Nexus Core Vault explained"}>
+                      {walletPanelTab === "WALLET" ? (
+                        <Help
+                          de={
+                            <>
+                              <p><b>Privy Wallet</b> ist deine persönliche Wallet innerhalb von Nexus. Hier siehst du alle erkannten Assets und deren aktuellen Wert.</p>
+                              <p><b>Wallet und Core Vault sind getrennt:</b> Guthaben in der Privy Wallet ist noch nicht im Core Vault geschützt oder für Nexus-Systeme reserviert.</p>
+                              <p><b>Alle Assets bleiben sichtbar:</b> Nexus blendet unbekannte oder riskante Token nicht aus. Nicht bewertbare Assets werden angezeigt, aber nicht in den USD-Gesamtwert eingerechnet.</p>
+                              <p><b>Einzahlung in den Core Vault:</b> Nur der exakte freigegebene Token-Vertrag auf der richtigen Chain darf eingezahlt werden. Symbol, Name oder Logo allein reichen nicht.</p>
+                              <p><b>Sicherheitsprüfung:</b> Chain-ID, Contract-Adresse, Owner-Allowlist und Token-Sicherheitsprüfung müssen gemeinsam bestanden werden.</p>
+                            </>
+                          }
+                          en={
+                            <>
+                              <p><b>Privy Wallet</b> is your personal wallet inside Nexus. It shows all detected assets and their current value.</p>
+                              <p><b>Wallet and Core Vault are separate:</b> Funds in the Privy Wallet are not yet protected inside the Core Vault or allocated to Nexus systems.</p>
+                              <p><b>All assets remain visible:</b> Nexus does not hide unknown or risky tokens. Unpriced assets remain visible but are excluded from the USD total.</p>
+                              <p><b>Core Vault deposits:</b> Only the exact approved token contract on the correct chain can enter the Vault. A symbol, name or logo is never sufficient.</p>
+                              <p><b>Security gate:</b> Chain ID, contract address, Owner allowlist and token security checks must all pass.</p>
+                            </>
+                          }
+                        />
+                      ) : (
+                        <Help
+                          de={
+                            <>
+                              <p><b>Nexus Core Vault</b> ist der geschützte Finanzbereich für Basiskapital, System-Zuteilungen, realisierte Gewinne und Auszahlungen.</p>
+                              <p><b>Base Capital Protected:</b> Eingezahltes Basiskapital, das im Vault verbucht ist. Offene Marktgewinne zählen nicht als gesichert.</p>
+                              <p><b>Total Secured Profit:</b> Nur geschlossene Netto-Ergebnisse von NKR, Trader und Grid werden als gesicherter Gewinn verbucht.</p>
+                              <p><b>Available for Withdraw:</b> Betrag, der nach den Vault-Regeln aktuell zur Auszahlung verfügbar ist. Im Shadow-Modus bleibt dieser Wert null.</p>
+                              <p><b>Auszahlungsgebühr:</b> Insgesamt 3 %. Standardmäßig fließen 2 % in die dauerhafte Liquidität und 1 % in die Vault-Reserve.</p>
+                              <p><b>Ethereum Core Vault:</b> {coreVaultOnchainLoading ? "Status wird gelesen." : coreVaultOnchain?.connected ? "Der Vertrag ist verbunden." : "Der Vertragsstatus ist derzeit nicht verfügbar."}</p>
+                              <p><b>Contract:</b> {coreVaultOnchain?.contractAddress || "Nicht verfügbar"}</p>
+                              <p><b>Status:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.paused ? "Pausiert" : "Aktiv") : "Nicht verbunden"} · <b>Solvenz:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.allConfiguredTokensSolvent ? "OK" : "Prüfen") : "Nicht verfügbar"}</p>
+                              <p><b>Token:</b> USDC und USDT sind für Einzahlungen und Auszahlungen freigegeben. Trading-Ausführung bleibt deaktiviert, bis der geprüfte Executor später ausdrücklich aktiviert wird.</p>
+                              <p><b>Shadow und Live:</b> Shadow verwendet simulierte Werte nach denselben Buchungsregeln. Erst bestätigte On-chain-Einzahlungen erscheinen im Live Vault.</p>
+                              <button type="button" className="btnGhost" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading} style={{ width: "100%", marginTop: 8 }}>{coreVaultOnchainLoading ? "Reading contract…" : "Refresh technical status"}</button>
+                            </>
+                          }
+                          en={
+                            <>
+                              <p><b>Nexus Core Vault</b> is the protected financial area for base capital, system allocations, realized profit and withdrawals.</p>
+                              <p><b>Base Capital Protected:</b> Deposited base capital recorded inside the Vault. Open market profit is not secured profit.</p>
+                              <p><b>Total Secured Profit:</b> Only closed net results from NKR, Trader and Grid become secured profit.</p>
+                              <p><b>Available for Withdraw:</b> Amount currently available under the Vault rules. In Shadow mode this remains zero.</p>
+                              <p><b>Withdrawal fee:</b> 3% total. By default, 2% supports permanent liquidity and 1% remains in the Vault reserve.</p>
+                              <p><b>Ethereum Core Vault:</b> {coreVaultOnchainLoading ? "Reading status." : coreVaultOnchain?.connected ? "The contract is connected." : "The contract status is currently unavailable."}</p>
+                              <p><b>Contract:</b> {coreVaultOnchain?.contractAddress || "Unavailable"}</p>
+                              <p><b>Status:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.paused ? "Paused" : "Active") : "Not connected"} · <b>Solvency:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.allConfiguredTokensSolvent ? "OK" : "Check") : "Unavailable"}</p>
+                              <p><b>Tokens:</b> USDC and USDT are enabled for deposits and withdrawals. Trading execution remains disabled until the audited executor is explicitly activated later.</p>
+                              <p><b>Shadow and Live:</b> Shadow uses simulated values with the same accounting rules. Only confirmed on-chain deposits appear in the Live Vault.</p>
+                              <button type="button" className="btnGhost" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading} style={{ width: "100%", marginTop: 8 }}>{coreVaultOnchainLoading ? "Reading contract…" : "Refresh technical status"}</button>
+                            </>
+                          }
+                        />
+                      )}
+                    </InfoButton>
+                  </div>
                   <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
                     {walletPanelTab === "WALLET" ? "Assets held in your personal embedded wallet" : "Protected capital and secured profit inside Nexus"}
                   </div>
@@ -17741,9 +17800,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     )}
                   </div>
 
-                  <div className="hint" style={{ marginTop: 10, fontSize: 10 }}>
-                    Your wallet may hold any token. Nexus never hides wallet assets. Only exact contracts approved by the Owner and passed by the security gate can enter the Core Vault.
-                  </div>
                   {balError ? <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>Some network balances could not be loaded.</div> : null}
                   <button type="button" className="btnGhost" onClick={() => { setWalletAssetSecurityByKey({}); refreshBalances(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 10 }}>
                     {balLoading ? "Refreshing…" : "Refresh Wallet Assets"}
@@ -17756,36 +17812,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{coreVaultOverview.note || (coreVaultOverview.isShadow ? "Simulated funds only." : "Live Vault accounting starts at zero until a real deposit is confirmed.")}</div>
                   </div>
 
-                  <div style={{ marginTop: 10, padding: 10, borderRadius: 12, border: coreVaultOnchain?.connected ? "1px solid rgba(0,255,166,.28)" : "1px solid rgba(255,193,7,.28)", background: coreVaultOnchain?.connected ? "rgba(0,255,166,.055)" : "rgba(255,193,7,.055)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                      <b>Ethereum Core Vault</b>
-                      <span style={{ fontSize: 10, fontWeight: 900, color: coreVaultOnchain?.connected ? "#54f0a4" : "#ffd166" }}>
-                        {coreVaultOnchainLoading ? "READING..." : coreVaultOnchain?.connected ? "CONTRACT CONNECTED" : "NOT CONNECTED"}
-                      </span>
-                    </div>
-                    <div className="muted" style={{ fontSize: 10, marginTop: 4, wordBreak: "break-all" }}>{coreVaultOnchain?.contractAddress || "No ETH Core Vault address returned"}</div>
-                    {coreVaultOnchain?.connected && (
-                      <>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6, marginTop: 8, fontSize: 10 }}>
-                          <div><span className="muted">Contract</span><br /><b>{coreVaultOnchain?.paused ? "PAUSED" : "ACTIVE"}</b></div>
-                          <div><span className="muted">Fee</span><br /><b>{Number(coreVaultOnchain?.fees?.totalPct || 0).toFixed(2)}%</b></div>
-                          <div><span className="muted">Solvency</span><br /><b>{coreVaultOnchain?.allConfiguredTokensSolvent ? "OK" : "CHECK"}</b></div>
-                        </div>
-                        <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>Split: {Number(coreVaultOnchain?.fees?.liquidityPct || 0).toFixed(2)}% liquidity · {Number(coreVaultOnchain?.fees?.reservePct || 0).toFixed(2)}% reserve</div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
-                          {["USDC", "USDT"].map((sym) => { const t = coreVaultOnchain?.tokens?.[sym] || {}; return (
-                            <div key={sym} style={{ padding: 7, borderRadius: 9, background: "rgba(255,255,255,.025)", border: "1px solid rgba(255,255,255,.08)", fontSize: 10 }}>
-                              <b>{sym}</b>
-                              <div className="muted" style={{ marginTop: 3 }}>Deposit {t?.config?.depositEnabled ? "ON" : "OFF"} · Withdraw {t?.config?.withdrawEnabled ? "ON" : "OFF"}</div>
-                              <div className="muted">Execution {t?.config?.executionEnabled ? "ON" : "OFF"} · Account {fmtUsd(Number(t?.account?.baseCapital || 0) + Number(t?.account?.totalSecuredProfit || 0))}</div>
-                            </div>
-                          ); })}
-                        </div>
-                        <button type="button" className="btnGhost" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading} style={{ width: "100%", marginTop: 8 }}>Refresh Contract Status</button>
-                      </>
-                    )}
-                    {!coreVaultOnchain?.connected && <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>{coreVaultOnchain?.error || "Read-only contract status is unavailable."}</div>}
-                  </div>
                   <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     {[
                       ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd, "USDC / USDT held by the Core Vault"],
@@ -17814,7 +17840,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Realized Net P&amp;L (live changing)</span><b style={{ color: coreVaultOverview.realizedNetBreakdown.totalUsd >= 0 ? "#86efac" : "#ff8a8a" }}>{fmtUsd(coreVaultOverview.realizedNetBreakdown.totalUsd)}</b></div>
                   <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>NKR {fmtUsd(coreVaultOverview.realizedNetBreakdown.nkrUsd)} · Trader {fmtUsd(coreVaultOverview.realizedNetBreakdown.traderUsd)} · Grid {fmtUsd(coreVaultOverview.realizedNetBreakdown.gridUsd)}</div>
                   <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
-                  <div className="hint" style={{ marginTop: 10, fontSize: 10 }}>Vault deposits are fail-closed: Chain ID, exact contract, Owner approval and GoPlus security must all pass. A symbol alone is never trusted.</div>
                   <button type="button" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
                   <button type="button" className="btnGhost" onClick={() => { refreshBalances(); refreshCoreVaultAccounting(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
                 </>

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-108-BINANCE-DYNAMIC-TIERED-BATCH-CACHE";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-109-STRATEGIST-BRIDGE-NKR-CLOCK-ROTATION-HISTORY";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -10379,6 +10379,8 @@ const [aiQuestion, setAiQuestion] = useState("");
   const [aiHistory, setAiHistory] = useState([]); // [{role:"user"|"assistant", content:string}]
 const [aiLoading, setAiLoading] = useState(false);
   const [aiOutput, setAiOutput] = useState("");
+  const [strategistMarketIntel, setStrategistMarketIntel] = useState(null);
+  const [strategistMarketIntelOpen, setStrategistMarketIntelOpen] = useState(false);
   const [strategistBridge, setStrategistBridge] = useState(null);
   const [strategistAppliedOpen, setStrategistAppliedOpen] = useState(false);
 
@@ -13197,6 +13199,26 @@ useInterval(fetchGridOrders, 30000, false);
     deriveAiGridAssist,
     setErrorMsg,
   ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadStrategistIntel = async () => {
+      try {
+        const symbols = Array.from(new Set([
+          ...(Array.isArray(rotationSessions) ? rotationSessions.map((s) => String(s?.symbol || s?.sourceSymbol || s?.targetAsset || "").toUpperCase()) : []),
+          ...(Array.isArray(watchRows) ? watchRows.slice(0, 30).map((r) => String(r?.symbol || r?.sym || r?.asset || "").toUpperCase()) : []),
+        ].filter(Boolean)));
+        if (!symbols.length) return;
+        const res = await api(`/api/nexus/binance-public/intelligence?symbols=${encodeURIComponent(symbols.join(","))}&tier=active`, { token, wallet });
+        if (!cancelled) setStrategistMarketIntel(res || null);
+      } catch (e) {
+        if (!cancelled) setStrategistMarketIntel({ status: "error", error: String(e?.message || e) });
+      }
+    };
+    loadStrategistIntel();
+    const timer = setInterval(loadStrategistIntel, 20000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [token, wallet, rotationSessions, watchRows]);
 
   const extractStrategistSymbol = useCallback((body) => {
     const text = String(body || "");
@@ -20323,10 +20345,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const sessionStatus = getRotationDerivedStatus(sess);
                                 const status = getRotationDisplayStatus(sess);
                                 const statusTone = getRotationStatusTone(status);
-                                const startTs = Number(sess?.startedAt || sess?.started_at || sess?.createdAt || 0) || rotationNow;
-                                const expiresTs = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0) || 0;
-                                const runtimeText = fmtRotationDuration(rotationNow - startTs);
-                                const leftText = expiresTs ? (expiresTs > rotationNow ? fmtRotationDuration(expiresTs - rotationNow) : "expired") : "—";
+                                const positionStartTs = Number(sess?.positionOpenedAt || sess?.meta?.position_opened_at || sess?.startedAt || sess?.started_at || sess?.createdAt || 0) || rotationNow;
+                                const campaignStartTs = Number(sess?.campaignStartedAt || sess?.meta?.campaign_started_at || positionStartTs) || positionStartTs;
+                                const campaignExpiresTs = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0) || 0;
+                                const runtimeText = fmtRotationDuration(Math.max(0, rotationNow - campaignStartTs));
+                                const leftText = campaignExpiresTs ? (campaignExpiresTs > rotationNow ? fmtRotationDuration(campaignExpiresTs - rotationNow) : "expired") : "—";
+                                const positionRuntimeText = fmtRotationDuration(Math.max(0, rotationNow - positionStartTs));
                                 const baseAsset = String(sess?.baseAsset || sess?.payoutAsset || sess?.meta?.base_asset || manualPayoutAsset || "USDC").toUpperCase();
                                 const workingCapital = getNkrSessionWorkingCapitalUsd(sess) || budget;
                                 const allocationBaseUsd = Number(sess?.nkrTotalBudgetUsd || sess?.meta?.nkr_total_budget_usd || typedNkrBudgetUsd || rotationAllocatedUsd || 0) || 0;
@@ -20368,8 +20392,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     </div>
 
                                     <div className="muted tiny" style={{ display: "grid", gap: 5 }}>
-                                      <div><b style={{ color: "#8bdcff" }}>Runtime:</b> {runtimeText}</div>
-                                      <div><b style={{ color: "#8bdcff" }}>Left:</b> {leftText}</div>
+                                      <div><b style={{ color: "#8bdcff" }}>NKR Runtime:</b> {runtimeText}</div>
+                                      <div><b style={{ color: "#8bdcff" }}>NKR Left:</b> {leftText}</div>
+                                      <div><b style={{ color: "#d8fff1" }}>Position opened:</b> {positionRuntimeText} ago</div>
                                       <div><b style={{ color: "#ffd166" }}>Confidence:</b> {Number.isFinite(confidence) && confidence > 0 ? `${confidence}/100` : "waiting"}</div>
                                       <div><b style={{ color: "#8bdcff" }}>Events:</b> {eventsCount}</div>
                                     </div>
@@ -20433,6 +20458,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               )}
                             </div>
                           </div>
+
+                          {(() => {
+                            const movementEvents = rotationRows.flatMap((s) => (Array.isArray(s?.rotationEvents) ? s.rotationEvents : []).map((ev) => ({ ...ev, sessionSymbol: String(s?.symbol || s?.sourceSymbol || s?.targetAsset || "").toUpperCase() })))
+                              .filter((ev) => /ROTAT|REALLOC|CAPITAL|PROMOT|REDUC|TOPUP/i.test(String(ev?.action || ev?.status || ev?.capitalMovementType || ev?.reason || "")))
+                              .sort((a,b) => Number(b?.ts || b?.event_ts || 0) - Number(a?.ts || a?.event_ts || 0))
+                              .slice(0, 40);
+                            return movementEvents.length ? (
+                              <details style={{ borderRadius: 12, border: "1px solid rgba(139,220,255,.20)", background: "rgba(0,0,0,.14)", padding: "8px 10px" }}>
+                                <summary style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}>NKR Rotation History · {movementEvents.length} recent</summary>
+                                <div style={{ display: "grid", gap: 6, marginTop: 8, maxHeight: 210, overflowY: "auto" }}>
+                                  {movementEvents.map((ev, i) => {
+                                    const ts = Number(ev?.ts || ev?.event_ts || 0);
+                                    const amount = Number(ev?.capitalMovedUsd ?? ev?.amountUsd ?? ev?.buyUsd ?? ev?.sellUsd ?? 0) || 0;
+                                    const fromA = String(ev?.fromAsset || ev?.baseAsset || "USDT").toUpperCase();
+                                    const toA = String(ev?.toAsset || ev?.targetAsset || ev?.sessionSymbol || "ASSET").toUpperCase();
+                                    return <div key={ev?.id || `${ts}-${i}`} className="muted tiny" style={{ padding: "7px 8px", borderRadius: 9, background: "rgba(255,255,255,.03)", display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "130px 1fr auto", gap: 8 }}>
+                                      <span>{ts ? new Date(ts).toLocaleString() : "time pending"}</span>
+                                      <span><b style={{ color: "#d8fff1" }}>{fromA} → {toA}</b> · {String(ev?.action || ev?.capitalMovementType || ev?.status || "CAPITAL MOVEMENT").replaceAll("_", " ")}{ev?.reason ? ` · ${String(ev.reason).replaceAll("_", " ")}` : ""}</span>
+                                      <span style={{ color: amount >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{amount ? fmtUsd(amount) : "—"}</span>
+                                    </div>;
+                                  })}
+                                </div>
+                              </details>
+                            ) : null;
+                          })()}
 
                           <details
                             style={{
@@ -23377,6 +23427,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         <section className={`card section-ai dashboardPanel ${activePanel === "ai" ? "panelActive" : ""}`} onClick={handlePanelActivate("ai")}>
           <div className="cardHead">
             <div className="cardTitle">Nexus Strategist</div>
+            <button className="miniBtn" type="button" onClick={() => setStrategistMarketIntelOpen((v) => !v)} title="Show live data used by Strategist, NKR and Trader">Intelligence {strategistMarketIntelOpen ? "▲" : "▼"}</button>
             <div className="cardActions" style={{ alignItems: "center" }}>
               <InfoButton title="Nexus Strategist">
                 <Help showClose dismissable
@@ -23388,6 +23439,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
 
           <div className="panelScroll"><div className="aiWrap">
+            {strategistMarketIntelOpen && (
+              <div style={{ marginBottom: 10, padding: "9px 10px", borderRadius: 12, border: "1px solid rgba(139,220,255,.22)", background: "rgba(0,0,0,.18)" }}>
+                <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 7 }}>
+                  <b style={{ color: strategistMarketIntel?.status === "error" ? "#ff8a8a" : "#86efac" }}>Binance Public: {strategistMarketIntel?.status === "error" ? "ERROR" : "CONNECTED"}</b>
+                  <span>Symbols: {Number(strategistMarketIntel?.symbolCount || Object.keys(strategistMarketIntel?.symbols || {}).length || 0)}</span>
+                  <span>Cached: {strategistMarketIntel?.cached ? "yes" : "refresh"}</span>
+                  <span>Stale: {strategistMarketIntel?.stale ? "yes" : "no"}</span>
+                  <span>Batch: {strategistMarketIntel?.batchSize || 40}</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(3,minmax(0,1fr))", gap: 7 }}>
+                  {Object.entries(strategistMarketIntel?.symbols || {}).filter(([,v]) => v?.available).slice(0, 12).map(([sym,v]) => (
+                    <div key={sym} className="muted tiny" style={{ borderRadius: 9, padding: "7px 8px", background: "rgba(255,255,255,.035)" }}>
+                      <b style={{ color: "#8bdcff" }}>{sym}</b> · Score {Number(v?.futuresScoreAdjustment || 0) >= 0 ? "+" : ""}{Number(v?.futuresScoreAdjustment || 0).toFixed(1)}<br/>
+                      Funding {Number(v?.fundingRate || 0).toFixed(6)} · OI Δ {Number(v?.openInterestChangePct || 0).toFixed(2)}% · L/S {Number(v?.globalLongShortRatio || 0).toFixed(2)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="aiSelect">
               <div className="label">Strategy Task</div>
               <textarea

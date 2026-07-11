@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-112-CORE-VAULT-MULTI-EVM";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-113-CORE-VAULT-WALLET-UX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -3555,6 +3555,12 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [profitPayoutAsset, setProfitPayoutAsset] = useState("USDT");
   const [profitPayoutPreview, setProfitPayoutPreview] = useState(null);
   const [profitPayoutBusy, setProfitPayoutBusy] = useState(false);
+  const [coreWithdrawSource, setCoreWithdrawSource] = useState("SECURED_PROFIT_ONLY");
+  const [coreWithdrawAsset, setCoreWithdrawAsset] = useState("USDT");
+  const [coreWithdrawAmount, setCoreWithdrawAmount] = useState("");
+  const [coreWithdrawAddress, setCoreWithdrawAddress] = useState("");
+  const [coreWithdrawQuote, setCoreWithdrawQuote] = useState(null);
+  const [coreWithdrawQuoteBusy, setCoreWithdrawQuoteBusy] = useState(false);
 
   // Vault state (on-chain) + operator authorization
   const [vaultState, setVaultState] = useState({
@@ -3942,6 +3948,66 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     if (!withdrawSendOpen) return;
     refreshProfitPayoutSettings();
   }, [withdrawSendOpen, wallet]);
+
+  const coreVaultOverview = useMemo(() => {
+    let stableBalanceUsd = 0;
+    for (const row of Object.values(balByChain || {})) {
+      for (const value of Object.values(row?.stables || {})) {
+        const n = Number(value || 0);
+        if (Number.isFinite(n) && n > 0) stableBalanceUsd += n;
+      }
+    }
+    const securedProfitUsd = Math.max(0, Number(profitPayoutPreview?.securedProfitUsd || 0));
+    const protectedBaseUsd = Math.max(0, stableBalanceUsd - securedProfitUsd);
+    const allocatedUsd = Math.max(0, Number(gridBudgets?.totals?.locked_usd || 0));
+    const reserveUsd = Math.max(0, stableBalanceUsd - allocatedUsd - securedProfitUsd);
+    const availableBySource = {
+      SECURED_PROFIT_ONLY: securedProfitUsd,
+      BASE_CAPITAL: protectedBaseUsd,
+      ALL_STABLE: stableBalanceUsd,
+    };
+    return {
+      stableBalanceUsd,
+      protectedBaseUsd,
+      securedProfitUsd,
+      allocatedUsd,
+      reserveUsd,
+      availableForWithdrawUsd: Math.max(0, Number(availableBySource[coreWithdrawSource] || 0)),
+    };
+  }, [balByChain, profitPayoutPreview, gridBudgets, coreWithdrawSource]);
+
+  const previewCoreVaultWithdraw = async () => {
+    try {
+      setTxMsg("");
+      setCoreWithdrawQuote(null);
+      if (!wallet) throw new Error("Wallet not connected.");
+      const amountUsd = Number(String(coreWithdrawAmount || "").replace(",", "."));
+      if (!Number.isFinite(amountUsd) || amountUsd <= 0) throw new Error("Enter a valid withdraw amount.");
+      if (!_isAddr(coreWithdrawAddress)) throw new Error("Enter a valid destination address.");
+      if (amountUsd > coreVaultOverview.availableForWithdrawUsd + 0.000001) {
+        throw new Error("Amount exceeds the available balance for the selected source.");
+      }
+      setCoreWithdrawQuoteBusy(true);
+      const response = await api(`/api/nexus/withdraw-quote-preview`, {
+        method: "POST",
+        token,
+        wallet,
+        body: {
+          amountUsd,
+          inputAsset: "USDC_USDT",
+          outputAsset: coreWithdrawAsset,
+          chain: balActiveChain || wsChainKey || DEFAULT_CHAIN,
+          source: coreWithdrawSource,
+          destination: coreWithdrawAddress,
+        },
+      });
+      setCoreWithdrawQuote(response?.quote || null);
+    } catch (e) {
+      setTxMsg(String(e?.message || e || "Withdraw preview failed"));
+    } finally {
+      setCoreWithdrawQuoteBusy(false);
+    }
+  };
 
   // ---------
   // Vault on-chain reads (polBalance / inCycle / heldToken / heldTokenBal / operatorEnabled)
@@ -17445,778 +17511,210 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           )}
 
-{/* Wallet details panel (top-right dropdown) */}
+{/* Nexus Core Vault wallet panel (top-right dropdown) */}
           {walletModalOpen && (
-            <>
             <div
               role="dialog"
-              aria-label="Wallet details"
-              onMouseDown={(e) => {
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
+              aria-label="Nexus Core Vault"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
               style={{
                 position: "absolute",
                 top: 52,
                 right: 0,
-                width: "min(340px, calc(100vw - 24px))",
-                maxHeight: "min(84vh, 760px)",
+                width: "min(390px, calc(100vw - 24px))",
+                maxHeight: "min(86vh, 820px)",
                 overflowY: "auto",
                 overscrollBehavior: "contain",
                 WebkitOverflowScrolling: "touch",
                 background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                border: "none",
-                borderRadius: 14,
+                border: "1px solid rgba(0,255,166,0.15)",
+                borderRadius: 16,
                 padding: 14,
                 zIndex: 2000,
                 boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <div className="cardTitle" style={{ margin: 0 }}>Wallet details</div>
-                <button
-                  className="iconBtn"
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setWalletModalOpen(false);
-                  }}
-                  aria-label="Close"
-                >
-                  ×
-                </button>
-              </div>
-
-
-              <div className="muted" style={{ marginTop: 10, wordBreak: "break-all" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <div><b>Address</b></div>
-                  <button
-                    className="btn"
-                    style={{ padding: "4px 10px", borderRadius: 10, fontSize: 12 }}
-                    onClick={() => wallet && navigator.clipboard?.writeText(wallet)}
-                    disabled={!wallet}
-                    title={wallet ? "Copy address" : "Wallet not connected"}
-                  >
-                    Copy
-                  </button>
+                <div>
+                  <div className="cardTitle" style={{ margin: 0 }}>Nexus Core Vault</div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>One balance view across enabled EVM networks</div>
                 </div>
-                <div style={{ userSelect: "text", fontFamily: "monospace" }}>{wallet || "Not connected"}</div>
+                <button className="iconBtn" type="button" onClick={() => setWalletModalOpen(false)} aria-label="Close">×</button>
               </div>
 
-              <div className="hr" style={{ margin: "12px 0" }} />
-
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Balances</div>
-                  {/* Active chain for wallet + grid */}
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                    <button
-                      key="ALL"
-                      type="button"
-                      onClick={() => setShowAllWalletChains(true)}
-                      title="Show balances for all chains"
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 999,
-                        fontWeight: 800,
-                        fontSize: 12,
-                        cursor: "pointer",
-                        background: showAllWalletChains ? "rgba(34,197,94,0.9)" : "transparent",
-                        color: showAllWalletChains ? "#0b1411" : "#e5e7eb",
-                        border: showAllWalletChains ? "1px solid rgba(34,197,94,0.9)" : "1px solid rgba(229,231,235,0.25)",
-                      }}
-                    >
-                      ALL
-                    </button>
-
-                    {walletChainKeys.map((c) => {
-                      const active = !showAllWalletChains && (balActiveChain || DEFAULT_CHAIN) === c;
-                      return (
-                        <button
-                          key={c}
-                          type="button"
-                          onClick={() => {
-                            setShowAllWalletChains(false);
-                            const nextChain = normalizeWalletChainKey(c);
-                            setBalActiveChain(nextChain);
-                            setWsChainKey(nextChain);
-                          }}
-                          title={`Show balances on ${c}`}
-                          style={{
-                            padding: "6px 10px",
-                            borderRadius: 999,
-                            fontWeight: 800,
-                            fontSize: 12,
-                            cursor: "pointer",
-                            background: active ? "rgba(34,197,94,0.9)" : "transparent",
-                            color: active ? "#0b1411" : "#e5e7eb",
-                            border: active ? "1px solid rgba(34,197,94,0.9)" : "1px solid rgba(229,231,235,0.25)",
-                          }}
-                        >
-                          {c}
-                        </button>
-                      );
-                    })}
+              <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {[
+                  ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd, "USDC / USDT held across connected EVM wallets"],
+                  ["Base Capital Protected", coreVaultOverview.protectedBaseUsd, "Stable capital excluding secured profit"],
+                  ["Secured NKR Profit", coreVaultOverview.securedProfitUsd, "Realized profit eligible for payout"],
+                  ["Available for Withdraw", coreVaultOverview.availableForWithdrawUsd, "Based on the selected withdraw source"],
+                ].map(([label, value, hint]) => (
+                  <div key={label} title={hint} style={{ padding: 10, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
+                    <div className="muted" style={{ fontSize: 11, lineHeight: 1.2 }}>{label}</div>
+                    <div className="mono" style={{ marginTop: 5, fontWeight: 900, fontSize: 15 }}>{balLoading ? "Loading…" : fmtUsd(Number(value || 0))}</div>
                   </div>
-
-                <button
-                  className="btnGhost"
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    refreshBalances();
-                  }}
-                  disabled={balLoading || !wallet}
-                >
-                  {balLoading ? "Loading…" : "Refresh"}
-                </button>
+                ))}
               </div>
 
-              {/* Wallet total value (USD) */}
-              <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                <div className="muted" style={{ fontSize: 12 }}>
-                  Total value (USD)
-                  {walletUsd?.unpriced ? (
-                    <span className="muted" style={{ marginLeft: 8 }}>
-                      · {walletUsd.unpriced} unpriced
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mono" style={{ fontWeight: 900 }}>
-                  {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}
-                </div>
+              <div style={{ marginTop: 9, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
+                <span className="muted">Allocated to active systems</span><b>{fmtUsd(coreVaultOverview.allocatedUsd)}</b>
+              </div>
+              <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
+                <span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b>
               </div>
 
-              <div
-                style={{
-                  marginTop: 8,
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  background: "rgba(255,255,255,0.035)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  display: "grid",
-                  gap: 6,
-                }}
+              <div className="muted" style={{ marginTop: 10, fontSize: 11, wordBreak: "break-all" }}>
+                Connected wallet: <span style={{ fontFamily: "monospace" }}>{wallet ? `${wallet.slice(0, 8)}…${wallet.slice(-6)}` : "Not connected"}</span>
+                <button className="miniBtn" style={{ marginLeft: 8 }} onClick={() => wallet && navigator.clipboard?.writeText(wallet)} disabled={!wallet}>Copy</button>
+              </div>
+
+              {balError ? <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>Could not load balances.</div> : null}
+
+              <button
+                type="button"
+                className="btn"
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }}
+                disabled={!wallet}
+                style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                  <div className="muted" style={{ fontSize: 12 }}>Profit baseline</div>
-                  <div className="mono" style={{ fontWeight: 900 }}>
-                    {walletProfitBaseline.amountUsd ? fmtUsd(walletProfitBaseline.amountUsd) : "Not set"}
-                  </div>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                  <div className="muted" style={{ fontSize: 12 }}>Estimated profit</div>
-                  <div
-                    className="mono"
-                    style={{
-                      fontWeight: 900,
-                      color: walletProfit.available
-                        ? Number(walletProfit.amount || 0) >= 0
-                          ? "#21d07a"
-                          : "#ff8a8a"
-                        : "inherit",
-                    }}
-                  >
-                    {walletProfit.available
-                      ? `${Number(walletProfit.amount || 0) >= 0 ? "+" : ""}${fmtUsd(walletProfit.amount)}${Number.isFinite(Number(walletProfit.pct)) ? ` (${Number(walletProfit.pct).toFixed(2)}%)` : ""}`
-                      : "Set baseline first"}
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    className="miniBtn"
-                    disabled={!wallet || walletUsdLoading || !Number.isFinite(Number(walletUsd?.total)) || Number(walletUsd?.total) <= 0}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setWalletProfitBaselineNow();
-                    }}
-                    title="Save the current wallet value as the baseline for future profit display."
-                  >
-                    Set baseline now
-                  </button>
-                  <button
-                    type="button"
-                    className="miniBtn"
-                    disabled={!walletProfitBaseline.amountUsd}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      clearWalletProfitBaseline();
-                    }}
-                    title="Clear the saved profit baseline for this wallet on this browser."
-                  >
-                    Clear baseline
-                  </button>
-                </div>
-                <div className="muted tiny">Profit is calculated from your saved baseline and excludes unpriced tokens.</div>
-              </div>
-
-              {balError && (
-                <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>{"Could not load balances."}</div>
-              )}
-
-              <div
-                style={{
-                  marginTop: 10,
-                  display: "grid",
-                  gap: 8,
-                  maxHeight: showAllWalletChains ? "36vh" : "none",
-                  overflowY: showAllWalletChains ? "auto" : "visible",
-                  paddingRight: showAllWalletChains ? 4 : 0,
-                  overscrollBehavior: "contain",
-                  WebkitOverflowScrolling: "touch",
-                }}
-              >
-                {(showAllWalletChains ? walletChainKeys : [balActiveChain || DEFAULT_CHAIN]).map((chainRaw) => {
-                  const c = normalizeWalletChainKey(chainRaw);
-                  const row = balByChain?.[c] || {};
-                  const nativeLabel = c; // ETH / POL / BNB
-
-                  // Show FREE balance (total - reserved) directly in the chain header.
-                  // Reserved is derived from per-chain locked USD budget, converted to native using USD price.
-                  const nativeBalNum = Number(row?.native);
-                  const nPxUsd = Number(walletPx?.native?.[c]);
-                  const lockedUsd = Number(gridBudgets?.by_chain?.[c]?.locked_usd ?? 0);
-                  const reservedNative = (Number.isFinite(nPxUsd) && nPxUsd > 0) ? (lockedUsd / nPxUsd) : 0;
-                  const freeNativeNum = Number.isFinite(nativeBalNum) ? Math.max(0, nativeBalNum - reservedNative) : null;
-                  const freeUsdVal = (Number.isFinite(freeNativeNum) && Number.isFinite(nPxUsd)) ? (freeNativeNum * nPxUsd) : null;
-
-                  return (
-                    <div
-                      key={c}
-                      style={{
-                        border: "none",
-                        padding: "10px",
-                        borderRadius: 12,
-                        background: "rgba(255,255,255,0.04)",
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                        <div style={{ fontWeight: 800 }}>{c}</div>
-                        <div style={{ fontVariantNumeric: "tabular-nums" }}>
-                          {nativeLabel}: {freeNativeNum == null ? (row.native ?? "—") : fmtQty(freeNativeNum)}{Number.isFinite(freeUsdVal) ? ` • ${fmtUsd(freeUsdVal)}` : ""}
-                        </div>
-                      </div>
-
-                      
-                      
-                      {/* Grid budget info (per-chain, if available) */}
-                      {gridBudgets?.by_chain && Object.keys(gridBudgets.by_chain).length ? (
-                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <span>In bots: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.locked_usd || 0))}</b></span>
-                          <span style={{ opacity: 0.6 }}>|</span>
-                          <span>Free: <b>{fmtUsd(Number(gridBudgets.by_chain?.[c]?.available_usd || 0))}</b></span>
-                        </div>
-                      ) : null}
-
-                      {/* Stablecoins (whitelist) */}
-                      <div
-                        style={{
-                          marginTop: 8,
-                          display: "grid",
-                          gridTemplateColumns: "1fr auto",
-                          gap: 6,
-                          fontSize: 13,
-                        }}
-                      >
-                        {Object.keys(row.stables || { USDC: 0, USDT: 0 }).map((sym) => {
-                          const stableBal = Number((row.stables && row.stables[sym]) ?? 0);
-                          return (
-                            <React.Fragment key={sym}>
-                              <div>
-                                <div className="muted">{sym}</div>
-                                <div style={{ fontSize: 12, opacity: 0.75 }}>Value: {Number.isFinite(stableBal) ? fmtUsd(stableBal) : "—"}</div>
-                              </div>
-                              <div style={{ fontVariantNumeric: "tabular-nums", textAlign: "right", fontWeight: 800 }}>
-                                {(row.stables && row.stables[sym]) ?? "0"}
-                              </div>
-                            </React.Fragment>
-                          );
-                        })}
-                      </div>
-
-                      {/* User-added tokens (unlimited) */}
-                      {(row.custom && row.custom.length > 0) && (
-                        <div style={{ marginTop: 10 }}>
-                          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Added by you</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, fontSize: 13 }}>
-                            {row.custom.map((t) => (
-                              <React.Fragment key={t.address}>
-                                <div title={t.address} style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                                  <div>{t.symbol}</div>
-                                  <div style={{ fontSize: 12, opacity: 0.75 }}>
-                                    {(() => {
-                                      const addr = String(t?.address || "").toLowerCase();
-                                      const px = walletPx?.tokenByChain?.[c]?.[addr];
-                                      return Number.isFinite(px) ? fmtUsd(px) : "—";
-                                    })()}
-                                  </div>
-                                </div>
-                                <div style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>
-                                  {t.balance || "0"}
-                                </div>
-                                <button
-                                  type="button"
-                                  className="iconBtn"
-                                  style={{ width: 26, height: 26, lineHeight: "26px" }}
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    removeWalletToken(c, t.address);
-                                    setTimeout(() => refreshBalances(), 0);
-                                  }}
-                                  aria-label="Remove token"
-                                  title="Remove"
-                                >
-                                  ×
-                                </button>
-                              </React.Fragment>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      <div style={{ marginTop: 10 }}>
-                        <button
-                          type="button"
-                          className="btnGhost"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const nextChain = normalizeWalletChainKey(c);
-                            setBalActiveChain(nextChain);
-                            setWsChainKey(nextChain);
-                            openAddToken(nextChain);
-                          }}
-                          disabled={!wallet}
-                        >
-                          + Add token
-                        </button>
-                      </div>
-
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="hr" style={{ margin: "12px 0" }} />
-
-              <div style={{
-                  marginTop: 10,
-                  background: "rgba(255,255,255,0.03)",
-                  border: "none",
-                  borderRadius: 14,
-                  padding: 12
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>Withdraw &amp; Send</div>
-                    <div className="pill" style={{ fontSize: 12, padding: "4px 10px" }}>
-                      {balActiveChain || DEFAULT_CHAIN}
-                    </div>
-                  </div>
-
-                  <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.25 }}>
-                    Open the transfer panel to withdraw from the Vault or send native coins to another wallet.
-                  </div>
-
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(true); }}
-                    disabled={!wallet}
-                    title={!wallet ? "Connect wallet first" : "Open Withdraw & Send"} style={{ height: 42, width: "100%", marginTop: 10, fontSize: 14 }}
-                  >
-                    Open Withdraw &amp; Send
-                  </button>
-
-                  {txMsg ? (
-                    <div
-                      style={{
-                        marginTop: 10,
-                        fontSize: 12,
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        background: txMsg.toLowerCase().includes("fail")
-                          ? "rgba(255,80,80,0.10)"
-                          : "rgba(80,255,160,0.10)",
-                        border: txMsg.toLowerCase().includes("fail")
-                          ? "1px solid rgba(255,80,80,0.20)"
-                          : "1px solid rgba(80,255,160,0.18)",
-                        color: txMsg.toLowerCase().includes("fail") ? "#ffb3b3" : "#bfffd6",
-                        lineHeight: 1.25
-                      }}
-                    >
-                      {txMsg}
-                    </div>
-                  ) : null}
-                </div>
-
+                Open Withdraw &amp; Payout
+              </button>
+              <button type="button" className="btnGhost" onClick={() => refreshBalances()} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>
+                {balLoading ? "Refreshing…" : "Refresh Vault Overview"}
+              </button>
             </div>
+          )}
 
-                    {/* Withdraw & Send modal */}
+          {/* Nexus Core Vault Withdraw & Payout */}
           {withdrawSendOpen && (
-            <div
-              role="dialog"
-              aria-label="Withdraw & Send"
-              onMouseDown={(e) => { e.stopPropagation(); }}
-              onClick={(e) => { e.stopPropagation(); }}
-              style={{
-                position: "fixed",
-                inset: 0,
-                zIndex: 2400,
-                background: "rgba(0,0,0,0.55)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 16,
-              }}
-            >
+            <div className="modalBackdrop" onClick={() => setWithdrawSendOpen(false)} style={{ zIndex: 3000 }}>
               <div
+                className="modal"
+                role="dialog"
+                aria-label="Nexus Core Vault Withdraw and Payout"
+                onClick={(e) => e.stopPropagation()}
                 style={{
-                  width: "min(520px, 92vw)",
+                  width: "min(980px, calc(100vw - 24px))",
+                  maxWidth: 980,
+                  maxHeight: "88vh",
+                  overflowY: "auto",
                   background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                  border: "none",
-                  borderRadius: 16,
-                  padding: 14,
-                  boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
+                  border: "1px solid rgba(0,255,166,0.16)",
+                  borderRadius: 18,
+                  padding: 16,
                 }}
-                onMouseDown={(e) => { e.stopPropagation(); }}
-                onClick={(e) => { e.stopPropagation(); }}
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <div className="cardTitle" style={{ margin: 0 }}>Withdraw &amp; Send</div>
-                  <button
-                    className="iconBtn"
-                    type="button"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }}
-                    aria-label="Close"
-                  >
-                    ×
-                  </button>
+                  <div>
+                    <div className="cardTitle" style={{ margin: 0 }}>Nexus Core Vault</div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>Withdraw &amp; secured-profit payout</div>
+                  </div>
+                  <button className="iconBtn" type="button" onClick={() => setWithdrawSendOpen(false)} aria-label="Close">×</button>
                 </div>
 
-                <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.25 }}>
-                  Chain:
-                <select
-                  value={wsChainKey}
-                  onChange={(e) => setWsChainKey(e.target.value)}
-                  style={{ marginLeft: 8, padding: "6px 10px", borderRadius: 10 }}
-                >
-                  {walletChainOptions.map((c) => (
-                    <option key={c.k} value={c.k}>
-                      {c.label}
-                    </option>
+                <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+                  {[
+                    ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd],
+                    ["Base Capital Protected", coreVaultOverview.protectedBaseUsd],
+                    ["Secured NKR Profit", coreVaultOverview.securedProfitUsd],
+                    ["Available for Withdraw", coreVaultOverview.availableForWithdrawUsd],
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ padding: 11, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
+                      <div className="muted" style={{ fontSize: 11 }}>{label}</div>
+                      <div className="mono" style={{ marginTop: 5, fontWeight: 900 }}>{fmtUsd(Number(value || 0))}</div>
+                    </div>
                   ))}
-                </select>
-                <span ref={wsInfoRef} style={{ position: "relative", display: "inline-block", marginLeft: 10 }}>
-                  <span
-                    className="infoDot"
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Withdraw & Send info"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWsInfoOpen((v) => !v); }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setWsInfoOpen((v) => !v);
-                      }
-                    }}
-                    title=""
-                    style={{ cursor: "pointer" }}
-                  >
-                    i
-                  </span>
-
-                  {wsInfoOpen && (
-                    <div
-                      onClick={() => setWsInfoOpen(false)}
-                      style={{
-                        position: "fixed",
-                        inset: 0,
-                        background: "rgba(0,0,0,0.6)",
-                        zIndex: 10000,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: 12,
-                      }}
-                    >
-                      <div
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                        style={{
-                          width: "min(520px, 96vw)",
-                          maxHeight: "80vh",
-                          overflow: "hidden",
-                          background: "rgba(6, 18, 14, 0.98)",
-                          border: "1px solid rgba(40, 255, 160, 0.35)",
-                          borderRadius: 14,
-                          padding: 14,
-                          boxShadow: "0 0 26px rgba(40, 255, 160, 0.18)",
-                          position: "relative",
-                        }}
-                      >
-                        <button
-                          type="button"
-                          aria-label="Close"
-                          onClick={() => setWsInfoOpen(false)}
-                          style={{
-                            position: "absolute",
-                            top: 8,
-                            right: 10,
-                            background: "transparent",
-                            border: "none",
-                            color: "rgba(235, 255, 245, 0.95)",
-                            fontSize: 18,
-                            cursor: "pointer",
-                            lineHeight: 1,
-                          }}
-                        >
-                          ×
-                        </button>
-
-                        <div style={{ overflowY: "auto", maxHeight: "calc(80vh - 28px)", paddingRight: 6 }}>
-                          {/* ENGLISH */}
-                          <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – How it works</div>
-                          <div style={{ marginBottom: 8 }}>
-                            <b>1) Withdraw:</b> Funds are withdrawn from the Vault back to your connected Privy wallet first.
-                            The Vault always pays the connected wallet (<code style={{ fontSize: 12 }}>msg.sender</code>).
-                          </div>
-                          <div style={{ marginBottom: 10 }}>
-                            <b>2) Send:</b> After the withdrawal is completed, you can optionally send the funds from your wallet to any other address.
-                          </div>
-                          <div style={{ opacity: 0.95 }}>
-                            <b>Important:</b><br />
-                            • Make sure you are on the selected enabled EVM network<br />
-                            • Withdraw and Send are two separate steps<br />
-                            • In Demo Mode this is only shown/simulated; real withdrawal needs Live access<br />
-                            • Gas fees are paid in the native coin of the selected EVM network
-                          </div>
-
-                          <hr style={{ margin: "12px 0", borderColor: "rgba(40, 255, 160, 0.35)" }} />
-
-                          {/* DEUTSCH */}
-                          <div style={{ fontWeight: 800, marginBottom: 8 }}>Withdraw &amp; Send – So funktioniert es</div>
-                          <div style={{ marginBottom: 8 }}>
-                            <b>1) Withdraw:</b> Das Guthaben wird zuerst aus dem Vault zurück in dein verbundenes Privy-Wallet ausgezahlt.
-                            Der Vault zahlt immer an das verbundene Wallet (<code style={{ fontSize: 12 }}>msg.sender</code>).
-                          </div>
-                          <div style={{ marginBottom: 10 }}>
-                            <b>2) Send:</b> Nach dem Withdraw kannst du die Coins optional von deinem Wallet an eine beliebige Adresse weiterleiten.
-                          </div>
-                          <div style={{ opacity: 0.95 }}>
-                            <b>Wichtig:</b><br />
-                            • Du musst auf dem ausgewählten freigegebenen EVM-Netzwerk sein<br />
-                            • Withdraw und Send sind zwei getrennte Schritte<br />
-                            • Im Demo Mode wird das nur angezeigt/simuliert; echter Withdraw braucht Live-Zugang<br />
-                            • Gas-Gebühren werden im nativen Coin des ausgewählten EVM-Netzwerks bezahlt
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </span>
-                  <div style={{ marginTop: 4 }}>
-                    Nexus Core Vault represents all enabled EVM networks through one common interface. Each network uses its own Core Vault instance, while the user sees one combined Vault.
-                  </div>
                 </div>
 
-                <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+                <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, alignItems: "start" }}>
+                  <div style={{ padding: 14, borderRadius: 14, background: "rgba(255,255,255,0.025)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                    <div className="cardTitle" style={{ margin: 0, fontSize: 15 }}>Manual Withdraw</div>
+                    <div className="muted" style={{ fontSize: 12, marginTop: 5 }}>Choose the funding source. Nexus shows all estimated costs before confirmation.</div>
 
-                  <div style={{
-                    padding: 14,
-                    borderRadius: 14,
-                    background: "rgba(0, 255, 166, 0.055)",
-                    border: "1px solid rgba(0, 255, 166, 0.16)"
-                  }}>
-                    <div className="cardTitle" style={{ marginBottom: 8 }}>Nexus Core Vault</div>
-                    <div className="muted" style={{ fontSize: 12, lineHeight: 1.45 }}>
-                      One Vault interface for every enabled EVM network. The old ETH / POL / BNB cycle controls are disconnected.
-                      New Core Vault addresses can be changed in the backend environment without rebuilding this frontend.
+                    <div style={{ marginTop: 12 }}>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Source</div>
+                      <select className="input" value={coreWithdrawSource} onChange={(e) => { setCoreWithdrawSource(e.target.value); setCoreWithdrawQuote(null); }} style={{ width: "100%", height: 42 }}>
+                        <option value="SECURED_PROFIT_ONLY">Secured Profit Only</option>
+                        <option value="BASE_CAPITAL">Base Capital</option>
+                        <option value="ALL_STABLE">All Stable</option>
+                      </select>
                     </div>
-                    <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
-                      {(contracts?.enabledEvmChains || []).map((chainKey) => {
-                        const cfg = contracts?.chains?.[chainKey] || {};
-                        const configured = !!(cfg?.coreVault || cfg?.vault);
-                        return (
-                          <div key={chainKey} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12 }}>
-                            <span><b>{CHAIN_LABELS?.[chainKey] || chainKey}</b> · Chain ID {cfg?.chainId || "—"}</span>
-                            <span style={{ color: configured ? "#54f0a4" : "#ffd166", fontWeight: 900 }}>
-                              {configured ? "CORE VAULT READY" : "ADDRESS PENDING"}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-                      Non-EVM assets use owner-approved wrapped routes only. Nexus validates the EVM chain and exact token contract address; symbols alone are never trusted.
-                    </div>
-                    {Object.keys(contracts?.nonEvmAssetRoutes || {}).length > 0 ? (
-                      <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {Object.entries(contracts.nonEvmAssetRoutes).flatMap(([asset, routes]) =>
-                          (Array.isArray(routes) ? routes : []).map((route, idx) => (
-                            <span key={`${asset}-${route?.chain || idx}-${idx}`} className="pill" style={{ fontSize: 11 }}>
-                              {asset} → {route?.tokenSymbol || "WRAPPED"} · {route?.chain || "—"} · {route?.active ? "ACTIVE" : "PAUSED"}
-                            </span>
-                          ))
-                        )}
-                      </div>
-                    ) : (
-                      <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>No non-EVM wrapped routes approved yet.</div>
-                    )}
-                  </div>
 
-                  <div style={{
-                    marginTop: 12,
-                    padding: 12,
-                    borderRadius: 14,
-                    background: "rgba(0, 255, 166, 0.055)",
-                    border: "1px solid rgba(0, 255, 166, 0.16)"
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-                      <div className="cardTitle" style={{ margin: 0, fontSize: 14 }}>NKR profit payout</div>
-                      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 800 }}>
-                        <input
-                          type="checkbox"
-                          checked={profitPayoutEnabled}
-                          onChange={(e) => setProfitPayoutEnabled(e.target.checked)}
-                        />
-                        Weekly
-                      </label>
-                    </div>
-                    <div className="muted" style={{ fontSize: 12, lineHeight: 1.35, marginBottom: 10 }}>
-                      Pays out from secured NKR profit only. The protected base capital stays in the Vault unless the user manually withdraws more. Live payout will still use Vault quote/withdraw checks.
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 90px auto", gap: 8, alignItems: "end" }}>
+                    <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 130px", gap: 8 }}>
                       <div>
-                        <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Source</div>
-                        <div className="pill" style={{ height: 34, display: "flex", alignItems: "center", justifyContent: "center" }}>Secured profit only</div>
+                        <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Amount (USD)</div>
+                        <input className="input" value={coreWithdrawAmount} onChange={(e) => { setCoreWithdrawAmount(e.target.value); setCoreWithdrawQuote(null); }} placeholder="0.00" inputMode="decimal" style={{ width: "100%", height: 42 }} />
                       </div>
                       <div>
-                        <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Weekly %</div>
-                        <input
-                          className="input"
-                          value={profitPayoutPct}
-                          onChange={(e) => setProfitPayoutPct(e.target.value)}
-                          placeholder="50"
-                          inputMode="decimal"
-                          style={{ width: "100%", height: 36, fontSize: 13, borderRadius: 10, padding: "0 10px" }}
-                        />
-                      </div>
-                      <div>
-                        <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Asset</div>
-                        <select
-                          value={profitPayoutAsset}
-                          onChange={(e) => setProfitPayoutAsset(e.target.value)}
-                          style={{ width: "100%", height: 36, borderRadius: 10, padding: "0 8px" }}
-                        >
+                        <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Asset</div>
+                        <select className="input" value={coreWithdrawAsset} onChange={(e) => { setCoreWithdrawAsset(e.target.value); setCoreWithdrawQuote(null); }} style={{ width: "100%", height: 42 }}>
                           <option value="USDT">USDT</option>
                           <option value="USDC">USDC</option>
                         </select>
                       </div>
-                      <button
-                        type="button"
-                        className="btn"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); saveProfitPayoutSettings(); }}
-                        disabled={profitPayoutBusy || !wallet}
-                        style={{ height: 36, paddingInline: 14, fontSize: 13, whiteSpace: "nowrap" }}
-                      >
-                        {profitPayoutBusy ? "…" : "Save"}
-                      </button>
                     </div>
-                    {profitPayoutPreview ? (
-                      <div className="muted" style={{ fontSize: 12, marginTop: 9, lineHeight: 1.35 }}>
-                        Secured profit: <b>{fmtUsd(Number(profitPayoutPreview.securedProfitUsd || 0))}</b> ·
-                        Weekly gross: <b>{fmtUsd(Number(profitPayoutPreview.payoutGrossUsd || 0))}</b> ·
-                        Est. net to wallet: <b>{fmtUsd(Number(profitPayoutPreview.estimatedNetToWalletUsd || 0))}</b>
-                      </div>
-                    ) : null}
-                  </div>
 
-                  <div style={{
-                    padding: 12,
-                    borderRadius: 12,
-                    background: "rgba(255, 193, 7, 0.07)",
-                    border: "1px solid rgba(255, 193, 7, 0.22)",
-                    fontSize: 12,
-                    lineHeight: 1.45
-                  }}>
-                    <b>Core Vault withdraw execution is not enabled yet.</b><br />
-                    The old chain-specific withdraw contracts are disconnected. The existing quote, secured-profit payout and safety preparation remain available until the new audited Core Vault addresses and ABI are connected.
-                  </div>
-
-                  <div>
-                    <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Send to address</div>
-                    <input
-                      className="input"
-                      value={sendTo}
-                      onChange={(e) => setSendTo(e.target.value)}
-                      placeholder="0x…"
-                      style={{ width: "100%", height: 44, fontSize: 14, fontFamily: "monospace", background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
-                    />
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
-                    <div>
-                      <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Amount</div>
-                      <input
-                        className="input"
-                        value={sendAmt}
-                        onChange={(e) => setSendAmt(e.target.value)}
-                        placeholder="0.10"
-                        inputMode="decimal"
-                        style={{ width: "100%", height: 44, fontSize: 14, background: "linear-gradient(180deg, rgba(0,255,166,0.18), rgba(0,210,140,0.12))", color: "#ffffff", caretColor: "#ffffff", border: "none", borderRadius: 10, padding: "0 12px" }}
-                      />
+                    <div style={{ marginTop: 10 }}>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Destination address</div>
+                      <input className="input" value={coreWithdrawAddress} onChange={(e) => { setCoreWithdrawAddress(e.target.value); setCoreWithdrawQuote(null); }} placeholder="0x…" style={{ width: "100%", height: 42, fontFamily: "monospace" }} />
                     </div>
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendNative(); }}
-                      disabled={txBusy || !wallet} style={{ height: 44, paddingInline: 18, fontSize: 14, whiteSpace: "nowrap" }}
-                    >
-                      {txBusy ? "…" : "Send"}
+
+                    <div style={{ marginTop: 9, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12 }}>
+                      <span className="muted">Available from selected source</span>
+                      <b>{fmtUsd(coreVaultOverview.availableForWithdrawUsd)}</b>
+                    </div>
+
+                    <button type="button" className="btn" onClick={previewCoreVaultWithdraw} disabled={coreWithdrawQuoteBusy || !wallet} style={{ width: "100%", height: 44, marginTop: 12 }}>
+                      {coreWithdrawQuoteBusy ? "Preparing preview…" : "Preview Withdraw"}
                     </button>
                   </div>
 
-                  {txMsg ? (
-                    <div
-                      style={{
-                        marginTop: 2,
-                        fontSize: 12,
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        background: txMsg.toLowerCase().includes("fail")
-                          ? "rgba(255,80,80,0.10)"
-                          : "rgba(80,255,160,0.10)",
-                        border: txMsg.toLowerCase().includes("fail")
-                          ? "1px solid rgba(255,80,80,0.20)"
-                          : "1px solid rgba(80,255,160,0.18)",
-                        color: txMsg.toLowerCase().includes("fail") ? "#ffb3b3" : "#bfffd6",
-                        lineHeight: 1.25
-                      }}
-                    >
-                      {txMsg}
-                    </div>
-                  ) : null}
+                  <div style={{ padding: 14, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
+                    <div className="cardTitle" style={{ margin: 0, fontSize: 15 }}>Withdraw Preview</div>
+                    {!coreWithdrawQuote ? (
+                      <div className="muted" style={{ fontSize: 12, lineHeight: 1.5, marginTop: 10 }}>Enter the amount and destination, then select <b>Preview Withdraw</b>. No funds move during preview.</div>
+                    ) : (
+                      <div style={{ marginTop: 10, display: "grid", gap: 8, fontSize: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Withdraw amount</span><b>{fmtUsd(Number(coreWithdrawQuote.grossUsd || 0))}</b></div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Network / gas fee</span><b>{fmtUsd(Number(coreWithdrawQuote.costsIncluded?.gasUsd || 0))}</b></div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Swap / routing cost</span><b>{fmtUsd(Number(coreWithdrawQuote.costsIncluded?.swapUsd || 0) + Number(coreWithdrawQuote.costsIncluded?.slippageUsd || 0))}</b></div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Routing buffer</span><b>{fmtUsd(Number(coreWithdrawQuote.costsIncluded?.routingBufferUsd || 0))}</b></div>
+                        <div className="hr" style={{ margin: "2px 0" }} />
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 14 }}><span>Estimated receive</span><b style={{ color: "#54f0a4" }}>{fmtUsd(Number(coreWithdrawQuote.netUsd || 0))} {coreWithdrawAsset}</b></div>
+                        <div className="muted" style={{ fontSize: 11, lineHeight: 1.4 }}>Preview only. Unused routing buffer returns to the user stable balance.</div>
+                        <button type="button" className="btn" disabled title="Enabled after audited Core Vault contracts and ABI are connected" style={{ width: "100%", height: 42, marginTop: 3 }}>Confirm Withdraw</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWithdrawSendOpen(false); }} style={{ height: 42, flex: 1 }}
-                  >
-                    Close
-                  </button>
+                <div style={{ marginTop: 12, padding: 14, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <div>
+                      <div className="cardTitle" style={{ margin: 0, fontSize: 15 }}>Weekly Automatic Withdraw</div>
+                      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Always paid from secured NKR profit only.</div>
+                    </div>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 800 }}>
+                      <input type="checkbox" checked={profitPayoutEnabled} onChange={(e) => setProfitPayoutEnabled(e.target.checked)} /> Weekly
+                    </label>
+                  </div>
+                  <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, alignItems: "end" }}>
+                    <div><div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Source</div><div className="pill" style={{ height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>Secured Profit Only</div></div>
+                    <div><div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Weekly %</div><input className="input" value={profitPayoutPct} onChange={(e) => setProfitPayoutPct(e.target.value)} inputMode="decimal" style={{ width: "100%", height: 38 }} /></div>
+                    <div><div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Asset</div><select className="input" value={profitPayoutAsset} onChange={(e) => setProfitPayoutAsset(e.target.value)} style={{ width: "100%", height: 38 }}><option value="USDT">USDT</option><option value="USDC">USDC</option></select></div>
+                    <button type="button" className="btn" onClick={saveProfitPayoutSettings} disabled={profitPayoutBusy || !wallet} style={{ height: 38 }}>{profitPayoutBusy ? "Saving…" : "Save"}</button>
+                  </div>
                 </div>
+
+                <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: "rgba(255,193,7,0.07)", border: "1px solid rgba(255,193,7,0.22)", fontSize: 12, lineHeight: 1.45 }}>
+                  <b>Core Vault execution remains disabled.</b> Preview and payout settings are available, but Confirm Withdraw stays locked until the audited Core Vault addresses and ABI are connected.
+                </div>
+
+                {txMsg ? <div style={{ marginTop: 10, fontSize: 12, padding: "8px 10px", borderRadius: 12, background: "rgba(255,255,255,0.04)" }}>{txMsg}</div> : null}
               </div>
             </div>
-          )}{/* Add token modal (saved per wallet; unlimited). */}
+          )}
           {addTokenOpen && (
             <div
               role="dialog"
@@ -18365,8 +17863,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 )}
               </div>
             </div>
-          )}
-            </>
           )}
 
         </div>

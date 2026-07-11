@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-114-PRIVY-ASSET-VAULT-GATE";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-116-STRATEGIST-UI-REMOVED";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -3553,6 +3553,9 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [profitPayoutEnabled, setProfitPayoutEnabled] = useState(false);
   const [profitPayoutPct, setProfitPayoutPct] = useState("50");
   const [profitPayoutAsset, setProfitPayoutAsset] = useState("USDT");
+  const [profitPayoutSchedule, setProfitPayoutSchedule] = useState("EVERY_DAYS");
+  const [profitPayoutEveryDays, setProfitPayoutEveryDays] = useState("7");
+  const [profitPayoutMinUsd, setProfitPayoutMinUsd] = useState("25");
   const [profitPayoutPreview, setProfitPayoutPreview] = useState(null);
   const [profitPayoutBusy, setProfitPayoutBusy] = useState(false);
   const [coreWithdrawSource, setCoreWithdrawSource] = useState("SECURED_PROFIT_ONLY");
@@ -3911,6 +3914,9 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       setProfitPayoutEnabled(!!st.enabled);
       setProfitPayoutPct(String(st.payoutPct ?? "50"));
       setProfitPayoutAsset(String(st.asset || "USDT").toUpperCase());
+      setProfitPayoutSchedule(String(st.schedule || st.frequency || "EVERY_DAYS").toUpperCase());
+      setProfitPayoutEveryDays(String(st.everyDays ?? st.intervalDays ?? "7"));
+      setProfitPayoutMinUsd(String(st.minimumPayoutUsd ?? st.minPayoutUsd ?? "25"));
       setProfitPayoutPreview(r || null);
     } catch (e) {
       // keep UI stable; this panel is a settings layer and must not block Withdraw.
@@ -3922,13 +3928,22 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       if (!wallet) throw new Error("Wallet not connected.");
       setProfitPayoutBusy(true);
       const pct = Math.max(0, Math.min(100, Number(String(profitPayoutPct || "0").replace(",", ".")) || 0));
+      const everyDays = Math.max(1, Math.min(365, Math.floor(Number(String(profitPayoutEveryDays || "7").replace(",", ".")) || 7)));
+      const minimumPayoutUsd = Math.max(0, Math.min(1000000, Number(String(profitPayoutMinUsd || "0").replace(",", ".")) || 0));
+      const schedule = ["IMMEDIATE", "EVERY_DAYS", "MANUAL_ONLY"].includes(String(profitPayoutSchedule || "").toUpperCase())
+        ? String(profitPayoutSchedule).toUpperCase()
+        : "EVERY_DAYS";
       const r = await api(`/api/vault/profit-payout-settings`, {
         method: "POST",
         token,
         wallet,
         body: {
-          enabled: !!profitPayoutEnabled,
-          frequency: "WEEKLY",
+          enabled: schedule === "MANUAL_ONLY" ? false : !!profitPayoutEnabled,
+          schedule,
+          frequency: schedule,
+          everyDays,
+          intervalDays: everyDays,
+          minimumPayoutUsd,
           payoutPct: pct,
           asset: profitPayoutAsset || "USDT",
           destination: "CONNECTED_WALLET",
@@ -3936,7 +3951,8 @@ const [wsChainKey, setWsChainKey] = useState(() => {
         },
       });
       setProfitPayoutPreview(r || null);
-      setTxMsg(`Profit payout settings saved${r?.estimatedNetToWalletUsd != null ? ` · weekly preview net ≈ $${r.estimatedNetToWalletUsd}` : ""}.`);
+      const scheduleLabel = schedule === "IMMEDIATE" ? "immediate" : schedule === "EVERY_DAYS" ? `every ${everyDays} day${everyDays === 1 ? "" : "s"}` : "manual only";
+      setTxMsg(`Profit payout settings saved · ${scheduleLabel}${r?.estimatedNetToWalletUsd != null ? ` · preview net ≈ $${r.estimatedNetToWalletUsd}` : ""}.`);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Profit payout settings failed"));
     } finally {
@@ -17822,20 +17838,57 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
 
                 <div style={{ marginTop: 12, padding: 14, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                     <div>
-                      <div className="cardTitle" style={{ margin: 0, fontSize: 15 }}>Weekly Automatic Withdraw</div>
-                      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Always paid from secured NKR profit only.</div>
+                      <div className="cardTitle" style={{ margin: 0, fontSize: 15 }}>Automatic Profit Payout</div>
+                      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Only realized profit already secured in USDT/USDC can be paid out. Open position profit never counts.</div>
                     </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 800 }}>
-                      <input type="checkbox" checked={profitPayoutEnabled} onChange={(e) => setProfitPayoutEnabled(e.target.checked)} /> Weekly
+                      <input
+                        type="checkbox"
+                        checked={profitPayoutEnabled && profitPayoutSchedule !== "MANUAL_ONLY"}
+                        disabled={profitPayoutSchedule === "MANUAL_ONLY"}
+                        onChange={(e) => setProfitPayoutEnabled(e.target.checked)}
+                      /> Enabled
                     </label>
                   </div>
-                  <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, alignItems: "end" }}>
-                    <div><div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Source</div><div className="pill" style={{ height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>Secured Profit Only</div></div>
-                    <div><div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Weekly %</div><input className="input" value={profitPayoutPct} onChange={(e) => setProfitPayoutPct(e.target.value)} inputMode="decimal" style={{ width: "100%", height: 38 }} /></div>
+                  <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, alignItems: "end" }}>
+                    <div>
+                      <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Schedule</div>
+                      <select
+                        className="input"
+                        value={profitPayoutSchedule}
+                        onChange={(e) => {
+                          const next = e.target.value;
+                          setProfitPayoutSchedule(next);
+                          if (next === "MANUAL_ONLY") setProfitPayoutEnabled(false);
+                        }}
+                        style={{ width: "100%", height: 38 }}
+                      >
+                        <option value="IMMEDIATE">Immediate</option>
+                        <option value="EVERY_DAYS">Every X days</option>
+                        <option value="MANUAL_ONLY">Manual only</option>
+                      </select>
+                    </div>
+                    {profitPayoutSchedule === "EVERY_DAYS" && (
+                      <div>
+                        <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Every days</div>
+                        <input className="input" type="number" min="1" max="365" step="1" value={profitPayoutEveryDays} onChange={(e) => setProfitPayoutEveryDays(e.target.value)} style={{ width: "100%", height: 38 }} />
+                      </div>
+                    )}
+                    <div><div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Payout %</div><input className="input" value={profitPayoutPct} onChange={(e) => setProfitPayoutPct(e.target.value)} inputMode="decimal" style={{ width: "100%", height: 38 }} /></div>
+                    <div><div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Minimum payout (USD)</div><input className="input" value={profitPayoutMinUsd} onChange={(e) => setProfitPayoutMinUsd(e.target.value)} inputMode="decimal" style={{ width: "100%", height: 38 }} /></div>
                     <div><div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Asset</div><select className="input" value={profitPayoutAsset} onChange={(e) => setProfitPayoutAsset(e.target.value)} style={{ width: "100%", height: 38 }}><option value="USDT">USDT</option><option value="USDC">USDC</option></select></div>
+                    <div><div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Source</div><div className="pill" style={{ height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>Secured Profit Only</div></div>
                     <button type="button" className="btn" onClick={saveProfitPayoutSettings} disabled={profitPayoutBusy || !wallet} style={{ height: 38 }}>{profitPayoutBusy ? "Saving…" : "Save"}</button>
+                  </div>
+                  <div className="muted" style={{ fontSize: 11, lineHeight: 1.45, marginTop: 9 }}>
+                    {profitPayoutSchedule === "IMMEDIATE"
+                      ? "Immediate means after profit is realized, secured in a stablecoin, meets the minimum amount, and passes Vault safety checks."
+                      : profitPayoutSchedule === "EVERY_DAYS"
+                        ? `The next payout window is every ${Math.max(1, Number(profitPayoutEveryDays || 1))} day(s). Only secured profit available at that time is eligible.`
+                        : "No automatic payout. The user initiates payout manually from Withdraw & Payout."}
+                    {profitPayoutPreview?.nextPayoutLabel ? ` Next: ${profitPayoutPreview.nextPayoutLabel}.` : ""}
                   </div>
                 </div>
 
@@ -22915,246 +22968,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
         )}
 
-        {/* AI */}
-        <section className={`card section-ai dashboardPanel ${activePanel === "ai" ? "panelActive" : ""}`} onClick={handlePanelActivate("ai")}>
-          <div className="cardHead">
-            <div className="cardTitle">Nexus Strategist</div>
-            <button className="miniBtn" type="button" onClick={() => setStrategistMarketIntelOpen((v) => !v)} title="Show live data used by Strategist, NKR and Trader">Intelligence {strategistMarketIntelOpen ? "▲" : "▼"}</button>
-            <div className="cardActions" style={{ alignItems: "center" }}>
-              <InfoButton title="Nexus Strategist">
-                <Help showClose dismissable
-                  de={<><p><b>Nexus Strategist</b> ist dein aktiver Strategie-Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Unterschied zu AI Insight:</b> AI Insight erklaert kompakt den aktuellen Markt. Nexus Strategist hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten, Trade-Review und der Einordnung zwischen Nexus Grid und NKR.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Hinweis:</b> Nexus Strategist liefert Analyse, Struktur und taktische Orientierung. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}
-                  en={<><p><b>Nexus Strategist</b> is your active strategy workspace inside Nexus Analyt. It no longer works through visible coin chips; it works through your task input.</p><p><b>Difference from AI Insight:</b> AI Insight gives a compact market interpretation. Nexus Strategist helps actively with research, strategy ideas, backtest review, Pine Script, reports, trade review, and choosing between Nexus Grid and NKR.</p><p><b>Research:</b> investigates market questions, rotation, relative strength, volume, watchlist themes, and unusual conditions.</p><p><b>Strategy Builder:</b> turns your idea into clear rules, filters, entry/exit logic, risk logic, and alerts.</p><p><b>Backtest Review:</b> evaluates backtest results, drawdown, win rate, expectancy, overfitting risk, and weak market regimes.</p><p><b>Pine Builder:</b> helps with TradingView/Pine Script: indicators, strategies, alerts, debugging, and improvements.</p><p><b>Daily Report:</b> creates a compact report from your task and available app context.</p><p><b>Trade Review:</b> analyzes execution, behavior, order structure, repeated mistakes, and trading habits.</p><p><b>Input:</b> Always describe what the analyst should do. You can paste coin names, strategy ideas, backtest data, or Pine Script directly.</p><p><b>Note:</b> Nexus Strategist provides analysis, structure, and tactical orientation. It is not financial advice or a direct buy/sell recommendation.</p></>}
-                />
-              </InfoButton>
-            </div>
-          </div>
-
-          <div className="panelScroll"><div className="aiWrap">
-            {strategistMarketIntelOpen && (
-              <div style={{ marginBottom: 10, padding: "9px 10px", borderRadius: 12, border: "1px solid rgba(139,220,255,.22)", background: "rgba(0,0,0,.18)" }}>
-                <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 7 }}>
-                  <b style={{ color: strategistMarketIntel?.status === "error" ? "#ff8a8a" : "#86efac" }}>Binance Public: {strategistMarketIntel?.status === "error" ? "ERROR" : "CONNECTED"}</b>
-                  <span>Symbols: {Number(strategistMarketIntel?.symbolCount || Object.keys(strategistMarketIntel?.symbols || {}).length || 0)}</span>
-                  <span>Cached: {strategistMarketIntel?.cached ? "yes" : "refresh"}</span>
-                  <span>Stale: {strategistMarketIntel?.stale ? "yes" : "no"}</span>
-                  <span>Batch: {strategistMarketIntel?.batchSize || 40}</span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(3,minmax(0,1fr))", gap: 7 }}>
-                  {Object.entries(strategistMarketIntel?.symbols || {}).filter(([,v]) => v?.available).slice(0, 12).map(([sym,v]) => (
-                    <div key={sym} className="muted tiny" style={{ borderRadius: 9, padding: "7px 8px", background: "rgba(255,255,255,.035)" }}>
-                      <b style={{ color: "#8bdcff" }}>{sym}</b> · Score {Number(v?.futuresScoreAdjustment || 0) >= 0 ? "+" : ""}{Number(v?.futuresScoreAdjustment || 0).toFixed(1)}<br/>
-                      Funding {Number(v?.fundingRate || 0).toFixed(6)} · OI Δ {Number(v?.openInterestChangePct || 0).toFixed(2)}% · L/S {Number(v?.globalLongShortRatio || 0).toFixed(2)}
-                    </div>
-                  ))}
-                </div>
-                <div style={{ marginTop: 9, padding: "8px 9px", borderRadius: 10, background: "rgba(255,255,255,.035)" }}>
-                  <div className="muted tiny" style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    <b style={{ color: "#c4b5fd" }}>Global AI Strategist · shared cache</b>
-                    <button
-                      type="button"
-                      className="miniBtn"
-                      disabled={globalStrategistLoading}
-                      onClick={async () => {
-                        try {
-                          setGlobalStrategistLoading(true);
-                          const symbols = Object.keys(strategistMarketIntel?.symbols || {}).slice(0, 18);
-                          const r = await api(`/api/nexus/global-strategist?refresh=1&symbols=${encodeURIComponent(symbols.join(","))}`, { token, wallet });
-                          setGlobalStrategistReport(r || null);
-                        } catch (e) {
-                          setGlobalStrategistReport((prev) => ({ ...(prev || {}), status: "error", error: String(e?.message || e) }));
-                        } finally { setGlobalStrategistLoading(false); }
-                      }}
-                      title="Refresh is globally rate-limited and reused for all users"
-                    >{globalStrategistLoading ? "Checking..." : "Refresh report"}</button>
-                  </div>
-                  <div className="muted tiny" style={{ marginTop: 6, lineHeight: 1.45 }}>
-                    <span>Mode: <b>{globalStrategistReport?.report?.mode || "LOCAL_STRATEGIST"}</b></span> · 
-                    <span>Regime: <b>{globalStrategistReport?.report?.regime || globalStrategistReport?.local_snapshot?.regime || "NEUTRAL"}</b></span> · 
-                    <span>Confidence: {Number(globalStrategistReport?.report?.confidence || 0)}%</span> · 
-                    <span>Risk: {Number(globalStrategistReport?.report?.risk_score || 0)}</span> · 
-                    <span>Rotation: {Number(globalStrategistReport?.report?.rotation_score || 0)}</span>
-                    <br/>
-                    {globalStrategistReport?.report?.summary || "Local score engine active; shared AI report is loading."}
-                    <br/>
-                    <span style={{ color: "#86efac" }}>One shared report for all users · no GPT call per tick or per coin · Core fallback always active.</span>
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="aiSelect">
-              <div className="label">Strategy Task</div>
-              <textarea
-                value={aiQuestion}
-                onChange={(e) => setAiQuestion(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.nativeEvent?.isComposing) return;
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!aiLoading) {
-                      void runAi();
-                    }
-                  }
-                }}
-                placeholder={aiTaskPlaceholder(aiKind)}
-                rows={6}
-                style={{
-                  width: "100%",
-                  minHeight: 130,
-                  resize: "vertical",
-                  borderRadius: 14,
-                  padding: "12px 14px",
-                  background: "rgba(0,0,0,0.28)",
-                  color: "inherit",
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  outline: "none",
-                }}
-                disabled={aiLoading}
-              />
-              <div className="muted tiny" style={{ marginTop: 8 }}>
-                Describe what the analyst should do. You can paste coins, strategy ideas, backtest notes, or Pine Script here.
-              </div>
-
-              <div className="divider" />
-
-              <div className="formRow">
-                <label>Mode</label>
-                <div className="aiChips" style={{ gap: 8 }}>
-                  {[
-                    ["research", "Research"],
-                    ["strategy_builder", "Strategy Builder"],
-                    ["backtest_review", "Backtest Review"],
-                    ["pine_tradingview", "Pine Builder"],
-                    ["daily_report", "Daily Report"],
-                    ["diagnostics", "Trade Review"],
-                  ].map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`chip ${aiKind === value ? "active" : ""}`}
-                      onClick={() => {
-                        setAiKind(value);
-                        setAiOutput("");
-                        setAiHistory([]);
-                        setAiQuestion("");
-                      }}
-                      title={`Nexus Strategist mode: ${label}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-<div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <label className="muted" style={{ display: "inline-flex", gap: 8, alignItems: "center", userSelect: "none" }}>
-                  <input
-                    type="checkbox"
-                    checked={aiFollowUp}
-                    onChange={(e) => {
-                      const on = !!e.target.checked;
-                      setAiFollowUp(on);
-                      setAiQuestion("");
-                      if (!on) setAiHistory([]);
-                    }}
-                  />
-                  Follow-up
-                </label>
-                <button
-                  className="btnGhost"
-                  type="button"
-                  onClick={() => {
-                    setAiOutput("");
-                    setAiQuestion("");
-                    setAiHistory([]);
-                    setErrorMsg("");
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-
-              {!isPro ? (
-                <div className="hint" style={{ marginTop: 10, color: "rgba(255,255,255,0.75)" }}>
-                  Nexus Strategist is a separate add-on: <b>$20/7 days</b> or <b>$50/30 days</b>. Demo users can try limited AI usage; Core users need Strategist access for full Strategist mode.
-                </div>
-              ) : null}
-
-              <button className="btn" type="button" onClick={() => { if (!aiLoading) void runAi(); }} disabled={aiLoading}>
-                {aiLoading ? "Running…" : (aiFollowUp && aiOutput ? "Ask" : "Run")}
-              </button>
-            </div>
-
-            <div className="aiOut">
-              <div className="label">Strategic Output</div>
-              <div className="aiPanel">
-                {aiOutput ? (
-                  <div style={{ display: "grid", gap: 8 }}>
-                    {aiOutputSections.map((section, idx) => {
-                      const meta = aiAnalystSectionMeta[section.key] || aiAnalystSectionMeta.output;
-                      return (
-                        <div
-                          key={`${section.key}-${idx}`}
-                          style={{
-                            border: "1px solid rgba(255,255,255,0.10)",
-                            background: "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025))",
-                            borderRadius: 14,
-                            padding: "8px 10px",
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-                            <div style={{ fontWeight: 900, fontSize: 12, letterSpacing: ".08em", textTransform: "uppercase", color: "#dfffee" }}>
-                              {meta.title}
-                            </div>
-                            <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>{meta.sub}</div>
-                          </div>
-                          <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.28 }}>
-                            {section.body}
-                          </div>
-                          {nexusStrategistCanShowAction(section, detectNexusUserIntent(aiQuestion || "")) ? (
-                            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-                              <button
-                                className="btn"
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  if (section.key === "nexus_grid") applyStrategistToGrid(section.body);
-                                  if (section.key === "nexus_rotation" || section.key === "exchange_spread") applyStrategistToRotation(section.body);
-                                  if (section.key === "nexus_trading") applyStrategistToTrading(section.body);
-                                }}
-                                title={
-                                  aiOutputLanguage === "de"
-                                    ? (section.key === "nexus_grid"
-                                      ? "Diese Idee in Nexus Grid vorbereiten. Es wird keine Order erstellt."
-                                      : section.key === "nexus_trading"
-                                        ? "Diese Idee in Nexus Trading vorbereiten. Die Automation wird nicht aktiviert."
-                                        : "Diese NKR-Idee vorbereiten. Es wird kein Swap ausgeführt.")
-                                    : (section.key === "nexus_grid"
-                                      ? "Prepare this idea in Nexus Grid. This does not create an order."
-                                      : section.key === "nexus_trading"
-                                        ? "Prepare this idea in Nexus Trading. This does not activate automation."
-                                        : "Prepare this NKR idea. This does not execute a swap.")
-                                }
-                                style={{ height: 28, paddingInline: 10, fontSize: 12 }}
-                              >
-                                {aiOutputLanguage === "de"
-                                  ? (section.key === "nexus_grid" ? "In Grid nutzen" : section.key === "nexus_trading" ? "In Trading nutzen" : "In NKR nutzen")
-                                  : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Nexus NKR")}
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="muted">{aiOutputLanguage === "de" ? "Noch keine Ausgabe." : "No output yet."}</div>
-                )}
-              </div>
-            </div>
-          </div></div>
-        </section>
+        {/* Manual Nexus Strategist UI removed. Backend strategist, market scoring, NKR and Trader logic remain active. */}
         </div>
       </main>
 

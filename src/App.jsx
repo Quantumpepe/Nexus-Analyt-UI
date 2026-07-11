@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-125-WALLET-INFO-CLEAN";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-126-CORE-VAULT-DEPOSIT";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -3558,6 +3558,10 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [profitPayoutMinUsd, setProfitPayoutMinUsd] = useState("25");
   const [profitPayoutPreview, setProfitPayoutPreview] = useState(null);
   const [profitPayoutBusy, setProfitPayoutBusy] = useState(false);
+  const [coreDepositAsset, setCoreDepositAsset] = useState("USDC");
+  const [coreDepositAmount, setCoreDepositAmount] = useState("");
+  const [coreDepositBusy, setCoreDepositBusy] = useState(false);
+  const [coreDepositMsg, setCoreDepositMsg] = useState("");
   const [coreWithdrawSource, setCoreWithdrawSource] = useState("SECURED_PROFIT_ONLY");
   const [coreWithdrawAsset, setCoreWithdrawAsset] = useState("USDT");
   const [coreWithdrawAmount, setCoreWithdrawAmount] = useState("");
@@ -4323,6 +4327,99 @@ useEffect(() => {
   }, [wallet, api]);
   useEffect(() => { refreshCoreVaultOnchain(); }, [refreshCoreVaultOnchain]);
   useInterval(refreshCoreVaultOnchain, 15000, !!wallet);
+
+  const _waitForTxReceipt = async (provider, txHash, timeoutMs = 180000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [txHash] });
+      if (receipt) {
+        if (String(receipt.status || "").toLowerCase() === "0x0") throw new Error("Transaction failed on-chain.");
+        return receipt;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2200));
+    }
+    throw new Error("Transaction confirmation timed out. Check the transaction in your wallet.");
+  };
+
+  const depositToCoreVault = async () => {
+    try {
+      setCoreDepositMsg("");
+      if (!wallet) throw new Error("Wallet not connected.");
+      const vault = String(coreVaultOnchain?.contractAddress || "").trim();
+      if (!_isAddr(vault) || !coreVaultOnchain?.connected) throw new Error("Ethereum Core Vault is not connected.");
+      if (coreVaultOnchain?.paused) throw new Error("Core Vault is currently paused.");
+
+      const symbol = String(coreDepositAsset || "USDC").toUpperCase();
+      const tokenState = coreVaultOnchain?.tokens?.[symbol] || {};
+      const tokenAddress = String(tokenState?.address || "").trim();
+      const decimals = Number(tokenState?.decimals ?? 6);
+      if (!_isAddr(tokenAddress)) throw new Error(`${symbol} contract is not available.`);
+      if (!tokenState?.config?.depositEnabled) throw new Error(`${symbol} deposits are not enabled.`);
+
+      const rawAmount = String(coreDepositAmount || "").trim();
+      if (!/^\d+(\.\d+)?$/.test(rawAmount) || Number(rawAmount) <= 0) throw new Error("Enter a valid deposit amount.");
+      const amountUnits = decimalStringToUnits(rawAmount, decimals);
+      if (amountUnits <= 0n) throw new Error("Deposit amount is too small.");
+
+      setCoreDepositBusy(true);
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, 1);
+      const currentHex = await provider.request({ method: "eth_chainId" });
+      if (String(currentHex).toLowerCase() !== "0x1") throw new Error("Please switch your wallet to Ethereum Mainnet.");
+
+      // Verify the official token contract again immediately before signing.
+      const official = getStableWhitelistForChain("ETH").find((t) => String(t.symbol).toUpperCase() === symbol);
+      if (!official || String(official.address).toLowerCase() !== tokenAddress.toLowerCase()) {
+        throw new Error("Token contract does not match the approved Ethereum stablecoin address.");
+      }
+
+      const amountWord = _encodeUint256(amountUnits);
+      const allowanceData = "0xdd62ed3e" + _encodeAddress(wallet) + _encodeAddress(vault);
+      const allowanceHex = await provider.request({ method: "eth_call", params: [{ to: tokenAddress, data: allowanceData }, "latest"] });
+      let allowance = 0n;
+      try { allowance = BigInt(allowanceHex || "0x0"); } catch { allowance = 0n; }
+
+      const sendAndWait = async (to, data, label) => {
+        setCoreDepositMsg(label);
+        const hash = await provider.request({
+          method: "eth_sendTransaction",
+          params: [{ from: wallet, to, value: "0x0", data }],
+        });
+        await _waitForTxReceipt(provider, hash);
+        return hash;
+      };
+
+      if (allowance < amountUnits) {
+        // USDT can require allowance reset to zero before increasing it.
+        if (allowance > 0n) {
+          await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(0n), `Resetting ${symbol} approval…`);
+        }
+        await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + amountWord, `Approving ${symbol}…`);
+      }
+
+      const depositHash = await sendAndWait(
+        vault,
+        "0x47e7ef24" + _encodeAddress(tokenAddress) + amountWord,
+        `Depositing ${rawAmount} ${symbol} into Core Vault…`
+      );
+
+      setCoreDepositMsg(`Deposit confirmed. Tx: ${depositHash}`);
+      setCoreDepositAmount("");
+      await refreshCoreVaultOnchain();
+      await refreshCoreVaultAccounting();
+      setTimeout(() => { refreshBalances(); refreshCoreVaultOnchain(); }, 1800);
+    } catch (e) {
+      const msg = String(e?.message || e || "Deposit failed");
+      const low = msg.toLowerCase();
+      if (e?.code === 4001 || low.includes("rejected") || low.includes("denied") || low.includes("cancel")) {
+        setCoreDepositMsg("Deposit cancelled by user.");
+      } else {
+        setCoreDepositMsg(msg);
+      }
+    } finally {
+      setCoreDepositBusy(false);
+    }
+  };
 
   const refreshCoreVaultAccounting = useCallback(async () => {
     if (!wallet) { setCoreVaultAccounting(null); return; }
@@ -17840,6 +17937,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Realized Net P&amp;L (live changing)</span><b style={{ color: coreVaultOverview.realizedNetBreakdown.totalUsd >= 0 ? "#86efac" : "#ff8a8a" }}>{fmtUsd(coreVaultOverview.realizedNetBreakdown.totalUsd)}</b></div>
                   <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>NKR {fmtUsd(coreVaultOverview.realizedNetBreakdown.nkrUsd)} · Trader {fmtUsd(coreVaultOverview.realizedNetBreakdown.traderUsd)} · Grid {fmtUsd(coreVaultOverview.realizedNetBreakdown.gridUsd)}</div>
                   <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
+                  <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
+                    <div style={{ fontWeight: 900, fontSize: 13 }}>Deposit to Vault</div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Ethereum Mainnet · USDC or USDT</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: 8, marginTop: 9 }}>
+                      <select className="input" value={coreDepositAsset} onChange={(e) => { setCoreDepositAsset(e.target.value); setCoreDepositMsg(""); }} disabled={coreDepositBusy} style={{ height: 42 }}>
+                        <option value="USDC">USDC</option>
+                        <option value="USDT">USDT</option>
+                      </select>
+                      <input className="input" inputMode="decimal" value={coreDepositAmount} onChange={(e) => { setCoreDepositAmount(e.target.value); setCoreDepositMsg(""); }} placeholder="Amount" disabled={coreDepositBusy} style={{ height: 42 }} />
+                    </div>
+                    <button type="button" className="btn" onClick={depositToCoreVault} disabled={!wallet || coreDepositBusy || !coreVaultOnchain?.connected || coreVaultOnchain?.paused} style={{ width: "100%", height: 44, marginTop: 8 }}>
+                      {coreDepositBusy ? "Processing…" : "Deposit to Vault"}
+                    </button>
+                    {coreDepositMsg && <div className="muted" style={{ fontSize: 11, marginTop: 7, wordBreak: "break-word" }}>{coreDepositMsg}</div>}
+                  </div>
                   <button type="button" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
                   <button type="button" className="btnGhost" onClick={() => { refreshBalances(); refreshCoreVaultAccounting(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
                 </>

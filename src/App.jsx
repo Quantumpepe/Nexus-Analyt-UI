@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.10-ENGINE-101-NKR-TOPUP-STATE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-103-NKR-LIVE-MODE-SWITCH";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -9700,9 +9700,32 @@ useEffect(() => {
     setRotationBudgetReleased(false);
   }, [resetNkrAggressiveDraftSelection, setRotationBudgetRelease, setRotationBudgetReleased]);
 
-  const handleNkrCapitalModeChange = useCallback((value) => {
+  const applyRunningNkrMode = useCallback(async (nextMode) => {
+    const next = String(nextMode || "DYNAMIC").toUpperCase();
+    const hasActiveRun = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "DELETED", "ARCHIVED", "REBALANCED_OUT"].includes(String(s?.status || "").toUpperCase()));
+    if (!hasActiveRun) {
+      setNkrCapitalMode(next);
+      setRotationBudgetReleased(false);
+      return true;
+    }
+    try {
+      setRotationBackendLoading(true);
+      const resp = await api("/api/nkr/mode", { method: "POST", token, wallet, body: { mode: next } });
+      if (Array.isArray(resp?.sessions)) setRotationSessions(resp.sessions);
+      setNkrCapitalMode(next);
+      setRotationBackendMsg(resp?.message || `NKR mode changed to ${next}.`);
+      await syncAppStateFromServer();
+      return true;
+    } catch (e) {
+      setRotationBackendMsg(`NKR mode change failed: ${e?.message || e}`);
+      return false;
+    } finally {
+      setRotationBackendLoading(false);
+    }
+  }, [rotationSessions, token, wallet, api, syncAppStateFromServer, setRotationSessions, setNkrCapitalMode, setRotationBudgetReleased]);
+
+  const handleNkrCapitalModeChange = useCallback(async (value) => {
     const next = String(value || "DYNAMIC").toUpperCase();
-    setRotationBudgetReleased(false);
     if (next === "AGGRESSIVE") {
       setNkrAggressiveAcceptedForDraft(false);
       setNkrAggressivePendingValue(next);
@@ -9710,12 +9733,13 @@ useEffect(() => {
       return;
     }
     setNkrAggressiveAcceptedForDraft(false);
-    setNkrCapitalMode(next);
-  }, [setRotationBudgetReleased, setNkrCapitalMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
+    await applyRunningNkrMode(next);
+  }, [applyRunningNkrMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
 
   const confirmNkrAggressiveConsent = useCallback(async () => {
     const next = String(nkrAggressivePendingValue || "AGGRESSIVE").toUpperCase();
-    setNkrCapitalMode(next);
+    const applied = await applyRunningNkrMode(next);
+    if (!applied) return;
     setNkrAggressiveAcceptedForDraft(true);
     setNkrAggressivePendingValue("");
     setNkrAggressiveConsentOpen(false);
@@ -9737,7 +9761,7 @@ useEffect(() => {
     } catch (e) {
       console.warn("NKR Aggressive warning audit failed", e);
     }
-  }, [nkrAggressivePendingValue, setNkrCapitalMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, wallet, api, rotationBudgetRelease]);
+  }, [nkrAggressivePendingValue, applyRunningNkrMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, wallet, api, rotationBudgetRelease]);
 
   const cancelNkrAggressiveConsent = useCallback(() => {
     setNkrAggressiveAcceptedForDraft(false);

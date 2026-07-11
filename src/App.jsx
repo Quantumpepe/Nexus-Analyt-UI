@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-123-NKR-OVERVIEW-RUNTIME";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-124-ETH-CORE-VAULT-READ-ONLY";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -4307,6 +4307,23 @@ useEffect(() => {
   const [gridBudgetsErr, setGridBudgetsErr] = useState("");
 
   const [coreVaultAccounting, setCoreVaultAccounting] = useState(null);
+  const [coreVaultOnchain, setCoreVaultOnchain] = useState(null);
+  const [coreVaultOnchainLoading, setCoreVaultOnchainLoading] = useState(false);
+  const refreshCoreVaultOnchain = useCallback(async () => {
+    if (!wallet) { setCoreVaultOnchain(null); return; }
+    setCoreVaultOnchainLoading(true);
+    try {
+      const res = await api(`/api/nexus/core-vault/onchain-state?chain=ETH`, { wallet });
+      setCoreVaultOnchain(res?.onchain || res || null);
+    } catch (e) {
+      setCoreVaultOnchain({ connected: false, status: "error", error: String(e?.message || e || "Core Vault read failed") });
+    } finally {
+      setCoreVaultOnchainLoading(false);
+    }
+  }, [wallet, api]);
+  useEffect(() => { refreshCoreVaultOnchain(); }, [refreshCoreVaultOnchain]);
+  useInterval(refreshCoreVaultOnchain, 15000, !!wallet);
+
   const refreshCoreVaultAccounting = useCallback(async () => {
     if (!wallet) { setCoreVaultAccounting(null); return; }
     try {
@@ -17737,6 +17754,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: coreVaultOverview.isShadow ? "rgba(255,193,7,0.10)" : "rgba(0,255,166,0.08)", border: coreVaultOverview.isShadow ? "1px solid rgba(255,193,7,0.32)" : "1px solid rgba(0,255,166,0.25)" }}>
                     <div style={{ fontWeight: 900 }}>Mode: {coreVaultOverview.mode}</div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{coreVaultOverview.note || (coreVaultOverview.isShadow ? "Simulated funds only." : "Live Vault accounting starts at zero until a real deposit is confirmed.")}</div>
+                  </div>
+
+                  <div style={{ marginTop: 10, padding: 10, borderRadius: 12, border: coreVaultOnchain?.connected ? "1px solid rgba(0,255,166,.28)" : "1px solid rgba(255,193,7,.28)", background: coreVaultOnchain?.connected ? "rgba(0,255,166,.055)" : "rgba(255,193,7,.055)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                      <b>Ethereum Core Vault</b>
+                      <span style={{ fontSize: 10, fontWeight: 900, color: coreVaultOnchain?.connected ? "#54f0a4" : "#ffd166" }}>
+                        {coreVaultOnchainLoading ? "READING..." : coreVaultOnchain?.connected ? "CONTRACT CONNECTED" : "NOT CONNECTED"}
+                      </span>
+                    </div>
+                    <div className="muted" style={{ fontSize: 10, marginTop: 4, wordBreak: "break-all" }}>{coreVaultOnchain?.contractAddress || "No ETH Core Vault address returned"}</div>
+                    {coreVaultOnchain?.connected && (
+                      <>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6, marginTop: 8, fontSize: 10 }}>
+                          <div><span className="muted">Contract</span><br /><b>{coreVaultOnchain?.paused ? "PAUSED" : "ACTIVE"}</b></div>
+                          <div><span className="muted">Fee</span><br /><b>{Number(coreVaultOnchain?.fees?.totalPct || 0).toFixed(2)}%</b></div>
+                          <div><span className="muted">Solvency</span><br /><b>{coreVaultOnchain?.allConfiguredTokensSolvent ? "OK" : "CHECK"}</b></div>
+                        </div>
+                        <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>Split: {Number(coreVaultOnchain?.fees?.liquidityPct || 0).toFixed(2)}% liquidity · {Number(coreVaultOnchain?.fees?.reservePct || 0).toFixed(2)}% reserve</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+                          {["USDC", "USDT"].map((sym) => { const t = coreVaultOnchain?.tokens?.[sym] || {}; return (
+                            <div key={sym} style={{ padding: 7, borderRadius: 9, background: "rgba(255,255,255,.025)", border: "1px solid rgba(255,255,255,.08)", fontSize: 10 }}>
+                              <b>{sym}</b>
+                              <div className="muted" style={{ marginTop: 3 }}>Deposit {t?.config?.depositEnabled ? "ON" : "OFF"} · Withdraw {t?.config?.withdrawEnabled ? "ON" : "OFF"}</div>
+                              <div className="muted">Execution {t?.config?.executionEnabled ? "ON" : "OFF"} · Account {fmtUsd(Number(t?.account?.baseCapital || 0) + Number(t?.account?.totalSecuredProfit || 0))}</div>
+                            </div>
+                          ); })}
+                        </div>
+                        <button type="button" className="btnGhost" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading} style={{ width: "100%", marginTop: 8 }}>Refresh Contract Status</button>
+                      </>
+                    )}
+                    {!coreVaultOnchain?.connected && <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>{coreVaultOnchain?.error || "Read-only contract status is unavailable."}</div>}
                   </div>
                   <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     {[

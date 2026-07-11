@@ -3949,33 +3949,6 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     refreshProfitPayoutSettings();
   }, [withdrawSendOpen, wallet]);
 
-  const coreVaultOverview = useMemo(() => {
-    let stableBalanceUsd = 0;
-    for (const row of Object.values(balByChain || {})) {
-      for (const value of Object.values(row?.stables || {})) {
-        const n = Number(value || 0);
-        if (Number.isFinite(n) && n > 0) stableBalanceUsd += n;
-      }
-    }
-    const securedProfitUsd = Math.max(0, Number(profitPayoutPreview?.securedProfitUsd || 0));
-    const protectedBaseUsd = Math.max(0, stableBalanceUsd - securedProfitUsd);
-    const allocatedUsd = Math.max(0, Number(gridBudgets?.totals?.locked_usd || 0));
-    const reserveUsd = Math.max(0, stableBalanceUsd - allocatedUsd - securedProfitUsd);
-    const availableBySource = {
-      SECURED_PROFIT_ONLY: securedProfitUsd,
-      BASE_CAPITAL: protectedBaseUsd,
-      ALL_STABLE: stableBalanceUsd,
-    };
-    return {
-      stableBalanceUsd,
-      protectedBaseUsd,
-      securedProfitUsd,
-      allocatedUsd,
-      reserveUsd,
-      availableForWithdrawUsd: Math.max(0, Number(availableBySource[coreWithdrawSource] || 0)),
-    };
-  }, [balByChain, profitPayoutPreview, gridBudgets, coreWithdrawSource]);
-
   const previewCoreVaultWithdraw = async () => {
     try {
       setTxMsg("");
@@ -4266,6 +4239,33 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [balLoading, setBalLoading] = useState(false);
   const [balError, setBalError] = useState("");
   const [balByChain, setBalByChain] = useState({}); // { ETH: { native: "0.0" }, ... }
+
+  const coreVaultOverview = useMemo(() => {
+    let stableBalanceUsd = 0;
+    for (const row of Object.values(balByChain || {})) {
+      for (const value of Object.values(row?.stables || {})) {
+        const n = Number(value || 0);
+        if (Number.isFinite(n) && n > 0) stableBalanceUsd += n;
+      }
+    }
+    const securedProfitUsd = Math.max(0, Number(profitPayoutPreview?.securedProfitUsd || 0));
+    const protectedBaseUsd = Math.max(0, stableBalanceUsd - securedProfitUsd);
+    const allocatedUsd = Math.max(0, Number(gridBudgets?.totals?.locked_usd || 0));
+    const reserveUsd = Math.max(0, stableBalanceUsd - allocatedUsd - securedProfitUsd);
+    const availableBySource = {
+      SECURED_PROFIT_ONLY: securedProfitUsd,
+      BASE_CAPITAL: protectedBaseUsd,
+      ALL_STABLE: stableBalanceUsd,
+    };
+    return {
+      stableBalanceUsd,
+      protectedBaseUsd,
+      securedProfitUsd,
+      allocatedUsd,
+      reserveUsd,
+      availableForWithdrawUsd: Math.max(0, Number(availableBySource[coreWithdrawSource] || 0)),
+    };
+  }, [balByChain, profitPayoutPreview, gridBudgets, coreWithdrawSource]);
 
   // Dynamic wallet-chain list used by Wallet details and Withdraw & Send.
   // It is built from the Privy app-wallet balance object, so new EVM networks

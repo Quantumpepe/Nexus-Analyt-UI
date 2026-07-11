@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-113-CORE-VAULT-WALLET-UX";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-114-PRIVY-ASSET-VAULT-GATE";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -4319,6 +4319,90 @@ useEffect(() => {
 
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
+  const [walletPanelTab, setWalletPanelTab] = useState("WALLET");
+  const [walletAssetSecurityByKey, setWalletAssetSecurityByKey] = useState({});
+  const walletAssetRows = useMemo(() => {
+    const rows = [];
+    for (const chain of walletChainKeys || []) {
+      const data = balByChain?.[chain] || {};
+      const nativeAmount = Number(data?.native);
+      if (Number.isFinite(nativeAmount) && nativeAmount > 0) {
+        const px = Number(walletPx?.native?.[chain]);
+        rows.push({
+          key: `${chain}:native`, chain, symbol: chain, name: walletChainDisplayName(chain),
+          amount: nativeAmount, usd: Number.isFinite(px) ? nativeAmount * px : null,
+          address: "native", kind: "native", vaultStatus: "VERIFIED", vaultLabel: "Verified for Vault",
+        });
+      }
+      for (const [symbol, rawAmount] of Object.entries(data?.stables || {})) {
+        const amount = Number(rawAmount);
+        if (!Number.isFinite(amount) || amount <= 0) continue;
+        const spec = getStableWhitelistForChain(chain).find((x) => String(x?.symbol || "").toUpperCase() === String(symbol).toUpperCase());
+        rows.push({
+          key: `${chain}:${String(spec?.address || symbol).toLowerCase()}`, chain,
+          symbol: String(symbol).toUpperCase(), name: "Approved stablecoin", amount, usd: amount,
+          address: String(spec?.address || ""), kind: "stable", vaultStatus: "VERIFIED", vaultLabel: "Verified for Vault",
+        });
+      }
+      for (const tokenRow of data?.custom || []) {
+        const amount = Number(tokenRow?.balance);
+        if (!Number.isFinite(amount) || amount <= 0) continue;
+        const address = String(tokenRow?.address || "").toLowerCase();
+        const px = Number(walletPx?.tokenByChain?.[chain]?.[address]);
+        const security = walletAssetSecurityByKey?.[`${chain}:${address}`];
+        let vaultStatus = "PENDING";
+        let vaultLabel = "Security check pending";
+        if (security?.loading) { vaultStatus = "PENDING"; vaultLabel = "Security check pending"; }
+        else if (security?.allowed === true) { vaultStatus = "VERIFIED"; vaultLabel = "Verified for Vault"; }
+        else if (security?.checked) {
+          vaultStatus = security?.blocked ? "BLOCKED" : "WALLET_ONLY";
+          vaultLabel = security?.blocked ? "Blocked from Vault" : "Wallet only";
+        }
+        rows.push({
+          key: `${chain}:${address}`, chain, symbol: String(tokenRow?.symbol || "TOKEN").toUpperCase(),
+          name: String(tokenRow?.name || "ERC-20 token"), amount,
+          usd: Number.isFinite(px) ? amount * px : null, address, kind: "custom",
+          vaultStatus, vaultLabel, security,
+        });
+      }
+    }
+    return rows.sort((a, b) => (Number(b.usd || 0) - Number(a.usd || 0)) || a.symbol.localeCompare(b.symbol));
+  }, [walletChainKeys, balByChain, walletPx, walletAssetSecurityByKey]);
+
+  useEffect(() => {
+    if (!wallet || !walletModalOpen) return;
+    const candidates = walletAssetRows.filter((row) => row.kind === "custom" && row.address && !walletAssetSecurityByKey?.[row.key]);
+    if (!candidates.length) return;
+    let cancelled = false;
+    const run = async () => {
+      for (const row of candidates.slice(0, 30)) {
+        if (cancelled) return;
+        setWalletAssetSecurityByKey((prev) => ({ ...prev, [row.key]: { loading: true, checked: false } }));
+        try {
+          const result = await securityPrecheckForDeposit({ chainKey: row.chain, tokenAddress: row.address, symbol: row.symbol, isNative: false, token });
+          if (cancelled) return;
+          setWalletAssetSecurityByKey((prev) => ({
+            ...prev,
+            [row.key]: {
+              loading: false, checked: true, allowed: result?.allowed === true,
+              approved: result?.approved === true, blocked: result?.allowed !== true,
+              reason: result?.reason || result?.blocked_by || "Not approved for Vault",
+              checks: result?.checks || {},
+            },
+          }));
+        } catch (error) {
+          if (cancelled) return;
+          setWalletAssetSecurityByKey((prev) => ({
+            ...prev,
+            [row.key]: { loading: false, checked: true, allowed: false, approved: false, blocked: true, reason: String(error?.message || "Security check failed") },
+          }));
+        }
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [wallet, walletModalOpen, walletAssetRows, walletAssetSecurityByKey, token]);
+
   const [walletUsdLoading, setWalletUsdLoading] = useState(false);
   const [walletProfitBaselineStore, setWalletProfitBaselineStore] = useLocalStorageState("nexus_wallet_profit_baseline_v1", {});
 
@@ -4658,6 +4742,18 @@ useEffect(() => {
     }
   };
 
+  const fetchBackendDiscoveredTokens = async (address, chains) => {
+    try {
+      const r = await api("/api/wallet/discover-tokens", {
+        method: "POST", token, wallet: address,
+        body: { wallet: address, wallet_address: address, chains: Array.isArray(chains) ? chains : [] },
+      });
+      return r?.tokens_by_chain || {};
+    } catch {
+      return {};
+    }
+  };
+
   const fetchBackendTokenBalances = async (address, chain, specs) => {
     try {
       const tokenSpecs = Array.isArray(specs) ? specs.filter((t) => /^0x[a-fA-F0-9]{40}$/.test(String(t?.address || ""))) : [];
@@ -4707,7 +4803,10 @@ useEffect(() => {
     try {
       const address = wallet;
       const baseChains = ENABLED_CHAINS;
-      const backendNativeBalances = await fetchBackendNativeBalances(address, baseChains);
+      const [backendNativeBalances, discoveredTokensByChain] = await Promise.all([
+        fetchBackendNativeBalances(address, baseChains),
+        fetchBackendDiscoveredTokens(address, baseChains),
+      ]);
 
       const results = await Promise.all(
         baseChains.map(async (c) => {
@@ -4750,9 +4849,13 @@ useEffect(() => {
 // Phase 2: whitelisted tokens (per chain)
 // Phase 2: tokens are fetched ONLY from (a) stable whitelist + (b) user-added tokens.
 const stableSpecs = getStableWhitelistForChain(c);
-const customSpecs = walletTokensByChain?.[c] || [];
+const customSpecs = [
+  ...(walletTokensByChain?.[c] || []),
+  ...(discoveredTokensByChain?.[c] || []),
+];
 
-// De-dupe by contract address.
+// De-dupe by contract address. Automatic discovery is display-only; Vault admission
+// is still decided separately by exact-contract Owner approval + GoPlus security.
 const allSpecs = [];
 const seen = new Set();
 for (const t of [...stableSpecs, ...customSpecs]) {
@@ -17516,74 +17619,102 @@ const handlePanelActivate = useCallback((name) => (e) => {
           {walletModalOpen && (
             <div
               role="dialog"
-              aria-label="Nexus Core Vault"
+              aria-label="Privy Wallet and Nexus Core Vault"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
               style={{
-                position: "absolute",
-                top: 52,
-                right: 0,
-                width: "min(390px, calc(100vw - 24px))",
-                maxHeight: "min(86vh, 820px)",
-                overflowY: "auto",
-                overscrollBehavior: "contain",
-                WebkitOverflowScrolling: "touch",
+                position: "absolute", top: 52, right: 0,
+                width: "min(430px, calc(100vw - 24px))", maxHeight: "min(86vh, 820px)",
+                overflowY: "auto", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch",
                 background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                border: "1px solid rgba(0,255,166,0.15)",
-                borderRadius: 16,
-                padding: 14,
-                zIndex: 2000,
-                boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
+                border: "1px solid rgba(0,255,166,0.15)", borderRadius: 16, padding: 14,
+                zIndex: 2000, boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div>
-                  <div className="cardTitle" style={{ margin: 0 }}>Nexus Core Vault</div>
-                  <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>One balance view across enabled EVM networks</div>
+                  <div className="cardTitle" style={{ margin: 0 }}>{walletPanelTab === "WALLET" ? "Privy Wallet" : "Nexus Core Vault"}</div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
+                    {walletPanelTab === "WALLET" ? "Assets held in your personal embedded wallet" : "Protected capital and secured profit inside Nexus"}
+                  </div>
                 </div>
                 <button className="iconBtn" type="button" onClick={() => setWalletModalOpen(false)} aria-label="Close">×</button>
               </div>
 
-              <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {[
-                  ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd, "USDC / USDT held across connected EVM wallets"],
-                  ["Base Capital Protected", coreVaultOverview.protectedBaseUsd, "Stable capital excluding secured profit"],
-                  ["Secured NKR Profit", coreVaultOverview.securedProfitUsd, "Realized profit eligible for payout"],
-                  ["Available for Withdraw", coreVaultOverview.availableForWithdrawUsd, "Based on the selected withdraw source"],
-                ].map(([label, value, hint]) => (
-                  <div key={label} title={hint} style={{ padding: 10, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
-                    <div className="muted" style={{ fontSize: 11, lineHeight: 1.2 }}>{label}</div>
-                    <div className="mono" style={{ marginTop: 5, fontWeight: 900, fontSize: 15 }}>{balLoading ? "Loading…" : fmtUsd(Number(value || 0))}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 12 }}>
+                <button type="button" className={walletPanelTab === "WALLET" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("WALLET")}>Privy Wallet</button>
+                <button type="button" className={walletPanelTab === "VAULT" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("VAULT")}>Core Vault</button>
+              </div>
+
+              {walletPanelTab === "WALLET" ? (
+                <>
+                  <div style={{ marginTop: 12, padding: 11, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
+                    <div className="muted" style={{ fontSize: 11 }}>Total wallet value</div>
+                    <div className="mono" style={{ marginTop: 4, fontWeight: 900, fontSize: 18 }}>{walletUsdLoading ? "Loading…" : fmtUsd(Number(walletUsd?.total || 0))}</div>
+                    <div className="muted" style={{ marginTop: 4, fontSize: 10 }}>Unpriced assets remain visible and are excluded from the USD total.</div>
                   </div>
-                ))}
-              </div>
 
-              <div style={{ marginTop: 9, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
-                <span className="muted">Allocated to active systems</span><b>{fmtUsd(coreVaultOverview.allocatedUsd)}</b>
-              </div>
-              <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
-                <span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b>
-              </div>
+                  <div style={{ marginTop: 10, display: "grid", gap: 7 }}>
+                    {walletAssetRows.length ? walletAssetRows.map((row) => {
+                      const tone = row.vaultStatus === "VERIFIED" ? "#43e38d" : row.vaultStatus === "BLOCKED" ? "#ff7b7b" : row.vaultStatus === "PENDING" ? "#ffd166" : "#b7c5c0";
+                      return (
+                        <div key={row.key} style={{ padding: 10, borderRadius: 12, border: "1px solid rgba(255,255,255,0.09)", background: "rgba(255,255,255,0.025)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 900 }}>{row.symbol} <span className="muted" style={{ fontSize: 10, fontWeight: 700 }}>· {walletChainDisplayName(row.chain)}</span></div>
+                              <div className="muted" style={{ fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.name}</div>
+                            </div>
+                            <div style={{ textAlign: "right", flexShrink: 0 }}>
+                              <div className="mono" style={{ fontWeight: 900 }}>{fmtQty(row.amount)}</div>
+                              <div className="muted" style={{ fontSize: 10 }}>{row.usd == null ? "Price unavailable" : fmtUsd(row.usd)}</div>
+                            </div>
+                          </div>
+                          <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                            <span title={row.security?.reason || "Vault admission status"} style={{ color: tone, fontSize: 10, fontWeight: 900 }}>● {row.vaultLabel}</span>
+                            {row.address && row.address !== "native" ? <span className="muted" style={{ fontFamily: "monospace", fontSize: 9 }}>{row.address.slice(0, 8)}…{row.address.slice(-6)}</span> : null}
+                          </div>
+                        </div>
+                      );
+                    }) : (
+                      <div className="muted" style={{ padding: 16, textAlign: "center" }}>{balLoading ? "Loading wallet assets…" : "No funded tracked assets found."}</div>
+                    )}
+                  </div>
 
-              <div className="muted" style={{ marginTop: 10, fontSize: 11, wordBreak: "break-all" }}>
+                  <div className="hint" style={{ marginTop: 10, fontSize: 10 }}>
+                    Your wallet may hold any token. Nexus never hides wallet assets. Only exact contracts approved by the Owner and passed by the security gate can enter the Core Vault.
+                  </div>
+                  {balError ? <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>Some network balances could not be loaded.</div> : null}
+                  <button type="button" className="btnGhost" onClick={() => { setWalletAssetSecurityByKey({}); refreshBalances(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 10 }}>
+                    {balLoading ? "Refreshing…" : "Refresh Wallet Assets"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    {[
+                      ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd, "USDC / USDT held by the Core Vault"],
+                      ["Base Capital Protected", coreVaultOverview.protectedBaseUsd, "Protected stable capital excluding secured profit"],
+                      ["Secured NKR Profit", coreVaultOverview.securedProfitUsd, "Realized profit eligible for payout"],
+                      ["Available for Withdraw", coreVaultOverview.availableForWithdrawUsd, "Based on the selected withdraw source"],
+                    ].map(([label, value, hint]) => (
+                      <div key={label} title={hint} style={{ padding: 10, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
+                        <div className="muted" style={{ fontSize: 11, lineHeight: 1.2 }}>{label}</div>
+                        <div className="mono" style={{ marginTop: 5, fontWeight: 900, fontSize: 15 }}>{fmtUsd(Number(value || 0))}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 9, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Allocated to active systems</span><b>{fmtUsd(coreVaultOverview.allocatedUsd)}</b></div>
+                  <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
+                  <div className="hint" style={{ marginTop: 10, fontSize: 10 }}>Vault deposits are fail-closed: Chain ID, exact contract, Owner approval and GoPlus security must all pass. A symbol alone is never trusted.</div>
+                  <button type="button" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
+                  <button type="button" className="btnGhost" onClick={() => refreshBalances()} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
+                </>
+              )}
+
+              <div className="muted" style={{ marginTop: 10, fontSize: 10, wordBreak: "break-all" }}>
                 Connected wallet: <span style={{ fontFamily: "monospace" }}>{wallet ? `${wallet.slice(0, 8)}…${wallet.slice(-6)}` : "Not connected"}</span>
                 <button className="miniBtn" style={{ marginLeft: 8 }} onClick={() => wallet && navigator.clipboard?.writeText(wallet)} disabled={!wallet}>Copy</button>
               </div>
-
-              {balError ? <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>Could not load balances.</div> : null}
-
-              <button
-                type="button"
-                className="btn"
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }}
-                disabled={!wallet}
-                style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}
-              >
-                Open Withdraw &amp; Payout
-              </button>
-              <button type="button" className="btnGhost" onClick={() => refreshBalances()} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>
-                {balLoading ? "Refreshing…" : "Refresh Vault Overview"}
-              </button>
             </div>
           )}
 

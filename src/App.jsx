@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-122-VAULT-LIVE-REFRESH-SECURED-PROFIT";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-123-NKR-OVERVIEW-RUNTIME";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -19864,6 +19864,48 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             ? "SEARCHING"
                             : "WAITING_FOR_SESSION";
 
+                      // NKR overview runtime: one clear campaign clock for the whole NKR run.
+                      // Session cards can still show their own position runtime, but the overview
+                      // must show when the current NKR campaign started and how long remains.
+                      const normalizeNkrTimestampMs = (value) => {
+                        const n = Number(value || 0);
+                        if (!Number.isFinite(n) || n <= 0) return 0;
+                        return n < 10_000_000_000 ? n * 1000 : n;
+                      };
+                      const nkrTimingRows = (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : [])
+                        .filter((sess) => {
+                          const st = String(getRotationDerivedStatus(sess) || "").toUpperCase();
+                          return !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "RELEASED", "REBALANCED_OUT"].includes(st);
+                        });
+                      const nkrStartCandidates = nkrTimingRows
+                        .map((sess) => normalizeNkrTimestampMs(
+                          sess?.campaignStartedAt || sess?.campaign_started_at || sess?.meta?.campaign_started_at ||
+                          sess?.startedAt || sess?.started_at || sess?.createdAt || sess?.created_at
+                        ))
+                        .filter((ts) => ts > 0);
+                      const nkrExplicitEndCandidates = nkrTimingRows
+                        .map((sess) => normalizeNkrTimestampMs(
+                          sess?.campaignExpiresAt || sess?.campaign_expires_at || sess?.meta?.campaign_expires_at ||
+                          sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at
+                        ))
+                        .filter((ts) => ts > 0);
+                      const nkrOverviewStartTs = nkrStartCandidates.length ? Math.min(...nkrStartCandidates) : 0;
+                      const configuredNkrEndTs = nkrOverviewStartTs > 0
+                        ? nkrOverviewStartTs + Math.max(1, Number(nkrPeriodDays || 1)) * 24 * 60 * 60 * 1000
+                        : 0;
+                      const nkrOverviewEndTs = nkrExplicitEndCandidates.length
+                        ? Math.max(...nkrExplicitEndCandidates)
+                        : configuredNkrEndTs;
+                      const nkrOverviewElapsedMs = nkrOverviewStartTs > 0 ? Math.max(0, rotationNow - nkrOverviewStartTs) : 0;
+                      const nkrOverviewRemainingMs = nkrOverviewEndTs > 0 ? Math.max(0, nkrOverviewEndTs - rotationNow) : 0;
+                      const nkrOverviewRunning = nkrTimingRows.length > 0 && nkrCtrl !== "STOPPED";
+                      const nkrOverviewStartedLabel = nkrOverviewStartTs > 0
+                        ? new Date(nkrOverviewStartTs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
+                        : "not started";
+                      const nkrOverviewEndsLabel = nkrOverviewEndTs > 0
+                        ? new Date(nkrOverviewEndTs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
+                        : "—";
+
                       return (
                         <>
                           <div
@@ -19899,7 +19941,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Observation:</b> {nkrObservationWindow}</div>
                               <div><b>Profit Mode:</b> {String(nkrProfitMode || "REINVEST").replaceAll("_", " ")}</div>
                               <div><b>Period:</b> {nkrPeriodDays} days</div>
-                              <div><b>Status:</b> <span style={{ color: "#22c55e", fontWeight: 900 }}>{rotationRows.length ? "ACTIVE" : "WAITING"}</span></div>
+                              <div><b>NKR Started:</b> {nkrOverviewStartedLabel}</div>
+                              <div><b>Runtime:</b> {nkrOverviewRunning ? fmtRotationDuration(nkrOverviewElapsedMs) : "not running"}</div>
+                              <div><b>Time Left:</b> <span style={{ color: nkrOverviewRunning && nkrOverviewRemainingMs > 0 ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewRunning ? (nkrOverviewEndTs > 0 ? (nkrOverviewRemainingMs > 0 ? fmtRotationDuration(nkrOverviewRemainingMs) : "expired") : "—") : "—"}</span></div>
+                              <div><b>Ends:</b> {nkrOverviewRunning ? nkrOverviewEndsLabel : "—"}</div>
+                              <div><b>Status:</b> <span style={{ color: nkrOverviewRunning ? "#22c55e" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewRunning ? "ACTIVE" : "WAITING"}</span></div>
                             </div>
                           </div>
 

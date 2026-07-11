@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-105-ACCESS-BUTTONS-WALLET-HEADER";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-106-BILLING-MENU-WALLET-HEADER";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -5497,6 +5497,7 @@ const byChain = {};
   const [access, setAccess] = useState(null); // { active, until, source, tier, note }
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [accessTab, setAccessTab] = useState("redeem"); // 'redeem' | 'subscribe'
+  const [billingMenuOpen, setBillingMenuOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportCategory, setSupportCategory] = useState("General");
   const [supportSubject, setSupportSubject] = useState("");
@@ -17005,78 +17006,114 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </>
           )}
 
-          {/* Access (Redeem / Subscribe) */}
+          {/* Access (Billing / Redeem / Subscribe) */}
           {wallet && (
             <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
-              <button
-                className="btnGhost"
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setAccessTab("redeem");
-                  setRedeemMsg("");
-                  setAccessModalOpen(true);
-                }}
-                title="Redeem Code"
-              >
-                Redeem Code
-              </button>
+              <div style={{ position: "relative" }}>
+                <button
+                  className="btnGhost"
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={billingMenuOpen}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setBillingMenuOpen((v) => !v);
+                  }}
+                  title="Billing and access"
+                >
+                  Billing {billingMenuOpen ? "▲" : "▼"}
+                </button>
 
-              <button
-                className="btnGhost"
-                type="button"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setAccessTab("subscribe");
-                  setSubPlan("core");
-                  setSubMsg("");
-                  setAccessModalOpen(true);
-                }}
-                title={`Nexus Core · $${SUB_PRICE_USD} / 30 days`}
-              >
-                Core ${SUB_PRICE_USD}/30d
-              </button>
-
-              <button
-                className="btnGhost"
-                type="button"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setAccessTab("subscribe");
-                  setSubPlan("strategist_weekly");
-                  setSubMsg("");
-                  setAccessModalOpen(true);
-                }}
-                title={`Nexus Strategist · $${STRATEGIST_WEEKLY_PRICE_USD} / 7 days`}
-              >
-                AI ${STRATEGIST_WEEKLY_PRICE_USD}/7d
-              </button>
-
-              <button
-                className="btnGhost"
-                type="button"
-                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setAccessTab("subscribe");
-                  setSubPlan("strategist_monthly");
-                  setSubMsg("");
-                  setAccessModalOpen(true);
-                }}
-                title={`Nexus Strategist · $${STRATEGIST_MONTHLY_PRICE_USD} / 30 days`}
-              >
-                AI ${STRATEGIST_MONTHLY_PRICE_USD}/30d
-              </button>
+                {billingMenuOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Close billing menu"
+                      onClick={() => setBillingMenuOpen(false)}
+                      style={{ position: "fixed", inset: 0, zIndex: 3498, border: 0, background: "transparent", padding: 0 }}
+                    />
+                    <div
+                      role="menu"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 8px)",
+                        right: 0,
+                        zIndex: 3499,
+                        width: 230,
+                        padding: 8,
+                        borderRadius: 12,
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        background: "linear-gradient(180deg, rgba(10,32,28,0.99), rgba(7,24,22,0.99))",
+                        boxShadow: "0 18px 50px rgba(0,0,0,0.45)",
+                      }}
+                    >
+                      <button
+                        className="btnGhost"
+                        type="button"
+                        role="menuitem"
+                        style={{ width: "100%", textAlign: "left", marginBottom: 6 }}
+                        onClick={() => {
+                          setBillingMenuOpen(false);
+                          setAccessTab("redeem");
+                          setRedeemMsg("");
+                          setAccessModalOpen(true);
+                        }}
+                      >
+                        Redeem Code
+                      </button>
+                      <button
+                        className="btnGhost"
+                        type="button"
+                        role="menuitem"
+                        style={{ width: "100%", textAlign: "left", marginBottom: 6 }}
+                        onClick={() => {
+                          setBillingMenuOpen(false);
+                          setAccessTab("subscribe");
+                          setSubPlan("core");
+                          setSubMsg("");
+                          setAccessModalOpen(true);
+                        }}
+                      >
+                        Nexus Core · ${SUB_PRICE_USD} / 30 days
+                      </button>
+                      <button
+                        className="btnGhost"
+                        type="button"
+                        role="menuitem"
+                        style={{ width: "100%", textAlign: "left", marginBottom: 6 }}
+                        onClick={() => {
+                          setBillingMenuOpen(false);
+                          setAccessTab("subscribe");
+                          setSubPlan("strategist_weekly");
+                          setSubMsg("");
+                          setAccessModalOpen(true);
+                        }}
+                      >
+                        Nexus AI · ${STRATEGIST_WEEKLY_PRICE_USD} / 7 days
+                      </button>
+                      <button
+                        className="btnGhost"
+                        type="button"
+                        role="menuitem"
+                        style={{ width: "100%", textAlign: "left" }}
+                        onClick={() => {
+                          setBillingMenuOpen(false);
+                          setAccessTab("subscribe");
+                          setSubPlan("strategist_monthly");
+                          setSubMsg("");
+                          setAccessModalOpen(true);
+                        }}
+                      >
+                        Nexus AI · ${STRATEGIST_MONTHLY_PRICE_USD} / 30 days
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
 
               <div className="text-xs" style={{ opacity: 0.75, marginLeft: 6 }}>
                 {isPro ? (

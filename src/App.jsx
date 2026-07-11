@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-119-REDEEM-VAULT-STATUS-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-120-SHADOW-VAULT-ALL-SYSTEMS";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -4323,11 +4323,23 @@ useEffect(() => {
     const protectedBaseUsd = Math.max(0, Number(a.baseCapitalUsd || 0));
     const allocatedUsd = Math.max(0, Number(a.allocatedUsd || 0));
     const reserveUsd = Math.max(0, Number(a.reserveUsd || 0));
+    const profitBreakdown = {
+      nkrUsd: Math.max(0, Number(a?.profitBreakdown?.nkrUsd || 0)),
+      traderUsd: Math.max(0, Number(a?.profitBreakdown?.traderUsd || 0)),
+      gridUsd: Math.max(0, Number(a?.profitBreakdown?.gridUsd || 0)),
+      totalUsd: Math.max(0, Number(a?.profitBreakdown?.totalUsd ?? securedProfitUsd)),
+    };
+    const allocationBreakdown = {
+      nkrUsd: Math.max(0, Number(a?.allocationBreakdown?.nkrUsd || 0)),
+      traderUsd: Math.max(0, Number(a?.allocationBreakdown?.traderUsd || 0)),
+      gridUsd: Math.max(0, Number(a?.allocationBreakdown?.gridUsd || 0)),
+      totalUsd: Math.max(0, Number(a?.allocationBreakdown?.totalUsd ?? allocatedUsd)),
+    };
     const isShadow = String(a.mode || "SHADOW").toUpperCase() !== "LIVE";
     const availableBySource = isShadow ? { SECURED_PROFIT_ONLY: 0, BASE_CAPITAL: 0, ALL_STABLE: 0 } : {
       SECURED_PROFIT_ONLY: securedProfitUsd, BASE_CAPITAL: protectedBaseUsd, ALL_STABLE: stableBalanceUsd,
     };
-    return { stableBalanceUsd, protectedBaseUsd, securedProfitUsd, allocatedUsd, reserveUsd,
+    return { stableBalanceUsd, protectedBaseUsd, securedProfitUsd, allocatedUsd, reserveUsd, profitBreakdown, allocationBreakdown,
       availableForWithdrawUsd: Math.max(0, Number(availableBySource[coreWithdrawSource] || 0)),
       mode: isShadow ? "SHADOW" : "LIVE", isShadow, note: String(a.note || ""),
     };
@@ -17720,7 +17732,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     {[
                       ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd, "USDC / USDT held by the Core Vault"],
                       ["Base Capital Protected", coreVaultOverview.protectedBaseUsd, "Protected stable capital excluding secured profit"],
-                      ["Secured NKR Profit", coreVaultOverview.securedProfitUsd, "Realized profit eligible for payout"],
+                      ["Total Secured Profit", coreVaultOverview.securedProfitUsd, "Closed net Grid, NKR and Trader profit"],
                       ["Available for Withdraw", coreVaultOverview.availableForWithdrawUsd, "Based on the selected withdraw source"],
                     ].map(([label, value, hint]) => (
                       <div key={label} title={hint} style={{ padding: 10, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
@@ -17730,7 +17742,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ))}
                   </div>
                   <div style={{ marginTop: 9, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Allocated to active systems</span><b>{fmtUsd(coreVaultOverview.allocatedUsd)}</b></div>
-                  <div style={{ marginTop: 4, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
+                  <div className="muted" style={{ marginTop: 4, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 5, fontSize: 10 }}>
+                    <span>NKR {fmtUsd(coreVaultOverview.allocationBreakdown.nkrUsd)}</span>
+                    <span>Trader {fmtUsd(coreVaultOverview.allocationBreakdown.traderUsd)}</span>
+                    <span>Grid {fmtUsd(coreVaultOverview.allocationBreakdown.gridUsd)}</span>
+                  </div>
+                  <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Secured profit breakdown</span><b>{fmtUsd(coreVaultOverview.securedProfitUsd)}</b></div>
+                  <div className="muted" style={{ marginTop: 4, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 5, fontSize: 10 }}>
+                    <span>NKR {fmtUsd(coreVaultOverview.profitBreakdown.nkrUsd)}</span>
+                    <span>Trader {fmtUsd(coreVaultOverview.profitBreakdown.traderUsd)}</span>
+                    <span>Grid {fmtUsd(coreVaultOverview.profitBreakdown.gridUsd)}</span>
+                  </div>
+                  <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
                   <div className="hint" style={{ marginTop: 10, fontSize: 10 }}>Vault deposits are fail-closed: Chain ID, exact contract, Owner approval and GoPlus security must all pass. A symbol alone is never trusted.</div>
                   <button type="button" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
                   <button type="button" className="btnGhost" onClick={() => { refreshBalances(); refreshCoreVaultAccounting(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
@@ -17775,7 +17798,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   {[
                     ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd],
                     ["Base Capital Protected", coreVaultOverview.protectedBaseUsd],
-                    ["Secured NKR Profit", coreVaultOverview.securedProfitUsd],
+                    ["Total Secured Profit", coreVaultOverview.securedProfitUsd],
                     ["Available for Withdraw", coreVaultOverview.availableForWithdrawUsd],
                   ].map(([label, value]) => (
                     <div key={label} style={{ padding: 11, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
@@ -17783,6 +17806,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div className="mono" style={{ marginTop: 5, fontWeight: 900 }}>{fmtUsd(Number(value || 0))}</div>
                     </div>
                   ))}
+                </div>
+
+                <div style={{ marginTop: 9, padding: 10, borderRadius: 12, background: "rgba(0,255,166,0.035)", border: "1px solid rgba(0,255,166,0.10)", display: "grid", gap: 6 }}>
+                  <div style={{ fontWeight: 900, fontSize: 12 }}>Secured profit by system</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, fontSize: 12 }}>
+                    <div><span className="muted">NKR</span><br /><b>{fmtUsd(coreVaultOverview.profitBreakdown.nkrUsd)}</b></div>
+                    <div><span className="muted">Trader</span><br /><b>{fmtUsd(coreVaultOverview.profitBreakdown.traderUsd)}</b></div>
+                    <div><span className="muted">Grid</span><br /><b>{fmtUsd(coreVaultOverview.profitBreakdown.gridUsd)}</b></div>
+                  </div>
+                  {coreVaultOverview.isShadow && <div className="muted" style={{ fontSize: 11 }}>Shadow follows the later live accounting rules. Only closed net results count, but nothing is withdrawable.</div>}
                 </div>
 
                 <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, alignItems: "start" }}>

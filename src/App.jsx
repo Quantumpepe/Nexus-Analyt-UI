@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-116-STRATEGIST-UI-REMOVED";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-117-INTELLIGENCE-ONLY-REMOVED";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -22968,7 +22968,194 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
         )}
 
-        {/* Manual Nexus Strategist UI removed. Backend strategist, market scoring, NKR and Trader logic remain active. */}
+        {/* AI */}
+        <section className={`card section-ai dashboardPanel ${activePanel === "ai" ? "panelActive" : ""}`} onClick={handlePanelActivate("ai")}>
+          <div className="cardHead">
+            <div className="cardTitle">Nexus Strategist</div>
+            <div className="cardActions" style={{ alignItems: "center" }}>
+              <InfoButton title="Nexus Strategist">
+                <Help showClose dismissable
+                  de={<><p><b>Nexus Strategist</b> ist dein aktiver Strategie-Arbeitsbereich in Nexus Analyt. Er arbeitet nicht mehr ueber sichtbare Coin-Chips, sondern ueber deine Eingabe.</p><p><b>Unterschied zu AI Insight:</b> AI Insight erklaert kompakt den aktuellen Markt. Nexus Strategist hilft dir aktiv bei Recherche, Strategie-Ideen, Backtests, Pine Script, Tagesberichten, Trade-Review und der Einordnung zwischen Nexus Grid und NKR.</p><p><b>Research:</b> untersucht Marktfragen, Rotation, relative Staerke, Volumen, Watchlist-Themen und auffaellige Bedingungen.</p><p><b>Strategy Builder:</b> verwandelt deine Idee in klare Regeln, Filter, Entry-/Exit-Logik, Risiko-Logik und Alerts.</p><p><b>Backtest Review:</b> bewertet Backtest-Ergebnisse, Drawdown, Trefferquote, Expectancy, Overfitting-Risiko und schwache Marktphasen.</p><p><b>Pine Builder:</b> hilft bei TradingView/Pine Script: Indikatoren, Strategien, Alerts, Debugging und Verbesserungen.</p><p><b>Daily Report:</b> erstellt einen kompakten Bericht aus deiner Aufgabe und dem verfuegbaren App-Kontext.</p><p><b>Trade Review:</b> analysiert Ausfuehrung, Verhalten, Order-Struktur, wiederkehrende Fehler und Trading-Gewohnheiten.</p><p><b>Eingabe:</b> Beschreibe immer kurz, was der Analyst tun soll. Du kannst Coin-Namen, Strategie-Ideen, Backtest-Daten oder Pine Script direkt einfuegen.</p><p><b>Hinweis:</b> Nexus Strategist liefert Analyse, Struktur und taktische Orientierung. Er ist keine Finanzberatung und keine direkte Kauf-/Verkaufsempfehlung.</p></>}
+                  en={<><p><b>Nexus Strategist</b> is your active strategy workspace inside Nexus Analyt. It no longer works through visible coin chips; it works through your task input.</p><p><b>Difference from AI Insight:</b> AI Insight gives a compact market interpretation. Nexus Strategist helps actively with research, strategy ideas, backtest review, Pine Script, reports, trade review, and choosing between Nexus Grid and NKR.</p><p><b>Research:</b> investigates market questions, rotation, relative strength, volume, watchlist themes, and unusual conditions.</p><p><b>Strategy Builder:</b> turns your idea into clear rules, filters, entry/exit logic, risk logic, and alerts.</p><p><b>Backtest Review:</b> evaluates backtest results, drawdown, win rate, expectancy, overfitting risk, and weak market regimes.</p><p><b>Pine Builder:</b> helps with TradingView/Pine Script: indicators, strategies, alerts, debugging, and improvements.</p><p><b>Daily Report:</b> creates a compact report from your task and available app context.</p><p><b>Trade Review:</b> analyzes execution, behavior, order structure, repeated mistakes, and trading habits.</p><p><b>Input:</b> Always describe what the analyst should do. You can paste coin names, strategy ideas, backtest data, or Pine Script directly.</p><p><b>Note:</b> Nexus Strategist provides analysis, structure, and tactical orientation. It is not financial advice or a direct buy/sell recommendation.</p></>}
+                />
+              </InfoButton>
+            </div>
+          </div>
+
+          <div className="panelScroll"><div className="aiWrap">
+            <div className="aiSelect">
+              <div className="label">Strategy Task</div>
+              <textarea
+                value={aiQuestion}
+                onChange={(e) => setAiQuestion(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.nativeEvent?.isComposing) return;
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!aiLoading) {
+                      void runAi();
+                    }
+                  }
+                }}
+                placeholder={aiTaskPlaceholder(aiKind)}
+                rows={6}
+                style={{
+                  width: "100%",
+                  minHeight: 130,
+                  resize: "vertical",
+                  borderRadius: 14,
+                  padding: "12px 14px",
+                  background: "rgba(0,0,0,0.28)",
+                  color: "inherit",
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  outline: "none",
+                }}
+                disabled={aiLoading}
+              />
+              <div className="muted tiny" style={{ marginTop: 8 }}>
+                Describe what the analyst should do. You can paste coins, strategy ideas, backtest notes, or Pine Script here.
+              </div>
+
+              <div className="divider" />
+
+              <div className="formRow">
+                <label>Mode</label>
+                <div className="aiChips" style={{ gap: 8 }}>
+                  {[
+                    ["research", "Research"],
+                    ["strategy_builder", "Strategy Builder"],
+                    ["backtest_review", "Backtest Review"],
+                    ["pine_tradingview", "Pine Builder"],
+                    ["daily_report", "Daily Report"],
+                    ["diagnostics", "Trade Review"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`chip ${aiKind === value ? "active" : ""}`}
+                      onClick={() => {
+                        setAiKind(value);
+                        setAiOutput("");
+                        setAiHistory([]);
+                        setAiQuestion("");
+                      }}
+                      title={`Nexus Strategist mode: ${label}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+<div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <label className="muted" style={{ display: "inline-flex", gap: 8, alignItems: "center", userSelect: "none" }}>
+                  <input
+                    type="checkbox"
+                    checked={aiFollowUp}
+                    onChange={(e) => {
+                      const on = !!e.target.checked;
+                      setAiFollowUp(on);
+                      setAiQuestion("");
+                      if (!on) setAiHistory([]);
+                    }}
+                  />
+                  Follow-up
+                </label>
+                <button
+                  className="btnGhost"
+                  type="button"
+                  onClick={() => {
+                    setAiOutput("");
+                    setAiQuestion("");
+                    setAiHistory([]);
+                    setErrorMsg("");
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+
+              {!isPro ? (
+                <div className="hint" style={{ marginTop: 10, color: "rgba(255,255,255,0.75)" }}>
+                  Nexus Strategist is a separate add-on: <b>$20/7 days</b> or <b>$50/30 days</b>. Demo users can try limited AI usage; Core users need Strategist access for full Strategist mode.
+                </div>
+              ) : null}
+
+              <button className="btn" type="button" onClick={() => { if (!aiLoading) void runAi(); }} disabled={aiLoading}>
+                {aiLoading ? "Running…" : (aiFollowUp && aiOutput ? "Ask" : "Run")}
+              </button>
+            </div>
+
+            <div className="aiOut">
+              <div className="label">Strategic Output</div>
+              <div className="aiPanel">
+                {aiOutput ? (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {aiOutputSections.map((section, idx) => {
+                      const meta = aiAnalystSectionMeta[section.key] || aiAnalystSectionMeta.output;
+                      return (
+                        <div
+                          key={`${section.key}-${idx}`}
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.10)",
+                            background: "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025))",
+                            borderRadius: 14,
+                            padding: "8px 10px",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                            <div style={{ fontWeight: 900, fontSize: 12, letterSpacing: ".08em", textTransform: "uppercase", color: "#dfffee" }}>
+                              {meta.title}
+                            </div>
+                            <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>{meta.sub}</div>
+                          </div>
+                          <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.28 }}>
+                            {section.body}
+                          </div>
+                          {nexusStrategistCanShowAction(section, detectNexusUserIntent(aiQuestion || "")) ? (
+                            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                              <button
+                                className="btn"
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (section.key === "nexus_grid") applyStrategistToGrid(section.body);
+                                  if (section.key === "nexus_rotation" || section.key === "exchange_spread") applyStrategistToRotation(section.body);
+                                  if (section.key === "nexus_trading") applyStrategistToTrading(section.body);
+                                }}
+                                title={
+                                  aiOutputLanguage === "de"
+                                    ? (section.key === "nexus_grid"
+                                      ? "Diese Idee in Nexus Grid vorbereiten. Es wird keine Order erstellt."
+                                      : section.key === "nexus_trading"
+                                        ? "Diese Idee in Nexus Trading vorbereiten. Die Automation wird nicht aktiviert."
+                                        : "Diese NKR-Idee vorbereiten. Es wird kein Swap ausgeführt.")
+                                    : (section.key === "nexus_grid"
+                                      ? "Prepare this idea in Nexus Grid. This does not create an order."
+                                      : section.key === "nexus_trading"
+                                        ? "Prepare this idea in Nexus Trading. This does not activate automation."
+                                        : "Prepare this NKR idea. This does not execute a swap.")
+                                }
+                                style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                              >
+                                {aiOutputLanguage === "de"
+                                  ? (section.key === "nexus_grid" ? "In Grid nutzen" : section.key === "nexus_trading" ? "In Trading nutzen" : "In NKR nutzen")
+                                  : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Nexus NKR")}
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="muted">{aiOutputLanguage === "de" ? "Noch keine Ausgabe." : "No output yet."}</div>
+                )}
+              </div>
+            </div>
+          </div></div>
+        </section>
         </div>
       </main>
 

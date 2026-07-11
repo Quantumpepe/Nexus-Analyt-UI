@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-109-STRATEGIST-BRIDGE-NKR-CLOCK-ROTATION-HISTORY";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-110-EFFICIENT-GLOBAL-AI-STRATEGIST-CACHE";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -10381,6 +10381,8 @@ const [aiLoading, setAiLoading] = useState(false);
   const [aiOutput, setAiOutput] = useState("");
   const [strategistMarketIntel, setStrategistMarketIntel] = useState(null);
   const [strategistMarketIntelOpen, setStrategistMarketIntelOpen] = useState(false);
+  const [globalStrategistReport, setGlobalStrategistReport] = useState(null);
+  const [globalStrategistLoading, setGlobalStrategistLoading] = useState(false);
   const [strategistBridge, setStrategistBridge] = useState(null);
   const [strategistAppliedOpen, setStrategistAppliedOpen] = useState(false);
 
@@ -13211,12 +13213,16 @@ useInterval(fetchGridOrders, 30000, false);
         if (!symbols.length) return;
         const res = await api(`/api/nexus/binance-public/intelligence?symbols=${encodeURIComponent(symbols.join(","))}&tier=active`, { token, wallet });
         if (!cancelled) setStrategistMarketIntel(res || null);
+        try {
+          const globalRes = await api(`/api/nexus/global-strategist?symbols=${encodeURIComponent(symbols.slice(0, 18).join(","))}`, { token, wallet });
+          if (!cancelled) setGlobalStrategistReport(globalRes || null);
+        } catch {}
       } catch (e) {
         if (!cancelled) setStrategistMarketIntel({ status: "error", error: String(e?.message || e) });
       }
     };
     loadStrategistIntel();
-    const timer = setInterval(loadStrategistIntel, 20000);
+    const timer = setInterval(loadStrategistIntel, 60000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [token, wallet, rotationSessions, watchRows]);
 
@@ -23455,6 +23461,38 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       Funding {Number(v?.fundingRate || 0).toFixed(6)} · OI Δ {Number(v?.openInterestChangePct || 0).toFixed(2)}% · L/S {Number(v?.globalLongShortRatio || 0).toFixed(2)}
                     </div>
                   ))}
+                </div>
+                <div style={{ marginTop: 9, padding: "8px 9px", borderRadius: 10, background: "rgba(255,255,255,.035)" }}>
+                  <div className="muted tiny" style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    <b style={{ color: "#c4b5fd" }}>Global AI Strategist · shared cache</b>
+                    <button
+                      type="button"
+                      className="miniBtn"
+                      disabled={globalStrategistLoading}
+                      onClick={async () => {
+                        try {
+                          setGlobalStrategistLoading(true);
+                          const symbols = Object.keys(strategistMarketIntel?.symbols || {}).slice(0, 18);
+                          const r = await api(`/api/nexus/global-strategist?refresh=1&symbols=${encodeURIComponent(symbols.join(","))}`, { token, wallet });
+                          setGlobalStrategistReport(r || null);
+                        } catch (e) {
+                          setGlobalStrategistReport((prev) => ({ ...(prev || {}), status: "error", error: String(e?.message || e) }));
+                        } finally { setGlobalStrategistLoading(false); }
+                      }}
+                      title="Refresh is globally rate-limited and reused for all users"
+                    >{globalStrategistLoading ? "Checking..." : "Refresh report"}</button>
+                  </div>
+                  <div className="muted tiny" style={{ marginTop: 6, lineHeight: 1.45 }}>
+                    <span>Mode: <b>{globalStrategistReport?.report?.mode || "LOCAL_STRATEGIST"}</b></span> · 
+                    <span>Regime: <b>{globalStrategistReport?.report?.regime || globalStrategistReport?.local_snapshot?.regime || "NEUTRAL"}</b></span> · 
+                    <span>Confidence: {Number(globalStrategistReport?.report?.confidence || 0)}%</span> · 
+                    <span>Risk: {Number(globalStrategistReport?.report?.risk_score || 0)}</span> · 
+                    <span>Rotation: {Number(globalStrategistReport?.report?.rotation_score || 0)}</span>
+                    <br/>
+                    {globalStrategistReport?.report?.summary || "Local score engine active; shared AI report is loading."}
+                    <br/>
+                    <span style={{ color: "#86efac" }}>One shared report for all users · no GPT call per tick or per coin · Core fallback always active.</span>
+                  </div>
                 </div>
               </div>
             )}

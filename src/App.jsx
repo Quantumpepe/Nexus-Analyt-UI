@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-120-SHADOW-VAULT-ALL-SYSTEMS";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-122-VAULT-LIVE-REFRESH-SECURED-PROFIT";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -4315,6 +4315,10 @@ useEffect(() => {
     } catch (_) { setCoreVaultAccounting(null); }
   }, [wallet, api]);
   useEffect(() => { refreshCoreVaultAccounting(); }, [refreshCoreVaultAccounting]);
+  // Keep the Vault ledger synchronized with every Grid/NKR/Trader close, loss,
+  // allocation change or reserve change. The shared backend endpoint is cheap
+  // and wallet-bound; overlapping requests are prevented by useInterval.
+  useInterval(refreshCoreVaultAccounting, 5000, !!wallet);
 
   const coreVaultOverview = useMemo(() => {
     const a = coreVaultAccounting || {};
@@ -4329,6 +4333,12 @@ useEffect(() => {
       gridUsd: Math.max(0, Number(a?.profitBreakdown?.gridUsd || 0)),
       totalUsd: Math.max(0, Number(a?.profitBreakdown?.totalUsd ?? securedProfitUsd)),
     };
+    const realizedNetBreakdown = {
+      nkrUsd: Number(a?.realizedNetBreakdown?.nkrUsd || 0),
+      traderUsd: Number(a?.realizedNetBreakdown?.traderUsd || 0),
+      gridUsd: Number(a?.realizedNetBreakdown?.gridUsd || 0),
+      totalUsd: Number(a?.realizedNetBreakdown?.totalUsd || 0),
+    };
     const allocationBreakdown = {
       nkrUsd: Math.max(0, Number(a?.allocationBreakdown?.nkrUsd || 0)),
       traderUsd: Math.max(0, Number(a?.allocationBreakdown?.traderUsd || 0)),
@@ -4339,7 +4349,7 @@ useEffect(() => {
     const availableBySource = isShadow ? { SECURED_PROFIT_ONLY: 0, BASE_CAPITAL: 0, ALL_STABLE: 0 } : {
       SECURED_PROFIT_ONLY: securedProfitUsd, BASE_CAPITAL: protectedBaseUsd, ALL_STABLE: stableBalanceUsd,
     };
-    return { stableBalanceUsd, protectedBaseUsd, securedProfitUsd, allocatedUsd, reserveUsd, profitBreakdown, allocationBreakdown,
+    return { stableBalanceUsd, protectedBaseUsd, securedProfitUsd, allocatedUsd, reserveUsd, profitBreakdown, realizedNetBreakdown, allocationBreakdown,
       availableForWithdrawUsd: Math.max(0, Number(availableBySource[coreWithdrawSource] || 0)),
       mode: isShadow ? "SHADOW" : "LIVE", isShadow, note: String(a.note || ""),
     };
@@ -17753,6 +17763,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <span>Trader {fmtUsd(coreVaultOverview.profitBreakdown.traderUsd)}</span>
                     <span>Grid {fmtUsd(coreVaultOverview.profitBreakdown.gridUsd)}</span>
                   </div>
+                  <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Realized Net P&amp;L (live changing)</span><b style={{ color: coreVaultOverview.realizedNetBreakdown.totalUsd >= 0 ? "#86efac" : "#ff8a8a" }}>{fmtUsd(coreVaultOverview.realizedNetBreakdown.totalUsd)}</b></div>
+                  <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>NKR {fmtUsd(coreVaultOverview.realizedNetBreakdown.nkrUsd)} · Trader {fmtUsd(coreVaultOverview.realizedNetBreakdown.traderUsd)} · Grid {fmtUsd(coreVaultOverview.realizedNetBreakdown.gridUsd)}</div>
                   <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
                   <div className="hint" style={{ marginTop: 10, fontSize: 10 }}>Vault deposits are fail-closed: Chain ID, exact contract, Owner approval and GoPlus security must all pass. A symbol alone is never trusted.</div>
                   <button type="button" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
@@ -17814,6 +17826,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div><span className="muted">NKR</span><br /><b>{fmtUsd(coreVaultOverview.profitBreakdown.nkrUsd)}</b></div>
                     <div><span className="muted">Trader</span><br /><b>{fmtUsd(coreVaultOverview.profitBreakdown.traderUsd)}</b></div>
                     <div><span className="muted">Grid</span><br /><b>{fmtUsd(coreVaultOverview.profitBreakdown.gridUsd)}</b></div>
+                  </div>
+                  <div style={{ marginTop: 10, padding: 10, borderRadius: 12, border: "1px solid rgba(255,255,255,.10)", background: "rgba(255,255,255,.025)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Realized Net P&amp;L</span><b style={{ color: coreVaultOverview.realizedNetBreakdown.totalUsd >= 0 ? "#86efac" : "#ff8a8a" }}>{fmtUsd(coreVaultOverview.realizedNetBreakdown.totalUsd)}</b></div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 5 }}>This value updates automatically and may rise or fall. Secured Profit above only increases when a positive closed-net delta is protected.</div>
                   </div>
                   {coreVaultOverview.isShadow && <div className="muted" style={{ fontSize: 11 }}>Shadow follows the later live accounting rules. Only closed net results count, but nothing is withdrawable.</div>}
                 </div>

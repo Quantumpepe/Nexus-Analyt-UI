@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-110-EFFICIENT-GLOBAL-AI-STRATEGIST-CACHE";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-111-SHADOW-DRAWER-EVENT-HISTORY-CLEANUP";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -5510,6 +5510,7 @@ const byChain = {};
   const [shadowExecutorState, setShadowExecutorState] = useState(null);
   const [shadowExecutorBusy, setShadowExecutorBusy] = useState(false);
   const [shadowExecutorMsg, setShadowExecutorMsg] = useState("");
+  const [shadowDrawerOpen, setShadowDrawerOpen] = useState(true);
 
   const [redeemCode, setRedeemCode] = useState("");
   const [redeemBusy, setRedeemBusy] = useState(false);
@@ -5572,6 +5573,11 @@ const byChain = {};
     : null;
   const showAccessReminder = !!(isPro && accessDaysLeft !== null && accessDaysLeft <= 3);
   const showAccessExpiredNotice = !!(!isPro && accessExpiresTs > 0);
+
+  useEffect(() => {
+    if (access == null) return;
+    setShadowDrawerOpen(!isPro);
+  }, [isPro, access?.active]);
 
   const requirePro = useCallback((actionLabel = "This action") => {
     if (isPro) return true;
@@ -20465,30 +20471,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                           </div>
 
-                          {(() => {
-                            const movementEvents = rotationRows.flatMap((s) => (Array.isArray(s?.rotationEvents) ? s.rotationEvents : []).map((ev) => ({ ...ev, sessionSymbol: String(s?.symbol || s?.sourceSymbol || s?.targetAsset || "").toUpperCase() })))
-                              .filter((ev) => /ROTAT|REALLOC|CAPITAL|PROMOT|REDUC|TOPUP/i.test(String(ev?.action || ev?.status || ev?.capitalMovementType || ev?.reason || "")))
-                              .sort((a,b) => Number(b?.ts || b?.event_ts || 0) - Number(a?.ts || a?.event_ts || 0))
-                              .slice(0, 40);
-                            return movementEvents.length ? (
-                              <details style={{ borderRadius: 12, border: "1px solid rgba(139,220,255,.20)", background: "rgba(0,0,0,.14)", padding: "8px 10px" }}>
-                                <summary style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}>NKR Rotation History · {movementEvents.length} recent</summary>
-                                <div style={{ display: "grid", gap: 6, marginTop: 8, maxHeight: 210, overflowY: "auto" }}>
-                                  {movementEvents.map((ev, i) => {
-                                    const ts = Number(ev?.ts || ev?.event_ts || 0);
-                                    const amount = Number(ev?.capitalMovedUsd ?? ev?.amountUsd ?? ev?.buyUsd ?? ev?.sellUsd ?? 0) || 0;
-                                    const fromA = String(ev?.fromAsset || ev?.baseAsset || "USDT").toUpperCase();
-                                    const toA = String(ev?.toAsset || ev?.targetAsset || ev?.sessionSymbol || "ASSET").toUpperCase();
-                                    return <div key={ev?.id || `${ts}-${i}`} className="muted tiny" style={{ padding: "7px 8px", borderRadius: 9, background: "rgba(255,255,255,.03)", display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "130px 1fr auto", gap: 8 }}>
-                                      <span>{ts ? new Date(ts).toLocaleString() : "time pending"}</span>
-                                      <span><b style={{ color: "#d8fff1" }}>{fromA} → {toA}</b> · {String(ev?.action || ev?.capitalMovementType || ev?.status || "CAPITAL MOVEMENT").replaceAll("_", " ")}{ev?.reason ? ` · ${String(ev.reason).replaceAll("_", " ")}` : ""}</span>
-                                      <span style={{ color: amount >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{amount ? fmtUsd(amount) : "—"}</span>
-                                    </div>;
-                                  })}
-                                </div>
-                              </details>
-                            ) : null;
-                          })()}
+                          {/* ENGINE-111: Rotation movements are shown only in NKR Event History. */}
 
                           <details
                             style={{
@@ -21903,6 +21886,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     ) : null}
 
+                    <details
+                      open={shadowDrawerOpen}
+                      onToggle={(e) => setShadowDrawerOpen(!!e.currentTarget.open)}
+                      style={{
+                        borderRadius: 12,
+                        border: "1px solid rgba(64,196,255,.18)",
+                        background: "rgba(0,0,0,.12)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <summary
+                        style={{
+                          cursor: "pointer",
+                          listStyle: "none",
+                          padding: "10px 12px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 10,
+                          flexWrap: "wrap",
+                          color: "#8bdcff",
+                          fontWeight: 950,
+                        }}
+                      >
+                        <span>{isPro ? "Shadow Simulator" : "Shadow Simulator · Free Mode"}</span>
+                        <span className="muted tiny" style={{ color: shadowExecutorState?.runtime_status === "RUNNING" ? "#7cf7a2" : "rgba(216,255,241,.68)" }}>
+                          {shadowExecutorState?.runtime_status === "RUNNING" ? "Active" : "Ready"} · {shadowDrawerOpen ? "Hide ▲" : "Open ▼"}
+                        </span>
+                      </summary>
                     <div
                       style={{
                         padding: "9px 10px",
@@ -21999,6 +22011,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         );
                       })()}
                     </div>
+                    </details>
 
 
                     {renderFundingPrompt("TRADING")}

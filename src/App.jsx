@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-103-NKR-LIVE-MODE-SWITCH";
+const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-105-ACCESS-BUTTONS-WALLET-HEADER";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -2668,38 +2668,7 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
       <svg className="sparkSvg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
         <path d={d} className={`chartLine ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ opacity: 0.95, strokeWidth: 2.8, stroke: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]) }} />
       </svg>
-      <div className="sparkFoot muted tiny">{indexMode ? "Index 100" : "Price"} · 30D
-<div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-  <button
-    className="btnGhost"
-    type="button"
-    onClick={() => {
-      setAccessTab("subscribe");
-      setSubPlan("strategist_weekly");
-      setSubMsg("");
-      setAccessModalOpen(true);
-    }}
-    title="Strategist Weekly Access"
-  >
-    Strategist Weekly · $20
-  </button>
-
-  <button
-    className="btnGhost"
-    type="button"
-    onClick={() => {
-      setAccessTab("subscribe");
-      setSubPlan("strategist_monthly");
-      setSubMsg("");
-      setAccessModalOpen(true);
-    }}
-    title="Strategist Monthly Access"
-  >
-    Strategist Monthly · $50
-  </button>
-</div>
-
-</div>
+      <div className="sparkFoot muted tiny">{indexMode ? "Index 100" : "Price"} · 30D</div>
     </button>
   );
 }
@@ -17038,7 +17007,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           {/* Access (Redeem / Subscribe) */}
           {wallet && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
               <button
                 className="btnGhost"
                 type="button"
@@ -17061,32 +17030,52 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <button
                 className="btnGhost"
                 type="button"
-                disabled={!ENABLE_VAULT_SUBSCRIBE}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (!ENABLE_VAULT_SUBSCRIBE) return;
                   setAccessTab("subscribe");
                   setSubPlan("core");
                   setSubMsg("");
                   setAccessModalOpen(true);
                 }}
-                title={
-                  ENABLE_VAULT_SUBSCRIBE
-                    ? "Subscribe (USDC/USDT)"
-                    : "Vault infrastructure upgrade in progress. Trading access will activate after security deployment."
-                }
-                style={
-                  !ENABLE_VAULT_SUBSCRIBE
-                    ? { opacity: 0.55, cursor: "not-allowed" }
-                    : undefined
-                }
+                title={`Nexus Core · $${SUB_PRICE_USD} / 30 days`}
               >
-                Vault System (Coming Soon)
+                Core ${SUB_PRICE_USD}/30d
+              </button>
+
+              <button
+                className="btnGhost"
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setAccessTab("subscribe");
+                  setSubPlan("strategist_weekly");
+                  setSubMsg("");
+                  setAccessModalOpen(true);
+                }}
+                title={`Nexus Strategist · $${STRATEGIST_WEEKLY_PRICE_USD} / 7 days`}
+              >
+                AI ${STRATEGIST_WEEKLY_PRICE_USD}/7d
+              </button>
+
+              <button
+                className="btnGhost"
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setAccessTab("subscribe");
+                  setSubPlan("strategist_monthly");
+                  setSubMsg("");
+                  setAccessModalOpen(true);
+                }}
+                title={`Nexus Strategist · $${STRATEGIST_MONTHLY_PRICE_USD} / 30 days`}
+              >
+                AI ${STRATEGIST_MONTHLY_PRICE_USD}/30d
               </button>
 
               <div className="text-xs" style={{ opacity: 0.75, marginLeft: 6 }}>

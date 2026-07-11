@@ -9714,7 +9714,6 @@ useEffect(() => {
       if (Array.isArray(resp?.sessions)) setRotationSessions(resp.sessions);
       setNkrCapitalMode(next);
       setRotationBackendMsg(resp?.message || `NKR mode changed to ${next}.`);
-      await syncAppStateFromServer();
       return true;
     } catch (e) {
       setRotationBackendMsg(`NKR mode change failed: ${e?.message || e}`);
@@ -9722,7 +9721,7 @@ useEffect(() => {
     } finally {
       setRotationBackendLoading(false);
     }
-  }, [rotationSessions, token, wallet, api, syncAppStateFromServer, setRotationSessions, setNkrCapitalMode, setRotationBudgetReleased]);
+  }, [rotationSessions, token, wallet, api, setRotationSessions, setNkrCapitalMode, setRotationBudgetReleased]);
 
   const handleNkrCapitalModeChange = useCallback(async (value) => {
     const next = String(value || "DYNAMIC").toUpperCase();

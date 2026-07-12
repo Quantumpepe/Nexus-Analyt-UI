@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.12-ENGINE-130-MARKET-REGIME-PLUS-ROTATION";
+const FRONTEND_BUILD_ID = "F-2026.07.12-ENGINE-131-VERSION100-BANNER-RESTORE";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -3358,7 +3358,7 @@ const [errorMsg, setErrorMsg] = useState("");
         });
 
         next.push({
-          label: "Market Risk",
+          label: "Market Regime",
           value: `${riskLabel} ${riskScore}/100${Number.isFinite(capChange) ? ` · MCap ${pctText(capChange)}` : ""}`,
           detail: Number.isFinite(capChange) ? `Live global market cap ${pctText(capChange)} · breadth ${Number.isFinite(breadthPct) ? breadthPct.toFixed(0) + "%" : "—"}` : "Live risk state from market cap, breadth, liquidity and volatility.",
           metric: `${riskScore}/100`,
@@ -3458,27 +3458,20 @@ const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
     const t = setInterval(() => {
-      const secondaryCount = marketBannerItems.filter((item) => item?.label !== "Market Risk").length;
-      setMarketBannerIndex((i) => (secondaryCount ? (i + 1) % secondaryCount : 0));
+      setMarketBannerIndex((i) => (marketBannerItems.length ? (i + 1) % marketBannerItems.length : 0));
     }, 8000);
     return () => clearInterval(t);
-  }, [marketBannerItems]);
+  }, [marketBannerItems.length]);
 
-  // ENGINE-129: The market regime is permanent in the header. Secondary market
-  // intelligence may rotate, but it is display-only and never gates NKR execution.
-  const permanentMarketRegime = marketBannerItems.find((item) => item?.label === "Market Risk") || marketBannerItems[0] || {
-    label: "Market Regime",
-    value: "Loading market regime…",
-    detail: "Preparing live market regime.",
+  const activeMarketBanner = marketBannerItems[marketBannerIndex] || marketBannerItems[0] || {
+    label: "Trader Pulse",
+    value: "Loading liquidity, volatility and risk…",
+    detail: "Preparing trader intelligence feed.",
     metric: "—",
     tone: "neutral",
     chartType: "line",
     chartData: [],
   };
-  const rotatingMarketBannerItems = marketBannerItems.filter((item) => item?.label !== "Market Risk");
-  const activeMarketBanner = rotatingMarketBannerItems.length
-    ? rotatingMarketBannerItems[marketBannerIndex % rotatingMarketBannerItems.length]
-    : permanentMarketRegime;
 
   const renderMarketDeskChart = (item) => {
     const values = Array.isArray(item?.chartData) && item.chartData.length ? item.chartData.map(Number).filter(Number.isFinite) : [];
@@ -17224,31 +17217,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
         <section
           className="desktopMarketDeskPanel marketDeskFadeKey"
           key={`${activeMarketBanner?.label || "market"}-${marketBannerIndex}`}
-          title={`Market Regime: ${permanentMarketRegime.value}. ${activeMarketBanner.label}: ${activeMarketBanner.value}`}
-          aria-label={`Market regime ${permanentMarketRegime.value}. Additional market information: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
+          title={`${activeMarketBanner.label}: ${activeMarketBanner.value}`}
+          aria-label={`Trader intelligence banner: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
         >
           <div className="marketDeskCopy">
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                width: "fit-content",
-                marginBottom: 4,
-                padding: "3px 8px",
-                borderRadius: 999,
-                border: "1px solid rgba(84,240,164,.28)",
-                background: "rgba(0,255,136,.06)",
-                fontSize: 11,
-                fontWeight: 900,
-                letterSpacing: .35,
-              }}
-              title="Permanent market regime display only. It does not control or block NKR."
-            >
-              <span style={{ opacity: .72 }}>MARKET REGIME</span>
-              <span>{permanentMarketRegime?.value || "Loading…"}</span>
-              <span style={{ opacity: .72 }}>{permanentMarketRegime?.metric || ""}</span>
-            </div>
             <div className="marketDeskKicker">{activeMarketBanner?.label || "Nexus Market Desk"}</div>
             <div className="marketDeskHeadline">{activeMarketBanner?.value || "Loading liquidity, volatility and risk…"}</div>
             <div className="marketDeskDetail">{activeMarketBanner?.detail || "Smart global market intelligence rotates every 8 seconds."}</div>

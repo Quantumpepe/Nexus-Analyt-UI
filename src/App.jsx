@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.12-ENGINE-128-SHADOW-GOPLUS-OWNER-GUARD";
+const FRONTEND_BUILD_ID = "F-2026.07.12-ENGINE-129-PERMANENT-MARKET-REGIME-BANNER";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -3458,20 +3458,27 @@ const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
     const t = setInterval(() => {
-      setMarketBannerIndex((i) => (marketBannerItems.length ? (i + 1) % marketBannerItems.length : 0));
+      const secondaryCount = marketBannerItems.filter((item) => item?.label !== "Market Risk").length;
+      setMarketBannerIndex((i) => (secondaryCount ? (i + 1) % secondaryCount : 0));
     }, 8000);
     return () => clearInterval(t);
-  }, [marketBannerItems.length]);
+  }, [marketBannerItems]);
 
-  const activeMarketBanner = marketBannerItems[marketBannerIndex] || marketBannerItems[0] || {
-    label: "Trader Pulse",
-    value: "Loading liquidity, volatility and risk…",
-    detail: "Preparing trader intelligence feed.",
+  // ENGINE-129: The market regime is permanent in the header. Secondary market
+  // intelligence may rotate, but it is display-only and never gates NKR execution.
+  const permanentMarketRegime = marketBannerItems.find((item) => item?.label === "Market Risk") || marketBannerItems[0] || {
+    label: "Market Regime",
+    value: "Loading market regime…",
+    detail: "Preparing live market regime.",
     metric: "—",
     tone: "neutral",
     chartType: "line",
     chartData: [],
   };
+  const rotatingMarketBannerItems = marketBannerItems.filter((item) => item?.label !== "Market Risk");
+  const activeMarketBanner = rotatingMarketBannerItems.length
+    ? rotatingMarketBannerItems[marketBannerIndex % rotatingMarketBannerItems.length]
+    : permanentMarketRegime;
 
   const renderMarketDeskChart = (item) => {
     const values = Array.isArray(item?.chartData) && item.chartData.length ? item.chartData.map(Number).filter(Number.isFinite) : [];
@@ -17217,16 +17224,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
         <section
           className="desktopMarketDeskPanel marketDeskFadeKey"
           key={`${activeMarketBanner?.label || "market"}-${marketBannerIndex}`}
-          title={`${activeMarketBanner.label}: ${activeMarketBanner.value}`}
-          aria-label={`Trader intelligence banner: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
+          title={`Market Regime: ${permanentMarketRegime.value}. ${activeMarketBanner.label}: ${activeMarketBanner.value}`}
+          aria-label={`Market regime ${permanentMarketRegime.value}. Additional market information: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
         >
           <div className="marketDeskCopy">
-            <div className="marketDeskKicker">{activeMarketBanner?.label || "Nexus Market Desk"}</div>
-            <div className="marketDeskHeadline">{activeMarketBanner?.value || "Loading liquidity, volatility and risk…"}</div>
-            <div className="marketDeskDetail">{activeMarketBanner?.detail || "Smart global market intelligence rotates every 8 seconds."}</div>
+            <div className="marketDeskKicker">MARKET REGIME</div>
+            <div className="marketDeskHeadline">{permanentMarketRegime?.value || "Loading market regime…"}</div>
+            <div className="marketDeskDetail">
+              <b>{activeMarketBanner?.label || "Market Update"}:</b> {activeMarketBanner?.value || "Loading live market data…"}
+              {activeMarketBanner?.detail ? ` · ${activeMarketBanner.detail}` : ""}
+            </div>
           </div>
           <div className="marketDeskChartBox">
-            <div className="marketDeskMetric">{activeMarketBanner?.metric || "—"}</div>
+            <div className="marketDeskMetric">{permanentMarketRegime?.metric || "—"}</div>
             {renderMarketDeskChart(activeMarketBanner)}
           </div>
         </section>

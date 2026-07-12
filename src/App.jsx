@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.11-ENGINE-126-CORE-VAULT-DEPOSIT";
+const FRONTEND_BUILD_ID = "F-2026.07.12-ENGINE-127-NKR-PERIOD-CAPITAL-REUSE";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -7255,10 +7255,13 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const isRotationSessionRunnable = useCallback((sess, now = Date.now()) => {
     if (!sess || typeof sess !== "object") return false;
     const st = String(sess?.status || "APPROVED").toUpperCase();
-    if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "WATCH_POOL"].includes(st)) return false;
-    const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
+    if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL"].includes(st)) return false;
+    const periodDays = Math.max(1, Number(sess?.periodDays || sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || nkrPeriodDays || 10));
+    const start = Number(sess?.campaignStartedAt || sess?.meta?.campaign_started_at || sess?.startedAt || sess?.createdAt || 0);
+    const periodExpiry = start > 0 ? start + periodDays * 24 * 60 * 60 * 1000 : 0;
+    const exp = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || periodExpiry || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
     return !exp || exp > now;
-  }, []);
+  }, [nkrPeriodDays]);
 
   // Multi-session support: each later budget approval becomes an independent user-bounded session.
   // Existing sessions are preserved; new Trading/NKR sessions get their own session_id.
@@ -7465,13 +7468,11 @@ useEffect(() => {
 
     const activeLimitRaw = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));
     const activeLimit = Math.max(1, Number.isFinite(activeLimitRaw) ? Math.floor(activeLimitRaw) : 3);
-    const runtimeRaw = Number(String(rotationRuntimeHours || "24").replace(",", "."));
-    const runtimeHours = Math.max(1, Math.min(168, Number.isFinite(runtimeRaw) ? runtimeRaw : 24));
+    const periodDays = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
+    const runtimeHours = periodDays * 24;
     const now = Date.now();
     const activeExisting = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((s) => {
-      const st = String(s?.status || "").toUpperCase();
-      const exp = Number(s?.expiresAt || s?.expires_at || 0);
-      return !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st) && (!exp || exp > now);
+      return isRotationSessionRunnable(s, now);
     }).length;
     if (activeExisting >= activeLimit) {
       setRotationBackendMsg(`Max Active NKR Assets reached (${activeExisting}/${activeLimit}). Pause/stop one NKR session or increase the limit.`);
@@ -7535,8 +7536,8 @@ useEffect(() => {
     const candidateChain = String(pickedCandidate.chain || rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
     const candidateSymbol = String(pickedCandidate.coin || pickedCandidate.rawSymbol).toUpperCase();
     const sourceSymbol = String(pickedCandidate.rawSymbol).toUpperCase();
-    const sessionId = makeNexusSessionId("ROT");
-    const expiresAt = now + runtimeHours * 60 * 60 * 1000;
+    const sessionId = makeNexusSessionId("NKR");
+    const expiresAt = now + periodDays * 24 * 60 * 60 * 1000;
     setRotationBudgetReleased(true);
     setActiveRotationSessionId(sessionId);
     setRotationSessions((prev) => {
@@ -7544,7 +7545,7 @@ useEffect(() => {
       return [
         {
           id: sessionId,
-          type: "ROTATION",
+          type: "NKR",
           budgetUsd: amount,
           chain: candidateChain,
           symbol: candidateSymbol,
@@ -7562,6 +7563,9 @@ useEffect(() => {
           networkScope: rotationNetworkScope,
           runtimeHours,
           startedAt: now,
+          campaignStartedAt: now,
+          campaignExpiresAt: expiresAt,
+          periodDays,
           expiresAt,
           riskLimitPct: rotationRiskLimit,
           minNetAdvantagePct: rotationMinNetAdvantage,
@@ -7586,6 +7590,7 @@ useEffect(() => {
           createdAt: now,
           updatedAt: now,
           meta: {
+            nkr_session: true,
             source: "rotation_budget_approval",
             candidate_source: pickedCandidate.source || "strategist_candidate",
             source_symbol: sourceSymbol,
@@ -7603,6 +7608,10 @@ useEffect(() => {
             locked_chain: candidateChain,
             locked_base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
             runtime_hours: runtimeHours,
+            campaign_started_at: now,
+            campaign_expires_at: expiresAt,
+            nkr_period_days: periodDays,
+            nkr_runtime_source: "PERIOD_DAYS_ONLY",
             expires_at: expiresAt,
             max_active_nkr_sessions: activeLimit,
             risk_limit_pct: rotationRiskLimit,
@@ -7614,7 +7623,7 @@ useEffect(() => {
         ...existing,
       ].slice(0, 20);
     });
-    setRotationBackendMsg(`NKR session approved ✓ ${sessionId}. Runtime ${runtimeHours}h, max active NKR sessions ${activeLimit}. Paper-only until live permissions are connected.`);
+    setRotationBackendMsg(`NKR session approved ✓ ${sessionId}. Period ${periodDays} days, max active NKR sessions ${activeLimit}. Paper-only until live permissions are connected.`);
   }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset]);
 
   const startRotationSafeMode = useCallback(async () => {
@@ -11032,14 +11041,16 @@ const [aiLoading, setAiLoading] = useState(false);
         || null;
       if (sessions.length && !firstActive) {
         setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
-          const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
+          const pDays = Math.max(1, Number(sess?.periodDays || sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || nkrPeriodDays || 10));
+          const pStart = Number(sess?.campaignStartedAt || sess?.meta?.campaign_started_at || sess?.startedAt || sess?.createdAt || 0);
+          const exp = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || (pStart > 0 ? pStart + pDays * 24 * 60 * 60 * 1000 : 0) || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
           const st = String(sess?.status || "APPROVED").toUpperCase();
           if (exp && exp <= nowStart && !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st)) {
             return { ...sess, status: "EXPIRED", expiredAt: nowStart, updatedAt: nowStart };
           }
           return sess;
         }));
-        setRotationBackendMsg("NKR Shadow waiting: no active Rotation session inside its runtime window.");
+        setRotationBackendMsg("NKR Shadow waiting: no active NKR session inside the selected period.");
         return;
       }
       const typedBudget = Number(String(rotationBudgetRelease || "").replace(",", "."));

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.12-ENGINE-129-PERMANENT-MARKET-REGIME-BANNER";
+const FRONTEND_BUILD_ID = "F-2026.07.12-ENGINE-130-MARKET-REGIME-PLUS-ROTATION";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -17228,15 +17228,33 @@ const handlePanelActivate = useCallback((name) => (e) => {
           aria-label={`Market regime ${permanentMarketRegime.value}. Additional market information: ${activeMarketBanner.label} ${activeMarketBanner.value}`}
         >
           <div className="marketDeskCopy">
-            <div className="marketDeskKicker">MARKET REGIME</div>
-            <div className="marketDeskHeadline">{permanentMarketRegime?.value || "Loading market regime…"}</div>
-            <div className="marketDeskDetail">
-              <b>{activeMarketBanner?.label || "Market Update"}:</b> {activeMarketBanner?.value || "Loading live market data…"}
-              {activeMarketBanner?.detail ? ` · ${activeMarketBanner.detail}` : ""}
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                width: "fit-content",
+                marginBottom: 4,
+                padding: "3px 8px",
+                borderRadius: 999,
+                border: "1px solid rgba(84,240,164,.28)",
+                background: "rgba(0,255,136,.06)",
+                fontSize: 11,
+                fontWeight: 900,
+                letterSpacing: .35,
+              }}
+              title="Permanent market regime display only. It does not control or block NKR."
+            >
+              <span style={{ opacity: .72 }}>MARKET REGIME</span>
+              <span>{permanentMarketRegime?.value || "Loading…"}</span>
+              <span style={{ opacity: .72 }}>{permanentMarketRegime?.metric || ""}</span>
             </div>
+            <div className="marketDeskKicker">{activeMarketBanner?.label || "Nexus Market Desk"}</div>
+            <div className="marketDeskHeadline">{activeMarketBanner?.value || "Loading liquidity, volatility and risk…"}</div>
+            <div className="marketDeskDetail">{activeMarketBanner?.detail || "Smart global market intelligence rotates every 8 seconds."}</div>
           </div>
           <div className="marketDeskChartBox">
-            <div className="marketDeskMetric">{permanentMarketRegime?.metric || "—"}</div>
+            <div className="marketDeskMetric">{activeMarketBanner?.metric || "—"}</div>
             {renderMarketDeskChart(activeMarketBanner)}
           </div>
         </section>

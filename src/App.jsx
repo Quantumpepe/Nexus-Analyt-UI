@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.13-ENGINE-132-LIVE-CORE-VAULT-BALANCE";
+const FRONTEND_BUILD_ID = "F-2026.07.13-ENGINE-133-LIVE-VAULT-CAPITAL-ALL-ENGINES";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -4313,6 +4313,12 @@ useEffect(() => {
   const [coreVaultAccounting, setCoreVaultAccounting] = useState(null);
   const [coreVaultOnchain, setCoreVaultOnchain] = useState(null);
   const [coreVaultOnchainLoading, setCoreVaultOnchainLoading] = useState(false);
+
+  // ENGINE-133: one live Core Vault capital selector shared by Grid, NKR and Trading.
+  // This is display/selection only. It never mixes Shadow capital with on-chain funds
+  // and it does not reserve or move funds by itself.
+  const [liveVaultChainByMode, setLiveVaultChainByMode] = useState({ normal: "ETH", rotation: "ETH", trading: "ETH" });
+  const [liveVaultAssetByMode, setLiveVaultAssetByMode] = useState({ normal: "USDC", rotation: "USDC", trading: "USDC" });
   const refreshCoreVaultOnchain = useCallback(async () => {
     if (!wallet) { setCoreVaultOnchain(null); return; }
     setCoreVaultOnchainLoading(true);
@@ -19842,6 +19848,85 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 })}
               </div>
               )}
+
+              {(() => {
+                const modeKey = String(gridMode || "normal");
+                const selectedChain = String(liveVaultChainByMode?.[modeKey] || "ETH").toUpperCase();
+                const tokenEntries = Object.entries(coreVaultOnchain?.tokens || {}).filter(([, tokenState]) => {
+                  const account = tokenState?.account || {};
+                  const total = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
+                  return total > 0;
+                });
+                const fallbackSymbol = tokenEntries[0]?.[0] || "USDC";
+                const selectedSymbolRaw = String(liveVaultAssetByMode?.[modeKey] || fallbackSymbol).toUpperCase();
+                const selectedSymbol = tokenEntries.some(([symbol]) => symbol === selectedSymbolRaw) ? selectedSymbolRaw : fallbackSymbol;
+                const tokenState = selectedChain === "ETH" ? (coreVaultOnchain?.tokens?.[selectedSymbol] || {}) : {};
+                const account = tokenState?.account || {};
+                const total = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
+                const totalAllocated = Number(account?.totalAllocated || 0);
+                const free = Math.max(0, total - totalAllocated);
+                const reserved = modeKey === "rotation"
+                  ? Number(account?.allocatedNkr || 0)
+                  : modeKey === "trading"
+                    ? Number(account?.allocatedTrader || 0)
+                    : Number(account?.allocatedGrid || 0);
+                const systemLabel = modeKey === "rotation" ? "NKR" : modeKey === "trading" ? "Trader" : "Grid";
+                const chainConnected = selectedChain === "ETH" && !!coreVaultOnchain?.connected;
+                return (
+                  <div style={{ marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <div>
+                        <div style={{ fontWeight: 950, fontSize: 12 }}>Live Core Vault Capital · {systemLabel}</div>
+                        <div className="muted tiny">Choose the chain and a funded Vault asset. Shadow capital remains separate.</div>
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 900, color: chainConnected ? "#86efac" : "#ffd166" }}>
+                        {coreVaultOnchainLoading ? "REFRESHING" : chainConnected ? "LIVE CONNECTED" : "VAULT NOT AVAILABLE"}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "minmax(150px,.7fr) minmax(150px,.7fr) repeat(3,minmax(110px,1fr))", gap: 8, alignItems: "stretch" }}>
+                      <label style={{ display: "grid", gap: 4 }}>
+                        <span className="muted tiny">Chain</span>
+                        <select value={selectedChain} onChange={(e) => setLiveVaultChainByMode((prev) => ({ ...(prev || {}), [modeKey]: String(e.target.value || "ETH").toUpperCase() }))}>
+                          <option value="ETH">Ethereum</option>
+                          <option value="BNB">BNB Chain</option>
+                          <option value="POL">Polygon</option>
+                        </select>
+                      </label>
+                      <label style={{ display: "grid", gap: 4 }}>
+                        <span className="muted tiny">Vault asset</span>
+                        <select
+                          value={selectedSymbol}
+                          disabled={!chainConnected || !tokenEntries.length}
+                          onChange={(e) => setLiveVaultAssetByMode((prev) => ({ ...(prev || {}), [modeKey]: String(e.target.value || "USDC").toUpperCase() }))}
+                        >
+                          {tokenEntries.length ? tokenEntries.map(([symbol, state]) => {
+                            const a = state?.account || {};
+                            const amount = Number(a?.baseCapital || 0) + Number(a?.totalSecuredProfit || 0);
+                            return <option key={symbol} value={symbol}>{symbol} · {amount.toFixed(2)}</option>;
+                          }) : <option value="USDC">No funded asset</option>}
+                        </select>
+                      </label>
+                      {[
+                        ["Vault balance", total],
+                        ["Free available", free],
+                        [`${systemLabel} reserved`, reserved],
+                      ].map(([label, value]) => (
+                        <div key={label} style={{ padding: "8px 10px", borderRadius: 11, border: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.14)" }}>
+                          <div className="muted tiny">{label}</div>
+                          <div className="mono" style={{ marginTop: 4, fontWeight: 950 }}>{chainConnected ? `${Number(value || 0).toFixed(2)} ${selectedSymbol}` : "—"}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {!chainConnected ? (
+                      <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>Core Vault not available on this chain yet. Live budget approval remains disabled.</div>
+                    ) : tokenEntries.length === 0 ? (
+                      <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>No funded Vault asset is available on Ethereum.</div>
+                    ) : (
+                      <div className="muted tiny" style={{ marginTop: 8 }}>The same on-chain balance is shown consistently in Grid, NKR and Trading. A later budget action will reserve capital only for the selected system.</div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {strategistBridge ? (
                 <div

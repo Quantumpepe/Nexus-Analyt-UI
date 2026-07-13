@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.13-ENGINE-134-CORE-ABI-MULTI-EVM-ASSET-ROUTER";
+const FRONTEND_BUILD_ID = "F-2026.07.13-ENGINE-135-COMPACT-LIVE-CORE-CAPITAL";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -19898,8 +19898,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div style={{ marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <div>
-                        <div style={{ fontWeight: 950, fontSize: 12 }}>Live Core Vault Capital · {systemLabel}</div>
-                        <div className="muted tiny">Choose the chain and a funded Vault asset. Shadow capital remains separate.</div>
+                        <div style={{ fontWeight: 950, fontSize: 12 }}>Live Core Vault Capital</div>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 900, color: chainConnected ? "#86efac" : "#ffd166" }}>
                         {coreVaultOnchainLoading ? "REFRESHING" : chainConnected ? "LIVE CONNECTED" : "VAULT NOT AVAILABLE"}
@@ -19943,9 +19942,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>Core Vault not available on this chain yet. Live budget approval remains disabled.</div>
                     ) : tokenEntries.length === 0 ? (
                       <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>No funded Vault asset is available on Ethereum.</div>
-                    ) : (
-                      <div className="muted tiny" style={{ marginTop: 8 }}>The same on-chain balance and central execution-asset router are shared by Grid, NKR and Trading. Nexus shows only the normal asset name; technical routing details remain inside the information panel.</div>
-                    )}
+                    ) : null}
                   </div>
                 );
               })()}

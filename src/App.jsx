@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.13-ENGINE-135-COMPACT-LIVE-CORE-CAPITAL";
+const FRONTEND_BUILD_ID = "F-2026.07.13-ENGINE-137-GRID-TRADER-HISTORY-CRASH-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -10335,7 +10335,7 @@ useEffect(() => {
       return {
         eventKey: `GRID:${o?.id || o?.order_id || idx}:${status}:${ts}`,
         eventType: status, status, ts,
-        chain: o?.chain || o?.network || gridNetwork || "",
+        chain: o?.chain || o?.network || activeGridChainKey || gridChain || "",
         asset: o?.symbol || o?.asset || gridCoin || "",
         side: o?.side || o?.action || "",
         priceUsd: Number(o?.fill_price || o?.filled_price || o?.price || 0),
@@ -10348,7 +10348,7 @@ useEffect(() => {
     });
     const t=setTimeout(async () => { try { await api('/api/nexus/engine-history/sync', { method:'POST', wallet, token, body:{ engine:'GRID', events } }); await loadEngineHistory('GRID'); } catch {} }, 900);
     return () => clearTimeout(t);
-  }, [gridOrders, wallet, token, gridNetwork, gridCoin, loadEngineHistory]);
+  }, [gridOrders, wallet, token, activeGridChainKey, gridChain, gridCoin, loadEngineHistory]);
 
   useEffect(() => {
     const wa = resolveWalletAddress(wallet); if (!wa || !Array.isArray(tradingSessions)) return;

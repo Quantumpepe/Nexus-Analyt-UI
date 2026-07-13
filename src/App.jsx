@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.13-ENGINE-138-GRID-TRADER-HISTORY-FINAL-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.13-ENGINE-140-HISTORY-BOTTOM-NKR-STATUS-REMOVED";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -20063,9 +20063,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 );
               })()}
 
-              {String(gridMode || "normal") === "normal" ? <EngineEventHistory engine="GRID" events={gridEventHistory} /> : null}
-              {String(gridMode || "normal") === "trading" ? <EngineEventHistory engine="TRADER" events={traderEventHistory} /> : null}
-
               {strategistBridge ? (
                 <div
                   style={{
@@ -21286,24 +21283,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                           ) : null}
 
-                          <div
-                            style={{
-                              padding: "10px 12px",
-                              borderRadius: 12,
-                              background: "rgba(34,197,94,.08)",
-                              border: "1px solid rgba(34,197,94,.22)",
-                              display: "flex",
-                              justifyContent: "space-between",
-                              gap: 12,
-                              flexWrap: "wrap",
-                              alignItems: "center",
-                            }}
-                          >
-                            <div>
-                              <b style={{ color: "#eafff5" }}>Nexus NKR Status: Session {activeRotations ? "Active" : "Waiting"} · Shadow {rotationShadowWorkStatus}</b>
-                              <div className="muted tiny">Nexus NKR uses capital mode, observation window, profit mode and period settings. Live Vault execution is still disabled in Shadow mode.</div>
-                            </div>
-                          </div>
                         </>
                       );
                     })()}
@@ -22399,6 +22378,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     
                   </div>
+                  <EngineEventHistory engine="TRADER" events={traderEventHistory} />
                 </div>
               ) : (
                 <>
@@ -22955,6 +22935,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : null}
 </div>
 
+                <EngineEventHistory engine="GRID" events={gridEventHistory} />
                 </>
               )}
 

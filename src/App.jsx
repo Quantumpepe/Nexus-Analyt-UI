@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.12-ENGINE-131-VERSION100-BANNER-RESTORE";
+const FRONTEND_BUILD_ID = "F-2026.07.13-ENGINE-132-LIVE-CORE-VAULT-BALANCE";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -17979,9 +17979,46 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                   ) : null}
 
-                  <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                      <div>
+                        <div style={{ fontWeight: 900, fontSize: 13 }}>Live Core Vault</div>
+                        <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>Real on-chain funds · Ethereum Mainnet</div>
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 900, color: coreVaultOnchain?.connected ? "#86efac" : "#ffb3b3" }}>
+                        {coreVaultOnchainLoading ? "REFRESHING" : coreVaultOnchain?.connected ? "CONNECTED" : "UNAVAILABLE"}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {["USDC", "USDT"].map((symbol) => {
+                        const tokenState = coreVaultOnchain?.tokens?.[symbol] || {};
+                        const account = tokenState?.account || {};
+                        const base = Number(account?.baseCapital || 0);
+                        const secured = Number(account?.totalSecuredProfit || 0);
+                        const allocated = Number(account?.totalAllocated || 0);
+                        const liveTotal = base + secured;
+                        return (
+                          <div key={symbol} style={{ padding: 10, borderRadius: 12, background: "rgba(0,0,0,0.16)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                              <b>{symbol}</b>
+                              <span className="mono" style={{ fontWeight: 900 }}>{liveTotal.toFixed(2)}</span>
+                            </div>
+                            <div className="muted" style={{ fontSize: 9, marginTop: 5 }}>Base capital {base.toFixed(2)} · Secured profit {secured.toFixed(2)}</div>
+                            <div className="muted" style={{ fontSize: 9, marginTop: 2 }}>Allocated {allocated.toFixed(2)}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <span className="muted" style={{ fontSize: 10 }}>This balance is separate from the Shadow values below.</span>
+                      <button type="button" className="miniBtn" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading || !wallet}>Refresh</button>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 10, fontSize: 10, fontWeight: 900, color: "rgba(255,255,255,0.62)", letterSpacing: 0.4, textTransform: "uppercase" }}>Shadow accounting</div>
+                  <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     {[
-                      ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd, "USDC / USDT held by the Core Vault"],
+                      ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd, "Simulated USDC / USDT in Shadow accounting"],
                       ["Base Capital Protected", coreVaultOverview.protectedBaseUsd, "Protected stable capital excluding secured profit"],
                       ["Total Secured Profit", coreVaultOverview.securedProfitUsd, "Closed net Grid, NKR and Trader profit"],
                       ["Available for Withdraw", coreVaultOverview.availableForWithdrawUsd, "Based on the selected withdraw source"],

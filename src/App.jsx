@@ -2977,6 +2977,61 @@ function computeBestPairs(chart, limit = 30) {
 // ------------------------
 // App (inner)
 // ------------------------
+
+
+function EngineEventHistory({ engine, events = [] }) {
+  const [showAll, setShowAll] = useState(false);
+  const [filter, setFilter] = useState("ALL");
+  const rows = Array.isArray(events) ? events : [];
+  const filtered = rows.filter((ev) => {
+    const status = String(ev?.status || ev?.eventType || ev?.action || "EVENT").toUpperCase();
+    if (filter === "ALL") return true;
+    if (filter === "OPEN") return status.includes("OPEN") || status.includes("ACTIVE") || status.includes("RUNNING");
+    if (filter === "CLOSED") return status.includes("CLOSED") || status.includes("FILLED") || status.includes("SETTLED") || status.includes("STOPPED");
+    if (filter === "PROFIT") return Number(ev?.netUsd ?? ev?.profitUsd ?? ev?.pnlUsd ?? 0) > 0;
+    if (filter === "LOSS") return Number(ev?.netUsd ?? ev?.profitUsd ?? ev?.pnlUsd ?? 0) < 0;
+    if (filter === "ERROR") return status.includes("ERROR") || status.includes("FAIL") || status.includes("BLOCKED");
+    return true;
+  });
+  const visible = showAll ? filtered : filtered.slice(0, 10);
+  const exportFile = (kind) => {
+    const stamp = Date.now();
+    if (kind === "json") {
+      const blob = new Blob([JSON.stringify(filtered, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${engine.toLowerCase()}-event-history-${stamp}.json`; a.click(); URL.revokeObjectURL(url); return;
+    }
+    const cols = ["ts","eventType","status","chain","asset","side","priceUsd","quantity","budgetUsd","grossUsd","costsUsd","netUsd","reason","txHash"];
+    const esc = (v) => `"${String(v ?? "").replaceAll('"','""')}"`;
+    const lines = [cols.join(","), ...filtered.map((ev) => cols.map((c) => esc(ev?.[c] ?? "")).join(","))];
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${engine.toLowerCase()}-event-history-${stamp}.csv`; a.click(); URL.revokeObjectURL(url);
+  };
+  return (
+    <details style={{ marginBottom: 10, borderRadius: 12, border: "1px solid rgba(139,220,255,.18)", background: "rgba(0,0,0,.13)", overflow: "hidden" }}>
+      <summary style={{ cursor: "pointer", padding: "9px 10px", fontWeight: 950, color: "#8bdcff", listStyle: "none" }}>{engine} Event History · {rows.length} saved</summary>
+      <div style={{ display: "grid", gap: 7, padding: "0 10px 10px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {["ALL","OPEN","CLOSED","PROFIT","LOSS","ERROR"].map((x) => <button key={x} type="button" className="miniBtn" onClick={() => setFilter(x)} style={{ opacity: filter === x ? 1 : .65 }}>{x}</button>)}
+          <button type="button" className="miniBtn" onClick={() => setShowAll((v) => !v)}>{showAll ? "Show latest 10" : "Show Full History"}</button>
+          <button type="button" className="miniBtn" onClick={() => exportFile("csv")}>Export CSV</button>
+          <button type="button" className="miniBtn" onClick={() => exportFile("json")}>Export JSON</button>
+        </div>
+        {visible.length ? visible.map((ev, i) => {
+          const ts = Number(ev?.ts || ev?.updatedTs || ev?.createdTs || 0);
+          const status = String(ev?.status || ev?.eventType || ev?.action || "EVENT").toUpperCase();
+          const net = Number(ev?.netUsd ?? ev?.profitUsd ?? ev?.pnlUsd ?? 0);
+          return <div key={ev?.eventKey || `${engine}-${ts}-${i}`} className="muted tiny" style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 6 }}>
+            <div><b style={{ color: net > 0 ? "#86efac" : net < 0 ? "#ff8a8a" : "#8bdcff" }}>{ts ? new Date(ts * (ts < 1000000000000 ? 1000 : 1)).toLocaleString() : "—"} · {ev?.asset || ev?.symbol || "ASSET"} · {status}</b></div>
+            <div>{ev?.chain || "—"} · {ev?.side || ev?.action || "—"}{Number(ev?.priceUsd || 0) > 0 ? ` @ ${fmtUsd(Number(ev.priceUsd))}` : ""}{Number(ev?.quantity || 0) > 0 ? ` · Qty ${fmtQty(Number(ev.quantity))}` : ""}</div>
+            <div>Budget {fmtUsd(Number(ev?.budgetUsd || ev?.amountUsd || 0))} · Gross {fmtUsd(Number(ev?.grossUsd || 0))} · Costs {fmtUsd(Number(ev?.costsUsd || 0))} · Net {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
+            {ev?.reason ? <div>Reason: {ev.reason}</div> : null}{ev?.txHash ? <div className="mono">Tx: {ev.txHash}</div> : null}
+          </div>;
+        }) : <div className="muted tiny">No saved {engine.toLowerCase()} events yet.</div>}
+      </div>
+    </details>
+  );
+}
+
 function AppInner() {
 
   // Multi-chain config (UI is ready; test phase enables POL + BNB)
@@ -7341,6 +7396,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // Multi-session support: each later budget approval becomes an independent user-bounded session.
   // Existing sessions are preserved; new Trading/NKR sessions get their own session_id.
   const [tradingSessions, setTradingSessions] = useState([]);
+  const [gridEventHistory, setGridEventHistory] = useState([]);
+  const [traderEventHistory, setTraderEventHistory] = useState([]);
   const [activeTradingSessionId, setActiveTradingSessionId] = useState("");
   const [rotationSessions, setRotationSessions] = useState([]);
   const [activeRotationSessionId, setActiveRotationSessionId] = useState("");
@@ -10255,8 +10312,67 @@ useEffect(() => {
 
   const [gridInvestQty, setGridInvestQty] = useState("");
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
+  const loadEngineHistory = useCallback(async (engine) => {
+    const upper = String(engine || "").toUpperCase();
+    if (!resolveWalletAddress(wallet) || !["GRID","TRADER"].includes(upper)) return;
+    try {
+      const r = await api(`/api/nexus/engine-history?engine=${upper}&limit=2000`, { wallet, token });
+      const rows = Array.isArray(r?.events) ? r.events : [];
+      if (upper === "GRID") setGridEventHistory(rows); else setTraderEventHistory(rows);
+    } catch {}
+  }, [wallet, token]);
+
+  useEffect(() => { loadEngineHistory("GRID"); loadEngineHistory("TRADER"); }, [loadEngineHistory]);
+
   const [gridOrders, setGridOrders] = useState([]);
   const [gridOrdersOpen, setGridOrdersOpen] = useState(false);
+
+  useEffect(() => {
+    const wa = resolveWalletAddress(wallet); if (!wa || !Array.isArray(gridOrders)) return;
+    const events = gridOrders.map((o, idx) => {
+      const ts = Number(o?.updated_ts || o?.updatedTs || o?.filled_ts || o?.created_ts || o?.createdTs || Date.now());
+      const status = String(o?.status || o?.state || "ORDER").toUpperCase();
+      return {
+        eventKey: `GRID:${o?.id || o?.order_id || idx}:${status}:${ts}`,
+        eventType: status, status, ts,
+        chain: o?.chain || o?.network || gridNetwork || "",
+        asset: o?.symbol || o?.asset || gridCoin || "",
+        side: o?.side || o?.action || "",
+        priceUsd: Number(o?.fill_price || o?.filled_price || o?.price || 0),
+        quantity: Number(o?.filled_qty || o?.quantity || o?.qty || 0),
+        budgetUsd: Number(o?.amountUsd || o?.amount_usd || o?.reserved || o?.notional || 0),
+        grossUsd: Number(o?.grossUsd || o?.gross_profit_usd || 0), costsUsd: Number(o?.costsUsd || o?.fees_usd || o?.feeUsd || 0),
+        netUsd: Number(o?.netUsd || o?.profitUsd || o?.pnlUsd || o?.realized_pnl || 0),
+        reason: o?.reason || o?.message || "", txHash: o?.txHash || o?.tx_hash || "",
+      };
+    });
+    const t=setTimeout(async () => { try { await api('/api/nexus/engine-history/sync', { method:'POST', wallet, token, body:{ engine:'GRID', events } }); await loadEngineHistory('GRID'); } catch {} }, 900);
+    return () => clearTimeout(t);
+  }, [gridOrders, wallet, token, gridNetwork, gridCoin, loadEngineHistory]);
+
+  useEffect(() => {
+    const wa = resolveWalletAddress(wallet); if (!wa || !Array.isArray(tradingSessions)) return;
+    const events=[];
+    tradingSessions.forEach((s, si) => {
+      const slots=Array.isArray(s?.slots) ? s.slots : [s];
+      slots.forEach((slot, idx) => {
+        const meta=slot?.meta && typeof slot.meta === 'object' ? slot.meta : {};
+        const ts=Number(slot?.updated_ts || slot?.updatedTs || slot?.closed_at || slot?.opened_at || s?.updated_ts || s?.created_ts || Date.now());
+        const status=String(slot?.status || slot?.state || s?.status || 'SESSION').toUpperCase();
+        events.push({
+          eventKey:`TRADER:${s?.id || s?.session_id || si}:${slot?.id || slot?.slot_id || idx}:${status}:${ts}`,
+          eventType:status,status,ts,
+          chain:slot?.chain || s?.chain || meta?.chain || '', asset:slot?.symbol || slot?.asset || s?.symbol || s?.asset || meta?.symbol || '',
+          side:slot?.side || slot?.action || meta?.side || '', priceUsd:Number(slot?.exit_price_usd || slot?.entry_price_usd || slot?.paper_mark_price || meta?.paper_mark_price || 0),
+          quantity:Number(slot?.quantity || slot?.qty || meta?.quantity || 0), budgetUsd:Number(slot?.amountUsd || slot?.reserved_capital_usd || s?.budgetUsd || s?.budget || 0),
+          grossUsd:Number(slot?.grossUsd || slot?.gross_profit_usd || meta?.grossUsd || 0), costsUsd:Number(slot?.costsUsd || slot?.fees_usd || meta?.costsUsd || 0),
+          netUsd:Number(slot?.netUsd || slot?.profitUsd || slot?.pnlUsd || meta?.netUsd || 0), reason:slot?.reason || meta?.reason || s?.reason || '', txHash:slot?.txHash || meta?.txHash || '',
+        });
+      });
+    });
+    const t=setTimeout(async () => { try { await api('/api/nexus/engine-history/sync', { method:'POST', wallet, token, body:{ engine:'TRADER', events } }); await loadEngineHistory('TRADER'); } catch {} }, 1100);
+    return () => clearTimeout(t);
+  }, [tradingSessions, wallet, token, loadEngineHistory]);
   const [gridSetupOpen, setGridSetupOpen] = useState(false);
   const [gridVaultStats, setGridVaultStats] = useState({ vault: 0, reserved: 0, free: 0 });
   // Helper: extract order id from different backend schemas
@@ -19946,6 +20062,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 );
               })()}
+
+              {String(gridMode || "normal") === "normal" ? <EngineEventHistory engine="GRID" events={gridEventHistory} /> : null}
+              {String(gridMode || "normal") === "trading" ? <EngineEventHistory engine="TRADER" events={traderEventHistory} /> : null}
 
               {strategistBridge ? (
                 <div

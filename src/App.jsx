@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.14-ENGINE-144-LIVE-VAULT-ADMIN-PREFLIGHT";
+const FRONTEND_BUILD_ID = "F-2026.07.14-ENGINE-145-LIVE-EXECUTION-MODEL-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -24561,27 +24561,23 @@ export default function App() {
     return await target.getEthereumProvider();
   };
   const _sendSystemSetupTx = async (kind) => {
+    if (kind !== "limit") throw new Error("Only the user's own executor limit can be changed from the Privy wallet.");
     const rd = systemInfoStatus?.liveExecutionReadiness || {};
     const vault = String(rd?.vault || "");
     const usdc = String(rd?.token || "");
-    const executor = String(rd?.executor || footerWallet || "");
-    if (!/^0x[0-9a-fA-F]{40}$/.test(vault) || !/^0x[0-9a-fA-F]{40}$/.test(usdc) || !/^0x[0-9a-fA-F]{40}$/.test(executor)) throw new Error("Vault setup addresses are incomplete.");
-    const permissions = rd?.permissions || {};
-    if (kind === "role" && !permissions.grantExecutorRole) throw new Error(`Connected wallet is not allowed to grant EXECUTOR_ROLE. Required admin wallet: ${rd?.defaultAdmin || "unknown"}`);
-    if (kind === "limit" && !permissions.setExecutorLimit) throw new Error("Connected wallet is missing LIMIT_MANAGER_ROLE and cannot set the executor limit.");
-    if (kind === "token" && !permissions.enableUsdcExecution) throw new Error("Connected wallet is missing TOKEN_MANAGER_ROLE and cannot enable USDC execution.");
-    let data = "0x";
-    if (kind === "role") data = "0x2f2ff15d" + _sysBytes32(rd?.executorRole) + _sysWordAddress(executor);
-    if (kind === "limit") data = "0xddc68a3e" + _sysWordAddress(executor) + _sysWordAddress(usdc) + _sysWordUint(1000000);
-    if (kind === "token") data = "0x44fca165" + _sysWordAddress(usdc) + _sysWordBool(true) + _sysWordBool(true) + _sysWordBool(true);
-    if (data === "0x") throw new Error("Unknown setup action.");
+    const executor = String(rd?.executor || "");
+    const userWallet = String(rd?.userWallet || footerWallet || "");
+    if (!/^0x[0-9a-fA-F]{40}$/.test(vault) || !/^0x[0-9a-fA-F]{40}$/.test(usdc)) throw new Error("Vault configuration is incomplete.");
+    if (!/^0x[0-9a-fA-F]{40}$/.test(executor)) throw new Error("Nexus live executor is not configured yet. No transaction was opened.");
+    if (!/^0x[0-9a-fA-F]{40}$/.test(userWallet)) throw new Error("Privy user wallet is unavailable.");
+    const data = "0xddc68a3e" + _sysWordAddress(executor) + _sysWordAddress(usdc) + _sysWordUint(1000000);
     setLiveSetupBusy(kind); setLiveSetupMsg("");
     try {
       const provider = await _systemProvider();
       try { await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch {}
       const chainId = await provider.request({ method: "eth_chainId" });
-      if (String(chainId).toLowerCase() !== "0x1") throw new Error("Switch the connected wallet to Ethereum Mainnet.");
-      const tx = { from: executor, to: vault, value: "0x0", data };
+      if (String(chainId).toLowerCase() !== "0x1") throw new Error("Switch the connected Privy wallet to Ethereum Mainnet.");
+      const tx = { from: userWallet, to: vault, value: "0x0", data };
       try {
         await provider.request({ method: "eth_call", params: [tx, "latest"] });
       } catch (simError) {
@@ -24589,10 +24585,10 @@ export default function App() {
         throw new Error(`Preflight blocked: ${detail}`);
       }
       const txHash = await provider.request({ method: "eth_sendTransaction", params: [tx] });
-      setLiveSetupMsg(`Submitted: ${txHash}`);
+      setLiveSetupMsg(`1 USDC limit submitted: ${txHash}`);
       setTimeout(() => window.location.reload(), 5000);
     } catch (e) {
-      setLiveSetupMsg(String(e?.message || e || "Setup transaction failed."));
+      setLiveSetupMsg(String(e?.message || e || "Limit transaction failed."));
     } finally { setLiveSetupBusy(""); }
   };
 
@@ -24825,30 +24821,31 @@ export default function App() {
 
                 <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <b>Ethereum Live Vault Setup</b>
-                    <span style={{ color: systemInfoStatus?.liveExecutionReadiness?.vaultSetupReady ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>
+                    <b>Ethereum Live Execution</b>
+                    <span style={{ color: systemInfoStatus?.liveExecutionReadiness?.liveExecution === "ACTIVE" ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>
                       {systemInfoStatus?.liveExecutionReadiness?.status || "CHECKING"}
                     </span>
                   </div>
-                  <div className="muted" style={{ marginTop: 5, fontSize: 11 }}>One-time owner-signed setup for the controlled 1 USDC execution test. No private key is stored in the frontend or backend.</div>
+                  <div className="muted" style={{ marginTop: 5, fontSize: 11 }}>Privy remains the user wallet only. Nexus never asks the Privy wallet to perform Vault-admin or executor-role actions.</div>
                   <div style={{ display: "grid", gap: 4, marginTop: 8, fontSize: 11 }}>
                     <div>Vault: {systemInfoStatus?.liveExecutionReadiness?.checks?.vaultConnected ? "READY 🟢" : "MISSING 🔴"}</div>
-                    <div>USDC execution: {systemInfoStatus?.liveExecutionReadiness?.checks?.usdcExecutionEnabled ? "ENABLED 🟢" : "DISABLED 🟡"}</div>
-                    <div>Executor role: {systemInfoStatus?.liveExecutionReadiness?.checks?.executorRoleGranted ? "GRANTED 🟢" : "MISSING 🟡"}</div>
-                    <div>Admin wallet: {systemInfoStatus?.liveExecutionReadiness?.checks?.canGrantExecutorRole ? "READY 🟢" : "NOT AUTHORIZED 🔴"}</div>
-                    <div>Limit permission: {systemInfoStatus?.liveExecutionReadiness?.checks?.canSetExecutorLimit ? "READY 🟢" : "MISSING 🔴"}</div>
-                    <div>Token permission: {systemInfoStatus?.liveExecutionReadiness?.checks?.canEnableUsdcExecution ? "READY 🟢" : "MISSING 🔴"}</div>
-                    {!systemInfoStatus?.liveExecutionReadiness?.checks?.canGrantExecutorRole ? <div className="muted" style={{ wordBreak: "break-all" }}>Required default admin: {systemInfoStatus?.liveExecutionReadiness?.defaultAdmin || "unknown"}</div> : null}
-                    <div>Test limit: {Number(systemInfoStatus?.liveExecutionReadiness?.checks?.executorLimitUsd || 0).toFixed(2)} USDC</div>
+                    <div>USDC execution: {systemInfoStatus?.liveExecutionReadiness?.checks?.usdcExecutionEnabled ? "ENABLED 🟢" : "ADMIN SETUP REQUIRED 🟡"}</div>
+                    <div>Nexus executor: {systemInfoStatus?.liveExecutionReadiness?.checks?.executorConfigured ? "CONFIGURED 🟢" : "NOT CONFIGURED 🟡"}</div>
+                    <div>Executor role: {systemInfoStatus?.liveExecutionReadiness?.checks?.executorRoleGranted ? "GRANTED 🟢" : "NOT READY 🟡"}</div>
+                    <div>Executor service: {systemInfoStatus?.liveExecutionReadiness?.checks?.executorServiceReady ? "READY 🟢" : "NOT READY 🟡"}</div>
+                    <div>ETH/USDC route: {systemInfoStatus?.liveExecutionReadiness?.checks?.routeReady ? "VERIFIED 🟢" : "NOT VERIFIED 🟡"}</div>
+                    <div>System mapping: {systemInfoStatus?.liveExecutionReadiness?.checks?.systemIdConfirmed ? "CONFIRMED 🟢" : "NOT CONFIRMED 🟡"}</div>
+                    <div>Your 1 USDC limit: {Number(systemInfoStatus?.liveExecutionReadiness?.checks?.executorLimitUsd || 0).toFixed(2)} USDC</div>
                     <div>Solvency: {systemInfoStatus?.liveExecutionReadiness?.checks?.solvent ? "OK 🟢" : "CHECK REQUIRED 🔴"}</div>
                   </div>
                   <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
-                    <button type="button" className="miniBtn" title={systemInfoStatus?.liveExecutionReadiness?.checks?.canGrantExecutorRole ? "" : "Connected wallet is not the required role admin."} disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.checks?.executorRoleGranted || !systemInfoStatus?.liveExecutionReadiness?.checks?.canGrantExecutorRole} onClick={() => _sendSystemSetupTx("role")}>{liveSetupBusy === "role" ? "Opening wallet..." : "1. Grant Executor Role"}</button>
-                    <button type="button" className="miniBtn" title={systemInfoStatus?.liveExecutionReadiness?.checks?.canSetExecutorLimit ? "" : "Connected wallet is missing LIMIT_MANAGER_ROLE."} disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.checks?.oneUsdLimitReady || !systemInfoStatus?.liveExecutionReadiness?.checks?.canSetExecutorLimit} onClick={() => _sendSystemSetupTx("limit")}>{liveSetupBusy === "limit" ? "Opening wallet..." : "2. Set 1 USDC Limit"}</button>
-                    <button type="button" className="miniBtn" title={systemInfoStatus?.liveExecutionReadiness?.checks?.canEnableUsdcExecution ? "" : "Connected wallet is missing TOKEN_MANAGER_ROLE."} disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.checks?.usdcExecutionEnabled || !systemInfoStatus?.liveExecutionReadiness?.checks?.canEnableUsdcExecution} onClick={() => _sendSystemSetupTx("token")}>{liveSetupBusy === "token" ? "Opening wallet..." : "3. Enable USDC Execution"}</button>
+                    <button type="button" className="miniBtn"
+                      title={!systemInfoStatus?.liveExecutionReadiness?.checks?.executorConfigured ? "Nexus executor must be configured first." : "Set your own allowance for the configured Nexus executor."}
+                      disabled={!!liveSetupBusy || !systemInfoStatus?.liveExecutionReadiness?.checks?.executorConfigured || systemInfoStatus?.liveExecutionReadiness?.checks?.oneUsdLimitReady}
+                      onClick={() => _sendSystemSetupTx("limit")}>{liveSetupBusy === "limit" ? "Opening Privy..." : "Set My 1 USDC Test Limit"}</button>
                   </div>
                   {liveSetupMsg ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all" }}>{liveSetupMsg}</div> : null}
-                  <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>Trading remains blocked until the Solidity SystemId enum and the exact DEX route are confirmed. The UI will not falsely display ACTIVE before that.</div>
+                  <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>Admin activation, executor deployment, role assignment and route verification are infrastructure tasks and are never requested from the user wallet. Live trading stays disabled until every check is green.</div>
                 </div>
 
                 <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>

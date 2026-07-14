@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.13-ENGINE-140-HISTORY-BOTTOM-NKR-STATUS-REMOVED";
+const FRONTEND_BUILD_ID = "F-2026.07.14-ENGINE-143-LIVE-VAULT-ACTIVATION-READINESS";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -3007,7 +3007,7 @@ function EngineEventHistory({ engine, events = [] }) {
     const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `${engine.toLowerCase()}-event-history-${stamp}.csv`; a.click(); URL.revokeObjectURL(url);
   };
   return (
-    <details style={{ marginBottom: 10, borderRadius: 12, border: "1px solid rgba(139,220,255,.18)", background: "rgba(0,0,0,.13)", overflow: "hidden" }}>
+    <details style={{ order: 9999, gridColumn: "1 / -1", width: "100%", marginTop: 10, marginBottom: 0, borderRadius: 12, border: "1px solid rgba(139,220,255,.18)", background: "rgba(0,0,0,.13)", overflow: "hidden" }}>
       <summary style={{ cursor: "pointer", padding: "9px 10px", fontWeight: 950, color: "#8bdcff", listStyle: "none" }}>{engine} Event History · {rows.length} saved</summary>
       <div style={{ display: "grid", gap: 7, padding: "0 10px 10px" }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -24455,6 +24455,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 
 export default function App() {
+  const { wallets: systemWallets = [] } = useWallets();
+  const [liveSetupBusy, setLiveSetupBusy] = useState("");
+  const [liveSetupMsg, setLiveSetupMsg] = useState("");
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showSystemInfo, setShowSystemInfo] = useState(false);
   const [buildInfo, setBuildInfo] = useState(null);
@@ -24538,6 +24541,49 @@ export default function App() {
       clearInterval(id);
     };
   }, [canOpenSystemInfo, footerWallet]);
+
+
+  const _sysWordAddress = (address) => {
+    const a = String(address || "").trim().toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(a)) throw new Error("Invalid Ethereum address.");
+    return a.slice(2).padStart(64, "0");
+  };
+  const _sysWordUint = (value) => BigInt(value || 0).toString(16).padStart(64, "0");
+  const _sysWordBool = (value) => (value ? "1" : "0").padStart(64, "0");
+  const _sysBytes32 = (value) => {
+    const h = String(value || "").replace(/^0x/, "").toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(h)) throw new Error("Invalid executor role.");
+    return h;
+  };
+  const _systemProvider = async () => {
+    const target = (systemWallets || []).find((w) => String(w?.address || "").toLowerCase() === String(footerWallet || "").toLowerCase()) || systemWallets?.[0];
+    if (!target?.getEthereumProvider) throw new Error("Connected Privy wallet provider not available.");
+    return await target.getEthereumProvider();
+  };
+  const _sendSystemSetupTx = async (kind) => {
+    const rd = systemInfoStatus?.liveExecutionReadiness || {};
+    const vault = String(rd?.vault || "");
+    const usdc = String(rd?.token || "");
+    const executor = String(rd?.executor || footerWallet || "");
+    if (!/^0x[0-9a-fA-F]{40}$/.test(vault) || !/^0x[0-9a-fA-F]{40}$/.test(usdc) || !/^0x[0-9a-fA-F]{40}$/.test(executor)) throw new Error("Vault setup addresses are incomplete.");
+    let data = "0x";
+    if (kind === "role") data = "0x2f2ff15d" + _sysBytes32(rd?.executorRole) + _sysWordAddress(executor);
+    if (kind === "limit") data = "0xddc68a3e" + _sysWordAddress(executor) + _sysWordAddress(usdc) + _sysWordUint(1000000);
+    if (kind === "token") data = "0x44fca165" + _sysWordAddress(usdc) + _sysWordBool(true) + _sysWordBool(true) + _sysWordBool(true);
+    if (data === "0x") throw new Error("Unknown setup action.");
+    setLiveSetupBusy(kind); setLiveSetupMsg("");
+    try {
+      const provider = await _systemProvider();
+      try { await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch {}
+      const chainId = await provider.request({ method: "eth_chainId" });
+      if (String(chainId).toLowerCase() !== "0x1") throw new Error("Switch the connected wallet to Ethereum Mainnet.");
+      const txHash = await provider.request({ method: "eth_sendTransaction", params: [{ from: executor, to: vault, value: "0x0", data }] });
+      setLiveSetupMsg(`Submitted: ${txHash}`);
+      setTimeout(() => window.location.reload(), 5000);
+    } catch (e) {
+      setLiveSetupMsg(String(e?.message || e || "Setup transaction failed."));
+    } finally { setLiveSetupBusy(""); }
+  };
 
   const normalizeStatusRows = (value) => {
     if (!value || typeof value !== "object") return [];
@@ -24764,6 +24810,30 @@ export default function App() {
                   Vault: {String(pickSystemInfoValue(shadowReadiness || systemInfoStatus || {}, ["vault.status", "vault", "vault_core", "vaultCore"], "PREP ONLY")).toUpperCase()}
                   <br />
                   Withdraw: {String(pickSystemInfoValue(shadowReadiness || systemInfoStatus || {}, ["withdraw.status", "withdraw", "withdraw_quote", "withdrawQuote"], "PREVIEW ONLY")).toUpperCase()}
+                </div>
+
+                <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <b>Ethereum Live Vault Setup</b>
+                    <span style={{ color: systemInfoStatus?.liveExecutionReadiness?.vaultSetupReady ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>
+                      {systemInfoStatus?.liveExecutionReadiness?.status || "CHECKING"}
+                    </span>
+                  </div>
+                  <div className="muted" style={{ marginTop: 5, fontSize: 11 }}>One-time owner-signed setup for the controlled 1 USDC execution test. No private key is stored in the frontend or backend.</div>
+                  <div style={{ display: "grid", gap: 4, marginTop: 8, fontSize: 11 }}>
+                    <div>Vault: {systemInfoStatus?.liveExecutionReadiness?.checks?.vaultConnected ? "READY 🟢" : "MISSING 🔴"}</div>
+                    <div>USDC execution: {systemInfoStatus?.liveExecutionReadiness?.checks?.usdcExecutionEnabled ? "ENABLED 🟢" : "DISABLED 🟡"}</div>
+                    <div>Executor role: {systemInfoStatus?.liveExecutionReadiness?.checks?.executorRoleGranted ? "GRANTED 🟢" : "MISSING 🟡"}</div>
+                    <div>Test limit: {Number(systemInfoStatus?.liveExecutionReadiness?.checks?.executorLimitUsd || 0).toFixed(2)} USDC</div>
+                    <div>Solvency: {systemInfoStatus?.liveExecutionReadiness?.checks?.solvent ? "OK 🟢" : "CHECK REQUIRED 🔴"}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
+                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.checks?.executorRoleGranted} onClick={() => _sendSystemSetupTx("role")}>{liveSetupBusy === "role" ? "Opening wallet..." : "1. Grant Executor Role"}</button>
+                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.checks?.oneUsdLimitReady} onClick={() => _sendSystemSetupTx("limit")}>{liveSetupBusy === "limit" ? "Opening wallet..." : "2. Set 1 USDC Limit"}</button>
+                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.checks?.usdcExecutionEnabled} onClick={() => _sendSystemSetupTx("token")}>{liveSetupBusy === "token" ? "Opening wallet..." : "3. Enable USDC Execution"}</button>
+                  </div>
+                  {liveSetupMsg ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all" }}>{liveSetupMsg}</div> : null}
+                  <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>Trading remains blocked until the Solidity SystemId enum and the exact DEX route are confirmed. The UI will not falsely display ACTIVE before that.</div>
                 </div>
 
                 <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>

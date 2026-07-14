@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.14-ENGINE-145-LIVE-EXECUTION-MODEL-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.14-ENGINE-146-REAL-LIVE-EXECUTOR-SERVICE";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -24522,15 +24522,16 @@ export default function App() {
     };
 
     const loadOwnerSystemInfo = async () => {
-      const [health, statusPanel, readiness] = await Promise.all([
+      const [health, statusPanel, readiness, liveExecutorStatus] = await Promise.all([
         loadJson(`/api/shadow/health${walletParam}`),
         loadJson(`/api/nexus/system-info-owner-panel${walletParam}`),
         loadJson(`/api/nexus/shadow-readiness-check${walletParam}`),
+        loadJson(`/api/nexus/live-executor/status${walletParam}`),
       ]);
 
       if (!alive) return;
       setShadowHealth(health);
-      setSystemInfoStatus(statusPanel);
+      setSystemInfoStatus({ ...(statusPanel || {}), liveExecutorStatus: liveExecutorStatus || null });
       setShadowReadiness(readiness);
     };
 
@@ -24590,6 +24591,43 @@ export default function App() {
     } catch (e) {
       setLiveSetupMsg(String(e?.message || e || "Limit transaction failed."));
     } finally { setLiveSetupBusy(""); }
+  };
+
+  const _startLiveExecutorTest = async (engine = "TRADER") => {
+    const wallet = String(footerWallet || "").trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(wallet)) { setLiveSetupMsg("Privy wallet is not connected."); return; }
+    setLiveSetupBusy("live-test"); setLiveSetupMsg("");
+    try {
+      const response = await fetch(`${API_BASE}/api/nexus/live-executor/test/start?wallet=${encodeURIComponent(wallet)}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Wallet-Address": wallet },
+        body: JSON.stringify({ engine, amountUnits: 1000000 }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error((data?.blockers || []).join(", ") || data?.error || `HTTP ${response.status}`);
+      setLiveSetupMsg(`1 USDC ${engine} round-trip queued: ${data?.jobId || "job created"}`);
+      setTimeout(() => window.location.reload(), 5000);
+    } catch (error) {
+      setLiveSetupMsg(`Live test blocked: ${String(error?.message || error || "unknown error")}`);
+    } finally { setLiveSetupBusy(""); }
+  };
+
+  const _setLiveEmergencyStop = async (enabled) => {
+    const wallet = String(footerWallet || "").trim();
+    setLiveSetupBusy("emergency"); setLiveSetupMsg("");
+    try {
+      const response = await fetch(`${API_BASE}/api/nexus/live-executor/emergency-stop?wallet=${encodeURIComponent(wallet)}`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json", "X-Wallet-Address": wallet },
+        body: JSON.stringify({ enabled: !!enabled }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
+      setLiveSetupMsg(enabled ? "Emergency stop enabled." : "Emergency stop released.");
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (error) { setLiveSetupMsg(String(error?.message || error)); }
+    finally { setLiveSetupBusy(""); }
   };
 
   const normalizeStatusRows = (value) => {
@@ -24843,7 +24881,23 @@ export default function App() {
                       title={!systemInfoStatus?.liveExecutionReadiness?.checks?.executorConfigured ? "Nexus executor must be configured first." : "Set your own allowance for the configured Nexus executor."}
                       disabled={!!liveSetupBusy || !systemInfoStatus?.liveExecutionReadiness?.checks?.executorConfigured || systemInfoStatus?.liveExecutionReadiness?.checks?.oneUsdLimitReady}
                       onClick={() => _sendSystemSetupTx("limit")}>{liveSetupBusy === "limit" ? "Opening Privy..." : "Set My 1 USDC Test Limit"}</button>
+                    <button type="button" className="miniBtn"
+                      title="Runs the protected Vault → USDC/WETH → USDC → Vault round trip. Hard limit: exactly 1 USDC."
+                      disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.liveExecution !== "ACTIVE" || !!systemInfoStatus?.liveExecutorStatus?.runtime?.emergencyStop}
+                      onClick={() => _startLiveExecutorTest("TRADER")}>{liveSetupBusy === "live-test" ? "Starting..." : "Run 1 USDC Trader Test"}</button>
+                    <button type="button" className="miniBtn"
+                      disabled={!!liveSetupBusy || !!systemInfoStatus?.liveExecutorStatus?.runtime?.emergencyStop}
+                      onClick={() => _setLiveEmergencyStop(true)}>Emergency Stop</button>
+                    <button type="button" className="miniBtn"
+                      disabled={!!liveSetupBusy || !systemInfoStatus?.liveExecutorStatus?.runtime?.emergencyStop}
+                      onClick={() => _setLiveEmergencyStop(false)}>Release Stop</button>
                   </div>
+                  {systemInfoStatus?.liveExecutorStatus?.jobs?.[0] ? (
+                    <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-word" }}>
+                      Latest live job: <b>{systemInfoStatus.liveExecutorStatus.jobs[0].status}</b> · {systemInfoStatus.liveExecutorStatus.jobs[0].stage}
+                      {systemInfoStatus.liveExecutorStatus.jobs[0].error_text ? ` · ${systemInfoStatus.liveExecutorStatus.jobs[0].error_text}` : ""}
+                    </div>
+                  ) : null}
                   {liveSetupMsg ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all" }}>{liveSetupMsg}</div> : null}
                   <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>Admin activation, executor deployment, role assignment and route verification are infrastructure tasks and are never requested from the user wallet. Live trading stays disabled until every check is green.</div>
                 </div>

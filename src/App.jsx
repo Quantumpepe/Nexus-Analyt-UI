@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.16-ENGINE-148-PRIVY-DELEGATED-TRADING";
+const FRONTEND_BUILD_ID = "F-2026.07.16-ENGINE-150-PRIVY-JWT-SCOPE-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -24551,7 +24551,7 @@ export default function App() {
   };
 
   const _authHeaders = () => {
-    const bearer = String(privyJwt || localStorage.getItem("nexus_privy_jwt") || token || "").trim();
+    const bearer = String(localStorage.getItem("nexus_privy_jwt") || token || "").trim();
     const headers = { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet || wallet || "") };
     if (bearer) headers.Authorization = `Bearer ${bearer}`;
     return headers;

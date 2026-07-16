@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.16-ENGINE-150-PRIVY-JWT-SCOPE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.16-ENGINE-151-PRIVY-SIGNERS-SCOPE-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -24456,7 +24456,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 
 export default function App() {
+  const { user: systemPrivyUser } = usePrivy();
   const { wallets: systemWallets = [] } = useWallets();
+  const { addSigners: systemAddSigners, removeSigners: systemRemoveSigners } = useSigners();
   const [liveSetupBusy, setLiveSetupBusy] = useState("");
   const [liveSetupMsg, setLiveSetupMsg] = useState("");
   const [showDisclaimer, setShowDisclaimer] = useState(false);
@@ -24546,28 +24548,28 @@ export default function App() {
 
 
   const _primaryEmbeddedPrivyWallet = () => {
-    return (systemWallets || privyWallets || []).find((w) => String(w?.walletClientType || "").toLowerCase() === "privy")
-      || (systemWallets || privyWallets || [])[0];
+    return (systemWallets || []).find((w) => String(w?.walletClientType || "").toLowerCase() === "privy")
+      || (systemWallets || [])[0];
   };
 
   const _authHeaders = () => {
-    const bearer = String(localStorage.getItem("nexus_privy_jwt") || token || "").trim();
-    const headers = { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet || wallet || "") };
+    const bearer = String(localStorage.getItem("nexus_privy_jwt") || localStorage.getItem("nexus_token") || "").trim();
+    const headers = { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet || "") };
     if (bearer) headers.Authorization = `Bearer ${bearer}`;
     return headers;
   };
 
   const _enablePrivyTrading = async () => {
     const target = _primaryEmbeddedPrivyWallet();
-    const address = String(target?.address || footerWallet || wallet || "").trim();
+    const address = String(target?.address || footerWallet || "").trim();
     if (!target || !/^0x[0-9a-fA-F]{40}$/.test(address)) { setLiveSetupMsg("Privy embedded wallet is not available."); return; }
     setLiveSetupBusy("delegate"); setLiveSetupMsg("");
     try {
       const cfgRes = await fetch(`${API_BASE}/api/nexus/privy-trading/config`, { credentials: "include", headers: _authHeaders() });
       const cfg = await cfgRes.json().catch(() => ({}));
       if (!cfgRes.ok || !cfg?.configured) throw new Error(cfg?.error || "Trading signer or policy is not configured in Render.");
-      await addSigners({ address, signers: [{ signerId: cfg.signerId, policyIds: [cfg.policyId] }] });
-      const linkedWallet = (privyUser?.linkedAccounts || privyUser?.linked_accounts || []).find((a) => a?.type === "wallet" && String(a?.address || "").toLowerCase() === address.toLowerCase());
+      await systemAddSigners({ address, signers: [{ signerId: cfg.signerId, policyIds: [cfg.policyId] }] });
+      const linkedWallet = (systemPrivyUser?.linkedAccounts || systemPrivyUser?.linked_accounts || []).find((a) => a?.type === "wallet" && String(a?.address || "").toLowerCase() === address.toLowerCase());
       const walletId = String(linkedWallet?.id || target?.id || target?.walletId || target?.wallet_id || "").trim();
       if (!walletId) throw new Error("Privy wallet ID is not available after delegation.");
       const saveRes = await fetch(`${API_BASE}/api/nexus/privy-trading/consent`, {
@@ -24585,11 +24587,11 @@ export default function App() {
 
   const _revokePrivyTrading = async () => {
     const target = _primaryEmbeddedPrivyWallet();
-    const address = String(target?.address || footerWallet || wallet || "").trim();
+    const address = String(target?.address || footerWallet || "").trim();
     if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return;
     setLiveSetupBusy("revoke"); setLiveSetupMsg("");
     try {
-      await removeSigners({ address });
+      await systemRemoveSigners({ address });
       await fetch(`${API_BASE}/api/nexus/privy-trading/revoke`, { method: "POST", credentials: "include", headers: _authHeaders(), body: "{}" });
       setLiveSetupMsg("Automatic trading permission was revoked.");
       setTimeout(() => window.location.reload(), 1800);

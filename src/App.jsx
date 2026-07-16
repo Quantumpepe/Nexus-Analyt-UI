@@ -375,7 +375,7 @@ function _clearTombstone(key) {
 }
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets, useSigners } from "@privy-io/react-auth";
 
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.14-ENGINE-146-REAL-LIVE-EXECUTOR-SERVICE";
+const FRONTEND_BUILD_ID = "F-2026.07.16-ENGINE-148-PRIVY-DELEGATED-TRADING";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -3094,8 +3094,9 @@ const [errorMsg, setErrorMsg] = useState("");
 
   // Privy (Auth + embedded wallet). IMPORTANT: We do NOT trigger MetaMask here.
   // External wallets must be optional and only enabled explicitly elsewhere.
-  const { ready, authenticated, login, logout, getAccessToken } = usePrivy();
+  const { ready, authenticated, login, logout, getAccessToken, user: privyUser } = usePrivy();
   const { wallets: privyWallets } = useWallets();
+  const { addSigners, removeSigners } = useSigners();
 
   // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
   const _loginInFlight = useRef(false);
@@ -24544,89 +24545,84 @@ export default function App() {
   }, [canOpenSystemInfo, footerWallet]);
 
 
-  const _sysWordAddress = (address) => {
-    const a = String(address || "").trim().toLowerCase();
-    if (!/^0x[0-9a-f]{40}$/.test(a)) throw new Error("Invalid Ethereum address.");
-    return a.slice(2).padStart(64, "0");
+  const _primaryEmbeddedPrivyWallet = () => {
+    return (systemWallets || privyWallets || []).find((w) => String(w?.walletClientType || "").toLowerCase() === "privy")
+      || (systemWallets || privyWallets || [])[0];
   };
-  const _sysWordUint = (value) => BigInt(value || 0).toString(16).padStart(64, "0");
-  const _sysWordBool = (value) => (value ? "1" : "0").padStart(64, "0");
-  const _sysBytes32 = (value) => {
-    const h = String(value || "").replace(/^0x/, "").toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(h)) throw new Error("Invalid executor role.");
-    return h;
+
+  const _authHeaders = () => {
+    const bearer = String(privyJwt || localStorage.getItem("nexus_privy_jwt") || token || "").trim();
+    const headers = { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet || wallet || "") };
+    if (bearer) headers.Authorization = `Bearer ${bearer}`;
+    return headers;
   };
-  const _systemProvider = async () => {
-    const target = (systemWallets || []).find((w) => String(w?.address || "").toLowerCase() === String(footerWallet || "").toLowerCase()) || systemWallets?.[0];
-    if (!target?.getEthereumProvider) throw new Error("Connected Privy wallet provider not available.");
-    return await target.getEthereumProvider();
-  };
-  const _sendSystemSetupTx = async (kind) => {
-    if (kind !== "limit") throw new Error("Only the user's own executor limit can be changed from the Privy wallet.");
-    const rd = systemInfoStatus?.liveExecutionReadiness || {};
-    const vault = String(rd?.vault || "");
-    const usdc = String(rd?.token || "");
-    const executor = String(rd?.executor || "");
-    const userWallet = String(rd?.userWallet || footerWallet || "");
-    if (!/^0x[0-9a-fA-F]{40}$/.test(vault) || !/^0x[0-9a-fA-F]{40}$/.test(usdc)) throw new Error("Vault configuration is incomplete.");
-    if (!/^0x[0-9a-fA-F]{40}$/.test(executor)) throw new Error("Nexus live executor is not configured yet. No transaction was opened.");
-    if (!/^0x[0-9a-fA-F]{40}$/.test(userWallet)) throw new Error("Privy user wallet is unavailable.");
-    const data = "0xddc68a3e" + _sysWordAddress(executor) + _sysWordAddress(usdc) + _sysWordUint(1000000);
-    setLiveSetupBusy(kind); setLiveSetupMsg("");
+
+  const _enablePrivyTrading = async () => {
+    const target = _primaryEmbeddedPrivyWallet();
+    const address = String(target?.address || footerWallet || wallet || "").trim();
+    if (!target || !/^0x[0-9a-fA-F]{40}$/.test(address)) { setLiveSetupMsg("Privy embedded wallet is not available."); return; }
+    setLiveSetupBusy("delegate"); setLiveSetupMsg("");
     try {
-      const provider = await _systemProvider();
-      try { await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch {}
-      const chainId = await provider.request({ method: "eth_chainId" });
-      if (String(chainId).toLowerCase() !== "0x1") throw new Error("Switch the connected Privy wallet to Ethereum Mainnet.");
-      const tx = { from: userWallet, to: vault, value: "0x0", data };
-      try {
-        await provider.request({ method: "eth_call", params: [tx, "latest"] });
-      } catch (simError) {
-        const detail = String(simError?.data?.message || simError?.message || simError || "Contract simulation reverted.");
-        throw new Error(`Preflight blocked: ${detail}`);
-      }
-      const txHash = await provider.request({ method: "eth_sendTransaction", params: [tx] });
-      setLiveSetupMsg(`1 USDC limit submitted: ${txHash}`);
-      setTimeout(() => window.location.reload(), 5000);
-    } catch (e) {
-      setLiveSetupMsg(String(e?.message || e || "Limit transaction failed."));
+      const cfgRes = await fetch(`${API_BASE}/api/nexus/privy-trading/config`, { credentials: "include", headers: _authHeaders() });
+      const cfg = await cfgRes.json().catch(() => ({}));
+      if (!cfgRes.ok || !cfg?.configured) throw new Error(cfg?.error || "Trading signer or policy is not configured in Render.");
+      await addSigners({ address, signers: [{ signerId: cfg.signerId, policyIds: [cfg.policyId] }] });
+      const linkedWallet = (privyUser?.linkedAccounts || privyUser?.linked_accounts || []).find((a) => a?.type === "wallet" && String(a?.address || "").toLowerCase() === address.toLowerCase());
+      const walletId = String(linkedWallet?.id || target?.id || target?.walletId || target?.wallet_id || "").trim();
+      if (!walletId) throw new Error("Privy wallet ID is not available after delegation.");
+      const saveRes = await fetch(`${API_BASE}/api/nexus/privy-trading/consent`, {
+        method: "POST", credentials: "include", headers: _authHeaders(),
+        body: JSON.stringify({ privyWalletId: walletId, walletAddress: address, system: "TRADER", budgetUsdcUnits: 1000000, durationDays: 1 }),
+      });
+      const saved = await saveRes.json().catch(() => ({}));
+      if (!saveRes.ok) throw new Error(saved?.error || `HTTP ${saveRes.status}`);
+      setLiveSetupMsg("Privy automatic trading permission is active for the configured policy.");
+      setTimeout(() => window.location.reload(), 2500);
+    } catch (error) {
+      setLiveSetupMsg(`Privy delegation failed: ${String(error?.message || error || "unknown error")}`);
     } finally { setLiveSetupBusy(""); }
   };
 
-  const _startLiveExecutorTest = async (engine = "TRADER") => {
-    const wallet = String(footerWallet || "").trim();
-    if (!/^0x[0-9a-fA-F]{40}$/.test(wallet)) { setLiveSetupMsg("Privy wallet is not connected."); return; }
+  const _revokePrivyTrading = async () => {
+    const target = _primaryEmbeddedPrivyWallet();
+    const address = String(target?.address || footerWallet || wallet || "").trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return;
+    setLiveSetupBusy("revoke"); setLiveSetupMsg("");
+    try {
+      await removeSigners({ address });
+      await fetch(`${API_BASE}/api/nexus/privy-trading/revoke`, { method: "POST", credentials: "include", headers: _authHeaders(), body: "{}" });
+      setLiveSetupMsg("Automatic trading permission was revoked.");
+      setTimeout(() => window.location.reload(), 1800);
+    } catch (error) { setLiveSetupMsg(`Revocation failed: ${String(error?.message || error)}`); }
+    finally { setLiveSetupBusy(""); }
+  };
+
+  const _sendSystemSetupTx = async (kind) => {
+    if (kind !== "limit") return;
+    const rd = systemInfoStatus?.liveExecutionReadiness || {};
+    const vault = String(rd?.vault || ""); const usdc = String(rd?.token || ""); const userWallet = String(rd?.userWallet || footerWallet || "");
+    if (!/^0x[0-9a-fA-F]{40}$/.test(vault) || !/^0x[0-9a-fA-F]{40}$/.test(usdc) || !/^0x[0-9a-fA-F]{40}$/.test(userWallet)) { setLiveSetupMsg("Vault setup is incomplete."); return; }
+    const wordAddress = (a) => String(a).toLowerCase().replace(/^0x/, "").padStart(64, "0");
+    const wordUint = (v) => BigInt(v).toString(16).padStart(64, "0");
+    const data = "0xddc68a3e" + wordAddress(userWallet) + wordAddress(usdc) + wordUint(1000000);
+    setLiveSetupBusy("limit"); setLiveSetupMsg("");
+    try {
+      const target = _primaryEmbeddedPrivyWallet(); const provider = await target.getEthereumProvider();
+      try { await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch {}
+      const txHash = await provider.request({ method: "eth_sendTransaction", params: [{ from: userWallet, to: vault, value: "0x0", data }] });
+      setLiveSetupMsg(`1 USDC self-limit submitted: ${txHash}`); setTimeout(() => window.location.reload(), 5000);
+    } catch (e) { setLiveSetupMsg(String(e?.message || e || "Limit transaction failed.")); }
+    finally { setLiveSetupBusy(""); }
+  };
+
+  const _startLiveExecutorTest = async () => {
     setLiveSetupBusy("live-test"); setLiveSetupMsg("");
     try {
-      const response = await fetch(`${API_BASE}/api/nexus/live-executor/test/start?wallet=${encodeURIComponent(wallet)}`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Wallet-Address": wallet },
-        body: JSON.stringify({ engine, amountUnits: 1000000 }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error((data?.blockers || []).join(", ") || data?.error || `HTTP ${response.status}`);
-      setLiveSetupMsg(`1 USDC ${engine} round-trip queued: ${data?.jobId || "job created"}`);
-      setTimeout(() => window.location.reload(), 5000);
-    } catch (error) {
-      setLiveSetupMsg(`Live test blocked: ${String(error?.message || error || "unknown error")}`);
-    } finally { setLiveSetupBusy(""); }
-  };
-
-  const _setLiveEmergencyStop = async (enabled) => {
-    const wallet = String(footerWallet || "").trim();
-    setLiveSetupBusy("emergency"); setLiveSetupMsg("");
-    try {
-      const response = await fetch(`${API_BASE}/api/nexus/live-executor/emergency-stop?wallet=${encodeURIComponent(wallet)}`, {
-        method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Wallet-Address": wallet },
-        body: JSON.stringify({ enabled: !!enabled }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.error || `HTTP ${response.status}`);
-      setLiveSetupMsg(enabled ? "Emergency stop enabled." : "Emergency stop released.");
-      setTimeout(() => window.location.reload(), 1500);
-    } catch (error) { setLiveSetupMsg(String(error?.message || error)); }
+      const response = await fetch(`${API_BASE}/api/nexus/privy-trading/test/start`, { method: "POST", credentials: "include", headers: _authHeaders(), body: "{}" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error((result?.blockers || []).join(", ") || result?.error || `HTTP ${response.status}`);
+      setLiveSetupMsg(`Delegated 1 USDC Trader test queued: ${result.jobId}`); setTimeout(() => window.location.reload(), 5000);
+    } catch (error) { setLiveSetupMsg(`Live test blocked: ${String(error?.message || error || "unknown error")}`); }
     finally { setLiveSetupBusy(""); }
   };
 
@@ -24859,47 +24855,33 @@ export default function App() {
 
                 <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <b>Ethereum Live Execution</b>
+                    <b>Privy Delegated Live Trading</b>
                     <span style={{ color: systemInfoStatus?.liveExecutionReadiness?.liveExecution === "ACTIVE" ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>
                       {systemInfoStatus?.liveExecutionReadiness?.status || "CHECKING"}
                     </span>
                   </div>
-                  <div className="muted" style={{ marginTop: 5, fontSize: 11 }}>Privy remains the user wallet only. Nexus never asks the Privy wallet to perform Vault-admin or executor-role actions.</div>
+                  <div className="muted" style={{ marginTop: 5, fontSize: 11 }}>The user approves once in Privy. Afterwards Nexus may transact automatically only inside the assigned Privy policy. The wallet private key is never exposed.</div>
                   <div style={{ display: "grid", gap: 4, marginTop: 8, fontSize: 11 }}>
+                    <div>Privy app: {systemInfoStatus?.liveExecutionReadiness?.checks?.privyAppConfigured ? "READY 🟢" : "MISSING 🔴"}</div>
+                    <div>Trading signer: {systemInfoStatus?.liveExecutionReadiness?.checks?.tradingSignerConfigured ? "READY 🟢" : "ENV REQUIRED 🟡"}</div>
+                    <div>Trading policy: {systemInfoStatus?.liveExecutionReadiness?.checks?.tradingPolicyConfigured ? "READY 🟢" : "ENV REQUIRED 🟡"}</div>
+                    <div>Wallet delegated: {systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated ? "ACTIVE 🟢" : "USER APPROVAL REQUIRED 🟡"}</div>
                     <div>Vault: {systemInfoStatus?.liveExecutionReadiness?.checks?.vaultConnected ? "READY 🟢" : "MISSING 🔴"}</div>
                     <div>USDC execution: {systemInfoStatus?.liveExecutionReadiness?.checks?.usdcExecutionEnabled ? "ENABLED 🟢" : "ADMIN SETUP REQUIRED 🟡"}</div>
-                    <div>Nexus executor: {systemInfoStatus?.liveExecutionReadiness?.checks?.executorConfigured ? "CONFIGURED 🟢" : "NOT CONFIGURED 🟡"}</div>
-                    <div>Executor role: {systemInfoStatus?.liveExecutionReadiness?.checks?.executorRoleGranted ? "GRANTED 🟢" : "NOT READY 🟡"}</div>
-                    <div>Executor service: {systemInfoStatus?.liveExecutionReadiness?.checks?.executorServiceReady ? "READY 🟢" : "NOT READY 🟡"}</div>
+                    <div>Privy wallet executor role: {systemInfoStatus?.liveExecutionReadiness?.checks?.executorRoleGranted ? "GRANTED 🟢" : "NOT GRANTED 🟡"}</div>
+                    <div>Your 1 USDC self-limit: {Number(systemInfoStatus?.liveExecutionReadiness?.checks?.executorLimitUsd || 0).toFixed(2)} USDC</div>
                     <div>ETH/USDC route: {systemInfoStatus?.liveExecutionReadiness?.checks?.routeReady ? "VERIFIED 🟢" : "NOT VERIFIED 🟡"}</div>
-                    <div>System mapping: {systemInfoStatus?.liveExecutionReadiness?.checks?.systemIdConfirmed ? "CONFIRMED 🟢" : "NOT CONFIRMED 🟡"}</div>
-                    <div>Your 1 USDC limit: {Number(systemInfoStatus?.liveExecutionReadiness?.checks?.executorLimitUsd || 0).toFixed(2)} USDC</div>
                     <div>Solvency: {systemInfoStatus?.liveExecutionReadiness?.checks?.solvent ? "OK 🟢" : "CHECK REQUIRED 🔴"}</div>
                   </div>
                   <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
-                    <button type="button" className="miniBtn"
-                      title={!systemInfoStatus?.liveExecutionReadiness?.checks?.executorConfigured ? "Nexus executor must be configured first." : "Set your own allowance for the configured Nexus executor."}
-                      disabled={!!liveSetupBusy || !systemInfoStatus?.liveExecutionReadiness?.checks?.executorConfigured || systemInfoStatus?.liveExecutionReadiness?.checks?.oneUsdLimitReady}
-                      onClick={() => _sendSystemSetupTx("limit")}>{liveSetupBusy === "limit" ? "Opening Privy..." : "Set My 1 USDC Test Limit"}</button>
-                    <button type="button" className="miniBtn"
-                      title="Runs the protected Vault → USDC/WETH → USDC → Vault round trip. Hard limit: exactly 1 USDC."
-                      disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.liveExecution !== "ACTIVE" || !!systemInfoStatus?.liveExecutorStatus?.runtime?.emergencyStop}
-                      onClick={() => _startLiveExecutorTest("TRADER")}>{liveSetupBusy === "live-test" ? "Starting..." : "Run 1 USDC Trader Test"}</button>
-                    <button type="button" className="miniBtn"
-                      disabled={!!liveSetupBusy || !!systemInfoStatus?.liveExecutorStatus?.runtime?.emergencyStop}
-                      onClick={() => _setLiveEmergencyStop(true)}>Emergency Stop</button>
-                    <button type="button" className="miniBtn"
-                      disabled={!!liveSetupBusy || !systemInfoStatus?.liveExecutorStatus?.runtime?.emergencyStop}
-                      onClick={() => _setLiveEmergencyStop(false)}>Release Stop</button>
+                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated} onClick={_enablePrivyTrading}>{liveSetupBusy === "delegate" ? "Opening Privy..." : "Approve Automatic Trading"}</button>
+                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || !systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated || systemInfoStatus?.liveExecutionReadiness?.checks?.oneUsdLimitReady} onClick={() => _sendSystemSetupTx("limit")}>{liveSetupBusy === "limit" ? "Opening Privy..." : "Set My 1 USDC Limit"}</button>
+                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.liveExecution !== "ACTIVE"} onClick={_startLiveExecutorTest}>{liveSetupBusy === "live-test" ? "Starting..." : "Run 1 USDC Trader Test"}</button>
+                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || !systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated} onClick={_revokePrivyTrading}>{liveSetupBusy === "revoke" ? "Revoking..." : "Revoke Permission"}</button>
                   </div>
-                  {systemInfoStatus?.liveExecutorStatus?.jobs?.[0] ? (
-                    <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-word" }}>
-                      Latest live job: <b>{systemInfoStatus.liveExecutorStatus.jobs[0].status}</b> · {systemInfoStatus.liveExecutorStatus.jobs[0].stage}
-                      {systemInfoStatus.liveExecutorStatus.jobs[0].error_text ? ` · ${systemInfoStatus.liveExecutorStatus.jobs[0].error_text}` : ""}
-                    </div>
-                  ) : null}
+                  {systemInfoStatus?.liveExecutorStatus?.jobs?.[0] ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-word" }}>Latest job: <b>{systemInfoStatus.liveExecutorStatus.jobs[0].status}</b> · {systemInfoStatus.liveExecutorStatus.jobs[0].stage}{systemInfoStatus.liveExecutorStatus.jobs[0].error_text ? ` · ${systemInfoStatus.liveExecutorStatus.jobs[0].error_text}` : ""}</div> : null}
                   {liveSetupMsg ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all" }}>{liveSetupMsg}</div> : null}
-                  <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>Admin activation, executor deployment, role assignment and route verification are infrastructure tasks and are never requested from the user wallet. Live trading stays disabled until every check is green.</div>
+                  <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>No additional wallet, no MetaMask in normal operation, and no Ethereum private key in Render. Render stores only the Privy authorization key created for nexus-live-trading.</div>
                 </div>
 
                 <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>

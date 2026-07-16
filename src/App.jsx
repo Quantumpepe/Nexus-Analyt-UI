@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.16-ENGINE-151-PRIVY-SIGNERS-SCOPE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.16-ENGINE-152-PRIVY-VAULT-COMPATIBILITY-FIX";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -24870,20 +24870,20 @@ export default function App() {
                     <div>Wallet delegated: {systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated ? "ACTIVE 🟢" : "USER APPROVAL REQUIRED 🟡"}</div>
                     <div>Vault: {systemInfoStatus?.liveExecutionReadiness?.checks?.vaultConnected ? "READY 🟢" : "MISSING 🔴"}</div>
                     <div>USDC execution: {systemInfoStatus?.liveExecutionReadiness?.checks?.usdcExecutionEnabled ? "ENABLED 🟢" : "ADMIN SETUP REQUIRED 🟡"}</div>
-                    <div>Privy wallet executor role: {systemInfoStatus?.liveExecutionReadiness?.checks?.executorRoleGranted ? "GRANTED 🟢" : "NOT GRANTED 🟡"}</div>
-                    <div>Your 1 USDC self-limit: {Number(systemInfoStatus?.liveExecutionReadiness?.checks?.executorLimitUsd || 0).toFixed(2)} USDC</div>
+                    <div>Vault Privy-only compatibility: {systemInfoStatus?.liveExecutionReadiness?.checks?.privyOnlyVaultCompatible ? "READY 🟢" : "CONTRACT UPDATE REQUIRED 🟡"}</div>
+                    <div>Delegated session budget: {Number(systemInfoStatus?.liveExecutionReadiness?.checks?.delegatedBudgetUsd || 0).toFixed(2)} USDC</div>
                     <div>ETH/USDC route: {systemInfoStatus?.liveExecutionReadiness?.checks?.routeReady ? "VERIFIED 🟢" : "NOT VERIFIED 🟡"}</div>
                     <div>Solvency: {systemInfoStatus?.liveExecutionReadiness?.checks?.solvent ? "OK 🟢" : "CHECK REQUIRED 🔴"}</div>
                   </div>
                   <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
                     <button type="button" className="miniBtn" disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated} onClick={_enablePrivyTrading}>{liveSetupBusy === "delegate" ? "Opening Privy..." : "Approve Automatic Trading"}</button>
-                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || !systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated || systemInfoStatus?.liveExecutionReadiness?.checks?.oneUsdLimitReady} onClick={() => _sendSystemSetupTx("limit")}>{liveSetupBusy === "limit" ? "Opening Privy..." : "Set My 1 USDC Limit"}</button>
-                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.liveExecution !== "ACTIVE"} onClick={_startLiveExecutorTest}>{liveSetupBusy === "live-test" ? "Starting..." : "Run 1 USDC Trader Test"}</button>
+                    <button type="button" className="miniBtn" disabled title="The deployed Vault requires EXECUTOR_ROLE and is not compatible with self-scoped Privy delegated execution.">Vault Update Required</button>
+                    <button type="button" className="miniBtn" disabled>Run 1 USDC Trader Test</button>
                     <button type="button" className="miniBtn" disabled={!!liveSetupBusy || !systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated} onClick={_revokePrivyTrading}>{liveSetupBusy === "revoke" ? "Revoking..." : "Revoke Permission"}</button>
                   </div>
                   {systemInfoStatus?.liveExecutorStatus?.jobs?.[0] ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-word" }}>Latest job: <b>{systemInfoStatus.liveExecutorStatus.jobs[0].status}</b> · {systemInfoStatus.liveExecutorStatus.jobs[0].stage}{systemInfoStatus.liveExecutorStatus.jobs[0].error_text ? ` · ${systemInfoStatus.liveExecutorStatus.jobs[0].error_text}` : ""}</div> : null}
                   {liveSetupMsg ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all" }}>{liveSetupMsg}</div> : null}
-                  <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>No additional wallet, no MetaMask in normal operation, and no Ethereum private key in Render. Render stores only the Privy authorization key created for nexus-live-trading.</div>
+                  <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>Privy delegation is active and remains the only user-wallet flow. The current deployed Vault still requires a global EXECUTOR_ROLE for pullForExecution, so live trading is intentionally blocked until the Vault interface supports self-scoped delegated sessions.</div>
                 </div>
 
                 <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>

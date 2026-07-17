@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.16-ENGINE-152-PRIVY-VAULT-COMPATIBILITY-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.17-ENGINE-153-OLD-VAULT-USDC-WITHDRAW";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -3646,6 +3646,8 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [coreWithdrawAddress, setCoreWithdrawAddress] = useState("");
   const [coreWithdrawQuote, setCoreWithdrawQuote] = useState(null);
   const [coreWithdrawQuoteBusy, setCoreWithdrawQuoteBusy] = useState(false);
+  const [oldVaultWithdrawBusy, setOldVaultWithdrawBusy] = useState(false);
+  const [oldVaultWithdrawMsg, setOldVaultWithdrawMsg] = useState("");
 
   // Vault state (on-chain) + operator authorization
   const [vaultState, setVaultState] = useState({
@@ -3985,6 +3987,83 @@ const [wsChainKey, setWsChainKey] = useState(() => {
       setTxMsg(String(e?.message || e || "Withdraw failed"));
     } finally {
       setTxBusy(false);
+    }
+  };
+
+  const withdrawAllBaseUsdcFromOldVault = async () => {
+    try {
+      setOldVaultWithdrawMsg("");
+      if (!wallet) throw new Error("Privy wallet not connected.");
+
+      const vault = String(coreVaultOnchain?.contractAddress || "").trim();
+      const usdc = String(coreVaultOnchain?.tokens?.USDC?.address || "").trim();
+      if (!_isAddr(vault) || !coreVaultOnchain?.connected) throw new Error("Ethereum Core Vault is not connected.");
+      if (!_isAddr(usdc)) throw new Error("Ethereum USDC contract is not available.");
+      if (coreVaultOnchain?.paused) throw new Error("Core Vault is currently paused.");
+
+      setOldVaultWithdrawBusy(true);
+      setOldVaultWithdrawMsg("Reading available USDC base capital from the old Vault…");
+
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, 1);
+      const currentHex = await provider.request({ method: "eth_chainId" });
+      if (String(currentHex).toLowerCase() !== "0x1") throw new Error("Please switch your Privy wallet to Ethereum Mainnet.");
+
+      // WithdrawalSource.BASE_CAPITAL_ONLY = 1
+      const source = 1n;
+      const availableData =
+        "0xf77a40bb" +
+        _encodeAddress(wallet) +
+        _encodeAddress(usdc) +
+        _encodeUint256(source);
+      const availableHex = await provider.request({
+        method: "eth_call",
+        params: [{ from: wallet, to: vault, data: availableData }, "latest"],
+      });
+      let available = 0n;
+      try { available = BigInt(availableHex || "0x0"); } catch { available = 0n; }
+      if (available <= 0n) throw new Error("No withdrawable USDC base capital was found for this Privy wallet.");
+
+      const amountUsdc = Number(available) / 1_000_000;
+      const estimatedNet = amountUsdc * 0.97;
+      const accepted = window.confirm(
+        `Withdraw all ${amountUsdc.toFixed(6)} USDC base capital from the old Vault?\n\n` +
+        `The old contract incorrectly charges 3%, so approximately ${estimatedNet.toFixed(6)} USDC will arrive in your Privy wallet.\n\n` +
+        `Continue?`
+      );
+      if (!accepted) {
+        setOldVaultWithdrawMsg("Withdrawal cancelled.");
+        return;
+      }
+
+      const withdrawData =
+        "0x6cfbeca7" +
+        _encodeAddress(usdc) +
+        _encodeUint256(available) +
+        _encodeUint256(source) +
+        _encodeAddress(wallet);
+
+      setOldVaultWithdrawMsg(`Withdrawing ${amountUsdc.toFixed(6)} USDC base capital…`);
+      const txHash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: wallet, to: vault, value: "0x0", data: withdrawData }],
+      });
+      await _waitForTxReceipt(provider, txHash);
+
+      setOldVaultWithdrawMsg(`Withdrawal confirmed. Tx: ${txHash}`);
+      await refreshCoreVaultOnchain();
+      await refreshCoreVaultAccounting();
+      setTimeout(() => refreshBalances(), 1500);
+    } catch (e) {
+      const msg = String(e?.message || e || "Withdrawal failed");
+      const low = msg.toLowerCase();
+      if (e?.code === 4001 || low.includes("rejected") || low.includes("denied") || low.includes("cancel")) {
+        setOldVaultWithdrawMsg("Withdrawal cancelled by user.");
+      } else {
+        setOldVaultWithdrawMsg(msg);
+      }
+    } finally {
+      setOldVaultWithdrawBusy(false);
     }
   };
 
@@ -18269,6 +18348,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div className="muted" style={{ fontSize: 11, marginTop: 5 }}>This value updates automatically and may rise or fall. Secured Profit above only increases when a positive closed-net delta is protected.</div>
                   </div>
                   {coreVaultOverview.isShadow && <div className="muted" style={{ fontSize: 11 }}>Shadow follows the later live accounting rules. Only closed net results count, but nothing is withdrawable.</div>}
+                </div>
+
+                <div style={{ marginTop: 14, padding: 14, borderRadius: 14, background: "rgba(255,193,7,0.07)", border: "1px solid rgba(255,193,7,0.30)" }}>
+                  <div className="cardTitle" style={{ margin: 0, fontSize: 15 }}>Old Vault — Withdraw all USDC base capital</div>
+                  <div className="muted" style={{ fontSize: 12, lineHeight: 1.5, marginTop: 6 }}>
+                    This temporary recovery action reads the exact withdrawable USDC base capital for your connected Privy wallet and sends it back to the same wallet. The old contract itself applies its fixed 3% withdrawal fee.
+                  </div>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={withdrawAllBaseUsdcFromOldVault}
+                    disabled={!wallet || oldVaultWithdrawBusy || !coreVaultOnchain?.connected || coreVaultOnchain?.paused}
+                    style={{ width: "100%", height: 44, marginTop: 10 }}
+                  >
+                    {oldVaultWithdrawBusy ? "Processing withdrawal…" : "Withdraw all USDC from old Vault"}
+                  </button>
+                  {oldVaultWithdrawMsg && <div className="muted" style={{ fontSize: 11, marginTop: 8, wordBreak: "break-word" }}>{oldVaultWithdrawMsg}</div>}
                 </div>
 
                 <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, alignItems: "start" }}>

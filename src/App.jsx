@@ -415,7 +415,10 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-154-COREVAULT-V3-NKR-VAULT-INTEGRATION";
+const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-155-OWNER-ADMIN-COREVAULT-V3";
+const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
+const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const CORE_VAULT_OWNER_ADDRESS = "0x3318b6A608b3873962B17DAe069Fc7317D88d68f";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
@@ -24469,6 +24472,19 @@ export default function App() {
   const [shadowHealth, setShadowHealth] = useState(null);
   const [systemInfoStatus, setSystemInfoStatus] = useState(null);
   const [shadowReadiness, setShadowReadiness] = useState(null);
+  const [ownerAdminBusy, setOwnerAdminBusy] = useState("");
+  const [ownerAdminMsg, setOwnerAdminMsg] = useState("");
+  const [ownerAdminHash, setOwnerAdminHash] = useState("");
+  const [tokenAdmin, setTokenAdmin] = useState({
+    token: ETH_USDC_ADDRESS, configured: true, depositEnabled: true, withdrawEnabled: true,
+    executionEnabled: true, paymentEnabled: true, settlementToken: true, decimals: "6",
+    maxSingleDeposit: "10000000000", maxSessionBudget: "10000000000", profitThreshold: "100000000",
+  });
+  const [routeAdmin, setRouteAdmin] = useState({
+    routeId: "", enabled: true, kind: "0", target: "", oracle: "", tokenIn: ETH_USDC_ADDRESS,
+    tokenOut: "", selector: "0x00000000",
+  });
+  const [walletAdmin, setWalletAdmin] = useState({ guardian: "", revenueWallet: "", liquidityDestination: "" });
 
   useEffect(() => {
     let alive = true;
@@ -24628,6 +24644,116 @@ export default function App() {
       setLiveSetupMsg(`Delegated 1 USDC Trader test queued: ${result.jobId}`); setTimeout(() => window.location.reload(), 5000);
     } catch (error) { setLiveSetupMsg(`Live test blocked: ${String(error?.message || error || "unknown error")}`); }
     finally { setLiveSetupBusy(""); }
+  };
+
+  const _hexAddressFromCall = (raw) => {
+    const h = String(raw || "").replace(/^0x/, "");
+    return h.length >= 40 ? `0x${h.slice(-40)}`.toLowerCase() : "";
+  };
+
+  const _ownerAdminProvider = async () => {
+    const candidates = [];
+    if (typeof window !== "undefined" && window.ethereum?.request) candidates.push({ provider: window.ethereum, label: "Browser owner wallet" });
+    const embedded = _primaryEmbeddedPrivyWallet();
+    if (embedded?.getEthereumProvider) {
+      try { candidates.push({ provider: await embedded.getEthereumProvider(), label: "Privy wallet" }); } catch {}
+    }
+    const ownerData = new Utils.Interface(NEXUS_CORE_VAULT_ABI).encodeFunctionData("owner", []);
+    for (const item of candidates) {
+      try {
+        try { await item.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch {}
+        const accounts = await item.provider.request({ method: "eth_requestAccounts" });
+        const account = String(accounts?.[0] || "").toLowerCase();
+        const ownerRaw = await item.provider.request({ method: "eth_call", params: [{ to: CORE_VAULT_ETH_ADDRESS, data: ownerData }, "latest"] });
+        const owner = _hexAddressFromCall(ownerRaw);
+        if (account && owner && account === owner) return { ...item, account, owner };
+      } catch {}
+    }
+    throw new Error(`Connect the CoreVault owner wallet ${CORE_VAULT_OWNER_ADDRESS} on Ethereum.`);
+  };
+
+  const _sendOwnerAdminTx = async (data, busyName) => {
+    setOwnerAdminBusy(busyName); setOwnerAdminMsg("");
+    try {
+      const signer = await _ownerAdminProvider();
+      const txHash = await signer.provider.request({ method: "eth_sendTransaction", params: [{ from: signer.account, to: CORE_VAULT_ETH_ADDRESS, value: "0x0", data }] });
+      setOwnerAdminMsg(`${busyName} submitted through ${signer.label}: ${txHash}`);
+      return txHash;
+    } catch (e) {
+      setOwnerAdminMsg(`${busyName} failed: ${String(e?.message || e || "unknown error")}`);
+      return "";
+    } finally { setOwnerAdminBusy(""); }
+  };
+
+  const _tokenTuple = () => [
+    !!tokenAdmin.configured, !!tokenAdmin.depositEnabled, !!tokenAdmin.withdrawEnabled,
+    !!tokenAdmin.executionEnabled, !!tokenAdmin.paymentEnabled, !!tokenAdmin.settlementToken,
+    Number(tokenAdmin.decimals || 0), String(tokenAdmin.maxSingleDeposit || "0"),
+    String(tokenAdmin.maxSessionBudget || "0"), String(tokenAdmin.profitThreshold || "0"),
+  ];
+
+  const _tokenActionHash = () => {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(String(tokenAdmin.token || ""))) throw new Error("Invalid token address.");
+    const encoded = Utils.defaultAbiCoder.encode(
+      ["string", "address", "tuple(bool,bool,bool,bool,bool,bool,uint8,uint128,uint128,uint128)"],
+      ["TOKEN", tokenAdmin.token, _tokenTuple()]
+    );
+    return Utils.keccak256(encoded);
+  };
+
+  const _scheduleToken = async () => {
+    try {
+      const h = _tokenActionHash();
+      const executeAfter = Math.floor(Date.now() / 1000) + 3660;
+      const iface = new Utils.Interface(NEXUS_CORE_VAULT_ABI);
+      setOwnerAdminHash(h);
+      await _sendOwnerAdminTx(iface.encodeFunctionData("scheduleAction", [h, executeAfter]), "Token schedule");
+    } catch (e) { setOwnerAdminMsg(String(e?.message || e)); }
+  };
+
+  const _executeToken = async () => {
+    try {
+      const h = _tokenActionHash(); setOwnerAdminHash(h);
+      const iface = new Utils.Interface(NEXUS_CORE_VAULT_ABI);
+      await _sendOwnerAdminTx(iface.encodeFunctionData("configureToken", [tokenAdmin.token, _tokenTuple()]), "Token configuration");
+    } catch (e) { setOwnerAdminMsg(String(e?.message || e)); }
+  };
+
+  const _routeTuple = () => [!!routeAdmin.enabled, Number(routeAdmin.kind || 0), routeAdmin.target, routeAdmin.oracle, routeAdmin.tokenIn, routeAdmin.tokenOut, routeAdmin.selector];
+  const _routeActionHash = () => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(String(routeAdmin.routeId || ""))) throw new Error("routeId must be bytes32 (0x plus 64 hex characters).");
+    for (const [name, value] of [["target", routeAdmin.target], ["oracle", routeAdmin.oracle], ["tokenIn", routeAdmin.tokenIn], ["tokenOut", routeAdmin.tokenOut]]) {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(String(value || ""))) throw new Error(`Invalid ${name} address.`);
+    }
+    if (!/^0x[0-9a-fA-F]{8}$/.test(String(routeAdmin.selector || "")) || routeAdmin.selector === "0x00000000") throw new Error("selector must be a non-zero bytes4 value.");
+    const encoded = Utils.defaultAbiCoder.encode(
+      ["string", "bytes32", "tuple(bool,uint8,address,address,address,address,bytes4)"],
+      ["ROUTE", routeAdmin.routeId, _routeTuple()]
+    );
+    return Utils.keccak256(encoded);
+  };
+
+  const _scheduleRoute = async () => {
+    try {
+      const h = _routeActionHash(); const executeAfter = Math.floor(Date.now() / 1000) + 3660;
+      setOwnerAdminHash(h);
+      const iface = new Utils.Interface(NEXUS_CORE_VAULT_ABI);
+      await _sendOwnerAdminTx(iface.encodeFunctionData("scheduleAction", [h, executeAfter]), "Route schedule");
+    } catch (e) { setOwnerAdminMsg(String(e?.message || e)); }
+  };
+
+  const _executeRoute = async () => {
+    try {
+      const h = _routeActionHash(); setOwnerAdminHash(h);
+      const iface = new Utils.Interface(NEXUS_CORE_VAULT_ABI);
+      await _sendOwnerAdminTx(iface.encodeFunctionData("configureRoute", [routeAdmin.routeId, _routeTuple()]), "Route configuration");
+    } catch (e) { setOwnerAdminMsg(String(e?.message || e)); }
+  };
+
+  const _setVaultAddressValue = async (method, value, label) => {
+    if (!/^0x[0-9a-fA-F]{40}$/.test(String(value || ""))) { setOwnerAdminMsg(`Invalid ${label} address.`); return; }
+    const iface = new Utils.Interface(NEXUS_CORE_VAULT_ABI);
+    await _sendOwnerAdminTx(iface.encodeFunctionData(method, [value]), label);
   };
 
   const normalizeStatusRows = (value) => {
@@ -24886,6 +25012,60 @@ export default function App() {
                   {systemInfoStatus?.liveExecutorStatus?.jobs?.[0] ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-word" }}>Latest job: <b>{systemInfoStatus.liveExecutorStatus.jobs[0].status}</b> · {systemInfoStatus.liveExecutorStatus.jobs[0].stage}{systemInfoStatus.liveExecutorStatus.jobs[0].error_text ? ` · ${systemInfoStatus.liveExecutorStatus.jobs[0].error_text}` : ""}</div> : null}
                   {liveSetupMsg ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all" }}>{liveSetupMsg}</div> : null}
                   <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>Privy delegation is active and remains the only user-wallet flow. CoreVault V3 uses self-scoped sessions. Live trading remains intentionally blocked until the settlement token and approved trade routes are configured and verified.</div>
+                </div>
+
+                <div style={{ marginTop: 10, border: "1px solid rgba(102,220,255,0.28)", borderRadius: 10, padding: 10, background: "rgba(40,180,255,0.045)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <b>CoreVault Owner Admin</b>
+                    <span style={{ color: "#8de8ff", fontWeight: 900 }}>OWNER ONLY</span>
+                  </div>
+                  <div className="muted" style={{ marginTop: 5, fontSize: 10, wordBreak: "break-all" }}>CoreVault: {CORE_VAULT_ETH_ADDRESS}</div>
+                  <div className="muted" style={{ marginTop: 3, fontSize: 10 }}>Token and route changes are scheduled automatically for 61 minutes. Execute them later with the identical values.</div>
+
+                  <details open style={{ marginTop: 9 }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 800 }}>Token configuration</summary>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+                      <input value={tokenAdmin.token} onChange={(e) => setTokenAdmin({ ...tokenAdmin, token: e.target.value })} placeholder="Token address" style={{ gridColumn: "1 / -1" }} />
+                      {["configured","depositEnabled","withdrawEnabled","executionEnabled","paymentEnabled","settlementToken"].map((k) => <label key={k} style={{ fontSize: 10 }}><input type="checkbox" checked={!!tokenAdmin[k]} onChange={(e) => setTokenAdmin({ ...tokenAdmin, [k]: e.target.checked })} /> {k}</label>)}
+                      <input value={tokenAdmin.decimals} onChange={(e) => setTokenAdmin({ ...tokenAdmin, decimals: e.target.value })} placeholder="decimals" />
+                      <input value={tokenAdmin.maxSingleDeposit} onChange={(e) => setTokenAdmin({ ...tokenAdmin, maxSingleDeposit: e.target.value })} placeholder="maxSingleDeposit" />
+                      <input value={tokenAdmin.maxSessionBudget} onChange={(e) => setTokenAdmin({ ...tokenAdmin, maxSessionBudget: e.target.value })} placeholder="maxSessionBudget" />
+                      <input value={tokenAdmin.profitThreshold} onChange={(e) => setTokenAdmin({ ...tokenAdmin, profitThreshold: e.target.value })} placeholder="profitThreshold" />
+                    </div>
+                    <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_scheduleToken}>{ownerAdminBusy === "Token schedule" ? "Signing..." : "1. Schedule token"}</button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_executeToken}>{ownerAdminBusy === "Token configuration" ? "Signing..." : "2. Execute token"}</button>
+                    </div>
+                  </details>
+
+                  <details style={{ marginTop: 9 }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 800 }}>Route configuration</summary>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+                      <input value={routeAdmin.routeId} onChange={(e) => setRouteAdmin({ ...routeAdmin, routeId: e.target.value })} placeholder="routeId bytes32" style={{ gridColumn: "1 / -1" }} />
+                      <label style={{ fontSize: 10 }}><input type="checkbox" checked={!!routeAdmin.enabled} onChange={(e) => setRouteAdmin({ ...routeAdmin, enabled: e.target.checked })} /> enabled</label>
+                      <input value={routeAdmin.kind} onChange={(e) => setRouteAdmin({ ...routeAdmin, kind: e.target.value })} placeholder="kind uint8" />
+                      <input value={routeAdmin.target} onChange={(e) => setRouteAdmin({ ...routeAdmin, target: e.target.value })} placeholder="router target" />
+                      <input value={routeAdmin.oracle} onChange={(e) => setRouteAdmin({ ...routeAdmin, oracle: e.target.value })} placeholder="oracle" />
+                      <input value={routeAdmin.tokenIn} onChange={(e) => setRouteAdmin({ ...routeAdmin, tokenIn: e.target.value })} placeholder="tokenIn" />
+                      <input value={routeAdmin.tokenOut} onChange={(e) => setRouteAdmin({ ...routeAdmin, tokenOut: e.target.value })} placeholder="tokenOut" />
+                      <input value={routeAdmin.selector} onChange={(e) => setRouteAdmin({ ...routeAdmin, selector: e.target.value })} placeholder="selector bytes4" />
+                    </div>
+                    <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_scheduleRoute}>1. Schedule route</button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_executeRoute}>2. Execute route</button>
+                    </div>
+                  </details>
+
+                  <details style={{ marginTop: 9 }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 800 }}>Vault wallets</summary>
+                    <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                      <div style={{ display: "flex", gap: 6 }}><input value={walletAdmin.guardian} onChange={(e) => setWalletAdmin({ ...walletAdmin, guardian: e.target.value })} placeholder="Guardian address" style={{ flex: 1 }} /><button type="button" className="miniBtn" onClick={() => _setVaultAddressValue("setGuardian", walletAdmin.guardian, "Guardian update")}>Set</button></div>
+                      <div style={{ display: "flex", gap: 6 }}><input value={walletAdmin.revenueWallet} onChange={(e) => setWalletAdmin({ ...walletAdmin, revenueWallet: e.target.value })} placeholder="Revenue wallet" style={{ flex: 1 }} /><button type="button" className="miniBtn" onClick={() => _setVaultAddressValue("setRevenueWallet", walletAdmin.revenueWallet, "Revenue wallet update")}>Set</button></div>
+                      <div style={{ display: "flex", gap: 6 }}><input value={walletAdmin.liquidityDestination} onChange={(e) => setWalletAdmin({ ...walletAdmin, liquidityDestination: e.target.value })} placeholder="Liquidity destination" style={{ flex: 1 }} /><button type="button" className="miniBtn" onClick={() => _setVaultAddressValue("setLiquidityDestination", walletAdmin.liquidityDestination, "Liquidity destination update")}>Set</button></div>
+                    </div>
+                  </details>
+                  {ownerAdminHash ? <div className="muted" style={{ marginTop: 7, fontSize: 9, wordBreak: "break-all" }}>Action hash: {ownerAdminHash}</div> : null}
+                  {ownerAdminMsg ? <div style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all", color: ownerAdminMsg.includes("failed") ? "#ffb4b4" : "#8dffd0" }}>{ownerAdminMsg}</div> : null}
                 </div>
 
                 <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>

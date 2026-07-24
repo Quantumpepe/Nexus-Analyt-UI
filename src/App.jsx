@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-158-OWNER-ADMIN-BACKEND-ENCODER";
+const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-159-OWNER-ADMIN-TIMELOCK-BUTTON-GUARD";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const CORE_VAULT_OWNER_ADDRESS = "0x3318b6A608b3873962B17DAe069Fc7317D88d68f";
@@ -24485,6 +24485,9 @@ export default function App() {
   const [ownerAdminBusy, setOwnerAdminBusy] = useState("");
   const [ownerAdminMsg, setOwnerAdminMsg] = useState("");
   const [ownerAdminHash, setOwnerAdminHash] = useState("");
+  const [tokenExecuteAfter, setTokenExecuteAfter] = useState(0);
+  const [routeExecuteAfter, setRouteExecuteAfter] = useState(0);
+  const [ownerAdminNow, setOwnerAdminNow] = useState(() => Math.floor(Date.now() / 1000));
   const [tokenAdmin, setTokenAdmin] = useState({
     token: ETH_USDC_ADDRESS, configured: true, depositEnabled: true, withdrawEnabled: true,
     executionEnabled: true, paymentEnabled: true, settlementToken: true, decimals: "6",
@@ -24495,6 +24498,32 @@ export default function App() {
     tokenOut: "", selector: "0x00000000",
   });
   const [walletAdmin, setWalletAdmin] = useState({ guardian: "", revenueWallet: "", liquidityDestination: "" });
+
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setOwnerAdminNow(Math.floor(Date.now() / 1000)), 1000);
+    try {
+      const tokenPending = JSON.parse(window.localStorage.getItem("nexus_owner_admin_token_pending_v1") || "null");
+      if (tokenPending?.actionHash && Number(tokenPending?.executeAfter) > 0) {
+        setOwnerAdminHash(String(tokenPending.actionHash));
+        setTokenExecuteAfter(Number(tokenPending.executeAfter));
+      }
+      const routePending = JSON.parse(window.localStorage.getItem("nexus_owner_admin_route_pending_v1") || "null");
+      if (routePending?.executeAfter) setRouteExecuteAfter(Number(routePending.executeAfter));
+    } catch {}
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const _formatOwnerAdminCountdown = (executeAfter) => {
+    const remaining = Math.max(0, Number(executeAfter || 0) - ownerAdminNow);
+    const h = Math.floor(remaining / 3600);
+    const m = Math.floor((remaining % 3600) / 60);
+    const sec = remaining % 60;
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  };
+
+  const tokenExecuteReady = tokenExecuteAfter > 0 && ownerAdminNow >= tokenExecuteAfter;
+  const routeExecuteReady = routeExecuteAfter > 0 && ownerAdminNow >= routeExecuteAfter;
 
   useEffect(() => {
     let alive = true;
@@ -24722,8 +24751,13 @@ export default function App() {
     try {
       const prepared = await _prepareOwnerAdminAction(_tokenAdminPayload());
       setOwnerAdminHash(prepared.actionHash || "");
-      await _sendOwnerAdminTx(prepared.scheduleCalldata, "Token schedule");
-      if (prepared.executeAfter) setOwnerAdminMsg((prev) => `${prev}${prev ? " | " : ""}Execute after ${new Date(prepared.executeAfter * 1000).toLocaleString()}.`);
+      const txHash = await _sendOwnerAdminTx(prepared.scheduleCalldata, "Token schedule");
+      if (txHash && prepared.executeAfter) {
+        const executeAfter = Number(prepared.executeAfter);
+        setTokenExecuteAfter(executeAfter);
+        try { window.localStorage.setItem("nexus_owner_admin_token_pending_v1", JSON.stringify({ actionHash: prepared.actionHash || "", executeAfter, token: tokenAdmin.token })); } catch {}
+        setOwnerAdminMsg((prev) => `${prev}${prev ? " | " : ""}Execute after ${new Date(executeAfter * 1000).toLocaleString()}.`);
+      }
     } catch (e) { setOwnerAdminMsg(`Token schedule failed: ${String(e?.message || e)}`); }
     finally { setOwnerAdminBusy(""); }
   };
@@ -24733,7 +24767,11 @@ export default function App() {
     try {
       const prepared = await _prepareOwnerAdminAction(_tokenAdminPayload());
       setOwnerAdminHash(prepared.actionHash || "");
-      await _sendOwnerAdminTx(prepared.executeCalldata, "Token configuration");
+      const txHash = await _sendOwnerAdminTx(prepared.executeCalldata, "Token configuration");
+      if (txHash) {
+        setTokenExecuteAfter(0);
+        try { window.localStorage.removeItem("nexus_owner_admin_token_pending_v1"); } catch {}
+      }
     } catch (e) { setOwnerAdminMsg(`Token configuration failed: ${String(e?.message || e)}`); }
     finally { setOwnerAdminBusy(""); }
   };
@@ -24752,8 +24790,13 @@ export default function App() {
     try {
       const prepared = await _prepareOwnerAdminAction(_routeAdminPayload());
       setOwnerAdminHash(prepared.actionHash || "");
-      await _sendOwnerAdminTx(prepared.scheduleCalldata, "Route schedule");
-      if (prepared.executeAfter) setOwnerAdminMsg((prev) => `${prev}${prev ? " | " : ""}Execute after ${new Date(prepared.executeAfter * 1000).toLocaleString()}.`);
+      const txHash = await _sendOwnerAdminTx(prepared.scheduleCalldata, "Route schedule");
+      if (txHash && prepared.executeAfter) {
+        const executeAfter = Number(prepared.executeAfter);
+        setRouteExecuteAfter(executeAfter);
+        try { window.localStorage.setItem("nexus_owner_admin_route_pending_v1", JSON.stringify({ actionHash: prepared.actionHash || "", executeAfter, routeId: routeAdmin.routeId })); } catch {}
+        setOwnerAdminMsg((prev) => `${prev}${prev ? " | " : ""}Execute after ${new Date(executeAfter * 1000).toLocaleString()}.`);
+      }
     } catch (e) { setOwnerAdminMsg(`Route schedule failed: ${String(e?.message || e)}`); }
     finally { setOwnerAdminBusy(""); }
   };
@@ -24763,7 +24806,11 @@ export default function App() {
     try {
       const prepared = await _prepareOwnerAdminAction(_routeAdminPayload());
       setOwnerAdminHash(prepared.actionHash || "");
-      await _sendOwnerAdminTx(prepared.executeCalldata, "Route configuration");
+      const txHash = await _sendOwnerAdminTx(prepared.executeCalldata, "Route configuration");
+      if (txHash) {
+        setRouteExecuteAfter(0);
+        try { window.localStorage.removeItem("nexus_owner_admin_route_pending_v1"); } catch {}
+      }
     } catch (e) { setOwnerAdminMsg(`Route configuration failed: ${String(e?.message || e)}`); }
     finally { setOwnerAdminBusy(""); }
   };
@@ -25058,7 +25105,7 @@ export default function App() {
                     </div>
                     <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
                       <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_scheduleToken}>{ownerAdminBusy === "Token schedule" ? "Signing..." : "1. Schedule token"}</button>
-                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_executeToken}>{ownerAdminBusy === "Token configuration" ? "Signing..." : "2. Execute token"}</button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !tokenExecuteReady} onClick={_executeToken}>{ownerAdminBusy === "Token configuration" ? "Signing..." : tokenExecuteReady ? "2. Execute token" : tokenExecuteAfter > 0 ? `Execute in ${_formatOwnerAdminCountdown(tokenExecuteAfter)}` : "2. Execute token"}</button>
                     </div>
                   </details>
 
@@ -25076,7 +25123,7 @@ export default function App() {
                     </div>
                     <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
                       <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_scheduleRoute}>1. Schedule route</button>
-                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_executeRoute}>2. Execute route</button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !routeExecuteReady} onClick={_executeRoute}>{routeExecuteReady ? "2. Execute route" : routeExecuteAfter > 0 ? `Execute in ${_formatOwnerAdminCountdown(routeExecuteAfter)}` : "2. Execute route"}</button>
                     </div>
                   </details>
 

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-156-COMPARE-RECOVERY-OWNER-ADMIN";
+const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-157-OWNER-ADMIN-ABI-CODER-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const CORE_VAULT_OWNER_ADDRESS = "0x3318b6A608b3873962B17DAe069Fc7317D88d68f";
@@ -24702,9 +24702,18 @@ export default function App() {
     String(tokenAdmin.maxSessionBudget || "0"), String(tokenAdmin.profitThreshold || "0"),
   ];
 
+  const _ownerAdminAbiEncode = (types, values) => {
+    // alchemy-sdk exposes different ethers utility shapes depending on its bundled ethers version.
+    // Support ethers v5, ethers v6, and constructor-based AbiCoder without assuming one shape.
+    if (Utils?.defaultAbiCoder?.encode) return Utils.defaultAbiCoder.encode(types, values);
+    if (Utils?.AbiCoder?.defaultAbiCoder) return Utils.AbiCoder.defaultAbiCoder().encode(types, values);
+    if (Utils?.AbiCoder) return new Utils.AbiCoder().encode(types, values);
+    throw new Error("ABI coder is unavailable in the current frontend bundle.");
+  };
+
   const _tokenActionHash = () => {
     if (!/^0x[0-9a-fA-F]{40}$/.test(String(tokenAdmin.token || ""))) throw new Error("Invalid token address.");
-    const encoded = Utils.defaultAbiCoder.encode(
+    const encoded = _ownerAdminAbiEncode(
       ["string", "address", "tuple(bool,bool,bool,bool,bool,bool,uint8,uint128,uint128,uint128)"],
       ["TOKEN", tokenAdmin.token, _tokenTuple()]
     );
@@ -24736,7 +24745,7 @@ export default function App() {
       if (!/^0x[0-9a-fA-F]{40}$/.test(String(value || ""))) throw new Error(`Invalid ${name} address.`);
     }
     if (!/^0x[0-9a-fA-F]{8}$/.test(String(routeAdmin.selector || "")) || routeAdmin.selector === "0x00000000") throw new Error("selector must be a non-zero bytes4 value.");
-    const encoded = Utils.defaultAbiCoder.encode(
+    const encoded = _ownerAdminAbiEncode(
       ["string", "bytes32", "tuple(bool,uint8,address,address,address,address,bytes4)"],
       ["ROUTE", routeAdmin.routeId, _routeTuple()]
     );

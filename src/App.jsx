@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-159-OWNER-ADMIN-TIMELOCK-BUTTON-GUARD";
+const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-160-OWNER-ADMIN-ONCHAIN-TIMELOCK-STATUS";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const CORE_VAULT_OWNER_ADDRESS = "0x3318b6A608b3873962B17DAe069Fc7317D88d68f";
@@ -24746,6 +24746,53 @@ export default function App() {
     },
   });
 
+  // Restore the timelock from the contract itself. This survives frontend deploys,
+  // browser storage clearing, page reloads and use on another owner device.
+  useEffect(() => {
+    let cancelled = false;
+    const restoreTokenTimelockFromChain = async () => {
+      try {
+        const prepared = await _prepareOwnerAdminAction(_tokenAdminPayload());
+        const actionHash = String(prepared?.actionHash || "");
+        if (!/^0x[0-9a-fA-F]{64}$/.test(actionHash)) return;
+        if (!cancelled) setOwnerAdminHash(actionHash);
+
+        const provider = typeof window !== "undefined" && window.ethereum?.request ? window.ethereum : null;
+        if (!provider) return;
+
+        // pendingAction(bytes32) selector = 0xc8b53038.
+        const data = `0xc8b53038${actionHash.slice(2).padStart(64, "0")}`;
+        const raw = String(await provider.request({
+          method: "eth_call",
+          params: [{ to: CORE_VAULT_ETH_ADDRESS, data }, "latest"],
+        }) || "").replace(/^0x/, "");
+        if (raw.length < 128) return;
+
+        const executeAfter = Number(BigInt(`0x${raw.slice(0, 64)}`));
+        const exists = BigInt(`0x${raw.slice(64, 128)}`) !== 0n;
+        if (cancelled) return;
+
+        if (exists && executeAfter > 0) {
+          setTokenExecuteAfter(executeAfter);
+          try {
+            window.localStorage.setItem("nexus_owner_admin_token_pending_v1", JSON.stringify({
+              actionHash,
+              executeAfter,
+              token: tokenAdmin.token,
+            }));
+          } catch {}
+        } else {
+          setTokenExecuteAfter(0);
+          try { window.localStorage.removeItem("nexus_owner_admin_token_pending_v1"); } catch {}
+        }
+      } catch {
+        // The local copy remains a fallback when wallet RPC access is unavailable.
+      }
+    };
+    restoreTokenTimelockFromChain();
+    return () => { cancelled = true; };
+  }, []);
+
   const _scheduleToken = async () => {
     setOwnerAdminBusy("Token schedule"); setOwnerAdminMsg("");
     try {
@@ -25103,9 +25150,19 @@ export default function App() {
                       <input value={tokenAdmin.maxSessionBudget} onChange={(e) => setTokenAdmin({ ...tokenAdmin, maxSessionBudget: e.target.value })} placeholder="maxSessionBudget" />
                       <input value={tokenAdmin.profitThreshold} onChange={(e) => setTokenAdmin({ ...tokenAdmin, profitThreshold: e.target.value })} placeholder="profitThreshold" />
                     </div>
+                    {tokenExecuteAfter > 0 ? (
+                      <div style={{ marginTop: 8, padding: "7px 9px", borderRadius: 8, background: tokenExecuteReady ? "rgba(60,220,130,0.12)" : "rgba(255,196,70,0.10)", border: tokenExecuteReady ? "1px solid rgba(60,220,130,0.38)" : "1px solid rgba(255,196,70,0.35)", fontSize: 10 }}>
+                        <div style={{ fontWeight: 900, color: tokenExecuteReady ? "#8dffd0" : "#ffd978" }}>{tokenExecuteReady ? "READY TO EXECUTE" : "PENDING TOKEN UPDATE"}</div>
+                        <div className="muted" style={{ marginTop: 2 }}>
+                          {tokenExecuteReady ? "Timelock completed." : `Execute in ${_formatOwnerAdminCountdown(tokenExecuteAfter)}`} · {new Date(tokenExecuteAfter * 1000).toLocaleString()}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="muted" style={{ marginTop: 8, fontSize: 10 }}>Status: No pending token update.</div>
+                    )}
                     <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
-                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_scheduleToken}>{ownerAdminBusy === "Token schedule" ? "Signing..." : "1. Schedule token"}</button>
-                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !tokenExecuteReady} onClick={_executeToken}>{ownerAdminBusy === "Token configuration" ? "Signing..." : tokenExecuteReady ? "2. Execute token" : tokenExecuteAfter > 0 ? `Execute in ${_formatOwnerAdminCountdown(tokenExecuteAfter)}` : "2. Execute token"}</button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || tokenExecuteAfter > 0} onClick={_scheduleToken}>{ownerAdminBusy === "Token schedule" ? "Signing..." : tokenExecuteAfter > 0 ? "1. Token scheduled" : "1. Schedule token"}</button>
+                      <button type="button" className="miniBtn" style={tokenExecuteReady ? { background: "rgba(60,220,130,0.28)", borderColor: "rgba(60,220,130,0.65)" } : undefined} disabled={!!ownerAdminBusy || !tokenExecuteReady} onClick={_executeToken}>{ownerAdminBusy === "Token configuration" ? "Signing..." : tokenExecuteReady ? "2. Execute token" : tokenExecuteAfter > 0 ? `Execute in ${_formatOwnerAdminCountdown(tokenExecuteAfter)}` : "2. Execute token"}</button>
                     </div>
                   </details>
 

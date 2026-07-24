@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-157-OWNER-ADMIN-ABI-CODER-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-158-OWNER-ADMIN-BACKEND-ENCODER";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const CORE_VAULT_OWNER_ADDRESS = "0x3318b6A608b3873962B17DAe069Fc7317D88d68f";
@@ -24668,7 +24668,8 @@ export default function App() {
     if (embedded?.getEthereumProvider) {
       try { candidates.push({ provider: await embedded.getEthereumProvider(), label: "Privy wallet" }); } catch {}
     }
-    const ownerData = new Utils.Interface(NEXUS_CORE_VAULT_ABI).encodeFunctionData("owner", []);
+    // owner() selector = keccak256("owner()")[:4]. No ABI coder is required.
+    const ownerData = "0x8da5cb5b";
     for (const item of candidates) {
       try {
         try { await item.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch {}
@@ -24685,6 +24686,7 @@ export default function App() {
   const _sendOwnerAdminTx = async (data, busyName) => {
     setOwnerAdminBusy(busyName); setOwnerAdminMsg("");
     try {
+      if (!/^0x[0-9a-fA-F]+$/.test(String(data || ""))) throw new Error("Backend returned invalid transaction data.");
       const signer = await _ownerAdminProvider();
       const txHash = await signer.provider.request({ method: "eth_sendTransaction", params: [{ from: signer.account, to: CORE_VAULT_ETH_ADDRESS, value: "0x0", data }] });
       setOwnerAdminMsg(`${busyName} submitted through ${signer.label}: ${txHash}`);
@@ -24695,84 +24697,87 @@ export default function App() {
     } finally { setOwnerAdminBusy(""); }
   };
 
-  const _tokenTuple = () => [
-    !!tokenAdmin.configured, !!tokenAdmin.depositEnabled, !!tokenAdmin.withdrawEnabled,
-    !!tokenAdmin.executionEnabled, !!tokenAdmin.paymentEnabled, !!tokenAdmin.settlementToken,
-    Number(tokenAdmin.decimals || 0), String(tokenAdmin.maxSingleDeposit || "0"),
-    String(tokenAdmin.maxSessionBudget || "0"), String(tokenAdmin.profitThreshold || "0"),
-  ];
-
-  const _ownerAdminAbiEncode = (types, values) => {
-    // alchemy-sdk exposes different ethers utility shapes depending on its bundled ethers version.
-    // Support ethers v5, ethers v6, and constructor-based AbiCoder without assuming one shape.
-    if (Utils?.defaultAbiCoder?.encode) return Utils.defaultAbiCoder.encode(types, values);
-    if (Utils?.AbiCoder?.defaultAbiCoder) return Utils.AbiCoder.defaultAbiCoder().encode(types, values);
-    if (Utils?.AbiCoder) return new Utils.AbiCoder().encode(types, values);
-    throw new Error("ABI coder is unavailable in the current frontend bundle.");
+  const _prepareOwnerAdminAction = async (payload) => {
+    const response = await fetch(`${API_BASE}/api/nexus/core-vault/admin/prepare-action`, {
+      method: "POST", credentials: "include", headers: _authHeaders(), body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result?.status !== "ok") throw new Error(result?.error || `Admin preparation failed (HTTP ${response.status}).`);
+    return result;
   };
 
-  const _tokenActionHash = () => {
-    if (!/^0x[0-9a-fA-F]{40}$/.test(String(tokenAdmin.token || ""))) throw new Error("Invalid token address.");
-    const encoded = _ownerAdminAbiEncode(
-      ["string", "address", "tuple(bool,bool,bool,bool,bool,bool,uint8,uint128,uint128,uint128)"],
-      ["TOKEN", tokenAdmin.token, _tokenTuple()]
-    );
-    return Utils.keccak256(encoded);
-  };
+  const _tokenAdminPayload = () => ({
+    action: "token", token: String(tokenAdmin.token || "").trim(),
+    cfg: {
+      configured: !!tokenAdmin.configured, depositEnabled: !!tokenAdmin.depositEnabled,
+      withdrawEnabled: !!tokenAdmin.withdrawEnabled, executionEnabled: !!tokenAdmin.executionEnabled,
+      paymentEnabled: !!tokenAdmin.paymentEnabled, settlementToken: !!tokenAdmin.settlementToken,
+      decimals: Number(tokenAdmin.decimals || 0), maxSingleDeposit: String(tokenAdmin.maxSingleDeposit || "0"),
+      maxSessionBudget: String(tokenAdmin.maxSessionBudget || "0"), profitThreshold: String(tokenAdmin.profitThreshold || "0"),
+    },
+  });
 
   const _scheduleToken = async () => {
+    setOwnerAdminBusy("Token schedule"); setOwnerAdminMsg("");
     try {
-      const h = _tokenActionHash();
-      const executeAfter = Math.floor(Date.now() / 1000) + 3660;
-      const iface = new Utils.Interface(NEXUS_CORE_VAULT_ABI);
-      setOwnerAdminHash(h);
-      await _sendOwnerAdminTx(iface.encodeFunctionData("scheduleAction", [h, executeAfter]), "Token schedule");
-    } catch (e) { setOwnerAdminMsg(String(e?.message || e)); }
+      const prepared = await _prepareOwnerAdminAction(_tokenAdminPayload());
+      setOwnerAdminHash(prepared.actionHash || "");
+      await _sendOwnerAdminTx(prepared.scheduleCalldata, "Token schedule");
+      if (prepared.executeAfter) setOwnerAdminMsg((prev) => `${prev}${prev ? " | " : ""}Execute after ${new Date(prepared.executeAfter * 1000).toLocaleString()}.`);
+    } catch (e) { setOwnerAdminMsg(`Token schedule failed: ${String(e?.message || e)}`); }
+    finally { setOwnerAdminBusy(""); }
   };
 
   const _executeToken = async () => {
+    setOwnerAdminBusy("Token configuration"); setOwnerAdminMsg("");
     try {
-      const h = _tokenActionHash(); setOwnerAdminHash(h);
-      const iface = new Utils.Interface(NEXUS_CORE_VAULT_ABI);
-      await _sendOwnerAdminTx(iface.encodeFunctionData("configureToken", [tokenAdmin.token, _tokenTuple()]), "Token configuration");
-    } catch (e) { setOwnerAdminMsg(String(e?.message || e)); }
+      const prepared = await _prepareOwnerAdminAction(_tokenAdminPayload());
+      setOwnerAdminHash(prepared.actionHash || "");
+      await _sendOwnerAdminTx(prepared.executeCalldata, "Token configuration");
+    } catch (e) { setOwnerAdminMsg(`Token configuration failed: ${String(e?.message || e)}`); }
+    finally { setOwnerAdminBusy(""); }
   };
 
-  const _routeTuple = () => [!!routeAdmin.enabled, Number(routeAdmin.kind || 0), routeAdmin.target, routeAdmin.oracle, routeAdmin.tokenIn, routeAdmin.tokenOut, routeAdmin.selector];
-  const _routeActionHash = () => {
-    if (!/^0x[0-9a-fA-F]{64}$/.test(String(routeAdmin.routeId || ""))) throw new Error("routeId must be bytes32 (0x plus 64 hex characters).");
-    for (const [name, value] of [["target", routeAdmin.target], ["oracle", routeAdmin.oracle], ["tokenIn", routeAdmin.tokenIn], ["tokenOut", routeAdmin.tokenOut]]) {
-      if (!/^0x[0-9a-fA-F]{40}$/.test(String(value || ""))) throw new Error(`Invalid ${name} address.`);
-    }
-    if (!/^0x[0-9a-fA-F]{8}$/.test(String(routeAdmin.selector || "")) || routeAdmin.selector === "0x00000000") throw new Error("selector must be a non-zero bytes4 value.");
-    const encoded = _ownerAdminAbiEncode(
-      ["string", "bytes32", "tuple(bool,uint8,address,address,address,address,bytes4)"],
-      ["ROUTE", routeAdmin.routeId, _routeTuple()]
-    );
-    return Utils.keccak256(encoded);
-  };
+  const _routeAdminPayload = () => ({
+    action: "route", routeId: String(routeAdmin.routeId || "").trim(),
+    cfg: {
+      enabled: !!routeAdmin.enabled, kind: Number(routeAdmin.kind || 0), target: String(routeAdmin.target || "").trim(),
+      oracle: String(routeAdmin.oracle || "").trim(), tokenIn: String(routeAdmin.tokenIn || "").trim(),
+      tokenOut: String(routeAdmin.tokenOut || "").trim(), selector: String(routeAdmin.selector || "").trim(),
+    },
+  });
 
   const _scheduleRoute = async () => {
+    setOwnerAdminBusy("Route schedule"); setOwnerAdminMsg("");
     try {
-      const h = _routeActionHash(); const executeAfter = Math.floor(Date.now() / 1000) + 3660;
-      setOwnerAdminHash(h);
-      const iface = new Utils.Interface(NEXUS_CORE_VAULT_ABI);
-      await _sendOwnerAdminTx(iface.encodeFunctionData("scheduleAction", [h, executeAfter]), "Route schedule");
-    } catch (e) { setOwnerAdminMsg(String(e?.message || e)); }
+      const prepared = await _prepareOwnerAdminAction(_routeAdminPayload());
+      setOwnerAdminHash(prepared.actionHash || "");
+      await _sendOwnerAdminTx(prepared.scheduleCalldata, "Route schedule");
+      if (prepared.executeAfter) setOwnerAdminMsg((prev) => `${prev}${prev ? " | " : ""}Execute after ${new Date(prepared.executeAfter * 1000).toLocaleString()}.`);
+    } catch (e) { setOwnerAdminMsg(`Route schedule failed: ${String(e?.message || e)}`); }
+    finally { setOwnerAdminBusy(""); }
   };
 
   const _executeRoute = async () => {
+    setOwnerAdminBusy("Route configuration"); setOwnerAdminMsg("");
     try {
-      const h = _routeActionHash(); setOwnerAdminHash(h);
-      const iface = new Utils.Interface(NEXUS_CORE_VAULT_ABI);
-      await _sendOwnerAdminTx(iface.encodeFunctionData("configureRoute", [routeAdmin.routeId, _routeTuple()]), "Route configuration");
-    } catch (e) { setOwnerAdminMsg(String(e?.message || e)); }
+      const prepared = await _prepareOwnerAdminAction(_routeAdminPayload());
+      setOwnerAdminHash(prepared.actionHash || "");
+      await _sendOwnerAdminTx(prepared.executeCalldata, "Route configuration");
+    } catch (e) { setOwnerAdminMsg(`Route configuration failed: ${String(e?.message || e)}`); }
+    finally { setOwnerAdminBusy(""); }
   };
 
   const _setVaultAddressValue = async (method, value, label) => {
-    if (!/^0x[0-9a-fA-F]{40}$/.test(String(value || ""))) { setOwnerAdminMsg(`Invalid ${label} address.`); return; }
-    const iface = new Utils.Interface(NEXUS_CORE_VAULT_ABI);
-    await _sendOwnerAdminTx(iface.encodeFunctionData(method, [value]), label);
+    const actionByMethod = { setGuardian: "guardian", setRevenueWallet: "revenueWallet", setLiquidityDestination: "liquidityDestination" };
+    const action = actionByMethod[method];
+    if (!action) { setOwnerAdminMsg(`Unsupported owner action: ${method}`); return; }
+    setOwnerAdminBusy(label); setOwnerAdminMsg("");
+    try {
+      const prepared = await _prepareOwnerAdminAction({ action, value: String(value || "").trim() });
+      await _sendOwnerAdminTx(prepared.executeCalldata, label);
+    } catch (e) { setOwnerAdminMsg(`${label} failed: ${String(e?.message || e)}`); }
+    finally { setOwnerAdminBusy(""); }
   };
 
   const normalizeStatusRows = (value) => {

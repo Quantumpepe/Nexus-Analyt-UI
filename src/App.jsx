@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-155-OWNER-ADMIN-COREVAULT-V3";
+const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-156-COMPARE-RECOVERY-OWNER-ADMIN";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const CORE_VAULT_OWNER_ADDRESS = "0x3318b6A608b3873962B17DAe069Fc7317D88d68f";
@@ -10607,7 +10607,17 @@ useEffect(() => {
       const state = r?.state || {};
       const serverUpdatedTs = Number(r?.updated_ts || 0) || 0;
       const lastSeenServerTs = Number(appStateLastServerTsRef.current || 0) || 0;
-      const serverCompare = Array.isArray(state?.compare) ? state.compare.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
+      let serverCompare = Array.isArray(state?.compare) ? state.compare.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
+      // A fresh/restarted backend can temporarily have no saved app-state row. In that
+      // case it must not erase the user's visible Compare selection. Recover from the
+      // current watchlist only when the server truly has no persisted state.
+      if (!serverCompare.length && Number(r?.updated_ts || 0) === 0) {
+        const recovered = (Array.isArray(watchItems) ? watchItems : [])
+          .map((x) => String((x && typeof x === "object" ? (x.symbol || x.ticker || x.code) : x) || "").toUpperCase().trim())
+          .filter(Boolean)
+          .slice(0, 20);
+        if (recovered.length) serverCompare = recovered;
+      }
       const serverTf = String(state?.timeframe || "90D").toUpperCase();
       const serverIndex = state?.indexMode == null ? true : !!state.indexMode;
       const serverAi = Array.isArray(state?.aiSelected) ? state.aiSelected.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 6) : [];
@@ -10628,7 +10638,7 @@ useEffect(() => {
 
       // Backend is the cross-device source of truth. Do not upload local state during hydration.
       // A server empty state is authoritative too; localStorage must never resurrect old symbols or settings.
-      const serverIsAuthoritative = true;
+      const serverIsAuthoritative = serverUpdatedTs > 0 || hasServer || !hasLocal;
       if (serverIsAuthoritative) {
         appStateApplyingServerRef.current = true;
         if (serverSig !== localSig) {

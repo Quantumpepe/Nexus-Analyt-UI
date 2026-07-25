@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-171-PRIVY-DELEGATION-CONTROLS-RESTORE";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-173-PRIVY-AUTO-PROVISION-NO-USER-GATE";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -3107,7 +3107,6 @@ const [errorMsg, setErrorMsg] = useState("");
   // External wallets must be optional and only enabled explicitly elsewhere.
   const { ready, authenticated, login, logout, getAccessToken, user: privyUser } = usePrivy();
   const { wallets: privyWallets } = useWallets();
-  const { addSigners, removeSigners } = useSigners();
 
   // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
   const _loginInFlight = useRef(false);
@@ -24796,9 +24795,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 
 export default function App() {
-  const { user: systemPrivyUser } = usePrivy();
   const { wallets: systemWallets = [] } = useWallets();
-  const { addSigners: systemAddSigners, removeSigners: systemRemoveSigners } = useSigners();
   const [liveSetupBusy, setLiveSetupBusy] = useState("");
   const [liveSetupMsg, setLiveSetupMsg] = useState("");
   const [showDisclaimer, setShowDisclaimer] = useState(false);
@@ -25020,45 +25017,28 @@ export default function App() {
     return headers;
   };
 
-  const _enablePrivyTrading = async () => {
-    const target = _primaryEmbeddedPrivyWallet();
-    const address = String(target?.address || footerWallet || "").trim();
-    if (!target || !/^0x[0-9a-fA-F]{40}$/.test(address)) { setLiveSetupMsg("Privy embedded wallet is not available."); return; }
-    setLiveSetupBusy("delegate"); setLiveSetupMsg("");
-    try {
-      const cfgRes = await fetch(`${API_BASE}/api/nexus/privy-trading/config`, { credentials: "include", headers: _authHeaders() });
-      const cfg = await cfgRes.json().catch(() => ({}));
-      if (!cfgRes.ok || !cfg?.configured) throw new Error(cfg?.error || "Trading signer or policy is not configured in Render.");
-      await systemAddSigners({ address, signers: [{ signerId: cfg.signerId, policyIds: [cfg.policyId] }] });
-      const linkedWallet = (systemPrivyUser?.linkedAccounts || systemPrivyUser?.linked_accounts || []).find((a) => a?.type === "wallet" && String(a?.address || "").toLowerCase() === address.toLowerCase());
-      const walletId = String(linkedWallet?.id || target?.id || target?.walletId || target?.wallet_id || "").trim();
-      if (!walletId) throw new Error("Privy wallet ID is not available after delegation.");
-      const saveRes = await fetch(`${API_BASE}/api/nexus/privy-trading/consent`, {
-        method: "POST", credentials: "include", headers: _authHeaders(),
-        body: JSON.stringify({ privyWalletId: walletId, walletAddress: address, system: "TRADER", budgetUsdcUnits: 1000000, durationDays: 1 }),
-      });
-      const saved = await saveRes.json().catch(() => ({}));
-      if (!saveRes.ok) throw new Error(saved?.error || `HTTP ${saveRes.status}`);
-      setLiveSetupMsg("Privy automatic trading permission is active for the configured policy.");
-      setTimeout(() => window.location.reload(), 2500);
-    } catch (error) {
-      setLiveSetupMsg(`Privy delegation failed: ${String(error?.message || error || "unknown error")}`);
-    } finally { setLiveSetupBusy(""); }
-  };
-
-  const _revokePrivyTrading = async () => {
-    const target = _primaryEmbeddedPrivyWallet();
-    const address = String(target?.address || footerWallet || "").trim();
-    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return;
-    setLiveSetupBusy("revoke"); setLiveSetupMsg("");
-    try {
-      await systemRemoveSigners({ address });
-      await fetch(`${API_BASE}/api/nexus/privy-trading/revoke`, { method: "POST", credentials: "include", headers: _authHeaders(), body: "{}" });
-      setLiveSetupMsg("Automatic trading permission was revoked.");
-      setTimeout(() => window.location.reload(), 1800);
-    } catch (error) { setLiveSetupMsg(`Revocation failed: ${String(error?.message || error)}`); }
-    finally { setLiveSetupBusy(""); }
-  };
+  // Register the Privy wallet-id/address mapping silently after login. This is
+  // technical provisioning only: no approval dialog, signature or user action.
+  useEffect(() => {
+    const embedded = _primaryEmbeddedPrivyWallet();
+    const walletId = String(embedded?.id || embedded?.walletId || embedded?.wallet_id || "").trim();
+    const walletAddress = String(embedded?.address || footerWallet || "").trim();
+    if (!walletId || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) return;
+    let cancelled = false;
+    fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {
+      method: "POST",
+      credentials: "include",
+      headers: _authHeaders(),
+      body: JSON.stringify({ privyWalletId: walletId, walletAddress }),
+    }).then(async (res) => {
+      if (cancelled || res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      console.warn("Privy automatic provisioning pending:", data?.error || `HTTP ${res.status}`);
+    }).catch((error) => {
+      if (!cancelled) console.warn("Privy automatic provisioning pending:", error);
+    });
+    return () => { cancelled = true; };
+  }, [systemWallets, footerWallet]);
 
   const _sendSystemSetupTx = async (kind) => {
     if (kind !== "limit") return;
@@ -25585,7 +25565,7 @@ export default function App() {
                   </div>
                   {systemInfoStatus?.liveExecutionReadiness?.status !== "READY" ? (
                     <div style={{ marginTop: 7, padding: "7px 9px", borderRadius: 8, border: "1px solid rgba(255,196,70,0.28)", background: "rgba(255,196,70,0.07)", color: "#ffd978", fontSize: 11, fontWeight: 800 }}>
-                      Live execution remains disabled until every V3 blocker below is cleared.
+                      Live execution remains disabled until the technical CoreVault and route checks below are cleared.
                     </div>
                   ) : null}
                   {(() => {
@@ -25593,7 +25573,6 @@ export default function App() {
                     const ok = (value) => value ? "READY 🟢" : "NOT READY 🟡";
                     const rows = [
                       ["Privy execution service", c.privyAppConfigured && c.tradingSignerConfigured && c.tradingPolicyConfigured],
-                      ["User wallet permission", c.walletDelegated],
                       ["CoreVault V3 connected", c.vaultConnected],
                       ["Vault paused", c.vaultPaused === false, c.vaultPaused ? "YES 🔴" : "NO 🟢"],
                       ["Vault solvent", c.solvent],
@@ -25613,10 +25592,6 @@ export default function App() {
                             <b style={{ color: value ? "#8dffd0" : "#ffe08a", textAlign: "right" }}>{display || ok(value)}</b>
                           </div>
                         ))}
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                          <span>Delegated session budget</span>
-                          <b>{Number(c.delegatedBudgetUsd || 0).toFixed(2)} USDC</b>
-                        </div>
                       </div>
                     );
                   })()}
@@ -25632,38 +25607,10 @@ export default function App() {
                       </div>
                     </details>
                   ) : (
-                    <div style={{ marginTop: 9, fontSize: 11, color: "#8dffd0", fontWeight: 900 }}>CoreVault V3 is ready for the controlled 1 USDC live test.</div>
+                    <div style={{ marginTop: 9, fontSize: 11, color: "#8dffd0", fontWeight: 900 }}>CoreVault V3 is ready for Privy-only live execution.</div>
                   )}
-                  <div style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-                    <button
-                      type="button"
-                      className="miniBtn"
-                      disabled={
-                        !!liveSetupBusy ||
-                        !!systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated
-                      }
-                      onClick={_enablePrivyTrading}
-                    >
-                      {liveSetupBusy === "delegate"
-                        ? "Opening Privy..."
-                        : systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated
-                          ? "Automatic Trading Approved"
-                          : "Approve Automatic Trading"}
-                    </button>
-                    <button
-                      type="button"
-                      className="miniBtn"
-                      disabled={
-                        !!liveSetupBusy ||
-                        !systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated
-                      }
-                      onClick={_revokePrivyTrading}
-                    >
-                      {liveSetupBusy === "revoke" ? "Revoking..." : "Revoke Permission"}
-                    </button>
-                  </div>
-                  <div className="muted" style={{ marginTop: 6, fontSize: 10 }}>
-                    One Privy approval enables the delegated session for the configured wallet, policy, 1 USDC test budget and 24-hour test duration.
+                  <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(141,232,255,0.22)", background: "rgba(141,232,255,0.045)", fontSize: 10 }}>
+                    Privy automation is provisioned by Nexus after wallet creation and an active subscription. No additional user approval, session signature or MetaMask connection is required.
                   </div>
                   {liveSetupMsg ? (
                     <div

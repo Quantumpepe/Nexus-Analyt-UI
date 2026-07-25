@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-175-NKR-NO-PRIVY-POPUP";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-176-EVM-TOKEN-OWNER-REVIEW";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -24795,6 +24795,8 @@ export default function App() {
   const [shadowHealth, setShadowHealth] = useState(null);
   const [systemInfoStatus, setSystemInfoStatus] = useState(null);
   const [shadowReadiness, setShadowReadiness] = useState(null);
+  const [evmRegistryBusy, setEvmRegistryBusy] = useState("");
+  const [evmRegistryMsg, setEvmRegistryMsg] = useState("");
   const [ownerAdminBusy, setOwnerAdminBusy] = useState("");
   const [ownerAdminMsg, setOwnerAdminMsg] = useState("");
   const [ownerAdminHash, setOwnerAdminHash] = useState("");
@@ -25030,6 +25032,41 @@ export default function App() {
     });
     return () => { cancelled = true; };
   }, [systemWallets, footerWallet]);
+
+  const _refreshOwnerSystemInfoNow = async () => {
+    if (!canOpenSystemInfo) return;
+    const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";
+    try {
+      const res = await fetch(`${API_BASE}/api/nexus/system-info-owner-panel${walletParam}`, { cache: "no-store", credentials: "include", headers: _authHeaders() });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data) setSystemInfoStatus(data);
+    } catch {}
+  };
+
+  const _scanEvmRegistry = async () => {
+    setEvmRegistryBusy("scan"); setEvmRegistryMsg("");
+    try {
+      const res = await fetch(`${API_BASE}/api/nexus/evm-token-registry/scan`, { method: "POST", credentials: "include", headers: _authHeaders(), body: "{}" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setEvmRegistryMsg(`Scan complete: ${data?.registry?.counts?.total ?? 0} EVM token contracts tracked.`);
+      await _refreshOwnerSystemInfoNow();
+    } catch (e) { setEvmRegistryMsg(`Scan failed: ${String(e?.message || e)}`); }
+    finally { setEvmRegistryBusy(""); }
+  };
+
+  const _decideEvmToken = async (token, decision) => {
+    const key = `${decision}-${token?.chain_id}-${token?.token_address}`;
+    setEvmRegistryBusy(key); setEvmRegistryMsg("");
+    try {
+      const res = await fetch(`${API_BASE}/api/nexus/evm-token-registry/decision`, { method: "POST", credentials: "include", headers: _authHeaders(), body: JSON.stringify({ chainId: token?.chain_id, tokenAddress: token?.token_address, decision }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setEvmRegistryMsg(decision === "APPROVE" ? `${token?.symbol || "Token"} approved centrally. On-chain CoreVault configuration is still required before live use.` : `${token?.symbol || "Token"}: ${decision.toLowerCase()} saved.`);
+      await _refreshOwnerSystemInfoNow();
+    } catch (e) { setEvmRegistryMsg(`Action failed: ${String(e?.message || e)}`); }
+    finally { setEvmRegistryBusy(""); }
+  };
 
   const _sendSystemSetupTx = async (kind) => {
     if (kind !== "limit") return;
@@ -25543,6 +25580,48 @@ export default function App() {
                     })}
                   </div>
                 </details>
+
+                <div style={{ gridColumn: "span 12", marginTop: 2, border: "1px solid rgba(141,232,255,0.28)", borderRadius: 10, padding: 10, background: "rgba(141,232,255,0.045)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <div>
+                      <b>EVM Token Allowlist · Owner Review</b>
+                      <div className="muted" style={{ marginTop: 3, fontSize: 10 }}>Watchlist tokens are detected and checked automatically across enabled EVM chains. Users never approve individual tokens.</div>
+                    </div>
+                    <button type="button" className="miniBtn" disabled={!!evmRegistryBusy} onClick={_scanEvmRegistry}>{evmRegistryBusy === "scan" ? "Scanning..." : "Scan all Watchlists"}</button>
+                  </div>
+                  {(() => {
+                    const reg = systemInfoStatus?.evmTokenRegistry || {};
+                    const pending = Array.isArray(reg?.pending) ? reg.pending : [];
+                    const blocked = Array.isArray(reg?.blocked) ? reg.blocked : [];
+                    const approved = Array.isArray(reg?.approved) ? reg.approved : [];
+                    const Row = ({ token, blockedRow = false }) => {
+                      const risk = token?.risk || {}; const route = token?.route || {};
+                      const keyBase = `${token?.chain_id}-${token?.token_address}`;
+                      return (
+                        <div key={keyBase} style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 9, padding: 8, display: "grid", gridTemplateColumns: "minmax(130px,0.8fr) minmax(220px,1.6fr) minmax(210px,1.4fr) auto", gap: 8, alignItems: "center", fontSize: 10 }}>
+                          <div><b>{token?.symbol || "?"}</b> · {token?.chain_key || token?.chain_id}<div className="muted">{token?.name || ""}</div></div>
+                          <div style={{ wordBreak: "break-all" }}>{token?.token_address}<div className="muted">GoPlus: {risk?.rawAvailable ? "checked" : "pending"} · sell tax {risk?.sellTax == null ? "—" : `${(Number(risk.sellTax) * 100).toFixed(2)}%`}</div></div>
+                          <div><span style={{ color: blockedRow ? "#ffb4b4" : "#ffe08a", fontWeight: 900 }}>{token?.status}</span><div className="muted">{token?.decision_reason || ""}</div><div className="muted">Router {route?.routerConfigured ? "configured" : "missing"} · quote {route?.quoteVerified ? "verified" : "not yet verified"}</div></div>
+                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                            {!blockedRow ? <button type="button" className="miniBtn" disabled={!!evmRegistryBusy} onClick={() => _decideEvmToken(token, "APPROVE")}>{evmRegistryBusy === `APPROVE-${keyBase}` ? "Saving..." : "OK / Freigeben"}</button> : null}
+                            <button type="button" className="miniBtn" disabled={!!evmRegistryBusy} onClick={() => _decideEvmToken(token, "RECHECK")}>Recheck</button>
+                            <button type="button" className="miniBtn" disabled={!!evmRegistryBusy} onClick={() => _decideEvmToken(token, "REJECT")}>Ablehnen</button>
+                          </div>
+                        </div>
+                      );
+                    };
+                    return (
+                      <div style={{ marginTop: 9, display: "grid", gap: 8 }}>
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 10 }}><b>Pending: {pending.length}</b><b>Blocked: {blocked.length}</b><b>Approved: {approved.length}</b></div>
+                        {pending.length ? pending.map((token) => <Row key={`p-${token.chain_id}-${token.token_address}`} token={token} />) : <div className="muted" style={{ fontSize: 10 }}>No token currently waits for owner approval.</div>}
+                        {blocked.length ? <details><summary style={{ cursor: "pointer", color: "#ffb4b4", fontWeight: 900 }}>Blocked / auffällig ({blocked.length})</summary><div style={{ display: "grid", gap: 6, marginTop: 7 }}>{blocked.map((token) => <Row key={`b-${token.chain_id}-${token.token_address}`} token={token} blockedRow />)}</div></details> : null}
+                        {approved.length ? <details><summary style={{ cursor: "pointer", color: "#8dffd0", fontWeight: 900 }}>Approved ({approved.length})</summary><div style={{ marginTop: 7, fontSize: 10 }}>{approved.map((x) => `${x.symbol} · ${x.chain_key}`).join(" · ")}</div></details> : null}
+                      </div>
+                    );
+                  })()}
+                  {evmRegistryMsg ? <div style={{ marginTop: 8, fontSize: 10, color: evmRegistryMsg.includes("failed") ? "#ffb4b4" : "#8de8ff", wordBreak: "break-word" }}>{evmRegistryMsg}</div> : null}
+                  <div className="muted" style={{ marginTop: 7, fontSize: 9 }}>“OK / Freigeben” records the central Nexus approval. A token is still not live until its exact contract and buy/sell routes are configured in the CoreVault on that chain.</div>
+                </div>
 
                 <div style={{ gridColumn: "span 4", gridRow: "span 2", marginTop: 2, border: "1px solid rgba(68,255,180,0.24)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

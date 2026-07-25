@@ -25585,7 +25585,7 @@ export default function App() {
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <div>
                       <b>EVM Token Allowlist · Owner Review</b>
-                      <div className="muted" style={{ marginTop: 3, fontSize: 10 }}>Watchlist tokens are detected and checked automatically across enabled EVM chains. Users never approve individual tokens.</div>
+                      <div className="muted" style={{ marginTop: 3, fontSize: 10 }}>Watchlist-Token werden automatisch geprüft. Nur unklare Fälle erscheinen in deiner aufklappbaren Prüfliste.</div>
                     </div>
                     <button type="button" className="miniBtn" disabled={!!evmRegistryBusy} onClick={_scanEvmRegistry}>{evmRegistryBusy === "scan" ? "Scanning..." : "Scan all Watchlists"}</button>
                   </div>
@@ -25601,7 +25601,7 @@ export default function App() {
                         <div key={keyBase} style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 9, padding: 8, display: "grid", gridTemplateColumns: "minmax(130px,0.8fr) minmax(220px,1.6fr) minmax(210px,1.4fr) auto", gap: 8, alignItems: "center", fontSize: 10 }}>
                           <div><b>{token?.symbol || "?"}</b> · {token?.chain_key || token?.chain_id}<div className="muted">{token?.name || ""}</div></div>
                           <div style={{ wordBreak: "break-all" }}>{token?.token_address}<div className="muted">GoPlus: {risk?.rawAvailable ? "checked" : "pending"} · sell tax {risk?.sellTax == null ? "—" : `${(Number(risk.sellTax) * 100).toFixed(2)}%`}</div></div>
-                          <div><span style={{ color: blockedRow ? "#ffb4b4" : "#ffe08a", fontWeight: 900 }}>{token?.status}</span><div className="muted">{token?.decision_reason || ""}</div><div className="muted">Router {route?.routerConfigured ? "configured" : "missing"} · quote {route?.quoteVerified ? "verified" : "not yet verified"}</div></div>
+                          <div><span style={{ color: blockedRow ? "#ffb4b4" : "#ffe08a", fontWeight: 900 }}>{token?.status}</span><div className="muted">{token?.decision_reason || ""}</div><div className="muted">Router {route?.routerConfigured ? "bereit" : "fehlt"} · Markt {route?.quoteVerified ? "geprüft" : "noch unklar"}</div></div>
                           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
                             {!blockedRow ? <button type="button" className="miniBtn" disabled={!!evmRegistryBusy} onClick={() => _decideEvmToken(token, "APPROVE")}>{evmRegistryBusy === `APPROVE-${keyBase}` ? "Saving..." : "OK / Freigeben"}</button> : null}
                             <button type="button" className="miniBtn" disabled={!!evmRegistryBusy} onClick={() => _decideEvmToken(token, "RECHECK")}>Recheck</button>
@@ -25612,15 +25612,24 @@ export default function App() {
                     };
                     return (
                       <div style={{ marginTop: 9, display: "grid", gap: 8 }}>
-                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 10 }}><b>Pending: {pending.length}</b><b>Blocked: {blocked.length}</b><b>Approved: {approved.length}</b></div>
-                        {pending.length ? pending.map((token) => <Row key={`p-${token.chain_id}-${token.token_address}`} token={token} />) : <div className="muted" style={{ fontSize: 10 }}>No token currently waits for owner approval.</div>}
-                        {blocked.length ? <details><summary style={{ cursor: "pointer", color: "#ffb4b4", fontWeight: 900 }}>Blocked / auffällig ({blocked.length})</summary><div style={{ display: "grid", gap: 6, marginTop: 7 }}>{blocked.map((token) => <Row key={`b-${token.chain_id}-${token.token_address}`} token={token} blockedRow />)}</div></details> : null}
-                        {approved.length ? <details><summary style={{ cursor: "pointer", color: "#8dffd0", fontWeight: 900 }}>Approved ({approved.length})</summary><div style={{ marginTop: 7, fontSize: 10 }}>{approved.map((x) => `${x.symbol} · ${x.chain_key}`).join(" · ")}</div></details> : null}
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 10 }}><b>Zu prüfen: {pending.length}</b><b>Blockiert: {blocked.length}</b><b>Freigegeben: {approved.length}</b></div>
+                        {pending.length ? (
+                          <details>
+                            <summary style={{ cursor: "pointer", color: "#ffe08a", fontWeight: 900, padding: "5px 0" }}>
+                              Manuell zu prüfen ({pending.length})
+                            </summary>
+                            <div style={{ display: "grid", gap: 6, marginTop: 7, maxHeight: pending.length > 5 ? 390 : "none", overflowY: pending.length > 5 ? "auto" : "visible", paddingRight: pending.length > 5 ? 5 : 0 }}>
+                              {pending.map((token) => <Row key={`p-${token.chain_id}-${token.token_address}`} token={token} />)}
+                            </div>
+                          </details>
+                        ) : <div className="muted" style={{ fontSize: 10 }}>Keine Token warten auf deine Prüfung.</div>}
+                        {blocked.length ? <details><summary style={{ cursor: "pointer", color: "#ffb4b4", fontWeight: 900 }}>Blockiert / auffällig ({blocked.length})</summary><div style={{ display: "grid", gap: 6, marginTop: 7, maxHeight: blocked.length > 5 ? 390 : "none", overflowY: blocked.length > 5 ? "auto" : "visible", paddingRight: blocked.length > 5 ? 5 : 0 }}>{blocked.map((token) => <Row key={`b-${token.chain_id}-${token.token_address}`} token={token} blockedRow />)}</div></details> : null}
+                        {approved.length ? <details><summary style={{ cursor: "pointer", color: "#8dffd0", fontWeight: 900 }}>Automatisch oder manuell freigegeben ({approved.length})</summary><div style={{ marginTop: 7, fontSize: 10, maxHeight: 180, overflowY: "auto" }}>{approved.map((x) => `${x.symbol} · ${x.chain_key}`).join(" · ")}</div></details> : null}
                       </div>
                     );
                   })()}
                   {evmRegistryMsg ? <div style={{ marginTop: 8, fontSize: 10, color: evmRegistryMsg.includes("failed") ? "#ffb4b4" : "#8de8ff", wordBreak: "break-word" }}>{evmRegistryMsg}</div> : null}
-                  <div className="muted" style={{ marginTop: 7, fontSize: 9 }}>“OK / Freigeben” records the central Nexus approval. A token is still not live until its exact contract and buy/sell routes are configured in the CoreVault on that chain.</div>
+                  <div className="muted" style={{ marginTop: 7, fontSize: 9 }}>Mit „OK / Freigeben“ bestätigst du nur einen unklaren Einzelfall. Automatisch bestandene Token erscheinen nicht in dieser Prüfliste.</div>
                 </div>
 
                 <div style={{ gridColumn: "span 4", gridRow: "span 2", marginTop: 2, border: "1px solid rgba(68,255,180,0.24)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>

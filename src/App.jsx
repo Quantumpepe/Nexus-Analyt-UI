@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-174-NKR-AUTONOMOUS-START";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-175-NKR-NO-PRIVY-POPUP";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4552,15 +4552,15 @@ useEffect(() => {
     throw new Error("Transaction confirmation timed out. Check the transaction in your wallet.");
   };
 
-  // ENGINE-163: reserve an on-chain CoreVault session budget with the user's own Privy wallet.
-  // No backend key and no MetaMask are used. The backend only prepares verified calldata.
+  // ENGINE-175: create CoreVault sessions through the server-side Privy wallet API.
+  // NKR, Trader and Grid must never trigger a browser approval popup.
   const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500 }) => {
     if (!wallet) throw new Error("Wallet not connected.");
     const budget = Number(String(budgetUsd ?? "").replace(",", "."));
     if (!Number.isFinite(budget) || budget <= 0) throw new Error("A positive CoreVault budget is required.");
     if (!coreVaultOnchain?.connected) throw new Error("Ethereum CoreVault is not connected.");
 
-    const prepared = await api("/api/nexus/core-vault/session/prepare-create", {
+    const result = await api("/api/nexus/core-vault/session/create-auto", {
       method: "POST",
       token,
       wallet,
@@ -4573,22 +4573,12 @@ useEffect(() => {
         maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
       },
     });
-    if (!prepared?.to || !prepared?.data) throw new Error(prepared?.message || prepared?.error || "CoreVault session preparation failed.");
-
-    const provider = await _getEmbeddedProvider();
-    try {
-      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
-    } catch (switchError) {
-      throw new Error(`Switch the Privy wallet to Ethereum Mainnet: ${switchError?.message || switchError}`);
+    if (result?.status !== "ok" || !result?.txHash) {
+      const details = Array.isArray(result?.blockers) && result.blockers.length ? `: ${result.blockers.join(", ")}` : "";
+      throw new Error(`${result?.message || result?.error || "Automatic CoreVault session creation failed"}${details}`);
     }
-    const from = String(wallet).toLowerCase();
-    const hash = await provider.request({
-      method: "eth_sendTransaction",
-      params: [{ from, to: prepared.to, data: prepared.data, value: prepared.value || "0x0" }],
-    });
-    const receipt = await _waitForTxReceipt(provider, hash);
     await Promise.allSettled([refreshCoreVaultOnchain(), refreshCoreVaultAccounting()]);
-    return { hash, receipt, prepared };
+    return { hash: result.txHash, sessionId: result.sessionId, result };
   };
 
   const depositToCoreVault = async () => {

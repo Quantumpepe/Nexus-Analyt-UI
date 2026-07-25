@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-170-ROUTE-PENDING-VALUES-RESTORE";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-171-PRIVY-DELEGATION-CONTROLS-RESTORE";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -25634,6 +25634,53 @@ export default function App() {
                   ) : (
                     <div style={{ marginTop: 9, fontSize: 11, color: "#8dffd0", fontWeight: 900 }}>CoreVault V3 is ready for the controlled 1 USDC live test.</div>
                   )}
+                  <div style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <button
+                      type="button"
+                      className="miniBtn"
+                      disabled={
+                        !!liveSetupBusy ||
+                        !!systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated
+                      }
+                      onClick={_enablePrivyTrading}
+                    >
+                      {liveSetupBusy === "delegate"
+                        ? "Opening Privy..."
+                        : systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated
+                          ? "Automatic Trading Approved"
+                          : "Approve Automatic Trading"}
+                    </button>
+                    <button
+                      type="button"
+                      className="miniBtn"
+                      disabled={
+                        !!liveSetupBusy ||
+                        !systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated
+                      }
+                      onClick={_revokePrivyTrading}
+                    >
+                      {liveSetupBusy === "revoke" ? "Revoking..." : "Revoke Permission"}
+                    </button>
+                  </div>
+                  <div className="muted" style={{ marginTop: 6, fontSize: 10 }}>
+                    One Privy approval enables the delegated session for the configured wallet, policy, 1 USDC test budget and 24-hour test duration.
+                  </div>
+                  {liveSetupMsg ? (
+                    <div
+                      style={{
+                        marginTop: 7,
+                        padding: "7px 9px",
+                        borderRadius: 8,
+                        border: "1px solid rgba(141,232,255,0.25)",
+                        background: "rgba(141,232,255,0.045)",
+                        fontSize: 10,
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {liveSetupMsg}
+                    </div>
+                  ) : null}
+
                   {systemInfoStatus?.liveExecutorStatus?.jobs?.[0] ? (
                     <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-word" }}>
                       Latest V3 job: <b>{systemInfoStatus.liveExecutorStatus.jobs[0].status}</b> · {systemInfoStatus.liveExecutorStatus.jobs[0].stage}

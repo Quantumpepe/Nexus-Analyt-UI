@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-169-OWNER-ADMIN-WALLET-SELECTOR";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-170-ROUTE-PENDING-VALUES-RESTORE";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -24862,7 +24862,49 @@ export default function App() {
         setTokenExecuteAfter(Number(tokenPending.executeAfter));
       }
       const routePending = JSON.parse(window.localStorage.getItem("nexus_owner_admin_route_pending_v1") || "null");
-      if (routePending?.executeAfter) setRouteExecuteAfter(Number(routePending.executeAfter));
+      if (routePending?.executeAfter) {
+        setRouteExecuteAfter(Number(routePending.executeAfter));
+        if (routePending?.actionHash) setOwnerAdminHash(String(routePending.actionHash));
+
+        // Restore the exact values that were scheduled. executeRoute() must use
+        // byte-for-byte identical values or the timelock action hash will differ.
+        let restoredRoute = routePending?.route && typeof routePending.route === "object"
+          ? routePending.route
+          : null;
+
+        // Backward compatibility for routes scheduled by ENGINE-169, which only
+        // stored routeId. Known presets can be reconstructed safely.
+        if (!restoredRoute && routePending?.routeId) {
+          const pendingRouteId = String(routePending.routeId || "").toLowerCase();
+          const isBuy = pendingRouteId === String(ETH_USDC_WETH_BUY_ROUTE_ID).toLowerCase();
+          const isSell = pendingRouteId === String(ETH_WETH_USDC_SELL_ROUTE_ID).toLowerCase();
+          if (isBuy || isSell) {
+            restoredRoute = {
+              routeId: isBuy ? ETH_USDC_WETH_BUY_ROUTE_ID : ETH_WETH_USDC_SELL_ROUTE_ID,
+              enabled: true,
+              kind: "0",
+              target: UNISWAP_SWAP_ROUTER_02,
+              oracle: ZERO_ADDRESS,
+              tokenIn: isBuy ? ETH_USDC_ADDRESS : ETH_WETH_ADDRESS,
+              tokenOut: isBuy ? ETH_WETH_ADDRESS : ETH_USDC_ADDRESS,
+              selector: UNISWAP_EXACT_INPUT_SINGLE_SELECTOR,
+            };
+          }
+        }
+
+        if (restoredRoute) {
+          setRouteAdmin({
+            routeId: String(restoredRoute.routeId || ""),
+            enabled: restoredRoute.enabled !== false,
+            kind: String(restoredRoute.kind ?? "0"),
+            target: String(restoredRoute.target || ""),
+            oracle: String(restoredRoute.oracle || ZERO_ADDRESS),
+            tokenIn: String(restoredRoute.tokenIn || ""),
+            tokenOut: String(restoredRoute.tokenOut || ""),
+            selector: String(restoredRoute.selector || "0x00000000"),
+          });
+        }
+      }
     } catch {}
     return () => window.clearInterval(timer);
   }, []);
@@ -24877,6 +24919,15 @@ export default function App() {
 
   const tokenExecuteReady = tokenExecuteAfter > 0 && ownerAdminNow >= tokenExecuteAfter;
   const routeExecuteReady = routeExecuteAfter > 0 && ownerAdminNow >= routeExecuteAfter;
+  const routePendingLocked = routeExecuteAfter > 0;
+  const pendingRouteDirection =
+    String(routeAdmin.tokenIn || "").toLowerCase() === ETH_USDC_ADDRESS.toLowerCase() &&
+    String(routeAdmin.tokenOut || "").toLowerCase() === ETH_WETH_ADDRESS.toLowerCase()
+      ? "BUY · USDC → WETH"
+      : String(routeAdmin.tokenIn || "").toLowerCase() === ETH_WETH_ADDRESS.toLowerCase() &&
+        String(routeAdmin.tokenOut || "").toLowerCase() === ETH_USDC_ADDRESS.toLowerCase()
+        ? "SELL · WETH → USDC"
+        : "CUSTOM ROUTE";
 
   useEffect(() => {
     let alive = true;
@@ -25257,7 +25308,23 @@ export default function App() {
       if (txHash && prepared.executeAfter) {
         const executeAfter = Number(prepared.executeAfter);
         setRouteExecuteAfter(executeAfter);
-        try { window.localStorage.setItem("nexus_owner_admin_route_pending_v1", JSON.stringify({ actionHash: prepared.actionHash || "", executeAfter, routeId: routeAdmin.routeId })); } catch {}
+        try {
+          window.localStorage.setItem("nexus_owner_admin_route_pending_v1", JSON.stringify({
+            actionHash: prepared.actionHash || "",
+            executeAfter,
+            routeId: routeAdmin.routeId,
+            route: {
+              routeId: String(routeAdmin.routeId || "").trim(),
+              enabled: !!routeAdmin.enabled,
+              kind: String(routeAdmin.kind ?? "0"),
+              target: String(routeAdmin.target || "").trim(),
+              oracle: String(routeAdmin.oracle || ZERO_ADDRESS).trim(),
+              tokenIn: String(routeAdmin.tokenIn || "").trim(),
+              tokenOut: String(routeAdmin.tokenOut || "").trim(),
+              selector: String(routeAdmin.selector || "").trim(),
+            },
+          }));
+        } catch {}
         setOwnerAdminMsg((prev) => `${prev}${prev ? " | " : ""}Execute after ${new Date(executeAfter * 1000).toLocaleString()}.`);
       }
     } catch (e) { setOwnerAdminMsg(`Route schedule failed: ${String(e?.message || e)}`); }
@@ -25646,19 +25713,30 @@ export default function App() {
                     </div>
                     <div className="muted" style={{ marginTop: 6, fontSize: 10 }}>Configure the BUY route completely first. After it is executed, load and configure the SELL route.</div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
-                      <label style={{ gridColumn: "1 / -1", fontSize: 10 }}>Route ID (bytes32)<input value={routeAdmin.routeId} onChange={(e) => setRouteAdmin({ ...routeAdmin, routeId: e.target.value })} placeholder="routeId bytes32" style={{ width: "100%" }} /></label>
-                      <label style={{ fontSize: 10 }}><input type="checkbox" checked={!!routeAdmin.enabled} onChange={(e) => setRouteAdmin({ ...routeAdmin, enabled: e.target.checked })} /> Enabled</label>
-                      <label style={{ fontSize: 10 }}>Route type: 0 = TRADE<input value={routeAdmin.kind} onChange={(e) => setRouteAdmin({ ...routeAdmin, kind: e.target.value })} placeholder="0" style={{ width: "100%" }} /></label>
-                      <label style={{ fontSize: 10 }}>Router target<input value={routeAdmin.target} onChange={(e) => setRouteAdmin({ ...routeAdmin, target: e.target.value })} placeholder="Uniswap SwapRouter02" style={{ width: "100%" }} /></label>
-                      <label style={{ fontSize: 10 }}>Oracle (zero = disabled)<input value={routeAdmin.oracle} onChange={(e) => setRouteAdmin({ ...routeAdmin, oracle: e.target.value })} placeholder={ZERO_ADDRESS} style={{ width: "100%" }} /></label>
-                      <label style={{ fontSize: 10 }}>Token in<input value={routeAdmin.tokenIn} onChange={(e) => setRouteAdmin({ ...routeAdmin, tokenIn: e.target.value })} placeholder="tokenIn" style={{ width: "100%" }} /></label>
-                      <label style={{ fontSize: 10 }}>Token out<input value={routeAdmin.tokenOut} onChange={(e) => setRouteAdmin({ ...routeAdmin, tokenOut: e.target.value })} placeholder="tokenOut" style={{ width: "100%" }} /></label>
-                      <label style={{ gridColumn: "1 / -1", fontSize: 10 }}>Router function selector<input value={routeAdmin.selector} onChange={(e) => setRouteAdmin({ ...routeAdmin, selector: e.target.value })} placeholder="0x04e45aaf" style={{ width: "100%" }} /></label>
+                      <label style={{ gridColumn: "1 / -1", fontSize: 10 }}>Route ID (bytes32)<input value={routeAdmin.routeId} readOnly={routePendingLocked} onChange={(e) => setRouteAdmin({ ...routeAdmin, routeId: e.target.value })} placeholder="routeId bytes32" style={{ width: "100%", opacity: routePendingLocked ? 0.86 : 1 }} /></label>
+                      <label style={{ fontSize: 10 }}><input type="checkbox" checked={!!routeAdmin.enabled} disabled={routePendingLocked} onChange={(e) => setRouteAdmin({ ...routeAdmin, enabled: e.target.checked })} /> Enabled</label>
+                      <label style={{ fontSize: 10 }}>Route type: 0 = TRADE<input value={routeAdmin.kind} readOnly={routePendingLocked} onChange={(e) => setRouteAdmin({ ...routeAdmin, kind: e.target.value })} placeholder="0" style={{ width: "100%", opacity: routePendingLocked ? 0.86 : 1 }} /></label>
+                      <label style={{ fontSize: 10 }}>Router target<input value={routeAdmin.target} readOnly={routePendingLocked} onChange={(e) => setRouteAdmin({ ...routeAdmin, target: e.target.value })} placeholder="Uniswap SwapRouter02" style={{ width: "100%", opacity: routePendingLocked ? 0.86 : 1 }} /></label>
+                      <label style={{ fontSize: 10 }}>Oracle (zero = disabled)<input value={routeAdmin.oracle} readOnly={routePendingLocked} onChange={(e) => setRouteAdmin({ ...routeAdmin, oracle: e.target.value })} placeholder={ZERO_ADDRESS} style={{ width: "100%", opacity: routePendingLocked ? 0.86 : 1 }} /></label>
+                      <label style={{ fontSize: 10 }}>Token in<input value={routeAdmin.tokenIn} readOnly={routePendingLocked} onChange={(e) => setRouteAdmin({ ...routeAdmin, tokenIn: e.target.value })} placeholder="tokenIn" style={{ width: "100%", opacity: routePendingLocked ? 0.86 : 1 }} /></label>
+                      <label style={{ fontSize: 10 }}>Token out<input value={routeAdmin.tokenOut} readOnly={routePendingLocked} onChange={(e) => setRouteAdmin({ ...routeAdmin, tokenOut: e.target.value })} placeholder="tokenOut" style={{ width: "100%", opacity: routePendingLocked ? 0.86 : 1 }} /></label>
+                      <label style={{ gridColumn: "1 / -1", fontSize: 10 }}>Router function selector<input value={routeAdmin.selector} readOnly={routePendingLocked} onChange={(e) => setRouteAdmin({ ...routeAdmin, selector: e.target.value })} placeholder="0x04e45aaf" style={{ width: "100%", opacity: routePendingLocked ? 0.86 : 1 }} /></label>
                     </div>
                     {routeExecuteAfter > 0 ? (
                       <div style={{ marginTop: 8, padding: "7px 9px", borderRadius: 8, background: routeExecuteReady ? "rgba(60,220,130,0.12)" : "rgba(255,196,70,0.10)", border: routeExecuteReady ? "1px solid rgba(60,220,130,0.38)" : "1px solid rgba(255,196,70,0.35)", fontSize: 10 }}>
-                        <div style={{ fontWeight: 900, color: routeExecuteReady ? "#8dffd0" : "#ffd978" }}>{routeExecuteReady ? "READY TO EXECUTE" : "PENDING ROUTE UPDATE"}</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ fontWeight: 900, color: routeExecuteReady ? "#8dffd0" : "#ffd978" }}>{routeExecuteReady ? "READY TO EXECUTE" : "PENDING ROUTE UPDATE"}</div>
+                          <div style={{ fontWeight: 900, color: "#9fe8ff" }}>{pendingRouteDirection}</div>
+                        </div>
                         <div className="muted" style={{ marginTop: 2 }}>{routeExecuteReady ? "Timelock completed." : `Execute in ${_formatOwnerAdminCountdown(routeExecuteAfter)}`} · {new Date(routeExecuteAfter * 1000).toLocaleString()}</div>
+                        <div style={{ marginTop: 7, display: "grid", gridTemplateColumns: "auto 1fr", gap: "3px 8px", fontSize: 9, wordBreak: "break-all" }}>
+                          <span className="muted">Route ID</span><span>{routeAdmin.routeId || "missing"}</span>
+                          <span className="muted">Router</span><span>{routeAdmin.target || "missing"}</span>
+                          <span className="muted">Token in</span><span>{routeAdmin.tokenIn || "missing"}</span>
+                          <span className="muted">Token out</span><span>{routeAdmin.tokenOut || "missing"}</span>
+                          <span className="muted">Selector</span><span>{routeAdmin.selector || "missing"}</span>
+                        </div>
+                        <div style={{ marginTop: 6, color: "#ffd978", fontSize: 9 }}>Scheduled values are locked until execution so the timelock action hash remains identical.</div>
                       </div>
                     ) : <div className="muted" style={{ marginTop: 8, fontSize: 10 }}>Status: No pending route update.</div>}
                     <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>

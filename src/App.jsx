@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-167-SYSTEM-INFO-WIDE-COLLAPSIBLE";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-168-SYSTEM-INFO-DASHBOARD-COLUMNS";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -25334,13 +25334,18 @@ export default function App() {
           <div
             className="nexus-disclaimer-modal"
             onClick={(e) => e.stopPropagation()}
-            style={{ width: "min(1120px, calc(100vw - 36px))", maxWidth: 1120 }}
+            style={{ width: "min(1540px, calc(100vw - 24px))", maxWidth: 1540, height: "min(88vh, 940px)" }}
           >
+            <style>{`
+              @media (max-width: 1100px) {
+                .nexus-system-dashboard-grid > * { grid-column: 1 / -1 !important; }
+              }
+            `}</style>
             <div className="nexus-disclaimer-title">NEXUS SYSTEM INFO</div>
 
             <div className="nexus-disclaimer-content">
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12, fontSize: 13, alignItems: "start" }}>
-                <div>
+              <div className="nexus-system-dashboard-grid" style={{ display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gap: 12, fontSize: 13, alignItems: "start" }}>
+                <div style={{ gridColumn: "span 4", minWidth: 0 }}>
                   <b>Connection</b>
                   <br />
                   Backend: {backendOnline ? "ONLINE 🟢" : "OFFLINE / NOT LOADED 🔴"}
@@ -25348,7 +25353,7 @@ export default function App() {
                   API Base: {API_BASE || "same origin"}
                 </div>
 
-                <div>
+                <div style={{ gridColumn: "span 4", minWidth: 0 }}>
                   <b>Build Proof</b>
                   <br />
                   Backend Build: {backendBuild}
@@ -25362,7 +25367,7 @@ export default function App() {
                   Backend Timestamp: {buildTs}
                 </div>
 
-                <div>
+                <div style={{ gridColumn: "span 4", minWidth: 0 }}>
                   <b>Engine Modes</b>
                   <br />
                   Strategist: {strategistBuild}
@@ -25377,7 +25382,7 @@ export default function App() {
                 </div>
 
                 <details style={{
-                  gridColumn: "1 / -1",
+                  gridColumn: "span 4",
                   border: `1px solid ${shadowStalled ? "rgba(255,80,80,0.55)" : "rgba(68,255,180,0.22)"}`,
                   borderRadius: 10,
                   padding: 10,
@@ -25396,7 +25401,7 @@ export default function App() {
                 </details>
 
                 <details style={{
-                  gridColumn: "1 / -1",
+                  gridColumn: "span 8",
                   border: "1px solid rgba(68,255,180,0.20)",
                   borderRadius: 10,
                   padding: 10,
@@ -25436,7 +25441,7 @@ export default function App() {
                   </div>
                 </details>
 
-                <div style={{ gridColumn: "1 / -1", marginTop: 2, border: "1px solid rgba(68,255,180,0.24)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
+                <div style={{ gridColumn: "span 4", gridRow: "span 2", marginTop: 2, border: "1px solid rgba(68,255,180,0.24)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <b>CoreVault V3 Live Readiness</b>
                     <span style={{ color: systemInfoStatus?.liveExecutionReadiness?.status === "READY" ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>
@@ -25505,7 +25510,7 @@ export default function App() {
                   ) : null}
                 </div>
 
-                <div style={{ gridColumn: "1 / -1", marginTop: 2, border: "1px solid rgba(102,220,255,0.28)", borderRadius: 10, padding: 10, background: "rgba(40,180,255,0.045)" }}>
+                <div style={{ gridColumn: "span 8", marginTop: 2, border: "1px solid rgba(102,220,255,0.28)", borderRadius: 10, padding: 10, background: "rgba(40,180,255,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <b>CoreVault Owner Admin</b>
                     <span style={{ color: "#8de8ff", fontWeight: 900 }}>OWNER ONLY</span>
@@ -25513,7 +25518,8 @@ export default function App() {
                   <div className="muted" style={{ marginTop: 5, fontSize: 10, wordBreak: "break-all" }}>CoreVault: {CORE_VAULT_ETH_ADDRESS}</div>
                   <div className="muted" style={{ marginTop: 3, fontSize: 10 }}>Token and route changes are scheduled automatically for 61 minutes. Execute them later with the identical values.</div>
 
-                  <details open style={{ marginTop: 9 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, alignItems: "start" }}>
+                  <details open style={{ marginTop: 9, minWidth: 0 }}>
                     <summary style={{ cursor: "pointer", fontWeight: 800 }}>Token configuration</summary>
                     <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
                       <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || tokenExecuteAfter > 0} onClick={_loadWethTokenPreset}>Load WETH execution preset</button>
@@ -25571,6 +25577,7 @@ export default function App() {
                       <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !routeExecuteReady} onClick={_executeRoute}>{routeExecuteReady ? "2. Execute route" : routeExecuteAfter > 0 ? `Execute in ${_formatOwnerAdminCountdown(routeExecuteAfter)}` : "2. Execute route"}</button>
                     </div>
                   </details>
+                  </div>
 
                   <details style={{ marginTop: 9 }}>
                     <summary style={{ cursor: "pointer", fontWeight: 800 }}>Vault wallets</summary>
@@ -25584,7 +25591,7 @@ export default function App() {
                   {ownerAdminMsg ? <div style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all", color: ownerAdminMsg.includes("failed") ? "#ffb4b4" : "#8dffd0" }}>{ownerAdminMsg}</div> : null}
                 </div>
 
-                <div style={{ gridColumn: "1 / -1", marginTop: 2, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
+                <div style={{ gridColumn: "span 4", marginTop: 2, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <b>NKR Liquidity Vault</b>
                     <span style={{ color: systemInfoStatus?.nkrLiquidityVault?.status === "READY" ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>{systemInfoStatus?.nkrLiquidityVault?.status || "PREP ONLY"}</span>
@@ -25599,7 +25606,7 @@ export default function App() {
                   <div className="muted" style={{ marginTop: 6, fontSize: 10 }}>{systemInfoStatus?.nkrLiquidityVault?.note || "Contract not connected. Controls remain locked until the dedicated audited contract is connected."}</div>
                 </div>
 
-                <details style={{ gridColumn: "1 / -1", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 10, padding: 10 }}>
+                <details style={{ gridColumn: "span 8", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 10, padding: 10 }}>
                   <summary style={{ cursor: "pointer", fontWeight: 800, opacity: 0.82 }}>Raw Build Payload (debug)</summary>
                   <pre style={{
                     whiteSpace: "pre-wrap",

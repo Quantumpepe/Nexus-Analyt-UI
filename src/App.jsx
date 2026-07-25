@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-166-SYSTEM-INFO-V3-ONLY";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-167-SYSTEM-INFO-WIDE-COLLAPSIBLE";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -25334,12 +25334,12 @@ export default function App() {
           <div
             className="nexus-disclaimer-modal"
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 620 }}
+            style={{ width: "min(1120px, calc(100vw - 36px))", maxWidth: 1120 }}
           >
             <div className="nexus-disclaimer-title">NEXUS SYSTEM INFO</div>
 
             <div className="nexus-disclaimer-content">
-              <div style={{ display: "grid", gap: 10, fontSize: 13 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12, fontSize: 13, alignItems: "start" }}>
                 <div>
                   <b>Connection</b>
                   <br />
@@ -25376,33 +25376,34 @@ export default function App() {
                   Exit: {exitMode}
                 </div>
 
-                <div style={{
+                <details style={{
+                  gridColumn: "1 / -1",
                   border: `1px solid ${shadowStalled ? "rgba(255,80,80,0.55)" : "rgba(68,255,180,0.22)"}`,
                   borderRadius: 10,
                   padding: 10,
                   background: shadowStalled ? "rgba(120,0,0,0.18)" : "rgba(0,255,140,0.055)",
                 }}>
-                  <b>Shadow Runtime Health</b>
-                  <br />
-                  Status: {shadowRuntimeStatus} {shadowHealth?.running ? "🟢" : "⚪"}
-                  <br />
-                  Last Tick: {shadowLastTick}
-                  <br />
-                  Tick Age: {shadowTickAge == null ? "unknown" : `${shadowTickAge}s`} {shadowStalled ? "⚠ STALLED" : ""}
-                  <br />
-                  Tick Count: {shadowTickCount}
-                  <br />
-                  Process Tick: {shadowHealth?.process_tick_count ?? "?"} / {shadowHealth?.process_tick_source || "?"}
-                </div>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Shadow Runtime Health · {shadowRuntimeStatus} {shadowHealth?.running ? "🟢" : "⚪"}</summary>
+                  <div style={{ marginTop: 8 }}>
+                    Last Tick: {shadowLastTick}
+                    <br />
+                    Tick Age: {shadowTickAge == null ? "unknown" : `${shadowTickAge}s`} {shadowStalled ? "⚠ STALLED" : ""}
+                    <br />
+                    Tick Count: {shadowTickCount}
+                    <br />
+                    Process Tick: {shadowHealth?.process_tick_count ?? "?"} / {shadowHealth?.process_tick_source || "?"}
+                  </div>
+                </details>
 
-                <div style={{
+                <details style={{
+                  gridColumn: "1 / -1",
                   border: "1px solid rgba(68,255,180,0.20)",
                   borderRadius: 10,
                   padding: 10,
                   background: "rgba(0,255,140,0.04)",
                 }}>
-                  <b>Module Status</b>
-                  <div style={{ marginTop: 8, display: "grid", gap: 7 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Module Status ({moduleRows.length})</summary>
+                  <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 7 }}>
                     {moduleRows.map((row, idx) => {
                       const name = row?.name || row?.module || row?.key || row?.id || `Module ${idx + 1}`;
                       const status = row?.status || row?.state || row?.mode || row?.value || "unknown";
@@ -25433,9 +25434,9 @@ export default function App() {
                       );
                     })}
                   </div>
-                </div>
+                </details>
 
-                <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.24)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
+                <div style={{ gridColumn: "1 / -1", marginTop: 2, border: "1px solid rgba(68,255,180,0.24)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <b>CoreVault V3 Live Readiness</b>
                     <span style={{ color: systemInfoStatus?.liveExecutionReadiness?.status === "READY" ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>
@@ -25445,6 +25446,11 @@ export default function App() {
                   <div className="muted" style={{ marginTop: 5, fontSize: 11 }}>
                     Active path: Privy user wallet → CoreVault V3 self-scoped session → verified Uniswap routes. Vault V2 is disabled.
                   </div>
+                  {systemInfoStatus?.liveExecutionReadiness?.status !== "READY" ? (
+                    <div style={{ marginTop: 7, padding: "7px 9px", borderRadius: 8, border: "1px solid rgba(255,196,70,0.28)", background: "rgba(255,196,70,0.07)", color: "#ffd978", fontSize: 11, fontWeight: 800 }}>
+                      Live execution remains disabled until every V3 blocker below is cleared.
+                    </div>
+                  ) : null}
                   {(() => {
                     const c = systemInfoStatus?.liveExecutionReadiness?.checks || {};
                     const ok = (value) => value ? "READY 🟢" : "NOT READY 🟡";
@@ -25471,7 +25477,7 @@ export default function App() {
                           </div>
                         ))}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                          <span>Approved session budget</span>
+                          <span>Delegated session budget</span>
                           <b>{Number(c.delegatedBudgetUsd || 0).toFixed(2)} USDC</b>
                         </div>
                       </div>
@@ -25480,8 +25486,12 @@ export default function App() {
                   {Array.isArray(systemInfoStatus?.liveExecutionReadiness?.blockers) && systemInfoStatus.liveExecutionReadiness.blockers.length > 0 ? (
                     <details style={{ marginTop: 9 }}>
                       <summary style={{ cursor: "pointer", fontWeight: 800, color: "#ffe08a" }}>Current V3 blockers ({systemInfoStatus.liveExecutionReadiness.blockers.length})</summary>
-                      <div className="muted" style={{ marginTop: 6, fontSize: 10, wordBreak: "break-word" }}>
-                        {systemInfoStatus.liveExecutionReadiness.blockers.join(" · ")}
+                      <div style={{ marginTop: 7, display: "grid", gap: 5 }}>
+                        {systemInfoStatus.liveExecutionReadiness.blockers.map((blocker, idx) => (
+                          <div key={`${blocker}-${idx}`} style={{ display: "grid", gridTemplateColumns: "18px 1fr", gap: 6, alignItems: "start", fontSize: 11, color: "#ffd978" }}>
+                            <span>⚠</span><span style={{ wordBreak: "break-word" }}>{String(blocker)}</span>
+                          </div>
+                        ))}
                       </div>
                     </details>
                   ) : (
@@ -25495,7 +25505,7 @@ export default function App() {
                   ) : null}
                 </div>
 
-                <div style={{ marginTop: 10, border: "1px solid rgba(102,220,255,0.28)", borderRadius: 10, padding: 10, background: "rgba(40,180,255,0.045)" }}>
+                <div style={{ gridColumn: "1 / -1", marginTop: 2, border: "1px solid rgba(102,220,255,0.28)", borderRadius: 10, padding: 10, background: "rgba(40,180,255,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <b>CoreVault Owner Admin</b>
                     <span style={{ color: "#8de8ff", fontWeight: 900 }}>OWNER ONLY</span>
@@ -25574,7 +25584,7 @@ export default function App() {
                   {ownerAdminMsg ? <div style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all", color: ownerAdminMsg.includes("failed") ? "#ffb4b4" : "#8dffd0" }}>{ownerAdminMsg}</div> : null}
                 </div>
 
-                <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
+                <div style={{ gridColumn: "1 / -1", marginTop: 2, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <b>NKR Liquidity Vault</b>
                     <span style={{ color: systemInfoStatus?.nkrLiquidityVault?.status === "READY" ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>{systemInfoStatus?.nkrLiquidityVault?.status || "PREP ONLY"}</span>
@@ -25586,11 +25596,11 @@ export default function App() {
                     <button type="button" className="miniBtn" disabled={!systemInfoStatus?.nkrLiquidityVault?.usdtFundingEnabled}>Add USDT</button>
                     <button type="button" className="miniBtn" disabled={!systemInfoStatus?.nkrLiquidityVault?.executeLiquidityEnabled}>Execute Liquidity</button>
                   </div>
-                  <div className="muted" style={{ marginTop: 6, fontSize: 10 }}>{systemInfoStatus?.nkrLiquidityVault?.note || "Controls remain locked until the dedicated audited contract is connected."}</div>
+                  <div className="muted" style={{ marginTop: 6, fontSize: 10 }}>{systemInfoStatus?.nkrLiquidityVault?.note || "Contract not connected. Controls remain locked until the dedicated audited contract is connected."}</div>
                 </div>
 
-                <div>
-                  <b>Raw Build Payload</b>
+                <details style={{ gridColumn: "1 / -1", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 10, padding: 10 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 800, opacity: 0.82 }}>Raw Build Payload (debug)</summary>
                   <pre style={{
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
@@ -25604,7 +25614,7 @@ export default function App() {
                   }}>
                     {JSON.stringify({ buildInfo: buildInfo || { error: "build-info not loaded" }, shadowHealth: shadowHealth || { error: "shadow health not loaded" }, systemInfoStatus: systemInfoStatus || { error: "system-info-owner-panel not loaded" }, shadowReadiness: shadowReadiness || { error: "shadow-readiness-check not loaded" } }, null, 2)}
                   </pre>
-                </div>
+                </details>
               </div>
             </div>
 

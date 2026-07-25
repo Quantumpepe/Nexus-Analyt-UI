@@ -4547,6 +4547,45 @@ useEffect(() => {
     throw new Error("Transaction confirmation timed out. Check the transaction in your wallet.");
   };
 
+  // ENGINE-161: reserve an on-chain CoreVault session budget with the user's own Privy wallet.
+  // No backend key and no MetaMask are used. The backend only prepares verified calldata.
+  const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500 }) => {
+    if (!wallet) throw new Error("Wallet not connected.");
+    const budget = Number(String(budgetUsd ?? "").replace(",", "."));
+    if (!Number.isFinite(budget) || budget <= 0) throw new Error("A positive CoreVault budget is required.");
+    if (!coreVaultOnchain?.connected) throw new Error("Ethereum CoreVault is not connected.");
+
+    const prepared = await api("/api/nexus/core-vault/session/prepare-create", {
+      method: "POST",
+      token,
+      wallet,
+      body: {
+        wallet,
+        system: String(system || "").toUpperCase(),
+        amountUsd: budget,
+        durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
+        maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
+        maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
+      },
+    });
+    if (!prepared?.to || !prepared?.data) throw new Error(prepared?.message || prepared?.error || "CoreVault session preparation failed.");
+
+    const provider = await _getEmbeddedProvider();
+    try {
+      await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] });
+    } catch (switchError) {
+      throw new Error(`Switch the Privy wallet to Ethereum Mainnet: ${switchError?.message || switchError}`);
+    }
+    const from = String(wallet).toLowerCase();
+    const hash = await provider.request({
+      method: "eth_sendTransaction",
+      params: [{ from, to: prepared.to, data: prepared.data, value: prepared.value || "0x0" }],
+    });
+    const receipt = await _waitForTxReceipt(provider, hash);
+    await Promise.allSettled([refreshCoreVaultOnchain(), refreshCoreVaultAccounting()]);
+    return { hash, receipt, prepared };
+  };
+
   const depositToCoreVault = async () => {
     try {
       setCoreDepositMsg("");
@@ -7817,9 +7856,28 @@ useEffect(() => {
   const [manualPayoutAsset, setManualPayoutAsset] = useState("USDC");
   const [strategistRotationCandidates, setStrategistRotationCandidates] = useState([]);
 
-  const releaseRotationBudget = useCallback(() => {
+  const releaseRotationBudget = useCallback(async () => {
     const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
     if (!Number.isFinite(amount) || amount <= 0) return;
+    try {
+      setRotationBackendLoading(true);
+      setRotationBackendMsg("Reserving NKR budget in CoreVault...");
+      await createCoreVaultSystemSession({
+        system: "NKR",
+        budgetUsd: amount,
+        durationHours: Math.max(24, Math.round((Number(nkrPeriodDays) || 10) * 24)),
+        maxSlippageBps: Math.round((Number(rotationMaxSlippage) || 1) * 100),
+        maxLossBps: Math.round((Number(rotationRiskLimit) || 15) * 100),
+      });
+      setRotationBackendMsg("NKR budget reserved in CoreVault.");
+    } catch (e) {
+      setRotationBackendMsg(`NKR CoreVault: ${e?.message || e}`);
+      setErrorMsg(`NKR CoreVault: ${e?.message || e}`);
+      setRotationBackendLoading(false);
+      return;
+    } finally {
+      setRotationBackendLoading(false);
+    }
 
     const activeLimitRaw = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));
     const activeLimit = Math.max(1, Number.isFinite(activeLimitRaw) ? Math.floor(activeLimitRaw) : 3);
@@ -9589,6 +9647,20 @@ useEffect(() => {
       setAggressiveRiskPendingValue("AGGRESSIVE");
       setAggressiveRiskConsentOpen(true);
       setErrorMsg("Please accept the Aggressive Performance risk warning before approving this budget.");
+      return;
+    }
+    try {
+      setErrorMsg("Reserving Trading budget in CoreVault...");
+      await createCoreVaultSystemSession({
+        system: "TRADER",
+        budgetUsd: Number(String(tradingBudgetUsd || "0").replace(",", ".")),
+        durationHours: normalizeTradingRuntimeHours(),
+        maxSlippageBps: Math.round((Number(tradingMaxSlippagePct) || 1) * 100),
+        maxLossBps: Math.round((Number(tradingHardStopPct) || 15) * 100),
+      });
+      setErrorMsg("");
+    } catch (e) {
+      setErrorMsg(`Trading CoreVault: ${e?.message || e}`);
       return;
     }
     const now = Date.now();
@@ -12985,7 +13057,14 @@ setGridBusy((s) => ({ ...s, start: true }));
         chain: chainKey,
         auto_path: !!gridAutoPath,
       };
-      const r = await api("/api/grid/cycle/start", { method: "POST", token, body });
+      await createCoreVaultSystemSession({
+        system: "GRID",
+        budgetUsd: investUsd,
+        durationHours: 24,
+        maxSlippageBps: Math.round((Number(manualSlippagePct) || 1) * 100),
+        maxLossBps: 1500,
+      });
+      const r = await api("/api/grid/cycle/start", { method: "POST", token, body: { ...body, core_vault_session_reserved: true } });
       applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const startOrdersRaw = getGridOrdersFromResponse(r);

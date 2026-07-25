@@ -4578,6 +4578,11 @@ useEffect(() => {
     } catch (_) { setCoreVaultAccounting(null); }
   }, [wallet, api]);
   useEffect(() => { refreshCoreVaultAccounting(); }, [refreshCoreVaultAccounting]);
+  useEffect(() => {
+    if (!withdrawSendOpen || !wallet) return;
+    refreshCoreVaultOnchain();
+    refreshCoreVaultAccounting();
+  }, [withdrawSendOpen, wallet, refreshCoreVaultOnchain, refreshCoreVaultAccounting]);
   // Keep the Vault ledger synchronized with every Grid/NKR/Trader close, loss,
   // allocation change or reserve change. The shared backend endpoint is cheap
   // and wallet-bound; overlapping requests are prevented by useInterval.
@@ -4585,16 +4590,37 @@ useEffect(() => {
 
   const coreVaultOverview = useMemo(() => {
     const a = coreVaultAccounting || {};
-    const stableBalanceUsd = Math.max(0, Number(a.stableBalanceUsd || 0));
-    const securedProfitUsd = Math.max(0, Number(a.securedProfitUsd || 0));
-    const protectedBaseUsd = Math.max(0, Number(a.baseCapitalUsd || 0));
-    const allocatedUsd = Math.max(0, Number(a.allocatedUsd || 0));
+
+    // The verified contract is the source of truth for real user funds.
+    // The backend accounting endpoint can briefly remain in SHADOW mode after a
+    // deposit, which previously made Withdraw show $0 even though the contract
+    // already held the user's USDC/USDT. Aggregate both enabled stablecoins here
+    // and use the on-chain values whenever the Core Vault is connected.
+    const onchainAccounts = ["USDC", "USDT"].map((symbol) => coreVaultOnchain?.tokens?.[symbol]?.account || {});
+    const onchainBaseUsd = onchainAccounts.reduce((sum, account) => sum + Math.max(0, Number(account?.baseCapital || 0)), 0);
+    const onchainSecuredUsd = onchainAccounts.reduce((sum, account) => sum + Math.max(0, Number(account?.totalSecuredProfit || 0)), 0);
+    const onchainAllocatedUsd = onchainAccounts.reduce((sum, account) => sum + Math.max(0, Number(account?.totalAllocated || 0)), 0);
+    const onchainStableUsd = onchainBaseUsd + onchainSecuredUsd + onchainAllocatedUsd;
+    const hasLiveOnchainState = !!coreVaultOnchain?.connected;
+
+    const stableBalanceUsd = hasLiveOnchainState
+      ? onchainStableUsd
+      : Math.max(0, Number(a.stableBalanceUsd || 0));
+    const securedProfitUsd = hasLiveOnchainState
+      ? onchainSecuredUsd
+      : Math.max(0, Number(a.securedProfitUsd || 0));
+    const protectedBaseUsd = hasLiveOnchainState
+      ? onchainBaseUsd
+      : Math.max(0, Number(a.baseCapitalUsd || 0));
+    const allocatedUsd = hasLiveOnchainState
+      ? onchainAllocatedUsd
+      : Math.max(0, Number(a.allocatedUsd || 0));
     const reserveUsd = Math.max(0, Number(a.reserveUsd || 0));
     const profitBreakdown = {
       nkrUsd: Math.max(0, Number(a?.profitBreakdown?.nkrUsd || 0)),
       traderUsd: Math.max(0, Number(a?.profitBreakdown?.traderUsd || 0)),
       gridUsd: Math.max(0, Number(a?.profitBreakdown?.gridUsd || 0)),
-      totalUsd: Math.max(0, Number(a?.profitBreakdown?.totalUsd ?? securedProfitUsd)),
+      totalUsd: securedProfitUsd,
     };
     const realizedNetBreakdown = {
       nkrUsd: Number(a?.realizedNetBreakdown?.nkrUsd || 0),
@@ -4606,17 +4632,23 @@ useEffect(() => {
       nkrUsd: Math.max(0, Number(a?.allocationBreakdown?.nkrUsd || 0)),
       traderUsd: Math.max(0, Number(a?.allocationBreakdown?.traderUsd || 0)),
       gridUsd: Math.max(0, Number(a?.allocationBreakdown?.gridUsd || 0)),
-      totalUsd: Math.max(0, Number(a?.allocationBreakdown?.totalUsd ?? allocatedUsd)),
+      totalUsd: allocatedUsd,
     };
-    const isShadow = String(a.mode || "SHADOW").toUpperCase() !== "LIVE";
+    const isShadow = !hasLiveOnchainState && String(a.mode || "SHADOW").toUpperCase() !== "LIVE";
     const availableBySource = isShadow ? { SECURED_PROFIT_ONLY: 0, BASE_CAPITAL: 0, ALL_STABLE: 0 } : {
-      SECURED_PROFIT_ONLY: securedProfitUsd, BASE_CAPITAL: protectedBaseUsd, ALL_STABLE: stableBalanceUsd,
+      SECURED_PROFIT_ONLY: securedProfitUsd,
+      BASE_CAPITAL: protectedBaseUsd,
+      ALL_STABLE: stableBalanceUsd,
     };
-    return { stableBalanceUsd, protectedBaseUsd, securedProfitUsd, allocatedUsd, reserveUsd, profitBreakdown, realizedNetBreakdown, allocationBreakdown,
+    return {
+      stableBalanceUsd, protectedBaseUsd, securedProfitUsd, allocatedUsd, reserveUsd,
+      profitBreakdown, realizedNetBreakdown, allocationBreakdown,
       availableForWithdrawUsd: Math.max(0, Number(availableBySource[coreWithdrawSource] || 0)),
-      mode: isShadow ? "SHADOW" : "LIVE", isShadow, note: String(a.note || ""),
+      mode: isShadow ? "SHADOW" : "LIVE",
+      isShadow,
+      note: hasLiveOnchainState ? "Live balances read directly from the verified Ethereum Core Vault." : String(a.note || ""),
     };
-  }, [coreVaultAccounting, coreWithdrawSource]);
+  }, [coreVaultAccounting, coreVaultOnchain, coreWithdrawSource]);
 
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
@@ -18352,7 +18384,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     {coreDepositMsg && <div className="muted" style={{ fontSize: 11, marginTop: 7, wordBreak: "break-word" }}>{coreDepositMsg}</div>}
                   </div>
                   <button type="button" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
-                  <button type="button" className="btnGhost" onClick={() => { refreshBalances(); refreshCoreVaultAccounting(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
+                  <button type="button" className="btnGhost" onClick={() => { refreshBalances(); refreshCoreVaultOnchain(); refreshCoreVaultAccounting(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
                 </>
               )}
 

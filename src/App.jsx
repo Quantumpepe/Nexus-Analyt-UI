@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-181-PRIVY-AUTH-DIAGNOSTICS-BACKOFF";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-176-EVM-TOKEN-OWNER-REVIEW";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -3107,7 +3107,6 @@ const [errorMsg, setErrorMsg] = useState("");
   // External wallets must be optional and only enabled explicitly elsewhere.
   const { ready, authenticated, login, logout, getAccessToken, user: privyUser } = usePrivy();
   const { wallets: privyWallets } = useWallets();
-  const { addSigners } = useSigners();
 
   // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
   const _loginInFlight = useRef(false);
@@ -24787,11 +24786,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 
 export default function App() {
-  // Privy state must be read in this component because the signer-onboarding
-  // effect below belongs to App, not AppInner.
-  const { ready, authenticated, getAccessToken } = usePrivy();
   const { wallets: systemWallets = [] } = useWallets();
-  const { addSigners } = useSigners();
   const [liveSetupBusy, setLiveSetupBusy] = useState("");
   const [liveSetupMsg, setLiveSetupMsg] = useState("");
   const [showDisclaimer, setShowDisclaimer] = useState(false);
@@ -25015,19 +25010,6 @@ export default function App() {
     return headers;
   };
 
-  // Privy access tokens are obtained at request time. They are not reliably
-  // stored in localStorage, so signer-onboarding calls must use getAccessToken().
-  const _privyAuthHeaders = async () => {
-    let bearer = "";
-    try { bearer = String((await getAccessToken?.()) || "").trim(); } catch {}
-    if (!bearer) {
-      bearer = String(localStorage.getItem("nexus_privy_jwt") || localStorage.getItem("nexus_token") || "").trim();
-    }
-    const headers = { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet || "") };
-    if (bearer) headers.Authorization = `Bearer ${bearer}`;
-    return headers;
-  };
-
   // Register the Privy wallet-id/address mapping silently after login. This is
   // technical provisioning only: no approval dialog, signature or user action.
   useEffect(() => {
@@ -25036,12 +25018,12 @@ export default function App() {
     const walletAddress = String(embedded?.address || footerWallet || "").trim();
     if (!walletId || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) return;
     let cancelled = false;
-    _privyAuthHeaders().then((headers) => fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {
+    fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {
       method: "POST",
       credentials: "include",
-      headers,
+      headers: _authHeaders(),
       body: JSON.stringify({ privyWalletId: walletId, walletAddress }),
-    })).then(async (res) => {
+    }).then(async (res) => {
       if (cancelled || res.ok) return;
       const data = await res.json().catch(() => ({}));
       console.warn("Privy automatic provisioning pending:", data?.error || `HTTP ${res.status}`);
@@ -25049,71 +25031,7 @@ export default function App() {
       if (!cancelled) console.warn("Privy automatic provisioning pending:", error);
     });
     return () => { cancelled = true; };
-  }, [systemWallets, footerWallet, getAccessToken]);
-
-  // Privy requires the app trading signer to be attached once to every embedded
-  // wallet. Existing users are migrated here; new users are handled immediately
-  // after their wallet appears. After this one-time consent, NKR/Trader/Grid run
-  // server-side within the configured Privy policy without per-trade popups.
-  const _privySignerSetupInFlight = useRef(false);
-  useEffect(() => {
-    if (!authenticated || !ready || _privySignerSetupInFlight.current) return;
-    const retryAfter = Number(sessionStorage.getItem("nexus_privy_signer_retry_after") || 0);
-    if (Date.now() < retryAfter) return;
-    const embedded = _primaryEmbeddedPrivyWallet();
-    const walletAddress = String(embedded?.address || footerWallet || "").trim();
-    if (!/^0x[0-9a-fA-F]{40}$/.test(walletAddress) || typeof addSigners !== "function") return;
-
-    let cancelled = false;
-    const setupSigner = async () => {
-      _privySignerSetupInFlight.current = true;
-      try {
-        const authHeaders = await _privyAuthHeaders();
-        const cfgRes = await fetch(`${API_BASE}/api/nexus/privy-trading/config`, {
-          cache: "no-store", credentials: "include", headers: authHeaders,
-        });
-        const cfg = await cfgRes.json().catch(() => ({}));
-        if (!cfgRes.ok) {
-          sessionStorage.setItem("nexus_privy_signer_retry_after", String(Date.now() + 60000));
-          const diagnosticRes = await fetch(`${API_BASE}/api/nexus/privy-trading/auth-diagnostics`, {
-            cache: "no-store", credentials: "include", headers: authHeaders,
-          }).catch(() => null);
-          const diagnostic = diagnosticRes ? await diagnosticRes.json().catch(() => ({})) : {};
-          console.warn("Privy trading authentication is not ready:", diagnostic?.diagnostics || cfg?.authDiagnostics || cfg);
-          return;
-        }
-        sessionStorage.removeItem("nexus_privy_signer_retry_after");
-        if (!cfg?.configured || !cfg?.signerId || !cfg?.policyId) return;
-        if (cfg?.signerAttached) return;
-
-        await addSigners({
-          address: walletAddress,
-          signers: [{ signerId: cfg.signerId, policyIds: [cfg.policyId] }],
-        });
-        if (cancelled) return;
-        await fetch(`${API_BASE}/api/nexus/privy-trading/signer-confirmed`, {
-          method: "POST", credentials: "include", headers: authHeaders,
-          body: JSON.stringify({ walletAddress }),
-        });
-      } catch (error) {
-        const message = String(error?.message || error || "");
-        // A previously attached signer may be reported as duplicate. Confirming
-        // it lets the backend perform the real RPC check on the next NKR start.
-        if (/already|duplicate|exists/i.test(message) && !cancelled) {
-          await fetch(`${API_BASE}/api/nexus/privy-trading/signer-confirmed`, {
-            method: "POST", credentials: "include", headers: await _privyAuthHeaders(),
-            body: JSON.stringify({ walletAddress }),
-          }).catch(() => {});
-        } else if (!cancelled) {
-          console.warn("Privy trading signer setup pending:", error);
-        }
-      } finally {
-        _privySignerSetupInFlight.current = false;
-      }
-    };
-    setupSigner();
-    return () => { cancelled = true; };
-  }, [authenticated, ready, systemWallets, footerWallet, addSigners, getAccessToken]);
+  }, [systemWallets, footerWallet]);
 
   const _refreshOwnerSystemInfoNow = async () => {
     if (!canOpenSystemInfo) return;

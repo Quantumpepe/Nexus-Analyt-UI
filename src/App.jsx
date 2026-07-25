@@ -24789,7 +24789,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 export default function App() {
   // Privy state must be read in this component because the signer-onboarding
   // effect below belongs to App, not AppInner.
-  const { ready, authenticated } = usePrivy();
+  const { ready, authenticated, getAccessToken } = usePrivy();
   const { wallets: systemWallets = [] } = useWallets();
   const { addSigners } = useSigners();
   const [liveSetupBusy, setLiveSetupBusy] = useState("");
@@ -25015,6 +25015,19 @@ export default function App() {
     return headers;
   };
 
+  // Privy access tokens are obtained at request time. They are not reliably
+  // stored in localStorage, so signer-onboarding calls must use getAccessToken().
+  const _privyAuthHeaders = async () => {
+    let bearer = "";
+    try { bearer = String((await getAccessToken?.()) || "").trim(); } catch {}
+    if (!bearer) {
+      bearer = String(localStorage.getItem("nexus_privy_jwt") || localStorage.getItem("nexus_token") || "").trim();
+    }
+    const headers = { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet || "") };
+    if (bearer) headers.Authorization = `Bearer ${bearer}`;
+    return headers;
+  };
+
   // Register the Privy wallet-id/address mapping silently after login. This is
   // technical provisioning only: no approval dialog, signature or user action.
   useEffect(() => {
@@ -25023,12 +25036,12 @@ export default function App() {
     const walletAddress = String(embedded?.address || footerWallet || "").trim();
     if (!walletId || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) return;
     let cancelled = false;
-    fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {
+    _privyAuthHeaders().then((headers) => fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {
       method: "POST",
       credentials: "include",
-      headers: _authHeaders(),
+      headers,
       body: JSON.stringify({ privyWalletId: walletId, walletAddress }),
-    }).then(async (res) => {
+    })).then(async (res) => {
       if (cancelled || res.ok) return;
       const data = await res.json().catch(() => ({}));
       console.warn("Privy automatic provisioning pending:", data?.error || `HTTP ${res.status}`);
@@ -25036,7 +25049,7 @@ export default function App() {
       if (!cancelled) console.warn("Privy automatic provisioning pending:", error);
     });
     return () => { cancelled = true; };
-  }, [systemWallets, footerWallet]);
+  }, [systemWallets, footerWallet, getAccessToken]);
 
   // Privy requires the app trading signer to be attached once to every embedded
   // wallet. Existing users are migrated here; new users are handled immediately
@@ -25053,8 +25066,9 @@ export default function App() {
     const setupSigner = async () => {
       _privySignerSetupInFlight.current = true;
       try {
+        const authHeaders = await _privyAuthHeaders();
         const cfgRes = await fetch(`${API_BASE}/api/nexus/privy-trading/config`, {
-          cache: "no-store", credentials: "include", headers: _authHeaders(),
+          cache: "no-store", credentials: "include", headers: authHeaders,
         });
         const cfg = await cfgRes.json().catch(() => ({}));
         if (!cfgRes.ok || !cfg?.configured || !cfg?.signerId || !cfg?.policyId) return;
@@ -25066,7 +25080,7 @@ export default function App() {
         });
         if (cancelled) return;
         await fetch(`${API_BASE}/api/nexus/privy-trading/signer-confirmed`, {
-          method: "POST", credentials: "include", headers: _authHeaders(),
+          method: "POST", credentials: "include", headers: authHeaders,
           body: JSON.stringify({ walletAddress }),
         });
       } catch (error) {
@@ -25075,7 +25089,7 @@ export default function App() {
         // it lets the backend perform the real RPC check on the next NKR start.
         if (/already|duplicate|exists/i.test(message) && !cancelled) {
           await fetch(`${API_BASE}/api/nexus/privy-trading/signer-confirmed`, {
-            method: "POST", credentials: "include", headers: _authHeaders(),
+            method: "POST", credentials: "include", headers: await _privyAuthHeaders(),
             body: JSON.stringify({ walletAddress }),
           }).catch(() => {});
         } else if (!cancelled) {
@@ -25087,7 +25101,7 @@ export default function App() {
     };
     setupSigner();
     return () => { cancelled = true; };
-  }, [authenticated, ready, systemWallets, footerWallet, addSigners]);
+  }, [authenticated, ready, systemWallets, footerWallet, addSigners, getAccessToken]);
 
   const _refreshOwnerSystemInfoNow = async () => {
     if (!canOpenSystemInfo) return;

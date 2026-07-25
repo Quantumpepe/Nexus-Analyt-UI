@@ -3656,6 +3656,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [coreWithdrawAddress, setCoreWithdrawAddress] = useState("");
   const [coreWithdrawQuote, setCoreWithdrawQuote] = useState(null);
   const [coreWithdrawQuoteBusy, setCoreWithdrawQuoteBusy] = useState(false);
+  const [coreWithdrawExecuteBusy, setCoreWithdrawExecuteBusy] = useState(false);
 
   // Vault state (on-chain) + operator authorization
   const [vaultState, setVaultState] = useState({
@@ -4106,6 +4107,24 @@ const refreshProfitPayoutSettings = async () => {
         throw new Error("Amount exceeds the available balance for the selected source.");
       }
       setCoreWithdrawQuoteBusy(true);
+
+      // Base-capital withdrawal in the same stablecoin is a direct CoreVault call.
+      // No swap and no routing buffer are involved; gas is paid separately in ETH.
+      if (coreWithdrawSource === "BASE_CAPITAL") {
+        const symbol = String(coreWithdrawAsset || "USDC").toUpperCase();
+        const tokenState = coreVaultOnchain?.tokens?.[symbol] || {};
+        if (!_isAddr(tokenState?.address || "")) throw new Error(`${symbol} contract is not available.`);
+        if (!tokenState?.config?.withdrawEnabled) throw new Error(`${symbol} withdrawals are not enabled in CoreVault.`);
+        setCoreWithdrawQuote({
+          kind: "DIRECT_BASE_WITHDRAW",
+          grossUsd: amountUsd,
+          netUsd: amountUsd,
+          costsIncluded: { gasUsd: 0, swapUsd: 0, slippageUsd: 0, routingBufferUsd: 0 },
+          gasPaidSeparately: true,
+        });
+        return;
+      }
+
       const response = await api(`/api/nexus/withdraw-quote-preview`, {
         method: "POST",
         token,
@@ -4124,6 +4143,62 @@ const refreshProfitPayoutSettings = async () => {
       setTxMsg(String(e?.message || e || "Withdraw preview failed"));
     } finally {
       setCoreWithdrawQuoteBusy(false);
+    }
+  };
+
+  const confirmCoreVaultWithdraw = async () => {
+    try {
+      setTxMsg("");
+      if (!wallet) throw new Error("Wallet not connected.");
+      if (!coreWithdrawQuote) throw new Error("Prepare the withdraw preview first.");
+      if (coreWithdrawSource !== "BASE_CAPITAL") {
+        throw new Error("Only direct Base Capital withdrawal is enabled in this build.");
+      }
+
+      const vault = String(coreVaultOnchain?.contractAddress || "").trim();
+      if (!_isAddr(vault) || !coreVaultOnchain?.connected) throw new Error("Ethereum Core Vault is not connected.");
+      if (coreVaultOnchain?.paused) throw new Error("Core Vault is currently paused.");
+
+      const symbol = String(coreWithdrawAsset || "USDC").toUpperCase();
+      const tokenState = coreVaultOnchain?.tokens?.[symbol] || {};
+      const tokenAddress = String(tokenState?.address || "").trim();
+      const decimals = Number(tokenState?.decimals ?? 6);
+      if (!_isAddr(tokenAddress)) throw new Error(`${symbol} contract is not available.`);
+      if (!tokenState?.config?.withdrawEnabled) throw new Error(`${symbol} withdrawals are not enabled in CoreVault.`);
+      if (!_isAddr(coreWithdrawAddress)) throw new Error("Enter a valid destination address.");
+
+      const rawAmount = String(coreWithdrawAmount || "").trim();
+      if (!/^\d+(\.\d+)?$/.test(rawAmount) || Number(rawAmount) <= 0) throw new Error("Enter a valid withdraw amount.");
+      const amountUnits = decimalStringToUnits(rawAmount, decimals);
+      if (amountUnits <= 0n) throw new Error("Withdraw amount is too small.");
+
+      setCoreWithdrawExecuteBusy(true);
+      setTxMsg(`Preparing ${rawAmount} ${symbol} withdrawal…`);
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, 1);
+      const currentHex = await provider.request({ method: "eth_chainId" });
+      if (String(currentHex).toLowerCase() !== "0x1") throw new Error("Please switch your wallet to Ethereum Mainnet.");
+
+      // withdrawBase(address token,uint256 amount,address recipient)
+      const data = "0xad151a50" + _encodeAddress(tokenAddress) + _encodeUint256(amountUnits) + _encodeAddress(coreWithdrawAddress);
+      const hash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from: wallet, to: vault, value: "0x0", data }],
+      });
+      setTxMsg(`Withdrawal sent. Waiting for confirmation… ${hash}`);
+      await _waitForTxReceipt(provider, hash);
+      setTxMsg(`Withdrawal confirmed. Tx: ${hash}`);
+      setCoreWithdrawQuote(null);
+      setCoreWithdrawAmount("");
+      await Promise.allSettled([
+        refreshCoreVaultOnchain(),
+        refreshCoreVaultOverview(),
+        refreshWalletBalances?.(),
+      ]);
+    } catch (e) {
+      setTxMsg(String(e?.message || e || "Withdrawal failed"));
+    } finally {
+      setCoreWithdrawExecuteBusy(false);
     }
   };
 
@@ -18505,8 +18580,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Routing buffer</span><b>{fmtUsd(Number(coreWithdrawQuote.costsIncluded?.routingBufferUsd || 0))}</b></div>
                         <div className="hr" style={{ margin: "2px 0" }} />
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 14 }}><span>Estimated receive</span><b style={{ color: "#54f0a4" }}>{fmtUsd(Number(coreWithdrawQuote.netUsd || 0))} {coreWithdrawAsset}</b></div>
-                        <div className="muted" style={{ fontSize: 11, lineHeight: 1.4 }}>Preview only. Unused routing buffer returns to the user stable balance.</div>
-                        <button type="button" className="btn" disabled title="Enabled after the selected token is configured for withdrawal in CoreVault V3" style={{ width: "100%", height: 42, marginTop: 3 }}>Confirm Withdraw</button>
+                        <div className="muted" style={{ fontSize: 11, lineHeight: 1.4 }}>{coreWithdrawQuote.gasPaidSeparately ? "Direct CoreVault withdrawal. Network gas is paid separately in ETH; no swap or routing buffer is deducted." : "Preview only. Unused routing buffer returns to the user stable balance."}</div>
+                        <button type="button" className="btn" onClick={confirmCoreVaultWithdraw} disabled={coreWithdrawExecuteBusy || !coreWithdrawQuote || coreWithdrawSource !== "BASE_CAPITAL" || Number(coreWithdrawQuote.netUsd || 0) <= 0} style={{ width: "100%", height: 42, marginTop: 3 }}>{coreWithdrawExecuteBusy ? "Withdrawing…" : "Confirm Withdraw"}</button>
                       </div>
                     )}
                   </div>

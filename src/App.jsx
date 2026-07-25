@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-173-PRIVY-AUTO-PROVISION-NO-USER-GATE";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-174-NKR-AUTONOMOUS-START";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -7874,7 +7874,7 @@ useEffect(() => {
         maxSlippageBps: Math.round((Number(rotationMaxSlippage) || 1) * 100),
         maxLossBps: Math.round((Number(rotationRiskLimit) || 15) * 100),
       });
-      setRotationBackendMsg("NKR budget reserved in CoreVault.");
+      setRotationBackendMsg("NKR started. Capital is reserved in CoreVault and automatic watchlist scanning is active.");
     } catch (e) {
       const rawMessage = String(e?.message || e || "NKR CoreVault session failed");
       const routeMissing = rawMessage.includes("verified_trade_route_required") || rawMessage.toLowerCase().includes("enabled trade route") || rawMessage.toLowerCase().includes("verified corevault trade route");
@@ -7946,19 +7946,22 @@ useEffect(() => {
         strategistScore: cand?.strategistScore,
       });
     }
-    // Live-vault safety: no automatic fallback targets.
-    // Rotation may only create a session from an explicit user pick or a real Strategist candidate.
-    // Never use watchlist/grid/native chain as an execution target fallback.
+    // NKR starts independently from the optional recommendation list.
+    // A recommendation may provide the first candidate, but when none exists the
+    // session starts in SCANNING mode and keeps its capital in USDC/USDT until
+    // the NKR engine finds an allowed, executable watchlist asset.
+    const pickedCandidate = candidatePool.find((c) => !activeTargetSet.has(c.rawSymbol)) || {
+      rawSymbol: "",
+      coin: "",
+      chain: rotationNetworkScope !== "ALL" ? rotationNetworkScope : (activeGridChainKey || DEFAULT_CHAIN || "ETH"),
+      source: "autonomous_watchlist_scan",
+      rank: "SCANNING",
+      ok: true,
+    };
 
-    const pickedCandidate = candidatePool.find((c) => !activeTargetSet.has(c.rawSymbol)) || null;
-    if (!pickedCandidate?.rawSymbol) {
-      setRotationBackendMsg("No strategist target selected. Open NKR recommendations or let Nexus Strategist prepare a NKR target first.");
-      return;
-    }
-
-    const candidateChain = String(pickedCandidate.chain || rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-    const candidateSymbol = String(pickedCandidate.coin || pickedCandidate.rawSymbol).toUpperCase();
-    const sourceSymbol = String(pickedCandidate.rawSymbol).toUpperCase();
+    const candidateChain = String(pickedCandidate.chain || rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
+    const candidateSymbol = String(pickedCandidate.coin || pickedCandidate.rawSymbol || "").toUpperCase();
+    const sourceSymbol = String(pickedCandidate.rawSymbol || "").toUpperCase();
     const sessionId = makeNexusSessionId("NKR");
     const expiresAt = now + periodDays * 24 * 60 * 60 * 1000;
     setRotationBudgetReleased(true);
@@ -7974,9 +7977,9 @@ useEffect(() => {
           symbol: candidateSymbol,
           sourceSymbol,
           targetAsset: candidateSymbol,
-          status: "WAITING",
-          lifecycleState: "WAITING",
-          positionState: "WAITING",
+          status: candidateSymbol ? "WAITING" : "SCANNING",
+          lifecycleState: candidateSymbol ? "WAITING" : "SCANNING",
+          positionState: candidateSymbol ? "WAITING" : "CASH",
           executionMode: "shadow",
           mode: rotationMode,
           nkrCapitalMode,
@@ -7996,7 +7999,7 @@ useEffect(() => {
           maxActiveNkrSessions: activeLimit,
           payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
           baseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
-          lockedTargetSymbol: sourceSymbol,
+          lockedTargetSymbol: sourceSymbol || "",
           lockedChain: candidateChain,
           lockedBaseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
           workingCapitalUsd: amount,
@@ -8014,8 +8017,9 @@ useEffect(() => {
           updatedAt: now,
           meta: {
             nkr_session: true,
-            source: "rotation_budget_approval",
-            candidate_source: pickedCandidate.source || "strategist_candidate",
+            source: "nkr_autonomous_start",
+            candidate_source: pickedCandidate.source || "autonomous_watchlist_scan",
+            autonomous_selection: !sourceSymbol,
             source_symbol: sourceSymbol,
             selected_symbol: candidateSymbol,
             strategist_score: pickedCandidate.strategistScore ?? pickedCandidate.score ?? null,
@@ -10572,7 +10576,7 @@ useEffect(() => {
 
     // Backend audit trail: wallet-bound proof that the user accepted
     // the Aggressive warning for this current draft/budget flow.
-    // A second session-specific audit record is written when Approve Budget creates the session.
+    // A second session-specific audit record is written when Start NKR creates the session.
     try {
       if (wallet) {
         await api(`/api/nexus/trading/aggressive-ack`, {
@@ -13499,15 +13503,17 @@ setGridBusy((s) => ({ ...s, stop: true }));
         }
       }
     }
-    // Do not use a fallback chain/asset for Rotation. Missing chain is allowed only for UI readiness,
-    // but order/session creation must require a real selected/recommended target.
-    if (!resolvedChain && resolvedSymbol) resolvedChain = String(pick.chain || candidate?.chain || "").toUpperCase();
+    // Recommendations are optional. The session can start without a current target;
+    // NKR will scan the allowed watchlist and keep capital stable until a route qualifies.
+    if (!resolvedChain) resolvedChain = String(
+      rotationNetworkScope !== "ALL" ? rotationNetworkScope : (activeRotationSession?.chain || activeGridChainKey || DEFAULT_CHAIN || "ETH")
+    ).toUpperCase();
 
     const amountOk = Number.isFinite(amount) && amount > 0;
     const symbolOk = Boolean(resolvedSymbol);
     const hasRealTarget = Boolean(pick?.ok || candidate?.sym || candidate?.symbol || pick?.coin || pick?.source);
     return {
-      ok: amountOk && symbolOk && hasRealTarget,
+      ok: amountOk,
       amount,
       amountOk,
       chain: resolvedChain,
@@ -13517,11 +13523,11 @@ setGridBusy((s) => ({ ...s, stop: true }));
       score: pick.score ?? candidate?.score,
       message: !amountOk
         ? "Enter a NKR budget first."
-        : !hasRealTarget
-          ? "Waiting for NKR recommendation. No fallback target is allowed."
-          : `Ready: ${resolvedSymbol}${resolvedChain ? ` on ${resolvedChain}` : ""}.`,
+        : hasRealTarget
+          ? `Ready: ${resolvedSymbol}${resolvedChain ? ` on ${resolvedChain}` : ""}.`
+          : "NKR ready. Assets will be selected automatically from the allowed watchlist; capital remains in USDC/USDT until a valid opportunity is found.",
     };
-  }, [rotationBudgetRelease, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, gridWalletCoinsByChain, rotationSessions, activeRotationSessionId]);
+  }, [rotationBudgetRelease, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, gridWalletCoinsByChain, rotationSessions, activeRotationSessionId, rotationNetworkScope]);
 
   const addRotationOrder = useCallback(async () => {
     const pick = rotationSelectedPick || {};
@@ -21122,12 +21128,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <b>Status:</b>{" "}
                         {rotationBudgetReleased
                           ? "Budget approved"
-                          : "Waiting for budget approval"}
+                          : "Ready to start NKR"}
                       </span>
                       <span style={{ opacity: 0.75 }}>
                         {(() => {
                           const preflight = getRotationPreflight();
-                          return preflight.ok && preflight.symbol ? `${preflight.symbol}${preflight.chain ? ` / ${preflight.chain}` : ""}` : "Waiting for NKR recommendation";
+                          return preflight.symbol ? `${preflight.symbol}${preflight.chain ? ` / ${preflight.chain}` : ""}` : "Automatic watchlist scan";
                         })()}
                       </span>
                     </div>
@@ -21341,7 +21347,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         );
                       })() : (
-                        <div className="muted tiny">Recommendations are hidden. Open this section to select a NKR target.</div>
+                        <div className="muted tiny">Recommendations are optional and hidden. NKR can start and select assets automatically.</div>
                       )}
                     </div>
 
@@ -21352,34 +21358,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         className="btn"
                         type="button"
                         disabled={(() => {
-                          const preflight = getRotationPreflight();
-                          if (!rotationBudgetReleased || !preflight.ok) return true;
-                          const amount = Number(preflight.amount || 0);
-                          const px = Number(activeGridNativeUsd || 0);
-                          const vaultTotalUsd = Number.isFinite(px) && px > 0 ? Number(manualVaultTotalQty || 0) * px : 0;
-                          const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? Number(manualVaultAllocatedQty || 0) * px : 0;
-                          const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd);
-                          return vaultTotalUsd > 0 && amount > availableUsd;
-                        })()}
-                        onClick={addRotationOrder}
-                        title={rotationBudgetReleased ? getRotationPreflight().message : "Approve the NKR budget first"}
-                      >
-                        {gridBusy.add ? "Adding..." : "Add NKR Order"}
-                      </button>
-                      <button
-                        className={rotationBudgetReleased ? "miniBtn" : "btn"}
-                        type="button"
-                        disabled={(() => {
                           const hasActiveNkrRun = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase()));
-                          const rawAmount = hasActiveNkrRun ? rotationCapitalTopup : rotationBudgetRelease;
-                          const amount = Number(String(rawAmount || "").replace(",", "."));
-                          return !Number.isFinite(amount) || amount <= 0;
+                          const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+                          return hasActiveNkrRun || rotationBackendLoading || !Number.isFinite(amount) || amount <= 0;
                         })()}
-                        onClick={Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? topUpActiveNkrCapital : releaseRotationBudget}
-                        title={Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? "Add capital to the existing NKR run." : "Approve the NKR budget locally. Vault safety is checked internally when an order is created."}
+                        onClick={releaseRotationBudget}
+                        title="Start NKR. Asset selection is automatic; recommendations are optional."
                       >
-                        {rotationBackendLoading ? "Working..." : (Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) ? "Add Capital" : (rotationBudgetReleased ? "Approve Budget" : "Approve Budget"))}
+                        {rotationBackendLoading ? "Starting..." : "Start NKR"}
                       </button>
+                      {Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) && (
+                        <button
+                          className="miniBtn"
+                          type="button"
+                          disabled={(() => {
+                            const amount = Number(String(rotationCapitalTopup || "").replace(",", "."));
+                            return !Number.isFinite(amount) || amount <= 0;
+                          })()}
+                          onClick={topUpActiveNkrCapital}
+                          title="Add capital to the existing NKR run."
+                        >
+                          Add Capital
+                        </button>
+                      )}
                       {rotationBudgetReleased && (
                         <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>
                       )}

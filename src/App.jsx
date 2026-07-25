@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.24-ENGINE-160-OWNER-ADMIN-ONCHAIN-TIMELOCK-STATUS";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-161-PRIVY-DEPOSIT-WALLET-PROVIDER-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const CORE_VAULT_OWNER_ADDRESS = "0x3318b6A608b3873962B17DAe069Fc7317D88d68f";
@@ -3707,10 +3707,47 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   // -------------------------
   // Wallet actions: Vault withdraw + native send
   // -------------------------
+  const _getPrimaryEmbeddedWallet = () => {
+    return (
+      privyWallets?.find((w) =>
+        ["privy", "embedded"].includes(String(w?.walletClientType || "").toLowerCase()) ||
+        String(w?.connectorType || "").toLowerCase() === "embedded"
+      ) || null
+    );
+  };
+
   const _getEmbeddedProvider = async () => {
-    const embedded = privyWallets?.[0];
-    const provider = await embedded?.getEthereumProvider?.();
-    if (!provider?.request) throw new Error("Privy wallet provider not available.");
+    const embedded = _getPrimaryEmbeddedWallet();
+    if (!embedded) throw new Error("Privy embedded wallet is not available.");
+
+    const provider = await embedded.getEthereumProvider?.();
+    if (!provider?.request) throw new Error("Privy embedded wallet provider is not available.");
+
+    const embeddedAddress = String(embedded.address || "").toLowerCase();
+    const activeAddress = String(wallet || "").toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(embeddedAddress)) {
+      throw new Error("Privy embedded wallet address is invalid.");
+    }
+    if (activeAddress && activeAddress !== embeddedAddress) {
+      throw new Error("Connected Nexus wallet does not match the Privy embedded wallet. Reconnect Privy and try again.");
+    }
+
+    // Verify that the provider authorizes the same account before any signing call.
+    // This prevents Privy from rejecting eth_sendTransaction with
+    // "The requested account and/or method has not been authorized by the user."
+    let providerAccounts = [];
+    try {
+      providerAccounts = await provider.request({ method: "eth_accounts" });
+    } catch (_) {
+      providerAccounts = [];
+    }
+    const normalizedAccounts = Array.isArray(providerAccounts)
+      ? providerAccounts.map((a) => String(a || "").toLowerCase())
+      : [];
+    if (normalizedAccounts.length && !normalizedAccounts.includes(embeddedAddress)) {
+      throw new Error("Privy provider is connected to a different wallet account. Reconnect Privy and try again.");
+    }
+
     return provider;
   };
 

@@ -5290,37 +5290,34 @@ useEffect(() => {
         fetchBackendDiscoveredTokens(address, baseChains),
       ]);
 
-      const results = await Promise.all(
-        baseChains.map(async (c) => {
+      // Read chains one after another. A Privy provider has one active chain at a time;
+      // parallel wallet_switchEthereumChain calls can make ETH appear as BNB/POL.
+      const results = [];
+      for (const c of baseChains) {
           try {
             let nativeStr = "";
-            let backendNativeNum = NaN;
+
+            // Preferred source: a chain-specific RPC endpoint. This never depends on the
+            // currently selected Privy chain and therefore cannot copy ETH to BNB/POL.
             try {
-              const backendNative = backendNativeBalances?.[c]?.native;
-              if (backendNative !== null && backendNative !== undefined && Number.isFinite(Number(backendNative))) {
-                backendNativeNum = Number(backendNative);
-                nativeStr = String(backendNativeNum);
-              }
+              const rawBal = await alchemyRpc(c, "eth_getBalance", [address, "latest"]);
+              const rpcNum = Number(Utils.formatEther(hexToBigInt(rawBal || "0x0")));
+              if (Number.isFinite(rpcNum)) nativeStr = String(rpcNum);
             } catch (_) {}
 
-            // Important: backend RPC can legally return 0 when the RPC/provider is stale
-            // or when the wrong source is queried. Do not treat 0 as final; verify through
-            // the connected wallet provider and prefer the larger value.
-            try {
-              const provider = await _getEmbeddedProvider();
-              const chainId = CHAIN_ID?.[c];
-              if (provider && chainId) {
-                await _trySwitchChain(provider, chainId);
-                const rawBal = await provider.request({ method: "eth_getBalance", params: [address, "latest"] });
-                const providerNum = Number(Utils.formatEther(hexToBigInt(rawBal || "0x0")));
-                if (Number.isFinite(providerNum) && (!Number.isFinite(backendNativeNum) || providerNum > backendNativeNum)) {
-                  nativeStr = String(providerNum);
+            // Fallback: backend result for this exact chain. Zero is a valid balance and
+            // must remain zero; never replace it with a balance from another active chain.
+            if (nativeStr === "") {
+              try {
+                const backendNative = backendNativeBalances?.[c]?.native;
+                if (backendNative !== null && backendNative !== undefined && Number.isFinite(Number(backendNative))) {
+                  nativeStr = String(Number(backendNative));
                 }
-              }
-            } catch (_) {}
+              } catch (_) {}
+            }
 
-            if (!nativeStr) {
-              throw new Error(c + " backend/provider balance unavailable");
+            if (nativeStr === "") {
+              throw new Error(c + " chain-specific balance unavailable");
             }
 
             const nativeNum = Number(nativeStr);
@@ -5388,12 +5385,11 @@ if (allSpecs.length) {
   }
 }
 
-return [c, { native, stables, custom }];
+results.push([c, { native, stables, custom }]);
           } catch (e) {
-            return [c, { native: "—", error: String(e?.message || e || "backend RPC balance unavailable") }];
+            results.push([c, { native: "—", error: String(e?.message || e || "chain-specific RPC balance unavailable") }]);
           }
-        })
-      );
+      }
 
       const out = {};
       for (const [c, v] of results) out[c] = v;

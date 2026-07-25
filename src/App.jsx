@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-161-PRIVY-DEPOSIT-WALLET-PROVIDER-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-162-FAST-DEPOSIT-PRIVY-ASSET-SEND";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const CORE_VAULT_OWNER_ADDRESS = "0x3318b6A608b3873962B17DAe069Fc7317D88d68f";
@@ -3645,6 +3645,11 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [coreDepositAmount, setCoreDepositAmount] = useState("");
   const [coreDepositBusy, setCoreDepositBusy] = useState(false);
   const [coreDepositMsg, setCoreDepositMsg] = useState("");
+  const [walletSendAssetKey, setWalletSendAssetKey] = useState("");
+  const [walletSendTo, setWalletSendTo] = useState("");
+  const [walletSendAmount, setWalletSendAmount] = useState("");
+  const [walletSendBusy, setWalletSendBusy] = useState(false);
+  const [walletSendMsg, setWalletSendMsg] = useState("");
   const [coreWithdrawSource, setCoreWithdrawSource] = useState("SECURED_PROFIT_ONLY");
   const [coreWithdrawAsset, setCoreWithdrawAsset] = useState("USDT");
   const [coreWithdrawAmount, setCoreWithdrawAmount] = useState("");
@@ -4462,7 +4467,7 @@ useEffect(() => {
         if (String(receipt.status || "").toLowerCase() === "0x0") throw new Error("Transaction failed on-chain.");
         return receipt;
       }
-      await new Promise((resolve) => setTimeout(resolve, 2200));
+      await new Promise((resolve) => setTimeout(resolve, 750));
     }
     throw new Error("Transaction confirmation timed out. Check the transaction in your wallet.");
   };
@@ -4533,7 +4538,11 @@ useEffect(() => {
         if (allowance > 0n) {
           await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(0n), `Resetting ${symbol} approval…`);
         }
-        await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + amountWord, `Approving ${symbol}…`);
+        // One reusable approval avoids a new approval signature on every later deposit.
+        // The cap is 10,000 stablecoins (or the current amount when larger), not unlimited.
+        const reusableCap = 10000n * (10n ** BigInt(decimals));
+        const approvalUnits = amountUnits > reusableCap ? amountUnits : reusableCap;
+        await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(approvalUnits), `One-time ${symbol} Vault approval…`);
       }
 
       const depositHash = await sendAndWait(
@@ -4544,9 +4553,10 @@ useEffect(() => {
 
       setCoreDepositMsg(`Deposit confirmed. Tx: ${depositHash}`);
       setCoreDepositAmount("");
-      await refreshCoreVaultOnchain();
-      await refreshCoreVaultAccounting();
-      setTimeout(() => { refreshBalances(); refreshCoreVaultOnchain(); }, 1800);
+      // Do not keep the user waiting while all dashboards refresh.
+      refreshCoreVaultOnchain();
+      refreshCoreVaultAccounting();
+      setTimeout(() => { refreshBalances(); refreshCoreVaultOnchain(); }, 250);
     } catch (e) {
       const msg = String(e?.message || e || "Deposit failed");
       const low = msg.toLowerCase();
@@ -4622,7 +4632,7 @@ useEffect(() => {
         rows.push({
           key: `${chain}:native`, chain, symbol: chain, name: walletChainDisplayName(chain),
           amount: nativeAmount, usd: Number.isFinite(px) ? nativeAmount * px : null,
-          address: "native", kind: "native", vaultStatus: "VERIFIED", vaultLabel: "Verified for Vault",
+          address: "native", kind: "native", decimals: 18, vaultStatus: "VERIFIED", vaultLabel: "Verified for Vault",
         });
       }
       for (const [symbol, rawAmount] of Object.entries(data?.stables || {})) {
@@ -4632,7 +4642,7 @@ useEffect(() => {
         rows.push({
           key: `${chain}:${String(spec?.address || symbol).toLowerCase()}`, chain,
           symbol: String(symbol).toUpperCase(), name: "Approved stablecoin", amount, usd: amount,
-          address: String(spec?.address || ""), kind: "stable", vaultStatus: "VERIFIED", vaultLabel: "Verified for Vault",
+          address: String(spec?.address || ""), kind: "stable", decimals: Number(spec?.decimals ?? 6), vaultStatus: "VERIFIED", vaultLabel: "Verified for Vault",
         });
       }
       for (const tokenRow of data?.custom || []) {
@@ -4653,12 +4663,79 @@ useEffect(() => {
           key: `${chain}:${address}`, chain, symbol: String(tokenRow?.symbol || "TOKEN").toUpperCase(),
           name: String(tokenRow?.name || "ERC-20 token"), amount,
           usd: Number.isFinite(px) ? amount * px : null, address, kind: "custom",
-          vaultStatus, vaultLabel, security,
+          decimals: Number(tokenRow?.decimals ?? 18), vaultStatus, vaultLabel, security,
         });
       }
     }
     return rows.sort((a, b) => (Number(b.usd || 0) - Number(a.usd || 0)) || a.symbol.localeCompare(b.symbol));
   }, [walletChainKeys, balByChain, walletPx, walletAssetSecurityByKey]);
+
+  useEffect(() => {
+    if (!walletAssetRows.length) {
+      if (walletSendAssetKey) setWalletSendAssetKey("");
+      return;
+    }
+    if (!walletAssetRows.some((row) => row.key === walletSendAssetKey)) {
+      setWalletSendAssetKey(walletAssetRows[0].key);
+    }
+  }, [walletAssetRows, walletSendAssetKey]);
+
+  const sendPrivyWalletAsset = async () => {
+    try {
+      setWalletSendMsg("");
+      if (!wallet) throw new Error("Wallet not connected.");
+      if (!_isAddr(walletSendTo)) throw new Error("Recipient address invalid.");
+      const row = walletAssetRows.find((item) => item.key === walletSendAssetKey);
+      if (!row) throw new Error("Select an asset.");
+      const rawAmount = String(walletSendAmount || "").trim();
+      if (!/^\d+(\.\d+)?$/.test(rawAmount) || Number(rawAmount) <= 0) throw new Error("Enter a valid amount.");
+      if (Number(rawAmount) > Number(row.amount || 0)) throw new Error("Amount exceeds wallet balance.");
+
+      const chainKey = normalizeWalletChainKey(row.chain || DEFAULT_CHAIN);
+      const chainId = CHAIN_ID?.[chainKey];
+      if (!chainId) throw new Error(`Unsupported network: ${chainKey}`);
+
+      setWalletSendBusy(true);
+      setWalletSendMsg(`Preparing ${row.symbol} transfer…`);
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, chainId);
+      const currentHex = await provider.request({ method: "eth_chainId" });
+      const expectedHex = "0x" + Number(chainId).toString(16);
+      if (String(currentHex).toLowerCase() !== expectedHex.toLowerCase()) {
+        throw new Error(`Please switch your Privy wallet to ${walletChainDisplayName(chainKey)}.`);
+      }
+
+      let tx;
+      if (row.kind === "native" || row.address === "native") {
+        const value = decimalStringToUnits(rawAmount, 18);
+        tx = { from: wallet, to: String(walletSendTo).trim(), value: "0x" + value.toString(16), data: "0x" };
+      } else {
+        if (!_isAddr(row.address)) throw new Error(`${row.symbol} token contract is unavailable.`);
+        const units = decimalStringToUnits(rawAmount, Number(row.decimals ?? 18));
+        tx = {
+          from: wallet,
+          to: row.address,
+          value: "0x0",
+          data: "0xa9059cbb" + _encodeAddress(walletSendTo) + _encodeUint256(units),
+        };
+      }
+
+      setWalletSendMsg(`Confirm ${rawAmount} ${row.symbol} in Privy…`);
+      const hash = await provider.request({ method: "eth_sendTransaction", params: [tx] });
+      setWalletSendMsg(`Sent. Waiting for network confirmation… ${hash}`);
+      await _waitForTxReceipt(provider, hash);
+      setWalletSendMsg(`Transfer confirmed. Tx: ${hash}`);
+      setWalletSendAmount("");
+      setWalletSendTo("");
+      setTimeout(() => refreshBalances(), 250);
+    } catch (e) {
+      const msg = String(e?.message || e || "Transfer failed");
+      const low = msg.toLowerCase();
+      setWalletSendMsg(e?.code === 4001 || low.includes("rejected") || low.includes("denied") || low.includes("cancel") ? "Transfer cancelled by user." : msg);
+    } finally {
+      setWalletSendBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!wallet || !walletModalOpen) return;
@@ -18153,6 +18230,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
 
                   {balError ? <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>Some network balances could not be loaded.</div> : null}
+
+                  <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
+                    <div style={{ fontWeight: 900, fontSize: 13 }}>Send asset</div>
+                    <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>Directly from your Privy Wallet to another wallet. No Vault approval is required.</div>
+                    <select className="input" value={walletSendAssetKey} onChange={(e) => { setWalletSendAssetKey(e.target.value); setWalletSendMsg(""); }} disabled={walletSendBusy || !walletAssetRows.length} style={{ width: "100%", height: 42, marginTop: 9 }}>
+                      {walletAssetRows.map((row) => <option key={row.key} value={row.key}>{row.symbol} · {walletChainDisplayName(row.chain)} · {fmtQty(row.amount)}</option>)}
+                    </select>
+                    <input className="input" value={walletSendTo} onChange={(e) => { setWalletSendTo(e.target.value); setWalletSendMsg(""); }} placeholder="Recipient wallet address (0x…)" disabled={walletSendBusy} style={{ width: "100%", height: 42, marginTop: 8 }} />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, marginTop: 8 }}>
+                      <input className="input" inputMode="decimal" value={walletSendAmount} onChange={(e) => { setWalletSendAmount(e.target.value); setWalletSendMsg(""); }} placeholder="Amount" disabled={walletSendBusy} style={{ height: 42 }} />
+                      <button type="button" className="miniBtn" onClick={() => { const row = walletAssetRows.find((item) => item.key === walletSendAssetKey); if (row) setWalletSendAmount(String(row.amount)); }} disabled={walletSendBusy || !walletSendAssetKey}>MAX</button>
+                    </div>
+                    <button type="button" className="btn" onClick={sendPrivyWalletAsset} disabled={!wallet || walletSendBusy || !walletSendAssetKey || !walletSendTo || !walletSendAmount} style={{ width: "100%", height: 44, marginTop: 8 }}>
+                      {walletSendBusy ? "Sending…" : "Send from Privy Wallet"}
+                    </button>
+                    {walletSendMsg && <div className="muted" style={{ fontSize: 11, marginTop: 7, wordBreak: "break-word" }}>{walletSendMsg}</div>}
+                  </div>
+
                   <button type="button" className="btnGhost" onClick={() => { setWalletAssetSecurityByKey({}); refreshBalances(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 10 }}>
                     {balLoading ? "Refreshing…" : "Refresh Wallet Assets"}
                   </button>

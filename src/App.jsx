@@ -415,9 +415,15 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-162-FAST-DEPOSIT-PRIVY-ASSET-SEND";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-164-COREVAULT-ROUTE-PRESETS";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+const UNISWAP_SWAP_ROUTER_02 = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45";
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const UNISWAP_EXACT_INPUT_SINGLE_SELECTOR = "0x04e45aaf";
+const ETH_USDC_WETH_BUY_ROUTE_ID = "0x4554485f555344435f574554485f425559000000000000000000000000000000";
+const ETH_WETH_USDC_SELL_ROUTE_ID = "0x4554485f574554485f555344435f53454c4c0000000000000000000000000000";
 const CORE_VAULT_OWNER_ADDRESS = "0x3318b6A608b3873962B17DAe069Fc7317D88d68f";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
@@ -4547,7 +4553,7 @@ useEffect(() => {
     throw new Error("Transaction confirmation timed out. Check the transaction in your wallet.");
   };
 
-  // ENGINE-161: reserve an on-chain CoreVault session budget with the user's own Privy wallet.
+  // ENGINE-163: reserve an on-chain CoreVault session budget with the user's own Privy wallet.
   // No backend key and no MetaMask are used. The backend only prepares verified calldata.
   const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500 }) => {
     if (!wallet) throw new Error("Wallet not connected.");
@@ -7871,8 +7877,13 @@ useEffect(() => {
       });
       setRotationBackendMsg("NKR budget reserved in CoreVault.");
     } catch (e) {
-      setRotationBackendMsg(`NKR CoreVault: ${e?.message || e}`);
-      setErrorMsg(`NKR CoreVault: ${e?.message || e}`);
+      const rawMessage = String(e?.message || e || "NKR CoreVault session failed");
+      const routeMissing = rawMessage.includes("verified_trade_route_required") || rawMessage.toLowerCase().includes("enabled trade route") || rawMessage.toLowerCase().includes("verified corevault trade route");
+      const userMessage = routeMissing
+        ? "Live NKR cannot reserve capital yet: the deployed CoreVault requires one enabled verified TRADE route. Configure it once in Owner Admin; no new Vault deployment is needed. NKR Shadow observation remains available."
+        : `NKR CoreVault: ${rawMessage}`;
+      setRotationBackendMsg(userMessage);
+      setErrorMsg(userMessage);
       setRotationBackendLoading(false);
       return;
     } finally {
@@ -24813,6 +24824,29 @@ export default function App() {
   });
   const [walletAdmin, setWalletAdmin] = useState({ guardian: "", revenueWallet: "", liquidityDestination: "" });
 
+  const _loadWethTokenPreset = () => {
+    setTokenExecuteAfter(0);
+    setTokenAdmin({
+      token: ETH_WETH_ADDRESS, configured: true, depositEnabled: false, withdrawEnabled: false,
+      executionEnabled: true, paymentEnabled: false, settlementToken: false, decimals: "18",
+      maxSingleDeposit: "0", maxSessionBudget: "0", profitThreshold: "0",
+    });
+    setOwnerAdminMsg("WETH execution preset loaded. Schedule it first, wait for the timelock, then execute it.");
+  };
+
+  const _loadRoutePreset = (direction) => {
+    const buy = direction === "BUY";
+    setRouteExecuteAfter(0);
+    setRouteAdmin({
+      routeId: buy ? ETH_USDC_WETH_BUY_ROUTE_ID : ETH_WETH_USDC_SELL_ROUTE_ID,
+      enabled: true, kind: "0", target: UNISWAP_SWAP_ROUTER_02, oracle: ZERO_ADDRESS,
+      tokenIn: buy ? ETH_USDC_ADDRESS : ETH_WETH_ADDRESS,
+      tokenOut: buy ? ETH_WETH_ADDRESS : ETH_USDC_ADDRESS,
+      selector: UNISWAP_EXACT_INPUT_SINGLE_SELECTOR,
+    });
+    setOwnerAdminMsg(`${buy ? "USDC → WETH BUY" : "WETH → USDC SELL"} preset loaded. Check the values, then schedule the route.`);
+  };
+
 
   useEffect(() => {
     const timer = window.setInterval(() => setOwnerAdminNow(Math.floor(Date.now() / 1000)), 1000);
@@ -25456,6 +25490,10 @@ export default function App() {
 
                   <details open style={{ marginTop: 9 }}>
                     <summary style={{ cursor: "pointer", fontWeight: 800 }}>Token configuration</summary>
+                    <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || tokenExecuteAfter > 0} onClick={_loadWethTokenPreset}>Load WETH execution preset</button>
+                      <span className="muted" style={{ fontSize: 10, alignSelf: "center" }}>Required once before the two trade routes.</span>
+                    </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
                       <input value={tokenAdmin.token} onChange={(e) => setTokenAdmin({ ...tokenAdmin, token: e.target.value })} placeholder="Token address" style={{ gridColumn: "1 / -1" }} />
                       {["configured","depositEnabled","withdrawEnabled","executionEnabled","paymentEnabled","settlementToken"].map((k) => <label key={k} style={{ fontSize: 10 }}><input type="checkbox" checked={!!tokenAdmin[k]} onChange={(e) => setTokenAdmin({ ...tokenAdmin, [k]: e.target.checked })} /> {k}</label>)}
@@ -25482,18 +25520,29 @@ export default function App() {
 
                   <details style={{ marginTop: 9 }}>
                     <summary style={{ cursor: "pointer", fontWeight: 800 }}>Route configuration</summary>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
-                      <input value={routeAdmin.routeId} onChange={(e) => setRouteAdmin({ ...routeAdmin, routeId: e.target.value })} placeholder="routeId bytes32" style={{ gridColumn: "1 / -1" }} />
-                      <label style={{ fontSize: 10 }}><input type="checkbox" checked={!!routeAdmin.enabled} onChange={(e) => setRouteAdmin({ ...routeAdmin, enabled: e.target.checked })} /> enabled</label>
-                      <input value={routeAdmin.kind} onChange={(e) => setRouteAdmin({ ...routeAdmin, kind: e.target.value })} placeholder="kind uint8" />
-                      <input value={routeAdmin.target} onChange={(e) => setRouteAdmin({ ...routeAdmin, target: e.target.value })} placeholder="router target" />
-                      <input value={routeAdmin.oracle} onChange={(e) => setRouteAdmin({ ...routeAdmin, oracle: e.target.value })} placeholder="oracle" />
-                      <input value={routeAdmin.tokenIn} onChange={(e) => setRouteAdmin({ ...routeAdmin, tokenIn: e.target.value })} placeholder="tokenIn" />
-                      <input value={routeAdmin.tokenOut} onChange={(e) => setRouteAdmin({ ...routeAdmin, tokenOut: e.target.value })} placeholder="tokenOut" />
-                      <input value={routeAdmin.selector} onChange={(e) => setRouteAdmin({ ...routeAdmin, selector: e.target.value })} placeholder="selector bytes4" />
-                    </div>
                     <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
-                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_scheduleRoute}>1. Schedule route</button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || routeExecuteAfter > 0} onClick={() => _loadRoutePreset("BUY")}>Load 1: USDC → WETH</button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || routeExecuteAfter > 0} onClick={() => _loadRoutePreset("SELL")}>Load 2: WETH → USDC</button>
+                    </div>
+                    <div className="muted" style={{ marginTop: 6, fontSize: 10 }}>Configure the BUY route completely first. After it is executed, load and configure the SELL route.</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8 }}>
+                      <label style={{ gridColumn: "1 / -1", fontSize: 10 }}>Route ID (bytes32)<input value={routeAdmin.routeId} onChange={(e) => setRouteAdmin({ ...routeAdmin, routeId: e.target.value })} placeholder="routeId bytes32" style={{ width: "100%" }} /></label>
+                      <label style={{ fontSize: 10 }}><input type="checkbox" checked={!!routeAdmin.enabled} onChange={(e) => setRouteAdmin({ ...routeAdmin, enabled: e.target.checked })} /> Enabled</label>
+                      <label style={{ fontSize: 10 }}>Route type: 0 = TRADE<input value={routeAdmin.kind} onChange={(e) => setRouteAdmin({ ...routeAdmin, kind: e.target.value })} placeholder="0" style={{ width: "100%" }} /></label>
+                      <label style={{ fontSize: 10 }}>Router target<input value={routeAdmin.target} onChange={(e) => setRouteAdmin({ ...routeAdmin, target: e.target.value })} placeholder="Uniswap SwapRouter02" style={{ width: "100%" }} /></label>
+                      <label style={{ fontSize: 10 }}>Oracle (zero = disabled)<input value={routeAdmin.oracle} onChange={(e) => setRouteAdmin({ ...routeAdmin, oracle: e.target.value })} placeholder={ZERO_ADDRESS} style={{ width: "100%" }} /></label>
+                      <label style={{ fontSize: 10 }}>Token in<input value={routeAdmin.tokenIn} onChange={(e) => setRouteAdmin({ ...routeAdmin, tokenIn: e.target.value })} placeholder="tokenIn" style={{ width: "100%" }} /></label>
+                      <label style={{ fontSize: 10 }}>Token out<input value={routeAdmin.tokenOut} onChange={(e) => setRouteAdmin({ ...routeAdmin, tokenOut: e.target.value })} placeholder="tokenOut" style={{ width: "100%" }} /></label>
+                      <label style={{ gridColumn: "1 / -1", fontSize: 10 }}>Router function selector<input value={routeAdmin.selector} onChange={(e) => setRouteAdmin({ ...routeAdmin, selector: e.target.value })} placeholder="0x04e45aaf" style={{ width: "100%" }} /></label>
+                    </div>
+                    {routeExecuteAfter > 0 ? (
+                      <div style={{ marginTop: 8, padding: "7px 9px", borderRadius: 8, background: routeExecuteReady ? "rgba(60,220,130,0.12)" : "rgba(255,196,70,0.10)", border: routeExecuteReady ? "1px solid rgba(60,220,130,0.38)" : "1px solid rgba(255,196,70,0.35)", fontSize: 10 }}>
+                        <div style={{ fontWeight: 900, color: routeExecuteReady ? "#8dffd0" : "#ffd978" }}>{routeExecuteReady ? "READY TO EXECUTE" : "PENDING ROUTE UPDATE"}</div>
+                        <div className="muted" style={{ marginTop: 2 }}>{routeExecuteReady ? "Timelock completed." : `Execute in ${_formatOwnerAdminCountdown(routeExecuteAfter)}`} · {new Date(routeExecuteAfter * 1000).toLocaleString()}</div>
+                      </div>
+                    ) : <div className="muted" style={{ marginTop: 8, fontSize: 10 }}>Status: No pending route update.</div>}
+                    <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || routeExecuteAfter > 0} onClick={_scheduleRoute}>{routeExecuteAfter > 0 ? "1. Route scheduled" : "1. Schedule route"}</button>
                       <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !routeExecuteReady} onClick={_executeRoute}>{routeExecuteReady ? "2. Execute route" : routeExecuteAfter > 0 ? `Execute in ${_formatOwnerAdminCountdown(routeExecuteAfter)}` : "2. Execute route"}</button>
                     </div>
                   </details>

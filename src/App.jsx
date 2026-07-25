@@ -24787,7 +24787,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 
 export default function App() {
+  // Privy state must be read in this component because the signer-onboarding
+  // effect below belongs to App, not AppInner.
+  const { ready, authenticated } = usePrivy();
   const { wallets: systemWallets = [] } = useWallets();
+  const { addSigners } = useSigners();
   const [liveSetupBusy, setLiveSetupBusy] = useState("");
   const [liveSetupMsg, setLiveSetupMsg] = useState("");
   const [showDisclaimer, setShowDisclaimer] = useState(false);

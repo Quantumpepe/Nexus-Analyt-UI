@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-176-EVM-TOKEN-OWNER-REVIEW";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-181-PRIVY-AUTH-DIAGNOSTICS-BACKOFF";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -25058,6 +25058,8 @@ export default function App() {
   const _privySignerSetupInFlight = useRef(false);
   useEffect(() => {
     if (!authenticated || !ready || _privySignerSetupInFlight.current) return;
+    const retryAfter = Number(sessionStorage.getItem("nexus_privy_signer_retry_after") || 0);
+    if (Date.now() < retryAfter) return;
     const embedded = _primaryEmbeddedPrivyWallet();
     const walletAddress = String(embedded?.address || footerWallet || "").trim();
     if (!/^0x[0-9a-fA-F]{40}$/.test(walletAddress) || typeof addSigners !== "function") return;
@@ -25071,7 +25073,17 @@ export default function App() {
           cache: "no-store", credentials: "include", headers: authHeaders,
         });
         const cfg = await cfgRes.json().catch(() => ({}));
-        if (!cfgRes.ok || !cfg?.configured || !cfg?.signerId || !cfg?.policyId) return;
+        if (!cfgRes.ok) {
+          sessionStorage.setItem("nexus_privy_signer_retry_after", String(Date.now() + 60000));
+          const diagnosticRes = await fetch(`${API_BASE}/api/nexus/privy-trading/auth-diagnostics`, {
+            cache: "no-store", credentials: "include", headers: authHeaders,
+          }).catch(() => null);
+          const diagnostic = diagnosticRes ? await diagnosticRes.json().catch(() => ({})) : {};
+          console.warn("Privy trading authentication is not ready:", diagnostic?.diagnostics || cfg?.authDiagnostics || cfg);
+          return;
+        }
+        sessionStorage.removeItem("nexus_privy_signer_retry_after");
+        if (!cfg?.configured || !cfg?.signerId || !cfg?.policyId) return;
         if (cfg?.signerAttached) return;
 
         await addSigners({

@@ -3107,6 +3107,7 @@ const [errorMsg, setErrorMsg] = useState("");
   // External wallets must be optional and only enabled explicitly elsewhere.
   const { ready, authenticated, login, logout, getAccessToken, user: privyUser } = usePrivy();
   const { wallets: privyWallets } = useWallets();
+  const { addSigners } = useSigners();
 
   // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
   const _loginInFlight = useRef(false);
@@ -25032,6 +25033,57 @@ export default function App() {
     });
     return () => { cancelled = true; };
   }, [systemWallets, footerWallet]);
+
+  // Privy requires the app trading signer to be attached once to every embedded
+  // wallet. Existing users are migrated here; new users are handled immediately
+  // after their wallet appears. After this one-time consent, NKR/Trader/Grid run
+  // server-side within the configured Privy policy without per-trade popups.
+  const _privySignerSetupInFlight = useRef(false);
+  useEffect(() => {
+    if (!authenticated || !ready || _privySignerSetupInFlight.current) return;
+    const embedded = _primaryEmbeddedPrivyWallet();
+    const walletAddress = String(embedded?.address || footerWallet || "").trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(walletAddress) || typeof addSigners !== "function") return;
+
+    let cancelled = false;
+    const setupSigner = async () => {
+      _privySignerSetupInFlight.current = true;
+      try {
+        const cfgRes = await fetch(`${API_BASE}/api/nexus/privy-trading/config`, {
+          cache: "no-store", credentials: "include", headers: _authHeaders(),
+        });
+        const cfg = await cfgRes.json().catch(() => ({}));
+        if (!cfgRes.ok || !cfg?.configured || !cfg?.signerId || !cfg?.policyId) return;
+        if (cfg?.signerAttached) return;
+
+        await addSigners({
+          address: walletAddress,
+          signers: [{ signerId: cfg.signerId, policyIds: [cfg.policyId] }],
+        });
+        if (cancelled) return;
+        await fetch(`${API_BASE}/api/nexus/privy-trading/signer-confirmed`, {
+          method: "POST", credentials: "include", headers: _authHeaders(),
+          body: JSON.stringify({ walletAddress }),
+        });
+      } catch (error) {
+        const message = String(error?.message || error || "");
+        // A previously attached signer may be reported as duplicate. Confirming
+        // it lets the backend perform the real RPC check on the next NKR start.
+        if (/already|duplicate|exists/i.test(message) && !cancelled) {
+          await fetch(`${API_BASE}/api/nexus/privy-trading/signer-confirmed`, {
+            method: "POST", credentials: "include", headers: _authHeaders(),
+            body: JSON.stringify({ walletAddress }),
+          }).catch(() => {});
+        } else if (!cancelled) {
+          console.warn("Privy trading signer setup pending:", error);
+        }
+      } finally {
+        _privySignerSetupInFlight.current = false;
+      }
+    };
+    setupSigner();
+    return () => { cancelled = true; };
+  }, [authenticated, ready, systemWallets, footerWallet, addSigners]);
 
   const _refreshOwnerSystemInfoNow = async () => {
     if (!canOpenSystemInfo) return;

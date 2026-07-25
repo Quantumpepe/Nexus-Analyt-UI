@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-168-SYSTEM-INFO-DASHBOARD-COLUMNS";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-169-OWNER-ADMIN-WALLET-SELECTOR";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -24810,6 +24810,11 @@ export default function App() {
   const [ownerAdminBusy, setOwnerAdminBusy] = useState("");
   const [ownerAdminMsg, setOwnerAdminMsg] = useState("");
   const [ownerAdminHash, setOwnerAdminHash] = useState("");
+  const [ownerAdminWalletMode, setOwnerAdminWalletMode] = useState(() => {
+    try { return window.localStorage.getItem("nexus_owner_admin_wallet_mode_v1") || "METAMASK"; }
+    catch { return "METAMASK"; }
+  });
+  const [ownerAdminWalletStatus, setOwnerAdminWalletStatus] = useState({ owner: "", selected: "", metamask: "", privy: "", matches: false, loading: false, error: "" });
   const [tokenExecuteAfter, setTokenExecuteAfter] = useState(0);
   const [routeExecuteAfter, setRouteExecuteAfter] = useState(0);
   const [ownerAdminNow, setOwnerAdminNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -25038,29 +25043,89 @@ export default function App() {
     return h.length >= 40 ? `0x${h.slice(-40)}`.toLowerCase() : "";
   };
 
-  const _ownerAdminProvider = async () => {
-    const embedded = _primaryEmbeddedPrivyWallet();
-    if (!embedded?.getEthereumProvider) {
-      throw new Error("Privy embedded owner wallet is not available.");
-    }
-
-    const provider = await embedded.getEthereumProvider();
-    try { await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch {}
-
-    // Never use window.ethereum here. Owner administration is Privy-only.
-    const accounts = await provider.request({ method: "eth_requestAccounts" });
-    const account = String(accounts?.[0] || embedded?.address || "").toLowerCase();
+  const _readCoreVaultOwner = async (provider) => {
     const ownerRaw = await provider.request({
       method: "eth_call",
       params: [{ to: CORE_VAULT_ETH_ADDRESS, data: "0x8da5cb5b" }, "latest"],
     });
-    const owner = _hexAddressFromCall(ownerRaw);
-
-    if (!account || !owner || account !== owner) {
-      throw new Error(`The connected Privy wallet is not the CoreVault owner ${CORE_VAULT_OWNER_ADDRESS}.`);
-    }
-    return { provider, label: "Privy owner wallet", account, owner };
+    return _hexAddressFromCall(ownerRaw);
   };
+
+  const _selectedOwnerAdminProvider = async ({ requestAccounts = true } = {}) => {
+    const mode = String(ownerAdminWalletMode || "METAMASK").toUpperCase();
+    if (mode === "METAMASK") {
+      const provider = typeof window !== "undefined" ? window.ethereum : null;
+      if (!provider?.request) throw new Error("MetaMask is not installed or not available.");
+      try { await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch (switchError) {
+        if (String(switchError?.code) !== "4001") throw switchError;
+      }
+      const method = requestAccounts ? "eth_requestAccounts" : "eth_accounts";
+      const accounts = await provider.request({ method });
+      const account = String(accounts?.[0] || "").toLowerCase();
+      if (!account) throw new Error("Connect the MetaMask owner wallet first.");
+      return { provider, label: "MetaMask owner wallet", account, mode };
+    }
+
+    const embedded = _primaryEmbeddedPrivyWallet();
+    if (!embedded?.getEthereumProvider) throw new Error("Privy embedded wallet is not available.");
+    const provider = await embedded.getEthereumProvider();
+    try { await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch {}
+    const method = requestAccounts ? "eth_requestAccounts" : "eth_accounts";
+    const accounts = await provider.request({ method });
+    const account = String(accounts?.[0] || embedded?.address || "").toLowerCase();
+    if (!account) throw new Error("Connect the Privy wallet first.");
+    return { provider, label: "Privy owner wallet", account, mode };
+  };
+
+  const _ownerAdminProvider = async () => {
+    const signer = await _selectedOwnerAdminProvider({ requestAccounts: true });
+    const owner = await _readCoreVaultOwner(signer.provider);
+    if (!owner) throw new Error("CoreVault owner address could not be read.");
+    if (signer.account !== owner) {
+      throw new Error(`Selected ${signer.label} is not the CoreVault owner. Owner: ${owner}. Connected: ${signer.account}.`);
+    }
+    return { ...signer, owner };
+  };
+
+  const _refreshOwnerAdminWalletStatus = useCallback(async () => {
+    if (!showSystemInfo || !canOpenSystemInfo) return;
+    setOwnerAdminWalletStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      let metamask = "";
+      let privy = "";
+      if (typeof window !== "undefined" && window.ethereum?.request) {
+        try { metamask = String((await window.ethereum.request({ method: "eth_accounts" }))?.[0] || "").toLowerCase(); } catch {}
+      }
+      const embedded = _primaryEmbeddedPrivyWallet();
+      privy = String(embedded?.address || "").toLowerCase();
+      const selectedSigner = await _selectedOwnerAdminProvider({ requestAccounts: false });
+      const owner = await _readCoreVaultOwner(selectedSigner.provider);
+      setOwnerAdminWalletStatus({ owner, selected: selectedSigner.account, metamask, privy, matches: !!owner && selectedSigner.account === owner, loading: false, error: "" });
+    } catch (error) {
+      setOwnerAdminWalletStatus((prev) => ({ ...prev, selected: ownerAdminWalletMode === "METAMASK" ? prev.metamask : prev.privy, matches: false, loading: false, error: String(error?.message || error || "Wallet check failed") }));
+    }
+  }, [showSystemInfo, canOpenSystemInfo, ownerAdminWalletMode, systemWallets]);
+
+  const _connectSelectedOwnerAdminWallet = async () => {
+    setOwnerAdminWalletStatus((prev) => ({ ...prev, loading: true, error: "" }));
+    try {
+      const signer = await _selectedOwnerAdminProvider({ requestAccounts: true });
+      const owner = await _readCoreVaultOwner(signer.provider);
+      let metamask = ownerAdminWalletStatus.metamask;
+      let privy = ownerAdminWalletStatus.privy;
+      if (signer.mode === "METAMASK") metamask = signer.account;
+      if (signer.mode === "PRIVY") privy = signer.account;
+      setOwnerAdminWalletStatus({ owner, selected: signer.account, metamask, privy, matches: !!owner && signer.account === owner, loading: false, error: "" });
+      setOwnerAdminMsg(signer.account === owner ? `${signer.label} connected and verified as CoreVault owner.` : `${signer.label} connected, but it is not the CoreVault owner.`);
+    } catch (error) {
+      setOwnerAdminWalletStatus((prev) => ({ ...prev, matches: false, loading: false, error: String(error?.message || error || "Wallet connection failed") }));
+    }
+  };
+
+  useEffect(() => {
+    try { window.localStorage.setItem("nexus_owner_admin_wallet_mode_v1", ownerAdminWalletMode); } catch {}
+    _refreshOwnerAdminWalletStatus();
+  }, [ownerAdminWalletMode, _refreshOwnerAdminWalletStatus]);
 
   const _sendOwnerAdminTx = async (data, busyName) => {
     setOwnerAdminBusy(busyName); setOwnerAdminMsg("");
@@ -25518,6 +25583,30 @@ export default function App() {
                   <div className="muted" style={{ marginTop: 5, fontSize: 10, wordBreak: "break-all" }}>CoreVault: {CORE_VAULT_ETH_ADDRESS}</div>
                   <div className="muted" style={{ marginTop: 3, fontSize: 10 }}>Token and route changes are scheduled automatically for 61 minutes. Execute them later with the identical values.</div>
 
+                  <div style={{ marginTop: 9, padding: 9, borderRadius: 9, border: "1px solid rgba(141,232,255,0.25)", background: "rgba(141,232,255,0.045)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      <b style={{ fontSize: 11 }}>Admin signing wallet</b>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <button type="button" className="miniBtn" disabled={ownerAdminWalletStatus.loading || !!ownerAdminBusy} onClick={_connectSelectedOwnerAdminWallet}>{ownerAdminWalletStatus.loading ? "Connecting..." : "Connect & verify"}</button>
+                        <button type="button" className="miniBtn" disabled={ownerAdminWalletStatus.loading || !!ownerAdminBusy} onClick={_refreshOwnerAdminWalletStatus}>Refresh</button>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 14, marginTop: 7, flexWrap: "wrap" }}>
+                      <label style={{ fontSize: 11, cursor: "pointer" }}><input type="radio" name="ownerAdminWalletMode" value="METAMASK" checked={ownerAdminWalletMode === "METAMASK"} onChange={() => setOwnerAdminWalletMode("METAMASK")} /> MetaMask (Owner/Admin)</label>
+                      <label style={{ fontSize: 11, cursor: "pointer" }}><input type="radio" name="ownerAdminWalletMode" value="PRIVY" checked={ownerAdminWalletMode === "PRIVY"} onChange={() => setOwnerAdminWalletMode("PRIVY")} /> Privy (Owner/Admin)</label>
+                    </div>
+                    <div style={{ marginTop: 7, display: "grid", gridTemplateColumns: "110px minmax(0,1fr)", gap: "3px 8px", fontSize: 10 }}>
+                      <span className="muted">CoreVault owner</span><span style={{ wordBreak: "break-all" }}>{ownerAdminWalletStatus.owner || CORE_VAULT_OWNER_ADDRESS || "unknown"}</span>
+                      <span className="muted">MetaMask</span><span style={{ wordBreak: "break-all" }}>{ownerAdminWalletStatus.metamask || "not connected"}</span>
+                      <span className="muted">Privy</span><span style={{ wordBreak: "break-all" }}>{ownerAdminWalletStatus.privy || "not connected"}</span>
+                    </div>
+                    <div style={{ marginTop: 7, fontSize: 10, fontWeight: 900, color: ownerAdminWalletStatus.matches ? "#8dffd0" : "#ffd978" }}>
+                      {ownerAdminWalletStatus.matches ? `READY: Selected ${ownerAdminWalletMode === "METAMASK" ? "MetaMask" : "Privy"} wallet is the CoreVault owner.` : `BLOCKED: Selected ${ownerAdminWalletMode === "METAMASK" ? "MetaMask" : "Privy"} wallet is not the CoreVault owner.`}
+                    </div>
+                    {ownerAdminWalletStatus.error ? <div style={{ marginTop: 4, fontSize: 10, color: "#ffb4b4", wordBreak: "break-word" }}>{ownerAdminWalletStatus.error}</div> : null}
+                    <div className="muted" style={{ marginTop: 5, fontSize: 9 }}>This selector applies only to owner/admin actions. User sessions and automatic trading remain Privy-only.</div>
+                  </div>
+
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10, alignItems: "start" }}>
                   <details open style={{ marginTop: 9, minWidth: 0 }}>
                     <summary style={{ cursor: "pointer", fontWeight: 800 }}>Token configuration</summary>
@@ -25544,8 +25633,8 @@ export default function App() {
                       <div className="muted" style={{ marginTop: 8, fontSize: 10 }}>Status: No pending token update.</div>
                     )}
                     <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
-                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || tokenExecuteAfter > 0} onClick={_scheduleToken}>{ownerAdminBusy === "Token schedule" ? "Signing..." : tokenExecuteAfter > 0 ? "1. Token scheduled" : "1. Schedule token"}</button>
-                      <button type="button" className="miniBtn" style={tokenExecuteReady ? { background: "rgba(60,220,130,0.28)", borderColor: "rgba(60,220,130,0.65)" } : undefined} disabled={!!ownerAdminBusy || !tokenExecuteReady} onClick={_executeToken}>{ownerAdminBusy === "Token configuration" ? "Signing..." : tokenExecuteReady ? "2. Execute token" : tokenExecuteAfter > 0 ? `Execute in ${_formatOwnerAdminCountdown(tokenExecuteAfter)}` : "2. Execute token"}</button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || tokenExecuteAfter > 0 || !ownerAdminWalletStatus.matches} onClick={_scheduleToken}>{ownerAdminBusy === "Token schedule" ? "Signing..." : tokenExecuteAfter > 0 ? "1. Token scheduled" : "1. Schedule token"}</button>
+                      <button type="button" className="miniBtn" style={tokenExecuteReady ? { background: "rgba(60,220,130,0.28)", borderColor: "rgba(60,220,130,0.65)" } : undefined} disabled={!!ownerAdminBusy || !tokenExecuteReady || !ownerAdminWalletStatus.matches} onClick={_executeToken}>{ownerAdminBusy === "Token configuration" ? "Signing..." : tokenExecuteReady ? "2. Execute token" : tokenExecuteAfter > 0 ? `Execute in ${_formatOwnerAdminCountdown(tokenExecuteAfter)}` : "2. Execute token"}</button>
                     </div>
                   </details>
 
@@ -25573,8 +25662,8 @@ export default function App() {
                       </div>
                     ) : <div className="muted" style={{ marginTop: 8, fontSize: 10 }}>Status: No pending route update.</div>}
                     <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
-                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || routeExecuteAfter > 0} onClick={_scheduleRoute}>{routeExecuteAfter > 0 ? "1. Route scheduled" : "1. Schedule route"}</button>
-                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !routeExecuteReady} onClick={_executeRoute}>{routeExecuteReady ? "2. Execute route" : routeExecuteAfter > 0 ? `Execute in ${_formatOwnerAdminCountdown(routeExecuteAfter)}` : "2. Execute route"}</button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || routeExecuteAfter > 0 || !ownerAdminWalletStatus.matches} onClick={_scheduleRoute}>{routeExecuteAfter > 0 ? "1. Route scheduled" : "1. Schedule route"}</button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !routeExecuteReady || !ownerAdminWalletStatus.matches} onClick={_executeRoute}>{routeExecuteReady ? "2. Execute route" : routeExecuteAfter > 0 ? `Execute in ${_formatOwnerAdminCountdown(routeExecuteAfter)}` : "2. Execute route"}</button>
                     </div>
                   </details>
                   </div>

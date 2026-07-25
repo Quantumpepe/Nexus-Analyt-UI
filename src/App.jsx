@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-164-COREVAULT-ROUTE-PRESETS";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-166-SYSTEM-INFO-V3-ONLY";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -25039,25 +25039,27 @@ export default function App() {
   };
 
   const _ownerAdminProvider = async () => {
-    const candidates = [];
-    if (typeof window !== "undefined" && window.ethereum?.request) candidates.push({ provider: window.ethereum, label: "Browser owner wallet" });
     const embedded = _primaryEmbeddedPrivyWallet();
-    if (embedded?.getEthereumProvider) {
-      try { candidates.push({ provider: await embedded.getEthereumProvider(), label: "Privy wallet" }); } catch {}
+    if (!embedded?.getEthereumProvider) {
+      throw new Error("Privy embedded owner wallet is not available.");
     }
-    // owner() selector = keccak256("owner()")[:4]. No ABI coder is required.
-    const ownerData = "0x8da5cb5b";
-    for (const item of candidates) {
-      try {
-        try { await item.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch {}
-        const accounts = await item.provider.request({ method: "eth_requestAccounts" });
-        const account = String(accounts?.[0] || "").toLowerCase();
-        const ownerRaw = await item.provider.request({ method: "eth_call", params: [{ to: CORE_VAULT_ETH_ADDRESS, data: ownerData }, "latest"] });
-        const owner = _hexAddressFromCall(ownerRaw);
-        if (account && owner && account === owner) return { ...item, account, owner };
-      } catch {}
+
+    const provider = await embedded.getEthereumProvider();
+    try { await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x1" }] }); } catch {}
+
+    // Never use window.ethereum here. Owner administration is Privy-only.
+    const accounts = await provider.request({ method: "eth_requestAccounts" });
+    const account = String(accounts?.[0] || embedded?.address || "").toLowerCase();
+    const ownerRaw = await provider.request({
+      method: "eth_call",
+      params: [{ to: CORE_VAULT_ETH_ADDRESS, data: "0x8da5cb5b" }, "latest"],
+    });
+    const owner = _hexAddressFromCall(ownerRaw);
+
+    if (!account || !owner || account !== owner) {
+      throw new Error(`The connected Privy wallet is not the CoreVault owner ${CORE_VAULT_OWNER_ADDRESS}.`);
     }
-    throw new Error(`Connect the CoreVault owner wallet ${CORE_VAULT_OWNER_ADDRESS} on Ethereum.`);
+    return { provider, label: "Privy owner wallet", account, owner };
   };
 
   const _sendOwnerAdminTx = async (data, busyName) => {
@@ -25105,7 +25107,8 @@ export default function App() {
         if (!/^0x[0-9a-fA-F]{64}$/.test(actionHash)) return;
         if (!cancelled) setOwnerAdminHash(actionHash);
 
-        const provider = typeof window !== "undefined" && window.ethereum?.request ? window.ethereum : null;
+        const embedded = _primaryEmbeddedPrivyWallet();
+        const provider = embedded?.getEthereumProvider ? await embedded.getEthereumProvider() : null;
         if (!provider) return;
 
         // pendingAction(bytes32) selector = 0xc8b53038.
@@ -25432,52 +25435,64 @@ export default function App() {
                   </div>
                 </div>
 
-                <div style={{
-                  border: `1px solid ${statusTone(pickSystemInfoValue(shadowReadiness || {}, ["shadow_test_allowed", "shadowTestAllowed", "allowed"], "unknown")).border}`,
-                  borderRadius: 10,
-                  padding: 10,
-                  background: statusTone(pickSystemInfoValue(shadowReadiness || {}, ["shadow_test_allowed", "shadowTestAllowed", "allowed"], "unknown")).bg,
-                }}>
-                  <b>Shadow Readiness</b>
-                  <br />
-                  Shadow Test: {String(pickSystemInfoValue(shadowReadiness || {}, ["shadow_test_allowed", "shadowTestAllowed", "allowed"], "unknown")).toUpperCase()}
-                  <br />
-                  Live Execution: {String(pickSystemInfoValue(shadowReadiness || systemInfoStatus || {}, ["live_execution", "liveExecution", "guards.live_execution"], "DISABLED")).toUpperCase()}
-                  <br />
-                  Vault: {String(pickSystemInfoValue(shadowReadiness || systemInfoStatus || {}, ["vault.status", "vault", "vault_core", "vaultCore"], "PREP ONLY")).toUpperCase()}
-                  <br />
-                  Withdraw: {String(pickSystemInfoValue(shadowReadiness || systemInfoStatus || {}, ["withdraw.status", "withdraw", "withdraw_quote", "withdrawQuote"], "PREVIEW ONLY")).toUpperCase()}
-                </div>
-
-                <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
+                <div style={{ marginTop: 10, border: "1px solid rgba(68,255,180,0.24)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <b>Privy Delegated Live Trading</b>
-                    <span style={{ color: systemInfoStatus?.liveExecutionReadiness?.liveExecution === "ACTIVE" ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>
+                    <b>CoreVault V3 Live Readiness</b>
+                    <span style={{ color: systemInfoStatus?.liveExecutionReadiness?.status === "READY" ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>
                       {systemInfoStatus?.liveExecutionReadiness?.status || "CHECKING"}
                     </span>
                   </div>
-                  <div className="muted" style={{ marginTop: 5, fontSize: 11 }}>The user approves once in Privy. Afterwards Nexus may transact automatically only inside the assigned Privy policy. The wallet private key is never exposed.</div>
-                  <div style={{ display: "grid", gap: 4, marginTop: 8, fontSize: 11 }}>
-                    <div>Privy app: {systemInfoStatus?.liveExecutionReadiness?.checks?.privyAppConfigured ? "READY 🟢" : "MISSING 🔴"}</div>
-                    <div>Trading signer: {systemInfoStatus?.liveExecutionReadiness?.checks?.tradingSignerConfigured ? "READY 🟢" : "ENV REQUIRED 🟡"}</div>
-                    <div>Trading policy: {systemInfoStatus?.liveExecutionReadiness?.checks?.tradingPolicyConfigured ? "READY 🟢" : "ENV REQUIRED 🟡"}</div>
-                    <div>Wallet delegated: {systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated ? "ACTIVE 🟢" : "USER APPROVAL REQUIRED 🟡"}</div>
-                    <div>Vault: {systemInfoStatus?.liveExecutionReadiness?.checks?.vaultConnected ? "READY 🟢" : "MISSING 🔴"}</div>
-                    <div>USDC execution: {systemInfoStatus?.liveExecutionReadiness?.checks?.usdcExecutionEnabled ? "ENABLED 🟢" : "ADMIN SETUP REQUIRED 🟡"}</div>
-                    <div>Vault Privy-only compatibility: {systemInfoStatus?.liveExecutionReadiness?.checks?.privyOnlyVaultCompatible ? "READY 🟢" : "CONTRACT UPDATE REQUIRED 🟡"}</div>
-                    <div>Delegated session budget: {Number(systemInfoStatus?.liveExecutionReadiness?.checks?.delegatedBudgetUsd || 0).toFixed(2)} USDC</div>
-                    <div>ETH/USDC route: {systemInfoStatus?.liveExecutionReadiness?.checks?.routeReady ? "VERIFIED 🟢" : "NOT VERIFIED 🟡"}</div>
-                    <div>Solvency: {systemInfoStatus?.liveExecutionReadiness?.checks?.solvent ? "OK 🟢" : "CHECK REQUIRED 🔴"}</div>
+                  <div className="muted" style={{ marginTop: 5, fontSize: 11 }}>
+                    Active path: Privy user wallet → CoreVault V3 self-scoped session → verified Uniswap routes. Vault V2 is disabled.
                   </div>
-                  <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
-                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated} onClick={_enablePrivyTrading}>{liveSetupBusy === "delegate" ? "Opening Privy..." : "Approve Automatic Trading"}</button>
-                    <button type="button" className="miniBtn" disabled title="The deployed Vault requires EXECUTOR_ROLE and is not compatible with self-scoped Privy delegated execution.">Vault Update Required</button>
-                    <button type="button" className="miniBtn" disabled>Run 1 USDC Trader Test</button>
-                    <button type="button" className="miniBtn" disabled={!!liveSetupBusy || !systemInfoStatus?.liveExecutionReadiness?.checks?.walletDelegated} onClick={_revokePrivyTrading}>{liveSetupBusy === "revoke" ? "Revoking..." : "Revoke Permission"}</button>
-                  </div>
-                  {systemInfoStatus?.liveExecutorStatus?.jobs?.[0] ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-word" }}>Latest job: <b>{systemInfoStatus.liveExecutorStatus.jobs[0].status}</b> · {systemInfoStatus.liveExecutorStatus.jobs[0].stage}{systemInfoStatus.liveExecutorStatus.jobs[0].error_text ? ` · ${systemInfoStatus.liveExecutorStatus.jobs[0].error_text}` : ""}</div> : null}
-                  {liveSetupMsg ? <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all" }}>{liveSetupMsg}</div> : null}
-                  <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>Privy delegation is active and remains the only user-wallet flow. CoreVault V3 uses self-scoped sessions. Live trading remains intentionally blocked until the settlement token and approved trade routes are configured and verified.</div>
+                  {(() => {
+                    const c = systemInfoStatus?.liveExecutionReadiness?.checks || {};
+                    const ok = (value) => value ? "READY 🟢" : "NOT READY 🟡";
+                    const rows = [
+                      ["Privy execution service", c.privyAppConfigured && c.tradingSignerConfigured && c.tradingPolicyConfigured],
+                      ["User wallet permission", c.walletDelegated],
+                      ["CoreVault V3 connected", c.vaultConnected],
+                      ["Vault paused", c.vaultPaused === false, c.vaultPaused ? "YES 🔴" : "NO 🟢"],
+                      ["Vault solvent", c.solvent],
+                      ["USDC settlement/execution", c.usdcConfigured && c.usdcExecutionEnabled && c.usdcSettlementToken && c.usdcDecimalsCorrect],
+                      ["WETH execution", c.wethConfigured && c.wethExecutionEnabled && c.wethDecimalsCorrect],
+                      ["BUY route USDC → WETH", c.buyRouteReady],
+                      ["SELL route WETH → USDC", c.sellRouteReady],
+                      ["Uniswap router", c.routerHasCode],
+                      ["Uniswap quoter", c.quoterHasCode && c.quotePathWorks],
+                      ["System mapping NKR / Trader / Grid", c.systemIdConfirmed],
+                    ];
+                    return (
+                      <div style={{ display: "grid", gap: 4, marginTop: 8, fontSize: 11 }}>
+                        {rows.map(([label, value, display]) => (
+                          <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                            <span>{label}</span>
+                            <b style={{ color: value ? "#8dffd0" : "#ffe08a", textAlign: "right" }}>{display || ok(value)}</b>
+                          </div>
+                        ))}
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                          <span>Approved session budget</span>
+                          <b>{Number(c.delegatedBudgetUsd || 0).toFixed(2)} USDC</b>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  {Array.isArray(systemInfoStatus?.liveExecutionReadiness?.blockers) && systemInfoStatus.liveExecutionReadiness.blockers.length > 0 ? (
+                    <details style={{ marginTop: 9 }}>
+                      <summary style={{ cursor: "pointer", fontWeight: 800, color: "#ffe08a" }}>Current V3 blockers ({systemInfoStatus.liveExecutionReadiness.blockers.length})</summary>
+                      <div className="muted" style={{ marginTop: 6, fontSize: 10, wordBreak: "break-word" }}>
+                        {systemInfoStatus.liveExecutionReadiness.blockers.join(" · ")}
+                      </div>
+                    </details>
+                  ) : (
+                    <div style={{ marginTop: 9, fontSize: 11, color: "#8dffd0", fontWeight: 900 }}>CoreVault V3 is ready for the controlled 1 USDC live test.</div>
+                  )}
+                  {systemInfoStatus?.liveExecutorStatus?.jobs?.[0] ? (
+                    <div className="muted" style={{ marginTop: 7, fontSize: 10, wordBreak: "break-word" }}>
+                      Latest V3 job: <b>{systemInfoStatus.liveExecutorStatus.jobs[0].status}</b> · {systemInfoStatus.liveExecutorStatus.jobs[0].stage}
+                      {systemInfoStatus.liveExecutorStatus.jobs[0].error_text ? ` · ${systemInfoStatus.liveExecutorStatus.jobs[0].error_text}` : ""}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div style={{ marginTop: 10, border: "1px solid rgba(102,220,255,0.28)", borderRadius: 10, padding: 10, background: "rgba(40,180,255,0.045)" }}>

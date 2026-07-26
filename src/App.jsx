@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-199-NKR-ONCHAIN-ROUTE-VERIFY-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-200-NKR-LIVE-POSITION-UI";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -20961,11 +20961,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const px = Number(activeGridNativeUsd || 0);
                       const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
                       const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
-                      const modeForReserve = String(nkrCapitalMode || "DYNAMIC").trim().toUpperCase();
-                      const nkrReservePct = modeForReserve === "AGGRESSIVE" ? 10 : modeForReserve === "DEFENSIVE" ? 25 : 20;
-                      const nkrProtectedReserveUsd = nkrBudgetUsd > 0 ? Math.max(0, nkrBudgetUsd * (nkrReservePct / 100)) : 0;
-                      const nkrAvailableUsd = nkrBudgetUsd > 0 ? Math.max(0, nkrBudgetUsd - nkrProtectedReserveUsd - rotationAllocatedUsd) : 0;
+                      const nkrProtectedReserveUsd = 0;
+                      const nkrAvailableUsd = nkrBudgetUsd > 0 ? Math.max(0, nkrBudgetUsd - rotationAllocatedUsd) : 0;
                       const availableUsd = nkrBudgetUsd > 0 ? nkrAvailableUsd : Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
+                      const nkrVaultTotalLive = Object.values(coreVaultOnchain?.tokens || {}).reduce((sum, tokenState) => {
+                        const account = tokenState?.account || {};
+                        return sum + Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
+                      }, 0);
                       const usagePct = nkrBudgetUsd > 0 ? Math.min(100, Math.max(0, (rotationAllocatedUsd / nkrBudgetUsd) * 100)) : vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
                       const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
                       const rotationShadowRuntimeStatus = rotationShadowBusy ? "READING LIVE DATA" : nkrCtrl === "STOPPED" ? "STOPPED" : nkrCtrl === "PAUSED" || pausedRotations > 0 ? "PAUSED" : activeRotations > 0 || nkrCtrl === "RUNNING" ? "RUNNING" : "READY";
@@ -21042,13 +21044,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 lineHeight: 1.45,
                               }}
                             >
-                              <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
+                              <div><b>Vault Total:</b> {fmtUsd(nkrVaultTotalLive)}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {nkrBudgetUsd > 0 ? fmtUsd(availableUsd) : (vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending")}</div>
-                              <div><b>Protected Reserve:</b> {nkrBudgetUsd > 0 ? fmtUsd(nkrProtectedReserveUsd) : "—"}</div>
+                              <div><b>Open Position Value:</b> {fmtUsd(rotationVisibleActiveRows.reduce((sum, s) => sum + Number(s?.positionValueUsd ?? s?.openRotation?.currentValueUsd ?? s?.meta?.nkr_position_value_usd ?? 0), 0))}</div>
                               <div><b>Nexus NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : fmtUsd(0)}</span></div>
-                              <div><b>Active NKR Sessions:</b> {activeRotations} / {rotationMaxActive}</div>
+                              <div><b>Active Session:</b> {activeRotations > 0 ? 1 : 0}</div>
                               <div><b>Top Profit Asset:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTarget}</span></div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
                               <div><b>Nexus NKR Mode:</b> {String(nkrCapitalMode || "DYNAMIC").replaceAll("_", " ")}</div>
@@ -21078,7 +21080,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div className="label" style={{ marginBottom: 0 }}>Active NKR Sessions</div>
                                 
                               </div>
-                              <span className="pill silver">{activeRotations} active / {rotationMaxActive} max</span>
+                              <span className="pill silver">{activeRotations > 0 ? 1 : 0} session · {rotationVisibleActiveRows.filter((s) => String(s?.positionState || s?.meta?.position_state || "").toUpperCase() === "OPEN").length}/{rotationMaxActive} assets</span>
                             </div>
 
                             <div
@@ -21091,7 +21093,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               }}
                             >
                               {rotationVisibleActiveRows.length ? rotationVisibleActiveRows.map((sess, idx) => {
-                                const sym = String(sess?.symbol || "ASSET").toUpperCase();
+                                const sym = String(sess?.positionAsset || sess?.openRotation?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || sess?.meta?.nkr_active_asset || "WAITING").toUpperCase();
                                 const liveRow = (Array.isArray(watchRows) ? watchRows : []).find((r) => String(r?.symbol || r?.sym || r?.asset || "").toUpperCase() === sym) || null;
                                 const livePrice = Number(liveRow?.price ?? liveRow?.usd ?? liveRow?.current_price ?? sess?.livePriceUsd ?? sess?.meta?.live_price_usd ?? 0) || 0;
                                 const liveChange = Number(liveRow?.change24h ?? liveRow?.chg_24h ?? liveRow?.usd_24h_change ?? sess?.marketChange24h ?? sess?.meta?.market_change_24h ?? 0) || 0;
@@ -21123,6 +21125,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const costs = Number(sess?.costsUsd ?? sess?.meta?.costsUsd ?? 0) || 0;
                                 const net = Number(sess?.netProfitUsd ?? sess?.meta?.netProfitUsd ?? profit) || 0;
                                 const confidence = Number(sess?.confidence ?? sess?.score ?? rotationSelectedPick?.score ?? 0);
+                                const positionQty = Number(sess?.positionQty ?? sess?.positionAmount ?? sess?.openRotation?.positionQty ?? sess?.openRotation?.quantity ?? sess?.meta?.nkr_position_qty ?? 0) || 0;
+                                const entryPrice = Number(sess?.entryPriceUsd ?? sess?.openRotation?.entryPriceUsd ?? sess?.meta?.nkr_entry_price_usd ?? 0) || 0;
+                                const currentPositionPrice = Number(sess?.currentPriceUsd ?? sess?.openRotation?.currentPriceUsd ?? sess?.meta?.nkr_current_price_usd ?? livePrice ?? 0) || 0;
+                                const positionValue = Number(sess?.positionValueUsd ?? sess?.openRotation?.currentValueUsd ?? sess?.meta?.nkr_position_value_usd ?? (positionQty * currentPositionPrice) ?? 0) || 0;
+                                const unrealizedPnl = Number(sess?.unrealizedPnlUsd ?? sess?.openRotation?.pnlUsd ?? sess?.meta?.nkr_unrealized_pnl_usd ?? 0) || 0;
+                                const unrealizedPnlPct = Number(sess?.unrealizedPnlPct ?? sess?.openRotation?.pnlPct ?? sess?.meta?.nkr_unrealized_pnl_pct ?? 0) || 0;
+                                const liveTxHash = String(sess?.lastTxHash || sess?.openRotation?.txHash || sess?.meta?.nkr_live_buy_tx_hash || "");
                                 const roi = budget > 0 ? (profit / budget) * 100 : 0;
                                 return (
                                   <div
@@ -21144,7 +21153,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <span className={`pill ${statusTone.pill}`} style={{ color: statusTone.color, fontWeight: 950 }}>{status}</span>
                                       </div>
                                       <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Allocation: {allocationLabel}</div>
-                                      <div className="muted tiny" style={{ marginTop: 4 }}><b style={{ color: liveTone }}>Live:</b> {livePrice > 0 ? fmtUsd(livePrice) : "waiting"} · <span style={{ color: liveTone, fontWeight: 900 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>{liveVol > 0 ? ` · Vol ${fmtCompactUsd(liveVol)}` : ""}</div>
+                                      <div className="muted tiny" style={{ marginTop: 4 }}><b style={{ color: liveTone }}>Live:</b> {currentPositionPrice > 0 ? fmtUsd(currentPositionPrice) : "waiting"} · <span style={{ color: liveTone, fontWeight: 900 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>{liveVol > 0 ? ` · Vol ${fmtCompactUsd(liveVol)}` : ""}</div>
+                                      {positionQty > 0 ? <div className="muted tiny" style={{ marginTop: 4 }}><b style={{ color: "#8bdcff" }}>Position:</b> {positionQty.toFixed(8)} {sym} · Value {fmtUsd(positionValue)}</div> : null}
+                                      {entryPrice > 0 ? <div className="muted tiny" style={{ marginTop: 4 }}><b>Entry:</b> {fmtUsd(entryPrice)} · <b style={{ color: unrealizedPnl >= 0 ? "#86efac" : "#ff8a8a" }}>Live PnL:</b> {unrealizedPnl >= 0 ? "+" : ""}{fmtUsd(unrealizedPnl)} ({unrealizedPnlPct >= 0 ? "+" : ""}{unrealizedPnlPct.toFixed(2)}%)</div> : null}
+                                      {liveTxHash ? <div className="muted tiny" style={{ marginTop: 4 }}><b>On-chain:</b> CONFIRMED · <span className="mono">{liveTxHash.slice(0, 10)}...{liveTxHash.slice(-6)}</span></div> : null}
                                       
                                     </div>
 

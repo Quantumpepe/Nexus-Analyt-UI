@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-185-PRIVY-DUPLICATE-SIGNER-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-186-PRIVY-VERIFICATION-FLOW-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4699,10 +4699,14 @@ useEffect(() => {
           ? ` (${provision.diagnostics.findings.join(", ")})` : "";
         throw new Error(`${provision?.error || `Privy provision HTTP ${provisionRes.status}`}${findingText}`);
       }
-      if (provision?.signerAttached !== true || provision?.diagnostics?.status !== "MATCH") {
+      // Privy's authorization_key wallet filter is an ownership filter, not an
+      // additional-signer lookup. After addSigners succeeds (or reports the signer
+      // already exists), the backend validates wallet, quorum and key membership.
+      // The first real Privy wallet RPC is the authoritative execution check.
+      if (provision?.provisionAccepted !== true) {
         const findings = Array.isArray(provision?.diagnostics?.findings)
-          ? provision.diagnostics.findings.join(", ") : "signer_not_confirmed";
-        throw new Error(`Privy did not confirm the trading signer on this wallet: ${findings}`);
+          ? provision.diagnostics.findings.join(", ") : "provision_not_accepted";
+        throw new Error(`Privy provisioning was not accepted: ${findings}`);
       }
 
       setPrivyAutomationStatus("READY");

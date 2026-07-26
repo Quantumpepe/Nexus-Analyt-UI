@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-183-EXPLICIT-PRIVY-PROVISIONING";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-184-PRIVY-WALLET-ID-RESOLUTION";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4603,12 +4603,47 @@ useEffect(() => {
     }
     if (!ready || !authenticated) throw new Error("Privy wallet is not authenticated.");
 
-    const embedded = (privyWallets || []).find((w) => String(w?.walletClientType || "").toLowerCase() === "privy")
-      || (privyWallets || [])[0];
-    const walletId = String(embedded?.id || embedded?.walletId || embedded?.wallet_id || "").trim();
+    const embedded = (privyWallets || []).find((w) => {
+      const clientType = String(w?.walletClientType || "").toLowerCase();
+      const connectorType = String(w?.connectorType || "").toLowerCase();
+      return clientType === "privy" || clientType === "embedded" || connectorType === "embedded";
+    }) || (privyWallets || [])[0];
+
     const address = String(embedded?.address || wallet || "").trim();
-    if (!walletId) throw new Error("Privy embedded wallet ID is missing.");
-    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error("Privy embedded wallet address is invalid.");
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+      throw new Error("Privy embedded wallet address is invalid.");
+    }
+
+    // useWallets() exposes the wallet client used for signing, but depending on
+    // the Privy SDK version it may not expose Privy's persistent wallet ID.
+    // Resolve that ID from the authenticated user's linked wallet account by
+    // matching the exact embedded-wallet address. Never use an unrelated first
+    // linked account or an external wallet ID.
+    const linkedAccounts = [
+      ...(Array.isArray(privyUser?.linkedAccounts) ? privyUser.linkedAccounts : []),
+      ...(Array.isArray(privyUser?.linked_accounts) ? privyUser.linked_accounts : []),
+    ];
+    const linkedWallet = linkedAccounts.find((account) => {
+      const accountType = String(account?.type || account?.accountType || account?.account_type || "").toLowerCase();
+      const accountAddress = String(account?.address || "").toLowerCase();
+      return accountType === "wallet" && accountAddress === address.toLowerCase();
+    });
+
+    const walletId = String(
+      linkedWallet?.id ||
+      linkedWallet?.walletId ||
+      linkedWallet?.wallet_id ||
+      embedded?.id ||
+      embedded?.walletId ||
+      embedded?.wallet_id ||
+      embedded?.linkedAccount?.id ||
+      embedded?.linked_account?.id ||
+      ""
+    ).trim();
+
+    if (!walletId) {
+      throw new Error("Privy embedded wallet ID is not available yet. Reconnect the Privy wallet and try again.");
+    }
 
     _privySignerSetupInFlight.current = true;
     setPrivyAutomationBusy(true);

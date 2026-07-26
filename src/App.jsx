@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-181-EVM-TOKEN-OWNER-REVIEW";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-182-PRIVY-TX-LIFECYCLE";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4543,15 +4543,51 @@ useEffect(() => {
 
   const _waitForTxReceipt = async (provider, txHash, timeoutMs = 180000) => {
     const started = Date.now();
+    let lastRpcError = null;
     while (Date.now() - started < timeoutMs) {
-      const receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [txHash] });
-      if (receipt) {
-        if (String(receipt.status || "").toLowerCase() === "0x0") throw new Error("Transaction failed on-chain.");
-        return receipt;
+      try {
+        const receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [txHash] });
+        if (receipt) {
+          if (String(receipt.status || "").toLowerCase() === "0x0") throw new Error("Transaction failed on-chain.");
+          return receipt;
+        }
+        lastRpcError = null;
+      } catch (error) {
+        // A temporary wallet/RPC timeout must not convert an already broadcast
+        // transaction into a failed transaction. Keep polling while we have a hash.
+        lastRpcError = error;
       }
-      await new Promise((resolve) => setTimeout(resolve, 750));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
-    throw new Error("Transaction confirmation timed out. Check the transaction in your wallet.");
+    const pending = new Error("Transaction is still pending on-chain.");
+    pending.code = "TX_RECEIPT_PENDING";
+    pending.txHash = txHash;
+    pending.cause = lastRpcError || null;
+    throw pending;
+  };
+
+  const _trackCoreVaultTxInBackground = (provider, txHash, successLabel) => {
+    if (!txHash) return;
+    void (async () => {
+      try {
+        await _waitForTxReceipt(provider, txHash, 15 * 60 * 1000);
+        setCoreDepositMsg(`${successLabel} confirmed. Tx: ${txHash}`);
+        setCoreDepositAmount("");
+      } catch (error) {
+        if (error?.code === "TX_RECEIPT_PENDING") {
+          setCoreDepositMsg(`${successLabel} was sent and is still pending. Tx: ${txHash}`);
+        } else {
+          setCoreDepositMsg(`${successLabel} failed on-chain. Tx: ${txHash}`);
+        }
+      } finally {
+        await Promise.allSettled([
+          refreshCoreVaultOnchain(),
+          refreshCoreVaultAccounting(),
+          refreshBalances(),
+        ]);
+        setCoreDepositBusy(false);
+      }
+    })();
   };
 
   // ENGINE-175: create CoreVault sessions through the server-side Privy wallet API.
@@ -4609,6 +4645,7 @@ useEffect(() => {
   };
 
   const depositToCoreVault = async () => {
+    let keepBusyForPending = false;
     try {
       setCoreDepositMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
@@ -4661,38 +4698,70 @@ useEffect(() => {
 
       const sendAndWait = async (to, data, label) => {
         setCoreDepositMsg(label);
-        const hash = await provider.request({
-          method: "eth_sendTransaction",
-          params: [{ from: wallet, to, value: "0x0", data }],
-        });
-        await _waitForTxReceipt(provider, hash);
-        return hash;
+        let hash = "";
+        try {
+          hash = await provider.request({
+            method: "eth_sendTransaction",
+            params: [{ from: wallet, to, value: "0x0", data }],
+          });
+        } catch (error) {
+          // Without a transaction hash we cannot prove that the wallet broadcast
+          // the transaction. This remains a real signing/submission error.
+          throw error;
+        }
+
+        setCoreDepositMsg(`${label.replace(/…$/, "")} sent. Waiting for Ethereum confirmation… Tx: ${hash}`);
+        try {
+          await _waitForTxReceipt(provider, hash);
+          return { hash, confirmed: true };
+        } catch (error) {
+          if (error?.code !== "TX_RECEIPT_PENDING") throw error;
+          // The transaction already has a hash and may be mined after the Privy UI
+          // times out. Continue monitoring without allowing a duplicate click.
+          keepBusyForPending = true;
+          _trackCoreVaultTxInBackground(provider, hash, label.replace(/…$/, ""));
+          return { hash, confirmed: false, pending: true };
+        }
       };
 
       if (allowance < amountUnits) {
         // USDT can require allowance reset to zero before increasing it.
         if (allowance > 0n) {
-          await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(0n), `Resetting ${symbol} approval…`);
+          const resetResult = await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(0n), `Resetting ${symbol} approval…`);
+          if (!resetResult.confirmed) {
+            setCoreDepositMsg(`Approval reset was sent and is still pending. Tx: ${resetResult.hash}`);
+            return;
+          }
         }
         // One reusable approval avoids a new approval signature on every later deposit.
         // The cap is 10,000 stablecoins (or the current amount when larger), not unlimited.
         const reusableCap = 10000n * (10n ** BigInt(decimals));
         const approvalUnits = amountUnits > reusableCap ? amountUnits : reusableCap;
-        await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(approvalUnits), `One-time ${symbol} Vault approval…`);
+        const approvalResult = await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(approvalUnits), `One-time ${symbol} Vault approval…`);
+        if (!approvalResult.confirmed) {
+          setCoreDepositMsg(`Vault approval was sent and is still pending. Tx: ${approvalResult.hash}`);
+          return;
+        }
       }
 
-      const depositHash = await sendAndWait(
+      const depositResult = await sendAndWait(
         vault,
         "0x47e7ef24" + _encodeAddress(tokenAddress) + amountWord,
         `Depositing ${rawAmount} ${symbol} into Core Vault…`
       );
 
-      setCoreDepositMsg(`Deposit confirmed. Tx: ${depositHash}`);
-      setCoreDepositAmount("");
-      // Do not keep the user waiting while all dashboards refresh.
+      if (depositResult.confirmed) {
+        setCoreDepositMsg(`Deposit confirmed. Tx: ${depositResult.hash}`);
+        setCoreDepositAmount("");
+      } else {
+        setCoreDepositMsg(`Deposit was sent and is being confirmed in the background. Do not submit it again. Tx: ${depositResult.hash}`);
+      }
+      // Refresh immediately and again shortly afterwards. The on-chain balance is
+      // authoritative even when the Privy dialog reports a local timeout.
       refreshCoreVaultOnchain();
       refreshCoreVaultAccounting();
-      setTimeout(() => { refreshBalances(); refreshCoreVaultOnchain(); }, 250);
+      setTimeout(() => { refreshBalances(); refreshCoreVaultOnchain(); refreshCoreVaultAccounting(); }, 250);
+      setTimeout(() => { refreshBalances(); refreshCoreVaultOnchain(); refreshCoreVaultAccounting(); }, 5000);
     } catch (e) {
       const msg = String(e?.message || e || "Deposit failed");
       const low = msg.toLowerCase();
@@ -4702,7 +4771,7 @@ useEffect(() => {
         setCoreDepositMsg(msg);
       }
     } finally {
-      setCoreDepositBusy(false);
+      if (!keepBusyForPending) setCoreDepositBusy(false);
     }
   };
 

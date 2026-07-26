@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-180-EVM-TOKEN-OWNER-REVIEW";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-181-EVM-TOKEN-OWNER-REVIEW";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4562,19 +4562,44 @@ useEffect(() => {
     if (!Number.isFinite(budget) || budget <= 0) throw new Error("A positive CoreVault budget is required.");
     if (!coreVaultOnchain?.connected) throw new Error("Ethereum CoreVault is not connected.");
 
-    const result = await api("/api/nexus/core-vault/session/create-auto", {
-      method: "POST",
-      token,
-      wallet,
-      body: {
+    // The backend session endpoint expects the Nexus backend token. Ensure it
+    // exists before create-auto; the Privy signer request itself remains fully
+    // server-side after this one-time backend authentication bridge.
+    const backendToken = await ensureBackendAuthToken(false);
+    let result;
+    try {
+      result = await api("/api/nexus/core-vault/session/create-auto", {
+        method: "POST",
+        token: backendToken,
+        wallet,
+        body: {
         wallet,
         system: String(system || "").toUpperCase(),
         amountUsd: budget,
         durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
         maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
         maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
-      },
-    });
+        },
+      });
+    } catch (error) {
+      // A stored Nexus token may have expired. Refresh it once through the
+      // already connected Privy embedded wallet and retry the identical call.
+      if (Number(error?.status || 0) !== 401) throw error;
+      const refreshedToken = await ensureBackendAuthToken(true);
+      result = await api("/api/nexus/core-vault/session/create-auto", {
+        method: "POST",
+        token: refreshedToken,
+        wallet,
+        body: {
+          wallet,
+          system: String(system || "").toUpperCase(),
+          amountUsd: budget,
+          durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
+          maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
+          maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
+        },
+      });
+    }
     if (result?.status !== "ok" || !result?.txHash) {
       const details = Array.isArray(result?.blockers) && result.blockers.length ? `: ${result.blockers.join(", ")}` : "";
       throw new Error(`${result?.message || result?.error || "Automatic CoreVault session creation failed"}${details}`);
@@ -25010,8 +25035,8 @@ export default function App() {
       || (systemWallets || [])[0];
   };
 
-  const _authHeaders = () => {
-    const bearer = String(localStorage.getItem("nexus_token") || localStorage.getItem("nexus_privy_jwt") || "").trim();
+  const _authHeaders = (explicitToken = "") => {
+    const bearer = String(explicitToken || localStorage.getItem("nexus_token") || "").trim();
     const headers = { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet || "") };
     if (bearer) headers.Authorization = `Bearer ${bearer}`;
     return headers;
@@ -25032,10 +25057,11 @@ export default function App() {
     _privySignerSetupInFlight.current = true;
     (async () => {
       try {
+        const backendToken = await ensureBackendAuthToken(false);
         const cfgRes = await fetch(`${API_BASE}/api/nexus/privy-trading/config`, {
           method: "GET",
           credentials: "include",
-          headers: _authHeaders(),
+          headers: _authHeaders(backendToken),
         });
         const cfg = await cfgRes.json().catch(() => ({}));
         if (!cfgRes.ok) throw new Error(cfg?.error || `Privy config HTTP ${cfgRes.status}`);
@@ -25054,7 +25080,7 @@ export default function App() {
         const provisionRes = await fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {
           method: "POST",
           credentials: "include",
-          headers: _authHeaders(),
+          headers: _authHeaders(backendToken),
           body: JSON.stringify({ privyWalletId: walletId, walletAddress }),
         });
         const provision = await provisionRes.json().catch(() => ({}));

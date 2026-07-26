@@ -3107,6 +3107,8 @@ const [errorMsg, setErrorMsg] = useState("");
   // External wallets must be optional and only enabled explicitly elsewhere.
   const { ready, authenticated, login, logout, getAccessToken, user: privyUser } = usePrivy();
   const { wallets: privyWallets } = useWallets();
+  const { addSigners } = useSigners();
+  const _privySignerSetupInFlight = useRef(false);
 
   // Prevent duplicate Privy login/sign flows (can cause AbortError / "already logged in")
   const _loginInFlight = useRef(false);
@@ -24964,7 +24966,9 @@ export default function App() {
 
     const loadJson = async (path) => {
       try {
-        const bearer = String(localStorage.getItem("nexus_privy_jwt") || localStorage.getItem("nexus_token") || "").trim();
+        // Nexus API endpoints authenticate with the backend token. The Privy JWT is
+    // only a fallback during the brief login/bootstrap phase.
+    const bearer = String(localStorage.getItem("nexus_token") || localStorage.getItem("nexus_privy_jwt") || "").trim();
         const headers = { Accept: "application/json" };
         if (bearer) headers.Authorization = `Bearer ${bearer}`;
         if (footerWallet) headers["X-Wallet-Address"] = footerWallet;
@@ -25010,29 +25014,56 @@ export default function App() {
     return headers;
   };
 
-  // Register the Privy wallet-id/address mapping silently after login. This is
-  // technical provisioning only: no approval dialog, signature or user action.
+  // Official Privy signer flow: after login, ensure the configured key quorum
+  // is attached to the embedded wallet, then persist only the wallet-id mapping
+  // in Nexus. Privy owns the wallet key; the backend only uses the registered
+  // authorization signer for later server-side transactions.
   useEffect(() => {
+    if (!ready || !authenticated || _privySignerSetupInFlight.current) return;
     const embedded = _primaryEmbeddedPrivyWallet();
     const walletId = String(embedded?.id || embedded?.walletId || embedded?.wallet_id || "").trim();
     const walletAddress = String(embedded?.address || footerWallet || "").trim();
     if (!walletId || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) return;
-    let cancelled = false;
-    fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {
-      method: "POST",
-      credentials: "include",
-      headers: _authHeaders(),
-      body: JSON.stringify({ privyWalletId: walletId, walletAddress }),
-    }).then(async (res) => {
-      if (cancelled || res.ok) return;
-      const data = await res.json().catch(() => ({}));
-      console.warn("Privy automatic provisioning pending:", data?.error || `HTTP ${res.status}`);
-    }).catch((error) => {
-      if (!cancelled) console.warn("Privy automatic provisioning pending:", error);
-    });
-    return () => { cancelled = true; };
-  }, [systemWallets, footerWallet]);
 
+    let cancelled = false;
+    _privySignerSetupInFlight.current = true;
+    (async () => {
+      try {
+        const cfgRes = await fetch(`${API_BASE}/api/nexus/privy-trading/config`, {
+          method: "GET",
+          credentials: "include",
+          headers: _authHeaders(),
+        });
+        const cfg = await cfgRes.json().catch(() => ({}));
+        if (!cfgRes.ok) throw new Error(cfg?.error || `Privy config HTTP ${cfgRes.status}`);
+        const signerId = String(cfg?.signerId || "").trim();
+        const policyId = String(cfg?.policyId || "").trim();
+        if (!signerId) throw new Error("Privy signer/key quorum is not configured.");
+
+        // addSigners is idempotent for an already attached signer. Privy may ask
+        // for the one-time wallet authorization required by its security model.
+        await addSigners({
+          address: walletAddress,
+          signers: [{ signerId, policyIds: policyId ? [policyId] : [] }],
+        });
+        if (cancelled) return;
+
+        const provisionRes = await fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {
+          method: "POST",
+          credentials: "include",
+          headers: _authHeaders(),
+          body: JSON.stringify({ privyWalletId: walletId, walletAddress }),
+        });
+        const provision = await provisionRes.json().catch(() => ({}));
+        if (!provisionRes.ok) throw new Error(provision?.error || `Privy provision HTTP ${provisionRes.status}`);
+      } catch (error) {
+        if (!cancelled) console.warn("Privy signer setup pending:", error);
+      } finally {
+        _privySignerSetupInFlight.current = false;
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ready, authenticated, addSigners, footerWallet, privyWallets]);
   const _refreshOwnerSystemInfoNow = async () => {
     if (!canOpenSystemInfo) return;
     const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";

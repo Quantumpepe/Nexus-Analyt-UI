@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-184-PRIVY-WALLET-ID-RESOLUTION";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-185-PRIVY-DUPLICATE-SIGNER-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4668,10 +4668,25 @@ useEffect(() => {
       if (!policyId) throw new Error("Privy trading policy is not configured.");
 
       setPrivyAutomationStatus("USER_APPROVAL_REQUIRED");
-      await addSigners({
-        address,
-        signers: [{ signerId, policyIds: [policyId] }],
-      });
+      try {
+        await addSigners({
+          address,
+          signers: [{ signerId, policyIds: [policyId] }],
+        });
+      } catch (addSignerError) {
+        const addSignerMessage = String(
+          addSignerError?.message ||
+          addSignerError?.error?.message ||
+          addSignerError ||
+          ""
+        );
+        const duplicateSigner = /duplicate\s+signer|already\s+(?:been\s+)?added|already\s+(?:exists|attached|registered)/i.test(addSignerMessage);
+        if (!duplicateSigner) throw addSignerError;
+        // Privy reports an already attached signer as a conflict. That is an
+        // idempotent success condition; the backend verification below remains
+        // authoritative and must confirm the actual wallet/quorum relationship.
+        console.info("Privy trading signer already attached; continuing with verification.");
+      }
 
       setPrivyAutomationStatus("VERIFYING");
       const provisionRes = await fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {

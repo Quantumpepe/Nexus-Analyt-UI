@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-189-STALE-RESERVATION-RECOVERY-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-190-COREVAULT-SESSION-INSPECTOR-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -25070,6 +25070,7 @@ export default function App() {
   const [evmRegistryMsg, setEvmRegistryMsg] = useState("");
   const [ownerAdminBusy, setOwnerAdminBusy] = useState("");
   const [ownerAdminMsg, setOwnerAdminMsg] = useState("");
+  const [coreVaultSessionPreview, setCoreVaultSessionPreview] = useState(null);
   const [ownerAdminHash, setOwnerAdminHash] = useState("");
   const [ownerAdminWalletMode, setOwnerAdminWalletMode] = useState(() => {
     try { return window.localStorage.getItem("nexus_owner_admin_wallet_mode_v1") || "METAMASK"; }
@@ -25287,6 +25288,26 @@ export default function App() {
   // Privy signer provisioning is intentionally not run during page load.
   // It is triggered explicitly by the first live Start action and must verify
   // the signer attachment before any CoreVault session can be created.
+  const _inspectCoreVaultSessions = async () => {
+    if (!canOpenSystemInfo || ownerAdminBusy) return;
+    setOwnerAdminBusy("CoreVault session scan");
+    setOwnerAdminMsg("Reading CoreVault sessions on-chain...");
+    try {
+      const q = new URLSearchParams({ wallet: footerWallet, wallet_address: footerWallet, engine: "NKR", chainId: "1", vault: CORE_VAULT_ETH_ADDRESS });
+      const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, { cache: "no-store", credentials: "include", headers: _authHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Session scan failed (${res.status})`);
+      setCoreVaultSessionPreview(data);
+      const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
+      const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+      setOwnerAdminMsg(`CoreVault scan complete: ${sessions.length} wallet session(s), ${candidates.length} recoverable.`);
+    } catch (err) {
+      setOwnerAdminMsg(`CoreVault session scan failed: ${err?.message || err}`);
+    } finally {
+      setOwnerAdminBusy("");
+    }
+  };
+
   const _recoverStaleNkrReservation = async () => {
     if (!canOpenSystemInfo || ownerAdminBusy) return;
     setOwnerAdminBusy("Stale NKR recovery");
@@ -25313,6 +25334,7 @@ export default function App() {
       }) : []));
       setNkrControlState("STOPPED");
       await _refreshOwnerSystemInfoNow();
+      await _inspectCoreVaultSessions();
       window.setTimeout(() => window.location.reload(), 1800);
     } catch (err) {
       setOwnerAdminMsg(`Stale NKR recovery failed: ${err?.message || err}`);
@@ -26140,16 +26162,37 @@ export default function App() {
                   </div>
 
                   <details open style={{ marginTop: 9, border: "1px solid rgba(255,193,7,0.28)", borderRadius: 9, padding: 9, background: "rgba(255,193,7,0.045)" }}>
-                    <summary style={{ cursor: "pointer", fontWeight: 800, color: "#ffe08a" }}>Stale reservation recovery</summary>
+                    <summary style={{ cursor: "pointer", fontWeight: 800, color: "#ffe08a" }}>CoreVault sessions & stale reservation recovery</summary>
                     <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>
-                      Use only when NKR has no active session but CoreVault still shows reserved USDC. The backend verifies the wallet, NKR system and zero open assets before calling finalizeSession.
+                      Reads the real on-chain CoreVault sessions for this wallet. Recovery is enabled only for NKR sessions with no open assets and no active local NKR run.
                     </div>
                     <div style={{ marginTop: 8, display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
-                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_recoverStaleNkrReservation}>
-                        {ownerAdminBusy === "Stale NKR recovery" ? "Recovering..." : "Verify & release stale NKR reserve"}
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_inspectCoreVaultSessions}>
+                        {ownerAdminBusy === "CoreVault session scan" ? "Scanning..." : "Refresh on-chain sessions"}
+                      </button>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !(coreVaultSessionPreview?.candidates || []).length} onClick={_recoverStaleNkrReservation}>
+                        {ownerAdminBusy === "Stale NKR recovery" ? "Finalizing..." : "Finalize recoverable NKR session"}
                       </button>
                       <span className="muted" style={{ fontSize: 9 }}>Ethereum · NKR · CoreVault V3</span>
                     </div>
+                    {coreVaultSessionPreview ? (
+                      <div style={{ marginTop: 9, display: "grid", gap: 6 }}>
+                        <div className="muted" style={{ fontSize: 9 }}>Next session ID: {coreVaultSessionPreview?.nextSessionId ?? "—"} · Found: {(coreVaultSessionPreview?.sessions || []).length} · Recoverable: {(coreVaultSessionPreview?.candidates || []).length}</div>
+                        {(coreVaultSessionPreview?.sessions || []).length ? (coreVaultSessionPreview.sessions || []).slice().reverse().map((s) => (
+                          <div key={`core-session-${s.sessionId}`} style={{ border: `1px solid ${s.recoverable ? "rgba(255,193,7,0.42)" : "rgba(255,255,255,0.10)"}`, borderRadius: 8, padding: 8, background: s.recoverable ? "rgba(255,193,7,0.06)" : "rgba(255,255,255,0.02)", fontSize: 9 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}><b>Session #{s.sessionId}</b><b style={{ color: s.recoverable ? "#ffe08a" : "#b9d8ce" }}>{s.statusLabel || `Status ${s.statusId}`}</b></div>
+                            <div style={{ marginTop: 4, display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 8px", wordBreak: "break-all" }}>
+                              <span className="muted">Owner</span><span>{s.owner}</span>
+                              <span className="muted">Settlement token</span><span>{s.settlementToken}</span>
+                              <span className="muted">Budget units</span><span>{s.budgetUnits}</span>
+                              <span className="muted">Settlement cash</span><span>{s.settlementCashUnits}</span>
+                              <span className="muted">Open assets</span><span>{s.openAssetCount}</span>
+                              <span className="muted">Recovery</span><span>{s.recoverable ? "READY" : "NOT REQUIRED / BLOCKED"}</span>
+                            </div>
+                          </div>
+                        )) : <div className="muted" style={{ fontSize: 9 }}>No CoreVault sessions found for this wallet.</div>}
+                      </div>
+                    ) : null}
                   </details>
 
                   <details style={{ marginTop: 9 }}>

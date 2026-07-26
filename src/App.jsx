@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-176-EVM-TOKEN-OWNER-REVIEW";
+const FRONTEND_BUILD_ID = "F-2026.07.25-ENGINE-180-EVM-TOKEN-OWNER-REVIEW";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -24788,7 +24788,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 
 export default function App() {
+  const { ready, authenticated } = usePrivy();
   const { wallets: systemWallets = [] } = useWallets();
+  const { addSigners } = useSigners();
+  const _privySignerSetupInFlight = useRef(false);
   const [liveSetupBusy, setLiveSetupBusy] = useState("");
   const [liveSetupMsg, setLiveSetupMsg] = useState("");
   const [showDisclaimer, setShowDisclaimer] = useState(false);
@@ -25008,7 +25011,7 @@ export default function App() {
   };
 
   const _authHeaders = () => {
-    const bearer = String(localStorage.getItem("nexus_privy_jwt") || localStorage.getItem("nexus_token") || "").trim();
+    const bearer = String(localStorage.getItem("nexus_token") || localStorage.getItem("nexus_privy_jwt") || "").trim();
     const headers = { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet || "") };
     if (bearer) headers.Authorization = `Bearer ${bearer}`;
     return headers;
@@ -25063,7 +25066,7 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [ready, authenticated, addSigners, footerWallet, privyWallets]);
+  }, [ready, authenticated, addSigners, footerWallet, systemWallets]);
   const _refreshOwnerSystemInfoNow = async () => {
     if (!canOpenSystemInfo) return;
     const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-187-PRIVY-POLICY-REATTACH-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-188-LIVE-RUNTIME-FINALIZE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -8108,10 +8108,11 @@ useEffect(() => {
   const releaseRotationBudget = useCallback(async () => {
     const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
     if (!Number.isFinite(amount) || amount <= 0) return;
+    let coreVaultSession = null;
     try {
       setRotationBackendLoading(true);
       setRotationBackendMsg("Reserving NKR budget in CoreVault...");
-      await createCoreVaultSystemSession({
+      coreVaultSession = await createCoreVaultSystemSession({
         system: "NKR",
         budgetUsd: amount,
         durationHours: Math.max(24, Math.round((Number(nkrPeriodDays) || 10) * 24)),
@@ -8224,7 +8225,10 @@ useEffect(() => {
           status: candidateSymbol ? "WAITING" : "SCANNING",
           lifecycleState: candidateSymbol ? "WAITING" : "SCANNING",
           positionState: candidateSymbol ? "WAITING" : "CASH",
-          executionMode: "shadow",
+          executionMode: "live",
+          coreVaultSessionId: coreVaultSession?.sessionId ?? null,
+          coreVaultTxHash: coreVaultSession?.hash || "",
+          coreVaultExecution: "server_side_privy",
           mode: rotationMode,
           nkrCapitalMode,
           nkrObservationWindow,
@@ -25240,16 +25244,17 @@ export default function App() {
     };
 
     const loadOwnerSystemInfo = async () => {
-      const [health, statusPanel, readiness, liveExecutorStatus] = await Promise.all([
+      const [health, statusPanel, readiness, liveExecutorStatus, engineRuntimeStatus] = await Promise.all([
         loadJson(`/api/shadow/health${walletParam}`),
         loadJson(`/api/nexus/system-info-owner-panel${walletParam}`),
         loadJson(`/api/nexus/shadow-readiness-check${walletParam}`),
         loadJson(`/api/nexus/live-executor/status${walletParam}`),
+        loadJson(`/api/nexus/engine-runtime/status${walletParam}`),
       ]);
 
       if (!alive) return;
       setShadowHealth(health);
-      setSystemInfoStatus({ ...(statusPanel || {}), liveExecutorStatus: liveExecutorStatus || null });
+      setSystemInfoStatus({ ...(statusPanel || {}), liveExecutorStatus: liveExecutorStatus || null, engineRuntimeStatus: engineRuntimeStatus || null });
       setShadowReadiness(readiness);
     };
 
@@ -25781,6 +25786,38 @@ export default function App() {
                     Tick Count: {shadowTickCount}
                     <br />
                     Process Tick: {shadowHealth?.process_tick_count ?? "?"} / {shadowHealth?.process_tick_source || "?"}
+                  </div>
+                </details>
+
+
+                <details style={{
+                  gridColumn: "span 12",
+                  border: "1px solid rgba(64,196,255,0.28)",
+                  borderRadius: 10,
+                  padding: 10,
+                  background: "rgba(64,196,255,0.045)",
+                }} open>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Live Engine Runtime Health · NKR / Grid / Trader</summary>
+                  <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 8 }}>
+                    {["NKR", "GRID", "TRADER"].map((engineName) => {
+                      const e = systemInfoStatus?.engineRuntimeStatus?.engines?.[engineName] || {};
+                      const lastTickText = e?.last_tick_ts ? new Date(Number(e.last_tick_ts) * 1000).toLocaleString() : "not seen";
+                      return <div key={engineName} style={{ border: `1px solid ${e?.stalled || e?.status === "error" ? "rgba(255,80,80,.5)" : "rgba(68,255,180,.2)"}`, borderRadius: 8, padding: 9 }}>
+                        <div style={{ fontWeight: 950, marginBottom: 5 }}>{engineName} · {String(e?.status || "idle").toUpperCase()} {e?.status === "running" ? "🟢" : "⚪"}</div>
+                        <div style={{ fontSize: 12, lineHeight: 1.55 }}>
+                          Last Tick: {lastTickText}<br />
+                          Tick Age: {e?.tick_age_sec == null ? "unknown" : `${e.tick_age_sec}s`} {e?.stalled ? "⚠ STALLED" : ""}<br />
+                          Tick Count: {e?.tick_count ?? 0}<br />
+                          Assets scanned: {e?.assets_scanned ?? 0}<br />
+                          Tradable assets: {e?.tradable_assets ?? 0}<br />
+                          Best candidate: {e?.best_candidate || "—"}<br />
+                          Decision: {e?.decision || "—"}<br />
+                          Reason: {e?.reason || "—"}<br />
+                          Pending tx: {e?.pending_tx || "—"}<br />
+                          Last error: {e?.last_error || "—"}
+                        </div>
+                      </div>;
+                    })}
                   </div>
                 </details>
 

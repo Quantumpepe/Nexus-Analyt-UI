@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-188-LIVE-RUNTIME-FINALIZE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-189-STALE-RESERVATION-RECOVERY-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -20910,11 +20910,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
                       const typedNkrBudgetUsd = Number(String(rotationBudgetRelease || "").replace(",", "."));
                       const activeNkrBudgetUsd = Number(firstRotation?.budgetUsd || firstRotation?.approvedBudgetUsd || firstRotation?.reservedCapitalUsd || firstRotation?.allocatedUsd || 0);
-                      const nkrBudgetUsd = Number.isFinite(typedNkrBudgetUsd) && typedNkrBudgetUsd > 0
-                        ? typedNkrBudgetUsd
-                        : Number.isFinite(activeNkrBudgetUsd) && activeNkrBudgetUsd > 0
-                          ? activeNkrBudgetUsd
-                          : 0;
+                      // ENGINE-189: Overview shows only capital belonging to a running NKR campaign.
+                      // The typed setup amount remains in NKR Setup, but must not appear as active budget.
+                      const hasRunningNkrCampaign = activeRotations > 0 && String(nkrControlState || "WAITING").toUpperCase() !== "STOPPED";
+                      const nkrBudgetUsd = hasRunningNkrCampaign
+                        ? (Number.isFinite(typedNkrBudgetUsd) && typedNkrBudgetUsd > 0
+                            ? typedNkrBudgetUsd
+                            : Number.isFinite(activeNkrBudgetUsd) && activeNkrBudgetUsd > 0
+                              ? activeNkrBudgetUsd
+                              : 0)
+                        : 0;
                       // ENGINE-096: Top Profit Asset must describe the currently active NKR book.
                       // Rebalanced-out/closed sessions remain in Event History, but must not keep
                       // POL or any old winner displayed as top asset after it was removed.
@@ -21039,7 +21044,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Protected Reserve:</b> {nkrBudgetUsd > 0 ? fmtUsd(nkrProtectedReserveUsd) : "—"}</div>
                               <div><b>Nexus NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
-                              <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : "not set"}</span></div>
+                              <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : fmtUsd(0)}</span></div>
                               <div><b>Active NKR Sessions:</b> {activeRotations} / {rotationMaxActive}</div>
                               <div><b>Top Profit Asset:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTarget}</span></div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
@@ -25282,6 +25287,40 @@ export default function App() {
   // Privy signer provisioning is intentionally not run during page load.
   // It is triggered explicitly by the first live Start action and must verify
   // the signer attachment before any CoreVault session can be created.
+  const _recoverStaleNkrReservation = async () => {
+    if (!canOpenSystemInfo || ownerAdminBusy) return;
+    setOwnerAdminBusy("Stale NKR recovery");
+    setOwnerAdminMsg("Checking CoreVault for stale NKR reservations...");
+    try {
+      const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover`, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: _authHeaders(),
+        body: JSON.stringify({ engine: "NKR", chainId: 1, vault: CORE_VAULT_ETH_ADDRESS, execute: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !["ok", "partial"].includes(String(data?.status || "").toLowerCase())) {
+        throw new Error(data?.error || data?.errors?.[0]?.error || `Recovery failed (${res.status})`);
+      }
+      const recovered = Array.isArray(data?.recovered) ? data.recovered : [];
+      setOwnerAdminMsg(recovered.length
+        ? `Stale NKR reservation released. Session ${recovered.map((x) => x.sessionId).join(", ")} finalized.`
+        : "No recoverable stale NKR reservation found.");
+      setRotationSessions((prev) => (Array.isArray(prev) ? prev.filter((s) => {
+        const st = String(getRotationDerivedStatus(s) || "").toUpperCase();
+        return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st);
+      }) : []));
+      setNkrControlState("STOPPED");
+      await _refreshOwnerSystemInfoNow();
+      window.setTimeout(() => window.location.reload(), 1800);
+    } catch (err) {
+      setOwnerAdminMsg(`Stale NKR recovery failed: ${err?.message || err}`);
+    } finally {
+      setOwnerAdminBusy("");
+    }
+  };
+
   const _refreshOwnerSystemInfoNow = async () => {
     if (!canOpenSystemInfo) return;
     const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";
@@ -26099,6 +26138,19 @@ export default function App() {
                     </div>
                   </details>
                   </div>
+
+                  <details open style={{ marginTop: 9, border: "1px solid rgba(255,193,7,0.28)", borderRadius: 9, padding: 9, background: "rgba(255,193,7,0.045)" }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 800, color: "#ffe08a" }}>Stale reservation recovery</summary>
+                    <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>
+                      Use only when NKR has no active session but CoreVault still shows reserved USDC. The backend verifies the wallet, NKR system and zero open assets before calling finalizeSession.
+                    </div>
+                    <div style={{ marginTop: 8, display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
+                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_recoverStaleNkrReservation}>
+                        {ownerAdminBusy === "Stale NKR recovery" ? "Recovering..." : "Verify & release stale NKR reserve"}
+                      </button>
+                      <span className="muted" style={{ fontSize: 9 }}>Ethereum · NKR · CoreVault V3</span>
+                    </div>
+                  </details>
 
                   <details style={{ marginTop: 9 }}>
                     <summary style={{ cursor: "pointer", fontWeight: 800 }}>Vault wallets</summary>

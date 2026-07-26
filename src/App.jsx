@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-200-NKR-LIVE-POSITION-UI";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-201-NKR-SYNC-ORDERLY-EXIT";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -11329,6 +11329,49 @@ useEffect(() => {
 
   // Rotation runtime persistence: backend-first, wallet-bound, Trading-style.
   // The Rotation lifecycle is stored through /api/rotation-sessions. /api/app-state only keeps settings/display state.
+  const canonicalizeNkrSessions = useCallback((rows = []) => {
+    const terminal = new Set(["STOPPED", "FINALIZED", "CLOSED", "COMPLETE", "COMPLETED", "EXPIRED", "DELETED", "ARCHIVED", "RELEASED"]);
+    const getOnchainId = (s = {}) => {
+      const meta = s?.meta && typeof s.meta === "object" ? s.meta : {};
+      const raw = s?.onchainSessionId || s?.onchain_session_id || meta?.onchain_session_id || meta?.onchainSessionId || "";
+      if (/^\d+$/.test(String(raw || "")) && Number(raw) > 0) return String(raw);
+      const sid = String(s?.id || s?.session_id || "");
+      const m = sid.match(/^NKR-LIVE-(\d+)$/i);
+      return m ? m[1] : "";
+    };
+    const richness = (s = {}) => {
+      const meta = s?.meta && typeof s.meta === "object" ? s.meta : {};
+      const sym = String(s?.positionAsset || s?.targetAsset || s?.asset || s?.symbol || meta?.nkr_active_asset || "").toUpperCase();
+      return [
+        getOnchainId(s) ? 1 : 0,
+        sym && !["ASSET", "WAITING"].includes(sym) ? 1 : 0,
+        Number(s?.positionQty || meta?.nkr_position_qty || 0) > 0 ? 1 : 0,
+        String(s?.lastTxHash || meta?.nkr_live_buy_tx_hash || "") ? 1 : 0,
+        Number(s?.updatedAt || s?.updated_at || 0) || 0,
+      ];
+    };
+    const isRicher = (a, b) => {
+      const aa = richness(a), bb = richness(b);
+      for (let i = 0; i < aa.length; i += 1) {
+        if (aa[i] !== bb[i]) return aa[i] > bb[i];
+      }
+      return false;
+    };
+    const input = Array.isArray(rows) ? rows.filter((x) => x && typeof x === "object") : [];
+    const hasLive = input.some((s) => getOnchainId(s));
+    const map = new Map();
+    for (const s of input) {
+      const status = String(s?.status || "").toUpperCase();
+      const oid = getOnchainId(s);
+      if (hasLive && !oid && !terminal.has(status)) continue;
+      const sid = String(s?.id || s?.session_id || "").trim();
+      const key = oid ? `ONCHAIN:${oid}` : `LOCAL:${sid}`;
+      const current = map.get(key);
+      if (!current || isRicher(s, current)) map.set(key, s);
+    }
+    return Array.from(map.values());
+  }, []);
+
   const syncRotationSessionsFromServer = useCallback(async () => {
     const wa = resolveWalletAddress(wallet);
     if (!wa) {
@@ -11341,9 +11384,9 @@ useEffect(() => {
     try {
       const r = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, { method: "GET", token, wallet: wa });
       const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
-      const sessions = Array.isArray(r?.sessions)
+      const sessions = canonicalizeNkrSessions(Array.isArray(r?.sessions)
         ? r.sessions.filter((x) => x && typeof x === "object" && !deletedIds.has(String(x?.id || x?.session_id || "")))
-        : [];
+        : []);
       const activeIdRaw = String(r?.activeRotationSessionId || "").trim();
       const activeId = deletedIds.has(activeIdRaw) ? "" : activeIdRaw;
       setRotationSessions(sessions);
@@ -11355,7 +11398,7 @@ useEffect(() => {
       rotationBackendSyncBusyRef.current = false;
       setTimeout(() => { rotationBackendApplyingRef.current = false; }, 0);
     }
-  }, [wallet, token]);
+  }, [wallet, token, canonicalizeNkrSessions]);
 
   useEffect(() => {
     rotationBackendHydratedRef.current = false;
@@ -11364,13 +11407,30 @@ useEffect(() => {
   }, [wallet]);
 
   useEffect(() => {
+    if (!resolveWalletAddress(wallet)) return undefined;
+    const refresh = () => {
+      syncRotationSessionsFromServer();
+      syncAppStateFromServer();
+    };
+    const timer = setInterval(refresh, 10000);
+    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [wallet, syncRotationSessionsFromServer, syncAppStateFromServer]);
+
+  useEffect(() => {
     const wa = resolveWalletAddress(wallet);
     if (!wa || !appStateHydratedRef.current || !rotationBackendHydratedRef.current) return;
     if (rotationBackendApplyingRef.current || appStateApplyingServerRef.current) return;
     const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
-    const sessions = Array.isArray(rotationSessions)
+    const sessions = canonicalizeNkrSessions(Array.isArray(rotationSessions)
       ? rotationSessions.filter((x) => x && typeof x === "object" && !deletedIds.has(String(x?.id || x?.session_id || "")))
-      : [];
+      : []);
     const body = {
       wallet: wa,
       wallet_address: wa,
@@ -11382,7 +11442,7 @@ useEffect(() => {
       rotationBackendSyncBusyRef.current = true;
       try {
         const saved = await api("/api/rotation-sessions", { method: "POST", token, wallet: wa, body });
-        const savedSessions = Array.isArray(saved?.sessions) ? saved.sessions.filter((x) => x && typeof x === "object") : sessions;
+        const savedSessions = canonicalizeNkrSessions(Array.isArray(saved?.sessions) ? saved.sessions.filter((x) => x && typeof x === "object") : sessions);
         const savedActiveId = String(saved?.activeRotationSessionId || activeRotationSessionId || "").trim();
         rotationBackendApplyingRef.current = true;
         setRotationSessions(savedSessions);
@@ -11395,7 +11455,7 @@ useEffect(() => {
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [wallet, token, rotationSessions, activeRotationSessionId]);
+  }, [wallet, token, rotationSessions, activeRotationSessionId, canonicalizeNkrSessions]);
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -11557,13 +11617,17 @@ const [aiLoading, setAiLoading] = useState(false);
     try {
       const resp = await api("/api/nkr/control", { method: "POST", token, wallet, body: { action: actionU, sessionId: opts.sessionId || "" } });
       if (Array.isArray(resp?.sessions)) {
-        setRotationSessions(resp.sessions);
+        setRotationSessions(canonicalizeNkrSessions(resp.sessions));
       } else {
         await syncRotationSessionsFromServer();
       }
       if (resp?.controlState) setNkrControlState(String(resp.controlState).toUpperCase());
       else setNkrControlState(localStatus);
       await syncAppStateFromServer();
+      if (["STOP", "PANIC_STOP"].includes(actionU)) {
+        setTimeout(() => { syncRotationSessionsFromServer(); syncAppStateFromServer(); }, 2500);
+        setTimeout(() => { syncRotationSessionsFromServer(); syncAppStateFromServer(); }, 8000);
+      }
       setRotationShadowEvents((prev) => [{
         id: `NKR-CTRL-${now}`,
         ts: now,
@@ -11575,7 +11639,7 @@ const [aiLoading, setAiLoading] = useState(false);
       setRotationBackendMsg(`NKR control failed: ${e?.message || e}`);
       setNkrControlState(localStatus);
     }
-  }, [token, wallet, syncRotationSessionsFromServer, syncAppStateFromServer, setRotationSessions, setNkrControlState]);
+  }, [token, wallet, syncRotationSessionsFromServer, syncAppStateFromServer, setRotationSessions, setNkrControlState, canonicalizeNkrSessions]);
 
   const runRotationShadowSimulation = useCallback(async ({ silent = false } = {}) => {
     if (rotationShadowBusy) return;

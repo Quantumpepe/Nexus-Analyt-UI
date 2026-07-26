@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-193-NKR-USER-UI-CLEANUP";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-194-NKR-WORKER-PAUSE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -11553,7 +11553,7 @@ const [aiLoading, setAiLoading] = useState(false);
   const applyNkrBackendControl = useCallback(async (action, opts = {}) => {
     const actionU = String(action || "").toUpperCase();
     const now = Date.now();
-    const localStatus = actionU === "PAUSE" ? "PAUSED" : actionU === "RESUME" ? "RUNNING" : actionU === "STOP" ? "STOPPED" : actionU === "DELETE" ? "WAITING" : actionU;
+    const localStatus = actionU === "PAUSE" ? "PAUSED" : actionU === "RESUME" ? "RUNNING" : actionU === "STOP" ? "STOPPING" : actionU === "DELETE" ? "WAITING" : actionU;
     try {
       const resp = await api("/api/nkr/control", { method: "POST", token, wallet, body: { action: actionU, sessionId: opts.sessionId || "" } });
       if (Array.isArray(resp?.sessions)) {
@@ -12419,8 +12419,11 @@ const [aiLoading, setAiLoading] = useState(false);
   useInterval(() => {
     const now = Date.now();
     const sessions = Array.isArray(rotationSessions) ? rotationSessions : [];
-    const hasRunnable = sessions.some((sess) => isRotationSessionRunnable(sess, now));
-    if (!hasRunnable || rotationShadowBusy || ["PAUSED", "STOPPED"].includes(String(nkrControlState || "").toUpperCase())) return;
+    const runnable = sessions.filter((sess) => isRotationSessionRunnable(sess, now));
+    const hasRunnable = runnable.length > 0;
+    const hasLiveRuntime = runnable.some((sess) => String(sess?.executionMode || sess?.meta?.execution_mode || "").toLowerCase() === "live" || sess?.liveVaultReady === true || sess?.meta?.live_vault_ready === true);
+    // Live NKR is ticked by the backend worker and must continue after the browser closes.
+    if (hasLiveRuntime || !hasRunnable || rotationShadowBusy || ["PAUSED", "STOPPED", "STOPPING"].includes(String(nkrControlState || "").toUpperCase())) return;
     if (now - Number(rotationAutoShadowRef.current || 0) < 90_000) return;
     rotationAutoShadowRef.current = now;
     runRotationShadowSimulation({ silent: true });

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-194-NKR-WORKER-PAUSE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-195-NKR-DECISION-DIAGNOSTICS";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -25632,7 +25632,12 @@ export default function App() {
                           Assets scanned: {e?.assets_scanned ?? 0}<br />
                           Tradable assets: {e?.tradable_assets ?? 0}<br />
                           Best candidate: {e?.best_candidate || "—"}<br />
+                          Candidate score: {Number(e?.candidate_score || 0).toFixed(1)}<br />
+                          Momentum 24h: {Number(e?.candidate_momentum_24h || 0) >= 0 ? "+" : ""}{Number(e?.candidate_momentum_24h || 0).toFixed(2)}%<br />
+                          Candidate price: {Number(e?.candidate_price || 0) > 0 ? `$${Number(e.candidate_price).toLocaleString(undefined, { maximumFractionDigits: 8 })}` : "—"}<br />
+                          Gate: {e?.gate_status || "—"}<br />
                           Decision: {e?.decision || "—"}<br />
+                          Decision detail: {e?.decision_detail || "—"}<br />
                           Reason: {e?.reason || "—"}<br />
                           Pending tx: {e?.pending_tx || "—"}<br />
                           Last error: {e?.last_error || "—"}

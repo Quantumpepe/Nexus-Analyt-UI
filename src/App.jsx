@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-192-AUTOMATIC-STOP-FINALIZATION-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-193-NKR-USER-UI-CLEANUP";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21360,251 +21360,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     {renderPayoutAssetSelector("Payout asset", { allowExtraAssets: false })}
 
-                    <div className="muted tiny" style={{ marginTop: -4, lineHeight: 1.35 }}>
-                      NKR uses backend policy for reserve, release, risk, slippage and routing. Technical values stay in System Info, not in this user panel.
-                    </div>
-
-                    <div
-                      className="muted tiny"
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 8,
-                        padding: "8px 10px",
-                        borderRadius: 10,
-                        background: "rgba(0,0,0,.14)",
-                        border: "1px solid rgba(255,255,255,.06)",
-                      }}
-                    >
-                      <span>
-                        <b>Status:</b>{" "}
-                        {rotationBudgetReleased
-                          ? "Budget approved"
-                          : "Ready to start NKR"}
-                      </span>
-                      <span style={{ opacity: 0.75 }}>
-                        {(() => {
-                          const preflight = getRotationPreflight();
-                          return preflight.symbol ? `${preflight.symbol}${preflight.chain ? ` / ${preflight.chain}` : ""}` : "Automatic watchlist scan";
-                        })()}
-                      </span>
-                    </div>
-
-                    <div className="muted tiny" style={{ marginTop: -4, lineHeight: 1.35 }}>
-                      NKR preflight: {getRotationPreflight().message}
-                    </div>
-
                     {renderFundingPrompt("ROTATION")}
-
-                    <div
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 12,
-                        background: "rgba(255,255,255,.035)",
-                        border: "1px solid rgba(255,255,255,.07)",
-                        display: "grid",
-                        gap: 8,
-                      }}
-                    >
-                      
-
-                      <button
-                        type="button"
-                        className="btnGhost"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setRotationRecommendationsExpanded((v) => !v);
-                        }}
-                        style={{ justifyContent: "space-between", width: "100%", padding: 0, background: "transparent", border: 0 }}
-                        title="Show or hide NKR recommendations"
-                      >
-                        <span className="label" style={{ marginBottom: 0 }}>Nexus NKR recommendations</span>
-                        <span style={{ opacity: 0.75 }}>{rotationRecommendationsExpanded ? "▲" : "▼"}</span>
-                      </button>
-                      {rotationRecommendationsExpanded ? (() => {
-                        const rows = Array.isArray(watchRows) ? watchRows : [];
-                        const picks = rows
-                          .map((r) => {
-                            const sym = String(r?.symbol || "").toUpperCase();
-                            if (!sym) return null;
-                            const onchain = onchainBySymbol?.[sym] || null;
-                            const marketCondition = normalizeMarketConditionForAi(marketConditionBySymbol?.[sym]);
-                            const baseScore = watchSystemScore(r);
-                            const onchainDelta = watchOnchainScoreDelta(onchain);
-                            const marketDelta = Number(marketCondition?.score_delta || 0);
-                            const score = Math.max(0, Math.min(100, Math.round(baseScore + onchainDelta + marketDelta)));
-                            const rating = ratingFromScore(score);
-                            const ch = Number(r?.change24h ?? r?.chg_24h ?? r?.usd_24h_change ?? r?.change_24h);
-                            const vol = Number(r?.volume24h ?? r?.total_volume ?? r?.volume_24h);
-                            const whaleText = String(onchain?.summary || onchain?.label || onchain?.state || "Neutral").trim();
-                            const riskText = marketCondition?.label || marketCondition?.state || "Normal";
-                            return { sym, score, rating, ch, vol, whaleText, riskText };
-                          })
-                          .filter(Boolean)
-                          .sort((a, b) => (b.score - a.score) || ((b.ch || 0) - (a.ch || 0)));
-
-                        const resolveRotationPreview = (sym) => {
-                          const rawSym = String(sym || "").toUpperCase().trim();
-                          const coinsByChain = gridWalletCoinsByChain || {};
-                          const hasCoinOnChain = (chain, coin) => {
-                            const list = coinsByChain?.[String(chain || "").toUpperCase()] || [];
-                            return list.map((x) => String(x || "").toUpperCase()).includes(String(coin || "").toUpperCase());
-                          };
-                          const chooseFirstAvailable = (options) => {
-                            for (const opt of options) {
-                              if (hasCoinOnChain(opt.chain, opt.coin)) return opt;
-                            }
-                            return null;
-                          };
-                          if (rawSym === "BTC") return chooseFirstAvailable([{ chain: "ETH", coin: "WBTC" }, { chain: "BNB", coin: "BTCB" }, { chain: "BNB", coin: "WBTC" }, { chain: "POL", coin: "WBTC" }]);
-                          if (rawSym === "SOL") return chooseFirstAvailable([{ chain: "ETH", coin: "WSOL" }, { chain: "BNB", coin: "WSOL" }, { chain: "POL", coin: "WSOL" }]);
-                          for (const chain of Object.keys(coinsByChain || {}).map((x) => String(x || "").toUpperCase())) {
-                            if (hasCoinOnChain(chain, rawSym)) return { chain, coin: rawSym };
-                          }
-                          return null;
-                        };
-
-                        const chainLabel = (chain) => {
-                          const key = String(chain || "").toUpperCase();
-                          if (key === "POL") return "Polygon";
-                          if (key === "BNB") return "BNB Chain";
-                          if (key === "ETH") return "Ethereum";
-                          if (key === "WATCHLIST") return "Watchlist only";
-                          return key;
-                        };
-
-                        const inferWatchlistChain = (sym) => {
-                          const key = String(sym || "").toUpperCase().trim();
-                          if (!key) return "WATCHLIST";
-                          if (key === "ETH" || key === "BTC" || key === "WBTC" || key === "LINK" || key === "UNI" || key === "AAVE" || key === "PEPE") return "ETH";
-                          if (key === "BNB" || key === "BTCB" || key === "CAKE" || key === "SXA") return "BNB";
-                          if (key === "POL" || key === "MATIC" || key === "TBP" || key === "CC" || key === "XPR" || key === "JAM" || key === "ALKIMI") return "POL";
-                          const resolved = resolveRotationPreview(key);
-                          return resolved?.chain || "WATCHLIST";
-                        };
-
-                        const getPickScopeChain = (pick) => {
-                          const resolved = resolveRotationPreview(pick?.sym);
-                          return resolved?.chain || inferWatchlistChain(pick?.sym);
-                        };
-
-                        const renderPickCard = (p, idx, compact = false) => {
-                          const isSelected = String(rotationSelectedPick?.source || "").toUpperCase() === String(p?.sym || "").toUpperCase();
-                          return (
-                            <div
-                              key={`${p.sym}-${idx}-${compact ? "all" : "top"}`}
-                              title="NKR recommendation"
-                              style={{
-                                width: "100%",
-                                boxSizing: "border-box",
-                                display: "grid",
-                                gridTemplateColumns: isCompactMobile ? "1fr" : compact ? "62px minmax(0,1fr) auto" : "70px minmax(0,1fr) auto",
-                                gap: 8,
-                                alignItems: "center",
-                                padding: compact ? "8px 9px" : "9px 10px",
-                                minHeight: compact ? 54 : 58,
-                                borderRadius: 12,
-                                background: isSelected ? "rgba(245,158,11,.11)" : idx === 0 ? "rgba(34,197,94,.10)" : "rgba(255,255,255,.03)",
-                                border: isSelected ? "1px solid rgba(245,158,11,.55)" : idx === 0 ? "1px solid rgba(34,197,94,.30)" : "1px solid rgba(255,255,255,.06)",
-                                transform: "none",
-                              }}
-                            >
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontWeight: 900 }}>
-                                  {idx === 0 ? "#1 " : `#${idx + 1} `}{p.sym}
-                                </div>
-                                {getAssetNote(p.sym) && (
-                                  <div style={{ fontSize: "12px", opacity: 0.7 }}>{getAssetNote(p.sym)}</div>
-                                )}
-                              </div>
-                              <div className="muted tiny" style={{ display: "grid", gap: 3, minWidth: 0 }}>
-                                <div>Score {p.score}/100 · 24h {Number.isFinite(p.ch) ? `${p.ch >= 0 ? "+" : ""}${p.ch.toFixed(2)}%` : "—"}</div>
-                              </div>
-                              <div style={{ display: "flex", gap: 6, justifyContent: isCompactMobile ? "flex-start" : "flex-end", alignItems: "center", flexWrap: "wrap" }}>
-                                <span className={`pill ${p.score >= 70 ? "green" : p.score >= 55 ? "silver" : "red"}`}>
-                                  {isSelected ? "Target" : idx === 0 ? "Best" : "Option"}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="miniBtn"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    handleRotationPickToGrid(p);
-                                  }}
-                                  style={{ height: 28, paddingInline: 10 }}
-                                  title="Select for NKR only"
-                                >
-                                  Select
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        };
-
-                        if (!picks.length) {
-                          return (
-                            <div className="muted tiny">
-                              No Watchlist data available yet. Add coins to the Watchlist and refresh, then NKR can show recommendations here.
-                            </div>
-                          );
-                        }
-
-                        const scopedPicks = picks
-                          .map((pick, idx) => ({
-                            ...pick,
-                            _rank: idx,
-                            _chain: getPickScopeChain(pick),
-                          }))
-                          .filter((pick) =>
-                            rotationNetworkScope === "ALL"
-                              ? true
-                              : String(pick._chain || "").toUpperCase() === String(rotationNetworkScope || "").toUpperCase()
-                          );
-
-                        if (!scopedPicks.length) {
-                          return (
-                            <div className="muted tiny">
-                              No recommendations available for the selected Network scope.
-                            </div>
-                          );
-                        }
-
-                        const chainGroups = scopedPicks.reduce((acc, pick) => {
-                          const chain = pick._chain || "WATCHLIST";
-                          if (!acc[chain]) acc[chain] = [];
-                          acc[chain].push(pick);
-                          return acc;
-                        }, {});
-
-                        return (
-                          <div
-                            style={{
-                              display: "grid",
-                              gap: 8,
-                              maxHeight: 260,
-                              overflowY: "auto",
-                              paddingRight: 4,
-                            }}
-                          >
-                            {Object.entries(chainGroups).map(([chain, list]) => (
-                              <div key={chain} style={{ display: "grid", gap: 6 }}>
-                                {rotationNetworkScope === "ALL" && (
-                                  <div className="label" style={{ marginBottom: 0 }}>{chainLabel(chain)}</div>
-                                )}
-                                {list.map((p) => renderPickCard(p, p._rank, true))}
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })() : (
-                        <div className="muted tiny">Recommendations are optional and hidden. NKR can start and select assets automatically.</div>
-                      )}
-                    </div>
-
-
 
                     <div className="btnRow">
                       <button
@@ -21616,7 +21372,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return hasActiveNkrRun || rotationBackendLoading || privyAutomationBusy || !Number.isFinite(amount) || amount <= 0;
                         })()}
                         onClick={releaseRotationBudget}
-                        title="Start NKR. Asset selection is automatic; recommendations are optional."
+                        title="Start NKR"
                       >
                         {privyAutomationBusy ? "Activating Privy..." : rotationBackendLoading ? "Starting..." : "Start NKR"}
                       </button>
@@ -21643,23 +21399,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         Privy automation: {privyAutomationError}
                       </div>
                     )}
-                    {Array.isArray(rotationSessions) && rotationSessions.length ? (
-                      <div style={{ display: "grid", gap: 5, marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.07)" }}>
-                        <div className="muted tiny" style={{ fontWeight: 900, color: "#8bdcff" }}>NKR sessions</div>
-                        {rotationSessions.slice(0, 4).map((sess) => (
-                          <div key={sess.id} className="muted tiny" style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                            <span>{sess.symbol ? `${sess.symbol}${sess.chain ? ` / ${sess.chain}` : ""}` : "No target selected"} · {fmtUsd(Number(sess.budgetUsd || 0))}</span>
-                            <span>{String(sess.status || "APPROVED")} · {String(sess.id || "").slice(0, 18)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
+                    {(() => {
+                      const activeSession = Array.isArray(rotationSessions)
+                        ? rotationSessions.find((sess) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(String(sess?.status || "").toUpperCase()))
+                        : null;
+                      if (!activeSession) return <div className="muted tiny" style={{ marginTop: 8 }}>Status: Ready</div>;
+                      const asset = String(activeSession?.symbol || activeSession?.targetAsset || "").toUpperCase();
+                      return (
+                        <div className="muted tiny" style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                          <span><b>Status:</b> Running</span>
+                          {asset ? <span><b>Asset:</b> {asset}</span> : null}
+                          <span><b>Budget:</b> {fmtUsd(Number(activeSession?.budgetUsd || 0))}</span>
+                        </div>
+                      );
+                    })()}
 
-                    {rotationBackendMsg ? (
-                      <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-                        {rotationBackendMsg}
-                      </div>
-                    ) : null}
+                    
                   </div>
                             </div>
                           </details>

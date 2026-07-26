@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-190-COREVAULT-SESSION-INSPECTOR-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-192-AUTOMATIC-STOP-FINALIZATION-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -11567,7 +11567,7 @@ const [aiLoading, setAiLoading] = useState(false);
       setRotationShadowEvents((prev) => [{
         id: `NKR-CTRL-${now}`,
         ts: now,
-        text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" ? "NKR stopped/protected and stored in backend." : "NKR deleted forever from backend.",
+        text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" ? "NKR wird sicher beendet. Neue Trades sind gesperrt, das Kapital wird automatisch freigegeben." : "NKR deleted forever from backend.",
       }, ...(Array.isArray(prev) ? prev : [])]);
       setRotationBackendMsg(resp?.message || (actionU === "DELETE" ? "NKR deleted forever." : `NKR ${actionU.toLowerCase()} stored in backend.`));
     } catch (e) {
@@ -25071,6 +25071,7 @@ export default function App() {
   const [ownerAdminBusy, setOwnerAdminBusy] = useState("");
   const [ownerAdminMsg, setOwnerAdminMsg] = useState("");
   const [coreVaultSessionPreview, setCoreVaultSessionPreview] = useState(null);
+  const [coreVaultRecoveryJobs, setCoreVaultRecoveryJobs] = useState({});
   const [ownerAdminHash, setOwnerAdminHash] = useState("");
   const [ownerAdminWalletMode, setOwnerAdminWalletMode] = useState(() => {
     try { return window.localStorage.getItem("nexus_owner_admin_wallet_mode_v1") || "METAMASK"; }
@@ -25308,39 +25309,40 @@ export default function App() {
     }
   };
 
-  const _recoverStaleNkrReservation = async () => {
-    if (!canOpenSystemInfo || ownerAdminBusy) return;
-    setOwnerAdminBusy("Stale NKR recovery");
-    setOwnerAdminMsg("Checking CoreVault for stale NKR reservations...");
+  const _recoverStaleNkrReservation = async (sessionId) => {
+    if (!canOpenSystemInfo || ownerAdminBusy || !sessionId) return;
+    setOwnerAdminBusy(`Stale NKR recovery ${sessionId}`);
+    setOwnerAdminMsg(`Starting diagnostics for CoreVault session #${sessionId}...`);
     try {
       const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover`, {
-        method: "POST",
-        cache: "no-store",
-        credentials: "include",
-        headers: _authHeaders(),
-        body: JSON.stringify({ engine: "NKR", chainId: 1, vault: CORE_VAULT_ETH_ADDRESS, execute: true }),
+        method: "POST", cache: "no-store", credentials: "include", headers: _authHeaders(),
+        body: JSON.stringify({ engine: "NKR", chainId: 1, vault: CORE_VAULT_ETH_ADDRESS, execute: true, sessionId: Number(sessionId) }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !["ok", "partial"].includes(String(data?.status || "").toLowerCase())) {
-        throw new Error(data?.error || data?.errors?.[0]?.error || `Recovery failed (${res.status})`);
+      if (res.status !== 202 || !data?.jobId) throw new Error(data?.error || `Recovery start failed (${res.status})`);
+      const jobId = data.jobId;
+      setCoreVaultRecoveryJobs((prev) => ({ ...prev, [sessionId]: data.job || { job_id: jobId, job_status: "QUEUED", step: 0, step_label: "QUEUED" } }));
+      const deadline = Date.now() + 7 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        const q = new URLSearchParams({ wallet: footerWallet, wallet_address: footerWallet, jobId });
+        const poll = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, { cache: "no-store", credentials: "include", headers: _authHeaders() });
+        const pd = await poll.json().catch(() => ({}));
+        if (!poll.ok || !pd?.job) throw new Error(pd?.error || `Recovery status failed (${poll.status})`);
+        const job = pd.job;
+        setCoreVaultRecoveryJobs((prev) => ({ ...prev, [sessionId]: job }));
+        const st = String(job?.job_status || "").toUpperCase();
+        setOwnerAdminMsg(`Session #${sessionId}: ${job?.step_label || st} · receipt ${job?.receipt_status || "—"}`);
+        if (st === "SUCCESS") {
+          setOwnerAdminMsg(`Session #${sessionId} finalized and confirmed on-chain.`);
+          await _refreshOwnerSystemInfoNow(); await _inspectCoreVaultSessions();
+          break;
+        }
+        if (st === "FAILED") throw new Error(job?.last_error || "Recovery failed");
       }
-      const recovered = Array.isArray(data?.recovered) ? data.recovered : [];
-      setOwnerAdminMsg(recovered.length
-        ? `Stale NKR reservation released. Session ${recovered.map((x) => x.sessionId).join(", ")} finalized.`
-        : "No recoverable stale NKR reservation found.");
-      setRotationSessions((prev) => (Array.isArray(prev) ? prev.filter((s) => {
-        const st = String(getRotationDerivedStatus(s) || "").toUpperCase();
-        return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st);
-      }) : []));
-      setNkrControlState("STOPPED");
-      await _refreshOwnerSystemInfoNow();
-      await _inspectCoreVaultSessions();
-      window.setTimeout(() => window.location.reload(), 1800);
     } catch (err) {
-      setOwnerAdminMsg(`Stale NKR recovery failed: ${err?.message || err}`);
-    } finally {
-      setOwnerAdminBusy("");
-    }
+      setOwnerAdminMsg(`Session #${sessionId} recovery failed: ${err?.message || err}`);
+    } finally { setOwnerAdminBusy(""); }
   };
 
   const _refreshOwnerSystemInfoNow = async () => {
@@ -26170,9 +26172,6 @@ export default function App() {
                       <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_inspectCoreVaultSessions}>
                         {ownerAdminBusy === "CoreVault session scan" ? "Scanning..." : "Refresh on-chain sessions"}
                       </button>
-                      <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !(coreVaultSessionPreview?.candidates || []).length} onClick={_recoverStaleNkrReservation}>
-                        {ownerAdminBusy === "Stale NKR recovery" ? "Finalizing..." : "Finalize recoverable NKR session"}
-                      </button>
                       <span className="muted" style={{ fontSize: 9 }}>Ethereum · NKR · CoreVault V3</span>
                     </div>
                     {coreVaultSessionPreview ? (
@@ -26187,8 +26186,22 @@ export default function App() {
                               <span className="muted">Budget units</span><span>{s.budgetUnits}</span>
                               <span className="muted">Settlement cash</span><span>{s.settlementCashUnits}</span>
                               <span className="muted">Open assets</span><span>{s.openAssetCount}</span>
+                              <span className="muted">Raw contract status</span><span>{s.rawStatusId ?? s.statusId} ({s.statusLabel || "UNKNOWN"})</span>
                               <span className="muted">Recovery</span><span>{s.recoverable ? "READY" : "NOT REQUIRED / BLOCKED"}</span>
                             </div>
+                            {s.recoverable ? <div style={{ marginTop: 7 }}>
+                              <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={() => _recoverStaleNkrReservation(s.sessionId)}>
+                                {ownerAdminBusy === `Stale NKR recovery ${s.sessionId}` ? `Processing session #${s.sessionId}...` : `Finalize session #${s.sessionId}`}
+                              </button>
+                            </div> : null}
+                            {coreVaultRecoveryJobs?.[s.sessionId] ? (() => { const j = coreVaultRecoveryJobs[s.sessionId]; return <div style={{ marginTop: 7, padding: 7, borderRadius: 7, background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.10)", display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 8px", wordBreak: "break-all" }}>
+                              <span className="muted">Job</span><span>{j.job_status || "—"}</span>
+                              <span className="muted">Step</span><span>{j.step ?? 0}/5 · {j.step_label || "—"}</span>
+                              <span className="muted">Receipt</span><span>{j.receipt_status || "—"}</span>
+                              <span className="muted">startClosing tx</span><span>{j.start_closing_tx_hash || "—"}</span>
+                              <span className="muted">finalize tx</span><span>{j.finalize_tx_hash || "—"}</span>
+                              <span className="muted">Last contract error</span><span style={{ color: j.last_error ? "#ffb4b4" : "inherit" }}>{j.last_error || "—"}</span>
+                            </div>; })() : null}
                           </div>
                         )) : <div className="muted" style={{ fontSize: 9 }}>No CoreVault sessions found for this wallet.</div>}
                       </div>

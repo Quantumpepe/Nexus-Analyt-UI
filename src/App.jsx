@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-206-NKR-REQUEST-DRIVEN-WATCHDOG-LIVE-VALUE";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-207-NKR-WORKER-HEARTBEAT-DIAGNOSTICS";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -25726,9 +25726,20 @@ export default function App() {
                       return <div key={engineName} style={{ border: `1px solid ${e?.stalled || e?.status === "error" ? "rgba(255,80,80,.5)" : "rgba(68,255,180,.2)"}`, borderRadius: 8, padding: 9 }}>
                         <div style={{ fontWeight: 950, marginBottom: 5 }}>{engineName} · {String(e?.status || "idle").toUpperCase()} {e?.status === "running" ? "🟢" : "⚪"}</div>
                         <div style={{ fontSize: 12, lineHeight: 1.55 }}>
-                          Last Tick: {lastTickText}<br />
-                          Tick Age: {e?.tick_age_sec == null ? "unknown" : `${e.tick_age_sec}s`} {e?.stalled ? "⚠ STALLED" : ""}<br />
-                          Tick Count: {e?.tick_count ?? 0}<br />
+                          {engineName === "NKR" && <>
+                            Worker Thread: {e?.worker_thread_alive ? "ALIVE 🟢" : "DEAD 🔴"}{e?.worker_thread_name ? ` · ${e.worker_thread_name}` : ""}<br />
+                            Worker Heartbeat: {e?.worker_heartbeat_ts ? new Date(Number(e.worker_heartbeat_ts) * 1000).toLocaleString() : "not seen"}<br />
+                            Heartbeat Age: {e?.worker_heartbeat_age_sec == null ? "unknown" : `${e.worker_heartbeat_age_sec}s`} {e?.worker_heartbeat_stalled ? "⚠ STALLED" : ""}<br />
+                            Worker Stage: {e?.worker_last_stage || "unknown"}<br />
+                            Worker Loop Count: {e?.worker_loop_count ?? 0}<br />
+                            Cycle Started: {e?.worker_cycle_started_ts ? new Date(Number(e.worker_cycle_started_ts) * 1000).toLocaleString() : "not seen"}<br />
+                            Cycle Completed: {e?.worker_cycle_completed_ts ? new Date(Number(e.worker_cycle_completed_ts) * 1000).toLocaleString() : "not seen"}<br />
+                            Session Updated: {e?.session_state_updated_ts ? new Date(Number(e.session_state_updated_ts) * 1000).toLocaleString() : "not seen"}<br />
+                            <span style={{ opacity: 0.65 }}>────────────</span><br />
+                          </>}
+                          Last Completed Tick: {lastTickText}<br />
+                          Completed Tick Age: {e?.tick_age_sec == null ? "unknown" : `${e.tick_age_sec}s`} {e?.stalled ? "⚠ OLD TICK" : ""}<br />
+                          Completed Tick Count: {e?.tick_count ?? 0}<br />
                           Assets scanned: {e?.assets_scanned ?? 0}<br />
                           Tradable assets: {e?.tradable_assets ?? 0}<br />
                           Best candidate: {e?.best_candidate || "—"}<br />

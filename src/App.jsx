@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-202-NKR-LIVE-STATE-SYNC";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-203-NKR-LIVE-STATE-CONSISTENCY";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21026,7 +21026,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const state = String(sess?.positionState || meta?.position_state || "").toUpperCase();
                         const onchain = String(sess?.onchainStatus || meta?.onchain_status || "").toUpperCase();
                         const qty = Number(sess?.positionQty ?? op?.quantity ?? meta?.nkr_position_qty ?? 0);
-                        return asset && !["ASSET", "WAITING", "NONE", "NULL"].includes(asset) && (state === "OPEN" || onchain === "CONFIRMED" || qty > 0);
+                        const txHash = String(sess?.lastTxHash || sess?.txHash || sess?.tradeTxHash || op?.txHash || meta?.nkr_live_buy_tx_hash || "");
+                        const lifecycle = String(sess?.status || sess?.lifecycleState || "").toUpperCase();
+                        const stillActive = !["FINALIZED", "CLOSED", "STOPPED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(lifecycle);
+                        return asset && !["ASSET", "WAITING", "NONE", "NULL"].includes(asset) && stillActive && (state === "OPEN" || onchain === "CONFIRMED" || qty > 0 || Boolean(txHash));
                       });
                       const nkrActiveAssets = Array.from(new Set(nkrOpenPositionRows.map((sess) => String(sess?.positionAsset || sess?.openRotation?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || sess?.meta?.nkr_active_asset || "").toUpperCase()).filter((x) => x && !["ASSET", "WAITING", "NONE", "NULL"].includes(x))));
                       const nkrOpenPositionValueUsd = nkrOpenPositionRows.reduce((sum, sess) => {
@@ -21039,7 +21042,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         if (Number.isFinite(qty) && qty > 0 && Number.isFinite(price) && price > 0) return sum + qty * price;
                         return sum + getNkrSessionWorkingCapitalUsd(sess);
                       }, 0);
-                      const liveTopAsset = nkrActiveAssets[0] || nkrTarget;
+                      const liveTopAsset = nkrActiveAssets[0] || (nkrTarget && !["ASSET", "WAITING", "NONE", "NULL"].includes(nkrTarget) ? nkrTarget : "");
                       const targetChain = String(firstRotation?.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
                       const vaultTotalNative = Number(manualVaultTotalQty || 0);
                       const gridAllocatedNative = Number(manualVaultAllocatedQty || 0);

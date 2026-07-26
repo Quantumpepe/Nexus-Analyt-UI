@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-201-NKR-SYNC-ORDERLY-EXIT";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-202-NKR-LIVE-STATE-SYNC";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21019,6 +21019,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         rotationSelectedPick?.source ||
                         "waiting"
                       ).toUpperCase();
+                      const nkrOpenPositionRows = rotationVisibleActiveRows.filter((sess) => {
+                        const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+                        const op = sess?.openRotation && typeof sess.openRotation === "object" ? sess.openRotation : {};
+                        const asset = String(sess?.positionAsset || op?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || meta?.nkr_active_asset || "").toUpperCase();
+                        const state = String(sess?.positionState || meta?.position_state || "").toUpperCase();
+                        const onchain = String(sess?.onchainStatus || meta?.onchain_status || "").toUpperCase();
+                        const qty = Number(sess?.positionQty ?? op?.quantity ?? meta?.nkr_position_qty ?? 0);
+                        return asset && !["ASSET", "WAITING", "NONE", "NULL"].includes(asset) && (state === "OPEN" || onchain === "CONFIRMED" || qty > 0);
+                      });
+                      const nkrActiveAssets = Array.from(new Set(nkrOpenPositionRows.map((sess) => String(sess?.positionAsset || sess?.openRotation?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || sess?.meta?.nkr_active_asset || "").toUpperCase()).filter((x) => x && !["ASSET", "WAITING", "NONE", "NULL"].includes(x))));
+                      const nkrOpenPositionValueUsd = nkrOpenPositionRows.reduce((sum, sess) => {
+                        const op = sess?.openRotation && typeof sess.openRotation === "object" ? sess.openRotation : {};
+                        const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+                        const direct = Number(sess?.positionValueUsd ?? op?.currentValueUsd ?? meta?.nkr_position_value_usd ?? 0);
+                        if (Number.isFinite(direct) && direct > 0) return sum + direct;
+                        const qty = Number(sess?.positionQty ?? op?.quantity ?? meta?.nkr_position_qty ?? 0);
+                        const price = Number(sess?.currentPriceUsd ?? op?.currentPriceUsd ?? meta?.nkr_current_price_usd ?? 0);
+                        if (Number.isFinite(qty) && qty > 0 && Number.isFinite(price) && price > 0) return sum + qty * price;
+                        return sum + getNkrSessionWorkingCapitalUsd(sess);
+                      }, 0);
+                      const liveTopAsset = nkrActiveAssets[0] || nkrTarget;
                       const targetChain = String(firstRotation?.chain || rotationNetworkScope || activeGridChainKey || "ALL").toUpperCase();
                       const vaultTotalNative = Number(manualVaultTotalQty || 0);
                       const gridAllocatedNative = Number(manualVaultAllocatedQty || 0);
@@ -21110,12 +21131,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               <div><b>Vault Total:</b> {fmtUsd(nkrVaultTotalLive)}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {nkrBudgetUsd > 0 ? fmtUsd(availableUsd) : (vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending")}</div>
-                              <div><b>Open Position Value:</b> {fmtUsd(rotationVisibleActiveRows.reduce((sum, s) => sum + Number(s?.positionValueUsd ?? s?.openRotation?.currentValueUsd ?? s?.meta?.nkr_position_value_usd ?? 0), 0))}</div>
+                              <div><b>Open Position Value:</b> {fmtUsd(nkrOpenPositionValueUsd)}</div>
                               <div><b>Nexus NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : fmtUsd(0)}</span></div>
                               <div><b>Active Session:</b> {activeRotations > 0 ? 1 : 0}</div>
-                              <div><b>Top Profit Asset:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTarget}</span></div>
+                              <div><b>Top Profit Asset:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{liveTopAsset && liveTopAsset !== "WAITING" ? liveTopAsset : "—"}</span></div>
                               <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
                               <div><b>Nexus NKR Mode:</b> {String(nkrCapitalMode || "DYNAMIC").replaceAll("_", " ")}</div>
                               <div><b>Observation:</b> {nkrObservationWindow}</div>
@@ -21144,7 +21165,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div className="label" style={{ marginBottom: 0 }}>Active NKR Sessions</div>
                                 
                               </div>
-                              <span className="pill silver">{activeRotations > 0 ? 1 : 0} session · {rotationVisibleActiveRows.filter((s) => String(s?.positionState || s?.meta?.position_state || "").toUpperCase() === "OPEN").length}/{rotationMaxActive} assets</span>
+                              <span className="pill silver">{activeRotations > 0 ? 1 : 0} session · {nkrActiveAssets.length}/{rotationMaxActive} assets</span>
                             </div>
 
                             <div
@@ -25715,6 +25736,10 @@ export default function App() {
                           Decision: {e?.decision || "—"}<br />
                           Decision detail: {e?.decision_detail || "—"}<br />
                           Reason: {e?.reason || "—"}<br />
+                          Active asset: {e?.active_asset || "—"}<br />
+                          Position: {e?.position_state || "—"}<br />
+                          Position value: {Number(e?.position_value_usd || 0) > 0 ? fmtUsd(Number(e.position_value_usd)) : "—"}<br />
+                          Tx: {e?.tx_hash ? `${String(e.tx_hash).slice(0, 10)}…${String(e.tx_hash).slice(-8)}` : "—"}<br />
                           Pending tx: {e?.pending_tx || "—"}<br />
                           Last error: {e?.last_error || "—"}
                         </div>

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-182-PRIVY-TX-LIFECYCLE";
+const FRONTEND_BUILD_ID = "F-2026.07.26-ENGINE-183-EXPLICIT-PRIVY-PROVISIONING";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4520,6 +4520,9 @@ useEffect(() => {
   const [coreVaultAccounting, setCoreVaultAccounting] = useState(null);
   const [coreVaultOnchain, setCoreVaultOnchain] = useState(null);
   const [coreVaultOnchainLoading, setCoreVaultOnchainLoading] = useState(false);
+  const [privyAutomationStatus, setPrivyAutomationStatus] = useState("NOT_VERIFIED");
+  const [privyAutomationError, setPrivyAutomationError] = useState("");
+  const [privyAutomationBusy, setPrivyAutomationBusy] = useState(false);
 
   // ENGINE-133: one live Core Vault capital selector shared by Grid, NKR and Trading.
   // This is display/selection only. It never mixes Shadow capital with on-chain funds
@@ -4590,6 +4593,81 @@ useEffect(() => {
     })();
   };
 
+  // Explicit one-time Privy signer provisioning. This runs only when the user
+  // starts a live system. A failed addSigners call is surfaced and live execution
+  // remains blocked until Privy confirms that the configured quorum is attached.
+  const ensurePrivyAutomationReady = async () => {
+    if (privyAutomationStatus === "READY") return true;
+    if (_privySignerSetupInFlight.current) {
+      throw new Error("Privy automation setup is already running. Complete the open Privy window first.");
+    }
+    if (!ready || !authenticated) throw new Error("Privy wallet is not authenticated.");
+
+    const embedded = (privyWallets || []).find((w) => String(w?.walletClientType || "").toLowerCase() === "privy")
+      || (privyWallets || [])[0];
+    const walletId = String(embedded?.id || embedded?.walletId || embedded?.wallet_id || "").trim();
+    const address = String(embedded?.address || wallet || "").trim();
+    if (!walletId) throw new Error("Privy embedded wallet ID is missing.");
+    if (!/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error("Privy embedded wallet address is invalid.");
+
+    _privySignerSetupInFlight.current = true;
+    setPrivyAutomationBusy(true);
+    setPrivyAutomationError("");
+    setPrivyAutomationStatus("CONFIG_LOADING");
+    try {
+      const backendToken = await ensureBackendAuthToken(false);
+      const headers = {
+        "Content-Type": "application/json",
+        "X-Wallet-Address": address,
+        Authorization: `Bearer ${backendToken}`,
+      };
+
+      const cfgRes = await fetch(`${API_BASE}/api/nexus/privy-trading/config`, {
+        method: "GET", credentials: "include", cache: "no-store", headers,
+      });
+      const cfg = await cfgRes.json().catch(() => ({}));
+      if (!cfgRes.ok) throw new Error(cfg?.error || `Privy config HTTP ${cfgRes.status}`);
+      const signerId = String(cfg?.signerId || "").trim();
+      const policyId = String(cfg?.policyId || "").trim();
+      if (!signerId) throw new Error("Privy trading key quorum is not configured.");
+      if (!policyId) throw new Error("Privy trading policy is not configured.");
+
+      setPrivyAutomationStatus("USER_APPROVAL_REQUIRED");
+      await addSigners({
+        address,
+        signers: [{ signerId, policyIds: [policyId] }],
+      });
+
+      setPrivyAutomationStatus("VERIFYING");
+      const provisionRes = await fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {
+        method: "POST", credentials: "include", cache: "no-store", headers,
+        body: JSON.stringify({ privyWalletId: walletId, walletAddress: address }),
+      });
+      const provision = await provisionRes.json().catch(() => ({}));
+      if (!provisionRes.ok) {
+        const findingText = Array.isArray(provision?.diagnostics?.findings)
+          ? ` (${provision.diagnostics.findings.join(", ")})` : "";
+        throw new Error(`${provision?.error || `Privy provision HTTP ${provisionRes.status}`}${findingText}`);
+      }
+      if (provision?.signerAttached !== true || provision?.diagnostics?.status !== "MATCH") {
+        const findings = Array.isArray(provision?.diagnostics?.findings)
+          ? provision.diagnostics.findings.join(", ") : "signer_not_confirmed";
+        throw new Error(`Privy did not confirm the trading signer on this wallet: ${findings}`);
+      }
+
+      setPrivyAutomationStatus("READY");
+      return true;
+    } catch (error) {
+      const message = String(error?.message || error || "Privy automation setup failed");
+      setPrivyAutomationStatus("ERROR");
+      setPrivyAutomationError(message);
+      throw new Error(`Privy automation setup failed: ${message}`);
+    } finally {
+      _privySignerSetupInFlight.current = false;
+      setPrivyAutomationBusy(false);
+    }
+  };
+
   // ENGINE-175: create CoreVault sessions through the server-side Privy wallet API.
   // NKR, Trader and Grid must never trigger a browser approval popup.
   const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500 }) => {
@@ -4597,6 +4675,8 @@ useEffect(() => {
     const budget = Number(String(budgetUsd ?? "").replace(",", "."));
     if (!Number.isFinite(budget) || budget <= 0) throw new Error("A positive CoreVault budget is required.");
     if (!coreVaultOnchain?.connected) throw new Error("Ethereum CoreVault is not connected.");
+
+    await ensurePrivyAutomationReady();
 
     // The backend session endpoint expects the Nexus backend token. Ensure it
     // exists before create-auto; the Privy signer request itself remains fully
@@ -21446,12 +21526,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         disabled={(() => {
                           const hasActiveNkrRun = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase()));
                           const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
-                          return hasActiveNkrRun || rotationBackendLoading || !Number.isFinite(amount) || amount <= 0;
+                          return hasActiveNkrRun || rotationBackendLoading || privyAutomationBusy || !Number.isFinite(amount) || amount <= 0;
                         })()}
                         onClick={releaseRotationBudget}
                         title="Start NKR. Asset selection is automatic; recommendations are optional."
                       >
-                        {rotationBackendLoading ? "Starting..." : "Start NKR"}
+                        {privyAutomationBusy ? "Activating Privy..." : rotationBackendLoading ? "Starting..." : "Start NKR"}
                       </button>
                       {Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) && (
                         <button
@@ -21471,6 +21551,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>
                       )}
                     </div>
+                    {privyAutomationError && (
+                      <div className="muted tiny" style={{ marginTop: 6, color: "#ff8a8a" }}>
+                        Privy automation: {privyAutomationError}
+                      </div>
+                    )}
                     {Array.isArray(rotationSessions) && rotationSessions.length ? (
                       <div style={{ display: "grid", gap: 5, marginTop: 8, padding: "8px 10px", borderRadius: 10, background: "rgba(0,0,0,.14)", border: "1px solid rgba(255,255,255,.07)" }}>
                         <div className="muted tiny" style={{ fontWeight: 900, color: "#8bdcff" }}>NKR sessions</div>
@@ -25111,57 +25196,9 @@ export default function App() {
     return headers;
   };
 
-  // Official Privy signer flow: after login, ensure the configured key quorum
-  // is attached to the embedded wallet, then persist only the wallet-id mapping
-  // in Nexus. Privy owns the wallet key; the backend only uses the registered
-  // authorization signer for later server-side transactions.
-  useEffect(() => {
-    if (!ready || !authenticated || _privySignerSetupInFlight.current) return;
-    const embedded = _primaryEmbeddedPrivyWallet();
-    const walletId = String(embedded?.id || embedded?.walletId || embedded?.wallet_id || "").trim();
-    const walletAddress = String(embedded?.address || footerWallet || "").trim();
-    if (!walletId || !/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) return;
-
-    let cancelled = false;
-    _privySignerSetupInFlight.current = true;
-    (async () => {
-      try {
-        const backendToken = await ensureBackendAuthToken(false);
-        const cfgRes = await fetch(`${API_BASE}/api/nexus/privy-trading/config`, {
-          method: "GET",
-          credentials: "include",
-          headers: _authHeaders(backendToken),
-        });
-        const cfg = await cfgRes.json().catch(() => ({}));
-        if (!cfgRes.ok) throw new Error(cfg?.error || `Privy config HTTP ${cfgRes.status}`);
-        const signerId = String(cfg?.signerId || "").trim();
-        const policyId = String(cfg?.policyId || "").trim();
-        if (!signerId) throw new Error("Privy signer/key quorum is not configured.");
-
-        // addSigners is idempotent for an already attached signer. Privy may ask
-        // for the one-time wallet authorization required by its security model.
-        await addSigners({
-          address: walletAddress,
-          signers: [{ signerId, policyIds: policyId ? [policyId] : [] }],
-        });
-        if (cancelled) return;
-
-        const provisionRes = await fetch(`${API_BASE}/api/nexus/privy-trading/provision`, {
-          method: "POST",
-          credentials: "include",
-          headers: _authHeaders(backendToken),
-          body: JSON.stringify({ privyWalletId: walletId, walletAddress }),
-        });
-        const provision = await provisionRes.json().catch(() => ({}));
-        if (!provisionRes.ok) throw new Error(provision?.error || `Privy provision HTTP ${provisionRes.status}`);
-      } catch (error) {
-        if (!cancelled) console.warn("Privy signer setup pending:", error);
-      } finally {
-        _privySignerSetupInFlight.current = false;
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [ready, authenticated, addSigners, footerWallet, systemWallets]);
+  // Privy signer provisioning is intentionally not run during page load.
+  // It is triggered explicitly by the first live Start action and must verify
+  // the signer attachment before any CoreVault session can be created.
   const _refreshOwnerSystemInfoNow = async () => {
     if (!canOpenSystemInfo) return;
     const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";

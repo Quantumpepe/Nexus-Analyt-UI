@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-225-NKR-ORDERED-SESSION-CARD";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-226-NKR-GROSS-COST-NET-SESSION-CARD";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21395,7 +21395,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       gap: 8,
                                     }}
                                   >
-                                    {/* ENGINE-225: ordered compact session card; live price left, session data centered, results right, controls stacked. */}
+                                    {/* ENGINE-226: compact session card with live gross, costs, net and exit movement block. */}
                                     <div
                                       style={{
                                         display: "grid",
@@ -21420,7 +21420,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         </div>
                                       </div>
 
-                                      <div className="muted tiny" style={{ display: "grid", gap: 8, alignContent: "center" }}>
+                                      <div className="muted tiny" style={{ display: "grid", gap: 5, alignContent: "center" }}>
+                                        <div><b style={{ color: gross >= 0 ? "#86efac" : "#ff8a8a" }}>Gross:</b> <span style={{ fontWeight: 850, color: gross >= 0 ? "#86efac" : "#ff8a8a" }}>{gross >= 0 ? "+" : ""}{fmtUsd(gross)}</span></div>
+                                        <div><b style={{ color: "#ffd166" }}>Costs:</b> <span style={{ fontWeight: 850, color: "#ffd166" }}>{costs > 0 ? "-" : ""}{fmtUsd(Math.abs(costs))}</span></div>
                                         <div><b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> <span style={{ fontSize: 15, fontWeight: 950, color: net >= 0 ? "#86efac" : "#ff8a8a" }}>{net >= 0 ? "+" : ""}{fmtUsd(net)}</span></div>
                                         <div><b style={{ color: (sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "#86efac" : "#ffd166" }}>Exit:</b> {(sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "READY / WAITING" : "WAITING"}</div>
                                       </div>

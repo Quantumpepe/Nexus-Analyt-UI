@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-224-NKR-COMPACT-THREE-ROW-SESSION-CARD";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-225-NKR-ORDERED-SESSION-CARD";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21395,26 +21395,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       gap: 8,
                                     }}
                                   >
-                                    {/* ENGINE-224: compact three-row live session card. Configuration and technical details stay in Info. */}
+                                    {/* ENGINE-225: ordered compact session card; live price left, session data centered, results right, controls stacked. */}
                                     <div
                                       style={{
                                         display: "grid",
-                                        gridTemplateColumns: isCompactMobile ? "1fr" : "minmax(250px, 1.2fr) minmax(150px, .7fr) auto",
+                                        gridTemplateColumns: isCompactMobile ? "1fr" : "minmax(250px, 1fr) minmax(330px, 1.35fr) minmax(175px, .65fr) auto",
                                         gap: 10,
                                         alignItems: "center",
                                       }}
                                     >
-                                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
+                                      <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
                                         <b style={{ fontSize: 16, color: "#eafff5" }}>{baseAsset} → {sym} → {baseAsset}</b>
-                                        <span className={`pill ${statusTone.pill}`} style={{ color: statusTone.color, fontWeight: 950 }}>{status}</span>
+                                        <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>
+                                          <b style={{ color: liveTone }}>{sym} Live:</b> {currentPositionPrice > 0 ? fmtUsd(currentPositionPrice) : "waiting"}
+                                          <span style={{ color: liveTone, fontWeight: 900, marginLeft: 8 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>
+                                        </div>
                                       </div>
 
-                                      <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>
-                                        <b style={{ color: liveTone }}>{sym}</b> {currentPositionPrice > 0 ? fmtUsd(currentPositionPrice) : "waiting"}
-                                        <span style={{ color: liveTone, fontWeight: 900, marginLeft: 8 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>
+                                      <div className="muted tiny" style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                                        <div><b style={{ color: "#d8fff1" }}>Open:</b> {positionRuntimeText}</div>
+                                        <div><b style={{ color: "#8bdcff" }}>Invest:</b> {fmtUsd(positionValue)}</div>
+                                        <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                                          <b style={{ color: "#8bdcff" }}>Reason:</b> {String(sess?.exitReason || sess?.meta?.nkr_exit_reason || "Waiting for live cost calculation")}
+                                        </div>
                                       </div>
 
-                                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: isCompactMobile ? "flex-start" : "flex-end" }}>
+                                      <div className="muted tiny" style={{ display: "grid", gap: 8, alignContent: "center" }}>
+                                        <div><b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> <span style={{ fontSize: 15, fontWeight: 950, color: net >= 0 ? "#86efac" : "#ff8a8a" }}>{net >= 0 ? "+" : ""}{fmtUsd(net)}</span></div>
+                                        <div><b style={{ color: (sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "#86efac" : "#ffd166" }}>Exit:</b> {(sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "READY / WAITING" : "WAITING"}</div>
+                                      </div>
+
+                                      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "stretch", justifyContent: "center", minWidth: 98 }}>
                                         <button
                                           className="miniBtn"
                                           type="button"
@@ -21462,24 +21473,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       </div>
                                     </div>
 
-                                    <div
-                                      className="muted tiny"
-                                      style={{
-                                        display: "grid",
-                                        gridTemplateColumns: isCompactMobile ? "1fr 1fr" : "repeat(4, minmax(130px, 1fr))",
-                                        gap: "6px 18px",
-                                        alignItems: "center",
-                                      }}
-                                    >
-                                      <div><b style={{ color: "#8bdcff" }}>Value:</b> {fmtUsd(positionValue)}</div>
-                                      <div><b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
-                                      <div><b style={{ color: "#d8fff1" }}>Open:</b> {positionRuntimeText}</div>
-                                      <div><b style={{ color: (sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "#86efac" : "#ffd166" }}>Exit:</b> {(sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "READY / WAITING" : "WAITING"}</div>
-                                    </div>
-
-                                    <div className="muted tiny" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                                      <b style={{ color: "#8bdcff" }}>Reason:</b> {String(sess?.exitReason || sess?.meta?.nkr_exit_reason || "Waiting for live cost calculation")}
-                                    </div>
                                   </div>
                                 );                              }) : (
                                 <div

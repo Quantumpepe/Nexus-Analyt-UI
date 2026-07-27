@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-216-TDZ-CRASH-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-220-NKR-SESSION-RESERVE-STATUS-INFO";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -7861,6 +7861,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationMode, setRotationMode] = useState("RECOMMENDATION");
   const [nkrCapitalMode, setNkrCapitalMode] = useState("DYNAMIC");
   const [nkrObservationWindow, setNkrObservationWindow] = useState("1h");
+  const [nkrSessionInfoOpen, setNkrSessionInfoOpen] = useState(null);
   const [nkrProfitMode, setNkrProfitMode] = useState("REINVEST");
   const [nkrPeriodDays, setNkrPeriodDays] = useState("10");
   const [nkrControlState, setNkrControlState] = useState("WAITING");
@@ -8112,6 +8113,12 @@ useEffect(() => {
   const releaseRotationBudget = useCallback(async () => {
     const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
     if (!Number.isFinite(amount) || amount <= 0) return;
+    // Freeze the selected mode for this session before the setup draft is reset to Dynamic.
+    const startedNkrCapitalMode = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
+    try {
+      const modeKey = `nexus_nkr_active_session_mode_v1_${String(wallet || "").toLowerCase()}`;
+      window.localStorage.setItem(modeKey, startedNkrCapitalMode);
+    } catch {}
     let coreVaultSession = null;
     try {
       setRotationBackendLoading(true);
@@ -8234,7 +8241,7 @@ useEffect(() => {
           coreVaultTxHash: coreVaultSession?.hash || "",
           coreVaultExecution: "server_side_privy",
           mode: rotationMode,
-          nkrCapitalMode,
+          nkrCapitalMode: startedNkrCapitalMode,
           nkrObservationWindow,
           nkrProfitMode,
           nkrPeriodDays,
@@ -8290,7 +8297,7 @@ useEffect(() => {
             campaign_started_at: now,
             campaign_expires_at: expiresAt,
             nkr_period_days: periodDays,
-            nkr_capital_mode: String(nkrCapitalMode || "DYNAMIC").toUpperCase(),
+            nkr_capital_mode: startedNkrCapitalMode,
             nkr_runtime_source: "PERIOD_DAYS_ONLY",
             expires_at: expiresAt,
             max_active_nkr_sessions: activeLimit,
@@ -8310,7 +8317,7 @@ useEffect(() => {
     setNkrAggressiveAcceptedForDraft(false);
     setNkrAggressivePendingValue("");
     setNkrAggressiveConsentOpen(false);
-  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, setNkrCapitalMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
+  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrCapitalMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -21160,8 +21167,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const nkrOverviewBestCandidate = String(
                         rotationSelectedPick?.sym || rotationSelectedPick?.coin || rotationSelectedPick?.source || liveTopAsset || ""
                       ).toUpperCase();
+                      // The running session mode is immutable. The setup selector may already
+                      // be reset to Dynamic for the next run, so it must never drive the overview.
+                      const nkrModeSourceRow = (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : []).find((sess) =>
+                        sess?.nkrCapitalMode || sess?.meta?.nkr_capital_mode || sess?.meta?.capital_mode
+                      ) || firstRotation;
+                      let persistedNkrActiveMode = "";
+                      try {
+                        const modeKey = `nexus_nkr_active_session_mode_v1_${String(wallet || "").toLowerCase()}`;
+                        persistedNkrActiveMode = String(window.localStorage.getItem(modeKey) || "").toUpperCase();
+                      } catch {}
                       const nkrOverviewActiveMode = String(
-                        firstRotation?.nkrCapitalMode || firstRotation?.meta?.nkr_capital_mode || firstRotation?.meta?.capital_mode || nkrCapitalMode || "DYNAMIC"
+                        nkrModeSourceRow?.nkrCapitalMode ||
+                        nkrModeSourceRow?.meta?.nkr_capital_mode ||
+                        nkrModeSourceRow?.meta?.capital_mode ||
+                        (nkrOverviewRunning ? persistedNkrActiveMode : "") ||
+                        nkrCapitalMode ||
+                        "DYNAMIC"
                       ).toUpperCase();
                       const nkrOverviewStartedLabel = nkrOverviewStartTs > 0
                         ? new Date(nkrOverviewStartTs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
@@ -21194,22 +21216,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             >
                               <div><b>Vault Total:</b> {fmtUsd(nkrVaultTotalLive)}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {fmtUsd(nkrOverviewAvailableUsd)}</div>
-                              <div><b>Open Position Value:</b> {fmtUsd(nkrOpenPositionValueUsd)}</div>
-                              <div><b>Nexus NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
+                              <div><b>Open Position:</b> {fmtUsd(nkrOpenPositionValueUsd)}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
-                              <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : fmtUsd(0)}</span></div>
                               <div><b>Active Session:</b> {activeRotations > 0 ? 1 : 0}</div>
-                              <div><b>Top Profit Asset:</b> <span style={{ color: nkrTopProfitAsset ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTopProfitAsset || "—"}</span></div>
-                              <div><b>Best Candidate:</b> {nkrOverviewBestCandidate || "—"}{rotationSelectedPick?.score ? ` · ${rotationSelectedPick.score}/100` : ""}</div>
-                              <div><b>Nexus NKR Mode:</b> {nkrOverviewActiveMode.replaceAll("_", " ")}</div>
-                              <div><b>Observation:</b> {nkrObservationWindow}</div>
-                              <div><b>Profit Mode:</b> {String(nkrProfitMode || "REINVEST").replaceAll("_", " ")}</div>
-                              <div><b>Period:</b> {nkrPeriodDays} days</div>
-                              <div><b>NKR Started:</b> {nkrOverviewStartedLabel}</div>
+                              <div><b>Status:</b> <span style={{ color: nkrOverviewRunning ? "#22c55e" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewStatus}</span></div>
                               <div><b>Runtime:</b> {nkrOverviewRunning ? (nkrOverviewElapsedMs > 0 ? fmtRotationDuration(nkrOverviewElapsedMs) : "RUNNING") : "not running"}</div>
                               <div><b>Time Left:</b> <span style={{ color: nkrOverviewRunning && nkrOverviewRemainingMs > 0 ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewRunning ? (nkrOverviewEndTs > 0 ? (nkrOverviewRemainingMs > 0 ? fmtRotationDuration(nkrOverviewRemainingMs) : "expired") : "—") : "—"}</span></div>
-                              <div><b>Ends:</b> {nkrOverviewRunning ? nkrOverviewEndsLabel : "—"}</div>
-                              <div><b>Status:</b> <span style={{ color: nkrOverviewRunning ? "#22c55e" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewStatus}</span></div>
                             </div>
                           </div>
 
@@ -21260,6 +21272,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const positionRuntimeText = fmtRotationDuration(Math.max(0, rotationNow - positionStartTs));
                                 const baseAsset = String(sess?.baseAsset || sess?.payoutAsset || sess?.meta?.base_asset || manualPayoutAsset || "USDC").toUpperCase();
                                 const workingCapital = getNkrSessionWorkingCapitalUsd(sess) || budget;
+                                const sessionBudgetUsd = Number(sess?.nkrTotalBudgetUsd || sess?.meta?.nkr_total_budget_usd || sess?.sessionBudgetUsd || sess?.meta?.session_budget_usd || budget || workingCapital || 0) || 0;
+                                const protectedReserveUsdRaw = Number(sess?.nkrCashReserveUsd ?? sess?.meta?.nkr_cash_reserve_usd ?? sess?.protectedReserveUsd ?? sess?.meta?.protected_reserve_usd);
+                                const protectedReserveUsd = Number.isFinite(protectedReserveUsdRaw)
+                                  ? Math.max(0, protectedReserveUsdRaw)
+                                  : Math.max(0, sessionBudgetUsd - workingCapital);
+                                const reservePctByMode = {
+                                  AGGRESSIVE: 10,
+                                  DYNAMIC: 20,
+                                  TACTICAL: 25,
+                                  DEFENSIVE: 35,
+                                };
+                                const sessionCapitalMode = String(sessionMode || sess?.capitalMode || sess?.mode || sess?.meta?.capital_mode || "DYNAMIC").toUpperCase();
+                                const plannedReservePct = Number(reservePctByMode[sessionCapitalMode] || 0);
+                                const plannedReserveUsd = sessionBudgetUsd > 0 && plannedReservePct > 0
+                                  ? (sessionBudgetUsd * plannedReservePct) / 100
+                                  : protectedReserveUsd;
+                                const reserveEpsilon = 0.005;
+                                const reserveStatus = protectedReserveUsd <= reserveEpsilon
+                                  ? "FULLY DEPLOYED"
+                                  : (plannedReserveUsd > reserveEpsilon && protectedReserveUsd < plannedReserveUsd - reserveEpsilon
+                                      ? "PARTIALLY DEPLOYED"
+                                      : "HELD");
+                                const reserveAvailableToDeployUsd = protectedReserveUsd;
                                 const allocationBaseUsd = Number(sess?.nkrTotalBudgetUsd || sess?.meta?.nkr_total_budget_usd || typedNkrBudgetUsd || rotationAllocatedUsd || 0) || 0;
                                 const savedAllocationPct = Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct || 0) || 0;
                                 const liveAllocationPct = allocationBaseUsd > 0 ? (workingCapital / allocationBaseUsd) * 100 : savedAllocationPct;
@@ -21332,6 +21367,41 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     </div>
 
                                     <div style={{ display: "grid", gap: 6, minWidth: 112 }}>
+                                      <button
+                                        className="miniBtn"
+                                        type="button"
+                                        onClick={() => setNkrSessionInfoOpen({
+                                          id: String(sess?.id || sess?.session_id || ""),
+                                          route: `${baseAsset} → ${sym} → ${baseAsset}`,
+                                          status,
+                                          chain,
+                                          baseAsset,
+                                          asset: sym,
+                                          mode: String(sess?.nkrCapitalMode || sess?.meta?.nkr_capital_mode || sess?.meta?.capital_mode || nkrOverviewActiveMode || "DYNAMIC").toUpperCase(),
+                                          observation: String(sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || nkrObservationWindow || "—"),
+                                          profitMode: String(sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || nkrProfitMode || "—").toUpperCase(),
+                                          periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || nkrPeriodDays || 0),
+                                          maxAssets: Number(sess?.maxActiveAssets || sess?.nkrMaxActiveAssets || sess?.meta?.nkr_max_active_assets || rotationMaxActive || 0),
+                                          payoutAsset: String(sess?.payoutAsset || sess?.meta?.payout_asset || manualPayoutAsset || baseAsset).toUpperCase(),
+                                          networkScope: String(sess?.networkScope || sess?.meta?.network_scope || rotationNetworkScope || chain),
+                                          riskLimit: Number(sess?.riskLimit || sess?.meta?.risk_limit || rotationRiskLimit || 0),
+                                          maxSlippage: Number(sess?.maxSlippage || sess?.meta?.max_slippage || rotationMaxSlippage || 0),
+                                          minNetAdvantage: Number(sess?.minNetAdvantage || sess?.meta?.min_net_advantage || rotationMinNetAdvantage || 0),
+                                          sessionBudgetUsd,
+                                          workingCapital,
+                                          protectedReserveUsd,
+                                          plannedReserveUsd,
+                                          reserveStatus,
+                                          reserveAvailableToDeployUsd,
+                                          allocationLabel,
+                                          started: campaignStartTs,
+                                          ends: campaignExpiresTs,
+                                          runtimeText,
+                                          leftText,
+                                        })}
+                                      >
+                                        Info
+                                      </button>
                                       {sessionStatus === "STOPPED" ? (
                                         <>
                                           <button
@@ -21384,6 +21454,59 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               )}
                             </div>
                           </div>
+
+                          {nkrSessionInfoOpen ? (
+                            <div
+                              className="modalBackdrop"
+                              style={{ zIndex: 99999 }}
+                              onClick={() => setNkrSessionInfoOpen(null)}
+                            >
+                              <div
+                                className="modal modalHelp"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ maxWidth: 620, background: "linear-gradient(180deg, rgba(8,35,31,1), rgba(6,20,19,1))" }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                                  <div>
+                                    <div className="label" style={{ marginBottom: 2 }}>NKR Session Info</div>
+                                    <div className="muted tiny">{nkrSessionInfoOpen.route}</div>
+                                  </div>
+                                  <button className="miniBtn" type="button" onClick={() => setNkrSessionInfoOpen(null)}>Close</button>
+                                </div>
+                                <div
+                                  className="muted tiny"
+                                  style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr", gap: 9, marginTop: 14, lineHeight: 1.5 }}
+                                >
+                                  <div><b>Status:</b> {nkrSessionInfoOpen.status}</div>
+                                  <div><b>Session ID:</b> {nkrSessionInfoOpen.id || "—"}</div>
+                                  <div><b>Chain:</b> {nkrSessionInfoOpen.chain}</div>
+                                  <div><b>Route:</b> {nkrSessionInfoOpen.route}</div>
+                                  <div><b>Capital Mode:</b> {String(nkrSessionInfoOpen.mode || "—").replaceAll("_", " ")}</div>
+                                  <div><b>Observation Window:</b> {nkrSessionInfoOpen.observation}</div>
+                                  <div><b>Profit Mode:</b> {String(nkrSessionInfoOpen.profitMode || "—").replaceAll("_", " ")}</div>
+                                  <div><b>Period:</b> {nkrSessionInfoOpen.periodDays > 0 ? `${nkrSessionInfoOpen.periodDays} days` : "—"}</div>
+                                  <div><b>Max Active Assets:</b> {nkrSessionInfoOpen.maxAssets || "—"}</div>
+                                  <div><b>Payout Asset:</b> {nkrSessionInfoOpen.payoutAsset || "—"}</div>
+                                  <div><b>Network Scope:</b> {nkrSessionInfoOpen.networkScope || "—"}</div>
+                                  <div style={{ gridColumn: "1 / -1", marginTop: 4, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,.10)", fontWeight: 900, color: "#eafff5" }}>CAPITAL</div>
+                                  <div><b>Session Budget:</b> {fmtUsd(Number(nkrSessionInfoOpen.sessionBudgetUsd || 0))}</div>
+                                  <div><b>Allocated for Trading:</b> {fmtUsd(Number(nkrSessionInfoOpen.workingCapital || 0))}</div>
+                                  <div><b>Stable Reserve:</b> {fmtUsd(Number(nkrSessionInfoOpen.protectedReserveUsd || 0))}</div>
+                                  <div><b>Planned Reserve:</b> {fmtUsd(Number(nkrSessionInfoOpen.plannedReserveUsd || 0))}</div>
+                                  <div><b>Reserve Status:</b> {nkrSessionInfoOpen.reserveStatus || "HELD"}</div>
+                                  <div><b>Available to Deploy:</b> {fmtUsd(Number(nkrSessionInfoOpen.reserveAvailableToDeployUsd || 0))}</div>
+                                  <div><b>Allocation:</b> {nkrSessionInfoOpen.allocationLabel || "—"}</div>
+                                  <div><b>Risk Limit:</b> {Number(nkrSessionInfoOpen.riskLimit || 0) > 0 ? `${nkrSessionInfoOpen.riskLimit}%` : "—"}</div>
+                                  <div><b>Max Slippage:</b> {Number(nkrSessionInfoOpen.maxSlippage || 0) > 0 ? `${nkrSessionInfoOpen.maxSlippage}%` : "—"}</div>
+                                  <div><b>Min Net Advantage:</b> {Number(nkrSessionInfoOpen.minNetAdvantage || 0) > 0 ? `${nkrSessionInfoOpen.minNetAdvantage}%` : "—"}</div>
+                                  <div><b>Started:</b> {nkrSessionInfoOpen.started ? new Date(nkrSessionInfoOpen.started).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}</div>
+                                  <div><b>Ends:</b> {nkrSessionInfoOpen.ends ? new Date(nkrSessionInfoOpen.ends).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}</div>
+                                  <div><b>Runtime:</b> {nkrSessionInfoOpen.runtimeText || "—"}</div>
+                                  <div><b>Time Left:</b> {nkrSessionInfoOpen.leftText || "—"}</div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
 
                           {/* ENGINE-111: Rotation movements are shown only in NKR Event History. */}
 

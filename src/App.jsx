@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-222-NKR-IMMUTABLE-SESSION-SNAPSHOT-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-223-NKR-TOTAL-BUDGET-RESERVE-MATH-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21309,11 +21309,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const positionRuntimeText = fmtRotationDuration(Math.max(0, rotationNow - positionStartTs));
                                 const baseAsset = String(sess?.baseAsset || sess?.payoutAsset || sess?.meta?.base_asset || manualPayoutAsset || "USDC").toUpperCase();
                                 const workingCapital = getNkrSessionWorkingCapitalUsd(sess) || budget;
-                                const sessionBudgetUsd = Number(sess?.nkrTotalBudgetUsd || sess?.meta?.nkr_total_budget_usd || sess?.sessionBudgetUsd || sess?.meta?.session_budget_usd || budget || workingCapital || 0) || 0;
+                                // ENGINE-223: Some live sessions expose `budgetUsd` as working capital only.
+                                // Reconstruct the true total from immutable start data and the held reserve.
+                                const reportedSessionBudgetUsd = Number(
+                                  sess?.nkrTotalBudgetUsd ||
+                                  sess?.meta?.nkr_total_budget_usd ||
+                                  sess?.sessionBudgetUsd ||
+                                  sess?.meta?.session_budget_usd ||
+                                  immutableSessionSnapshot?.budgetUsd ||
+                                  budget ||
+                                  workingCapital ||
+                                  0
+                                ) || 0;
                                 const protectedReserveUsdRaw = Number(sess?.nkrCashReserveUsd ?? sess?.meta?.nkr_cash_reserve_usd ?? sess?.protectedReserveUsd ?? sess?.meta?.protected_reserve_usd);
                                 const protectedReserveUsd = Number.isFinite(protectedReserveUsdRaw)
                                   ? Math.max(0, protectedReserveUsdRaw)
-                                  : Math.max(0, sessionBudgetUsd - workingCapital);
+                                  : Math.max(0, reportedSessionBudgetUsd - workingCapital);
+                                const snapshotBudgetUsd = Number(immutableSessionSnapshot?.budgetUsd || 0) || 0;
+                                const sessionBudgetUsd = Math.max(
+                                  reportedSessionBudgetUsd,
+                                  snapshotBudgetUsd,
+                                  Math.max(0, workingCapital) + Math.max(0, protectedReserveUsd)
+                                );
                                 const reservePctByMode = {
                                   AGGRESSIVE: 10,
                                   DYNAMIC: 20,
@@ -21340,7 +21357,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       ? "PARTIALLY DEPLOYED"
                                       : "HELD");
                                 const reserveAvailableToDeployUsd = protectedReserveUsd;
-                                const allocationBaseUsd = Number(sess?.nkrTotalBudgetUsd || sess?.meta?.nkr_total_budget_usd || typedNkrBudgetUsd || rotationAllocatedUsd || 0) || 0;
+                                const allocationBaseUsd = sessionBudgetUsd;
                                 const savedAllocationPct = Number(sess?.nkrAllocationPct || sess?.meta?.nkr_allocation_pct || 0) || 0;
                                 const liveAllocationPct = allocationBaseUsd > 0 ? (workingCapital / allocationBaseUsd) * 100 : savedAllocationPct;
                                 const allocationLabel = Number.isFinite(liveAllocationPct) && liveAllocationPct > 0 ? `${liveAllocationPct.toFixed(1)}%` : "controlled";
@@ -21534,7 +21551,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <div><b>Payout Asset:</b> {nkrSessionInfoOpen.payoutAsset || "—"}</div>
                                   <div><b>Network Scope:</b> {nkrSessionInfoOpen.networkScope || "—"}</div>
                                   <div style={{ gridColumn: "1 / -1", marginTop: 4, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,.10)", fontWeight: 900, color: "#eafff5" }}>CAPITAL</div>
-                                  <div><b>Session Budget:</b> {fmtUsd(Number(nkrSessionInfoOpen.sessionBudgetUsd || 0))}</div>
+                                  <div><b>Total Session Budget:</b> {fmtUsd(Number(nkrSessionInfoOpen.sessionBudgetUsd || 0))}</div>
                                   <div><b>Allocated for Trading:</b> {fmtUsd(Number(nkrSessionInfoOpen.workingCapital || 0))}</div>
                                   <div><b>Stable Reserve:</b> {fmtUsd(Number(nkrSessionInfoOpen.protectedReserveUsd || 0))}</div>
                                   <div><b>Planned Reserve:</b> {fmtUsd(Number(nkrSessionInfoOpen.plannedReserveUsd || 0))}</div>

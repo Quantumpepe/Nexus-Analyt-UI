@@ -1,4 +1,4 @@
- function safeSetGridOrdersFromResponse(r, setOrdersFn) {
+function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
     r?.data?.orders ??
@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-214-NKR-OVERVIEW-LIVE-SYNC-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-215-NKR-OVERVIEW-AND-DYNAMIC-DEFAULT-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -8290,6 +8290,7 @@ useEffect(() => {
             campaign_started_at: now,
             campaign_expires_at: expiresAt,
             nkr_period_days: periodDays,
+            nkr_capital_mode: String(nkrCapitalMode || "DYNAMIC").toUpperCase(),
             nkr_runtime_source: "PERIOD_DAYS_ONLY",
             expires_at: expiresAt,
             max_active_nkr_sessions: activeLimit,
@@ -8303,7 +8304,10 @@ useEffect(() => {
       ].slice(0, 20);
     });
     setRotationBackendMsg(`NKR session approved ✓ ${sessionId}. Period ${periodDays} days, max active NKR sessions ${activeLimit}. Paper-only until live permissions are connected.`);
-  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset]);
+    // ENGINE-215: Setup always returns to Dynamic for the next NKR run.
+    // The active session keeps its saved mode and the overview reads that session mode separately.
+    resetNkrAggressiveDraftSelection();
+  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, resetNkrAggressiveDraftSelection]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -20984,7 +20988,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const controllableRotations = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s))).length;
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
                       const typedNkrBudgetUsd = Number(String(rotationBudgetRelease || "").replace(",", "."));
-                      const activeNkrBudgetUsd = Number(firstRotation?.budgetUsd || firstRotation?.approvedBudgetUsd || firstRotation?.reservedCapitalUsd || firstRotation?.allocatedUsd || 0);
+                      const activeNkrBudgetUsd = Number(
+                        firstRotation?.budgetUsd || firstRotation?.approvedBudgetUsd || firstRotation?.reservedCapitalUsd ||
+                        firstRotation?.allocatedUsd || firstRotation?.workingCapitalUsd || firstRotation?.sessionCapitalUsd ||
+                        firstRotation?.meta?.budget_usd || firstRotation?.meta?.working_capital_usd || firstRotation?.meta?.session_capital_usd || 0
+                      );
                       // ENGINE-189: Overview shows only capital belonging to a running NKR campaign.
                       // The typed setup amount remains in NKR Setup, but must not appear as active budget.
                       const hasRunningNkrCampaign = activeRotations > 0 && String(nkrControlState || "WAITING").toUpperCase() !== "STOPPED";
@@ -21123,7 +21131,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       // ENGINE-214: Derive overview state from the authoritative live session/position,
                       // not only from the persisted setup control flag. A confirmed CoreVault position
                       // must never appear as WAITING or "not running" in the overview.
-                      const nkrOverviewRunning = Boolean(nkrHasLiveSession || activeRotations > 0 || nkrOpenPositionRows.length > 0) && nkrCtrl !== "STOPPED";
+                      const nkrOverviewRunning = Boolean(nkrHasLiveSession || activeRotations > 0 || nkrOpenPositionRows.length > 0);
                       const nkrOverviewStatus = nkrCtrl === "PAUSED" || pausedRotations > 0
                         ? "PAUSED"
                         : nkrOpenPositionRows.length > 0
@@ -21148,6 +21156,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         : "";
                       const nkrOverviewBestCandidate = String(
                         rotationSelectedPick?.sym || rotationSelectedPick?.coin || rotationSelectedPick?.source || liveTopAsset || ""
+                      ).toUpperCase();
+                      const nkrOverviewActiveMode = String(
+                        firstRotation?.nkrCapitalMode || firstRotation?.meta?.nkr_capital_mode || firstRotation?.meta?.capital_mode || nkrCapitalMode || "DYNAMIC"
                       ).toUpperCase();
                       const nkrOverviewStartedLabel = nkrOverviewStartTs > 0
                         ? new Date(nkrOverviewStartTs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
@@ -21187,7 +21198,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Active Session:</b> {activeRotations > 0 ? 1 : 0}</div>
                               <div><b>Top Profit Asset:</b> <span style={{ color: nkrTopProfitAsset ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTopProfitAsset || "—"}</span></div>
                               <div><b>Best Candidate:</b> {nkrOverviewBestCandidate || "—"}{rotationSelectedPick?.score ? ` · ${rotationSelectedPick.score}/100` : ""}</div>
-                              <div><b>Nexus NKR Mode:</b> {String(nkrCapitalMode || "DYNAMIC").replaceAll("_", " ")}</div>
+                              <div><b>Nexus NKR Mode:</b> {nkrOverviewActiveMode.replaceAll("_", " ")}</div>
                               <div><b>Observation:</b> {nkrObservationWindow}</div>
                               <div><b>Profit Mode:</b> {String(nkrProfitMode || "REINVEST").replaceAll("_", " ")}</div>
                               <div><b>Period:</b> {nkrPeriodDays} days</div>

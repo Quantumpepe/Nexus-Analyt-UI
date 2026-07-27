@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-209-COREVAULT-V4-CLEAN-SYSTEM-INFO";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-211-SHADOW-DEFAULT-OFF-AFTER-SUBSCRIPTION";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -6521,8 +6521,10 @@ const byChain = {};
     access?.full_access ||
     (access?.active && !String(access?.plan || access?.tier || "").toLowerCase().includes("strategist"))
   );
-  const shadowVisibilityKey = wallet ? `nexus_shadow_visible_${String(wallet).toLowerCase()}` : "";
-  const [shadowUiEnabled, setShadowUiEnabled] = useState(true);
+  const shadowVisibilityKey = wallet ? `nexus_shadow_visible_v2_${String(wallet).toLowerCase()}` : "";
+  // Demo users may see Shadow immediately. Once Core access/subscription is active,
+  // Shadow starts OFF and is shown only after the user explicitly enables it.
+  const [shadowUiEnabled, setShadowUiEnabled] = useState(false);
 
   useEffect(() => {
     if (!hasCoreAccess) {
@@ -6532,11 +6534,12 @@ const byChain = {};
     }
     try {
       const saved = shadowVisibilityKey ? localStorage.getItem(shadowVisibilityKey) : null;
-      const enabled = saved == null ? true : saved !== "false";
+      const enabled = saved == null ? false : saved === "true";
       setShadowUiEnabled(enabled);
       setShadowDrawerOpen(enabled);
     } catch {
-      setShadowUiEnabled(true);
+      setShadowUiEnabled(false);
+      setShadowDrawerOpen(false);
     }
   }, [hasCoreAccess, shadowVisibilityKey]);
 
@@ -18815,12 +18818,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       })}
                     </div>
                     <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                      <span className="muted" style={{ fontSize: 10 }}>This balance is separate from the Shadow values below.</span>
+                      <span className="muted" style={{ fontSize: 10 }}>{shadowUiEnabled ? "This balance is separate from the Shadow values below." : "Shadow simulation is hidden. Enable Shadow Mode to display simulated accounting."}</span>
                       <button type="button" className="miniBtn" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading || !wallet}>Refresh</button>
                     </div>
                   </div>
 
-                  <div style={{ marginTop: 10, fontSize: 10, fontWeight: 900, color: "rgba(255,255,255,0.62)", letterSpacing: 0.4, textTransform: "uppercase" }}>Shadow accounting</div>
+                  {shadowUiEnabled ? (
+                    <>
+                      <div style={{ marginTop: 10, fontSize: 10, fontWeight: 900, color: "rgba(255,255,255,0.62)", letterSpacing: 0.4, textTransform: "uppercase" }}>Shadow accounting</div>
                   <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     {[
                       ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd, "Simulated USDC / USDT in Shadow accounting"],
@@ -18849,6 +18854,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Realized Net P&amp;L (live changing)</span><b style={{ color: coreVaultOverview.realizedNetBreakdown.totalUsd >= 0 ? "#86efac" : "#ff8a8a" }}>{fmtUsd(coreVaultOverview.realizedNetBreakdown.totalUsd)}</b></div>
                   <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>NKR {fmtUsd(coreVaultOverview.realizedNetBreakdown.nkrUsd)} · Trader {fmtUsd(coreVaultOverview.realizedNetBreakdown.traderUsd)} · Grid {fmtUsd(coreVaultOverview.realizedNetBreakdown.gridUsd)}</div>
                   <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
+                    </>
+                  ) : null}
                   <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
                     <div style={{ fontWeight: 900, fontSize: 13 }}>Deposit to Vault</div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Ethereum Mainnet · USDC or USDT</div>

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-227-NKR-SESSION-MODE-TRUE-START-SNAPSHOT-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-228-NKR-SETUP-STATUS-TOTAL-BUDGET-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21770,11 +21770,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         : null;
                       if (!activeSession) return <div className="muted tiny" style={{ marginTop: 8 }}>Status: Ready</div>;
                       const asset = String(activeSession?.symbol || activeSession?.targetAsset || "").toUpperCase();
+                      const activeSessionId = String(activeSession?.id || activeSession?.session_id || "");
+                      const activeSessionSnapshot = (() => {
+                        try {
+                          const snapshotKey = `nexus_nkr_session_snapshot_v1_${String(wallet || "").toLowerCase()}_${activeSessionId}`;
+                          const raw = window.localStorage.getItem(snapshotKey);
+                          return raw ? JSON.parse(raw) : {};
+                        } catch {
+                          return {};
+                        }
+                      })();
+                      const activeWorkingCapital = getNkrSessionWorkingCapitalUsd(activeSession) || Number(activeSession?.budgetUsd || 0) || 0;
+                      const activeReserveRaw = Number(activeSession?.nkrCashReserveUsd ?? activeSession?.meta?.nkr_cash_reserve_usd ?? activeSession?.protectedReserveUsd ?? activeSession?.meta?.protected_reserve_usd);
+                      const activeReserve = Number.isFinite(activeReserveRaw) ? Math.max(0, activeReserveRaw) : 0;
+                      const activeTotalBudget = Math.max(
+                        Number(activeSession?.nkrTotalBudgetUsd || activeSession?.meta?.nkr_total_budget_usd || activeSession?.sessionBudgetUsd || activeSession?.meta?.session_budget_usd || 0) || 0,
+                        Number(activeSessionSnapshot?.budgetUsd || 0) || 0,
+                        Math.max(0, activeWorkingCapital) + Math.max(0, activeReserve)
+                      );
                       return (
                         <div className="muted tiny" style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap" }}>
                           <span><b>Status:</b> Running</span>
                           {asset ? <span><b>Asset:</b> {asset}</span> : null}
-                          <span><b>Budget:</b> {fmtUsd(Number(activeSession?.budgetUsd || 0))}</span>
+                          <span><b>Budget:</b> {fmtUsd(activeTotalBudget)}</span>
                         </div>
                       );
                     })()}

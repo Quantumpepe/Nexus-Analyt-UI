@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-223-NKR-TOTAL-BUDGET-RESERVE-MATH-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-224-NKR-COMPACT-THREE-ROW-SESSION-CARD";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21392,116 +21392,96 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       background: statusTone.bg,
                                       padding: "10px 12px",
                                       display: "grid",
-                                      gridTemplateColumns: isCompactMobile ? "1fr" : "1.35fr 1.25fr 1.25fr auto",
-                                      gap: 12,
-                                      alignItems: "center",
+                                      gap: 8,
                                     }}
                                   >
-                                    <div style={{ minWidth: 0 }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                    {/* ENGINE-224: compact three-row live session card. Configuration and technical details stay in Info. */}
+                                    <div
+                                      style={{
+                                        display: "grid",
+                                        gridTemplateColumns: isCompactMobile ? "1fr" : "minmax(250px, 1.2fr) minmax(150px, .7fr) auto",
+                                        gap: 10,
+                                        alignItems: "center",
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
                                         <b style={{ fontSize: 16, color: "#eafff5" }}>{baseAsset} → {sym} → {baseAsset}</b>
                                         <span className={`pill ${statusTone.pill}`} style={{ color: statusTone.color, fontWeight: 950 }}>{status}</span>
                                       </div>
-                                      <div className="muted tiny" style={{ marginTop: 5 }}>Working capital: {fmtUsd(workingCapital)} · Allocation: {allocationLabel}</div>
-                                      <div className="muted tiny" style={{ marginTop: 4 }}><b style={{ color: liveTone }}>Live:</b> {currentPositionPrice > 0 ? fmtUsd(currentPositionPrice) : "waiting"} · <span style={{ color: liveTone, fontWeight: 900 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>{liveVol > 0 ? ` · Vol ${fmtCompactUsd(liveVol)}` : ""}</div>
-                                      {positionQty > 0 ? <div className="muted tiny" style={{ marginTop: 4 }}><b style={{ color: "#8bdcff" }}>Position:</b> {positionQty.toFixed(8)} {sym} · Value {fmtUsd(positionValue)}</div> : null}
-                                      {entryPrice > 0 ? <div className="muted tiny" style={{ marginTop: 4 }}><b>Entry:</b> {fmtUsd(entryPrice)} · <b style={{ color: unrealizedPnl >= 0 ? "#86efac" : "#ff8a8a" }}>Live PnL:</b> {unrealizedPnl >= 0 ? "+" : ""}{fmtUsd(unrealizedPnl)} ({unrealizedPnlPct >= 0 ? "+" : ""}{unrealizedPnlPct.toFixed(2)}%)</div> : null}
-                                      {liveTxHash ? <div className="muted tiny" style={{ marginTop: 4 }}><b>On-chain:</b> CONFIRMED · <span className="mono">{liveTxHash.slice(0, 10)}...{liveTxHash.slice(-6)}</span></div> : null}
-                                      
+
+                                      <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>
+                                        <b style={{ color: liveTone }}>{sym}</b> {currentPositionPrice > 0 ? fmtUsd(currentPositionPrice) : "waiting"}
+                                        <span style={{ color: liveTone, fontWeight: 900, marginLeft: 8 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>
+                                      </div>
+
+                                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: isCompactMobile ? "flex-start" : "flex-end" }}>
+                                        <button
+                                          className="miniBtn"
+                                          type="button"
+                                          onClick={() => setNkrSessionInfoOpen({
+                                            id: String(sess?.id || sess?.session_id || ""),
+                                            route: `${baseAsset} → ${sym} → ${baseAsset}`,
+                                            status,
+                                            chain,
+                                            baseAsset,
+                                            asset: sym,
+                                            mode: sessionCapitalMode,
+                                            observation: String(sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || immutableSessionSnapshot?.observationWindow || "—"),
+                                            profitMode: String(sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || immutableSessionSnapshot?.profitMode || "—").toUpperCase(),
+                                            periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || immutableSessionSnapshot?.periodDays || 0),
+                                            maxAssets: Number(sess?.maxActiveAssets || sess?.nkrMaxActiveAssets || sess?.meta?.nkr_max_active_assets || immutableSessionSnapshot?.maxActiveAssets || 0),
+                                            payoutAsset: String(sess?.payoutAsset || sess?.meta?.payout_asset || immutableSessionSnapshot?.payoutAsset || baseAsset).toUpperCase(),
+                                            networkScope: String(sess?.networkScope || sess?.meta?.network_scope || immutableSessionSnapshot?.networkScope || chain),
+                                            riskLimit: Number(sess?.riskLimit || sess?.meta?.risk_limit || sess?.riskLimitPct || immutableSessionSnapshot?.riskLimit || 0),
+                                            maxSlippage: Number(sess?.maxSlippage || sess?.meta?.max_slippage || sess?.maxSlippagePct || immutableSessionSnapshot?.maxSlippage || 0),
+                                            minNetAdvantage: Number(sess?.minNetAdvantage || sess?.meta?.min_net_advantage || sess?.minNetAdvantagePct || immutableSessionSnapshot?.minNetAdvantage || 0),
+                                            sessionBudgetUsd,
+                                            workingCapital,
+                                            protectedReserveUsd,
+                                            plannedReserveUsd,
+                                            reserveStatus,
+                                            reserveAvailableToDeployUsd,
+                                            allocationLabel,
+                                            started: campaignStartTs,
+                                            ends: campaignExpiresTs,
+                                            runtimeText,
+                                            leftText,
+                                          })}
+                                        >Info</button>
+                                        {sessionStatus === "STOPPED" ? (
+                                          <>
+                                            <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl("RESUME", { sessionId: String(sess?.id || sess?.session_id || "") })}>Resume</button>
+                                            <button className="miniBtn danger" type="button" title="Delete this stopped NKR session forever from the wallet-bound backend state." onClick={() => applyNkrBackendControl("DELETE", { sessionId: String(sess?.id || sess?.session_id || "") })}>Delete</button>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: String(sess?.id || sess?.session_id || "") })}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
+                                            <button className="miniBtn danger" type="button" onClick={() => applyNkrBackendControl("STOP", { sessionId: String(sess?.id || sess?.session_id || "") })}>Protect / Stop</button>
+                                          </>
+                                        )}
+                                      </div>
                                     </div>
 
-                                    <div className="muted tiny" style={{ display: "grid", gap: 5 }}>
-                                      <div><b style={{ color: "#8bdcff" }}>NKR Runtime:</b> {runtimeText}</div>
-                                      <div><b style={{ color: "#8bdcff" }}>NKR Left:</b> {leftText}</div>
-                                      <div><b style={{ color: "#d8fff1" }}>Position opened:</b> {positionRuntimeText} ago</div>
-                                      {Number.isFinite(entryConfidence) && entryConfidence > 0 ? <div><b style={{ color: "#ffd166" }}>Entry Score:</b> {entryConfidence.toFixed(1).replace(/\.0$/, "")}/100</div> : null}
-                                      <div><b style={{ color: "#ffd166" }}>{entryConfidence > 0 ? "Current Score" : "Confidence"}:</b> {Number.isFinite(currentConfidence) && currentConfidence > 0 ? `${currentConfidence.toFixed(1).replace(/\.0$/, "")}/100` : "waiting"}</div>
-                                      <div><b style={{ color: "#8bdcff" }}>Events:</b> {eventsCount}</div>
+                                    <div
+                                      className="muted tiny"
+                                      style={{
+                                        display: "grid",
+                                        gridTemplateColumns: isCompactMobile ? "1fr 1fr" : "repeat(4, minmax(130px, 1fr))",
+                                        gap: "6px 18px",
+                                        alignItems: "center",
+                                      }}
+                                    >
+                                      <div><b style={{ color: "#8bdcff" }}>Value:</b> {fmtUsd(positionValue)}</div>
+                                      <div><b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
+                                      <div><b style={{ color: "#d8fff1" }}>Open:</b> {positionRuntimeText}</div>
+                                      <div><b style={{ color: (sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "#86efac" : "#ffd166" }}>Exit:</b> {(sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "READY / WAITING" : "WAITING"}</div>
                                     </div>
 
-                                    <div className="muted tiny" style={{ display: "grid", gap: 5 }}>
-                                      <div><b style={{ color: profit >= 0 ? "#86efac" : "#ff8a8a" }}>Collected Profit:</b> {profit >= 0 ? "+" : ""}{fmtUsd(profit)} {budget > 0 ? `(${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%)` : ""}</div>
-                                      <div><b style={{ color: "#86efac" }}>Gross:</b> {gross >= 0 ? "+" : ""}{fmtUsd(gross)} · <b style={{ color: "#ffd166" }}>Costs:</b> {costs ? fmtUsd(costs) : "$0"} · <b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
-                                      <div><b style={{ color: (sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "#86efac" : "#ffd166" }}>Exit Ready:</b> {(sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "YES" : "NO"}</div>
-                                      <div><b style={{ color: "#8bdcff" }}>Reason:</b> {String(sess?.exitReason || sess?.meta?.nkr_exit_reason || "Waiting for live cost calculation")}</div>
-                                      <div><b style={{ color: "#c9a7ff" }}>Strategist:</b> {String(sess?.lastRotationEvent?.action || sess?.lastAction || "HOLD")} · <b style={{ color: "#8bdcff" }}>Executor:</b> {(sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "READY / WAITING SIGNAL" : "COST BLOCKED"}</div>
-                                      {lastEvent?.flow ? <div><b style={{ color: "#8bdcff" }}>Last:</b> {lastEvent.flow} · {fmtUsd(Number(lastEvent.netUsd || 0))}</div> : null}
-                                    </div>
-
-                                    <div style={{ display: "grid", gap: 6, minWidth: 112 }}>
-                                      <button
-                                        className="miniBtn"
-                                        type="button"
-                                        onClick={() => setNkrSessionInfoOpen({
-                                          id: String(sess?.id || sess?.session_id || ""),
-                                          route: `${baseAsset} → ${sym} → ${baseAsset}`,
-                                          status,
-                                          chain,
-                                          baseAsset,
-                                          asset: sym,
-                                          mode: sessionCapitalMode,
-                                          observation: String(sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || immutableSessionSnapshot?.observationWindow || "—"),
-                                          profitMode: String(sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || immutableSessionSnapshot?.profitMode || "—").toUpperCase(),
-                                          periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || immutableSessionSnapshot?.periodDays || 0),
-                                          maxAssets: Number(sess?.maxActiveAssets || sess?.nkrMaxActiveAssets || sess?.meta?.nkr_max_active_assets || immutableSessionSnapshot?.maxActiveAssets || 0),
-                                          payoutAsset: String(sess?.payoutAsset || sess?.meta?.payout_asset || immutableSessionSnapshot?.payoutAsset || baseAsset).toUpperCase(),
-                                          networkScope: String(sess?.networkScope || sess?.meta?.network_scope || immutableSessionSnapshot?.networkScope || chain),
-                                          riskLimit: Number(sess?.riskLimit || sess?.meta?.risk_limit || sess?.riskLimitPct || immutableSessionSnapshot?.riskLimit || 0),
-                                          maxSlippage: Number(sess?.maxSlippage || sess?.meta?.max_slippage || sess?.maxSlippagePct || immutableSessionSnapshot?.maxSlippage || 0),
-                                          minNetAdvantage: Number(sess?.minNetAdvantage || sess?.meta?.min_net_advantage || sess?.minNetAdvantagePct || immutableSessionSnapshot?.minNetAdvantage || 0),
-                                          sessionBudgetUsd,
-                                          workingCapital,
-                                          protectedReserveUsd,
-                                          plannedReserveUsd,
-                                          reserveStatus,
-                                          reserveAvailableToDeployUsd,
-                                          allocationLabel,
-                                          started: campaignStartTs,
-                                          ends: campaignExpiresTs,
-                                          runtimeText,
-                                          leftText,
-                                        })}
-                                      >
-                                        Info
-                                      </button>
-                                      {sessionStatus === "STOPPED" ? (
-                                        <>
-                                          <button
-                                            className="miniBtn"
-                                            type="button"
-                                            onClick={() => applyNkrBackendControl("RESUME", { sessionId: String(sess?.id || sess?.session_id || "") })}
-                                          >
-                                            Resume
-                                          </button>
-                                          <button
-                                            className="miniBtn danger"
-                                            type="button"
-                                            title="Delete this stopped NKR session forever from the wallet-bound backend state."
-                                            onClick={() => applyNkrBackendControl("DELETE", { sessionId: String(sess?.id || sess?.session_id || "") })}
-                                          >
-                                            Delete
-                                          </button>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <button
-                                            className="miniBtn"
-                                            type="button"
-                                            onClick={() => applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: String(sess?.id || sess?.session_id || "") })}
-                                          >
-                                            {sessionStatus === "PAUSED" ? "Resume" : "Pause"}
-                                          </button>
-                                          <button
-                                            className="miniBtn danger"
-                                            type="button"
-                                            onClick={() => applyNkrBackendControl("STOP", { sessionId: String(sess?.id || sess?.session_id || "") })}
-                                          >Protect / Stop</button>
-                                        </>
-                                      )}
+                                    <div className="muted tiny" style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                                      <b style={{ color: "#8bdcff" }}>Reason:</b> {String(sess?.exitReason || sess?.meta?.nkr_exit_reason || "Waiting for live cost calculation")}
                                     </div>
                                   </div>
-                                );
-                              }) : (
+                                );                              }) : (
                                 <div
                                   className="muted"
                                   style={{

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-212-PRIVY-DUPLICATE-SIGNER-400-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-213-NKR-RUNTIME-UI-SYNC-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21101,7 +21101,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at
                         ))
                         .filter((ts) => ts > 0);
-                      const nkrOverviewStartTs = nkrStartCandidates.length ? Math.min(...nkrStartCandidates) : 0;
+                      const nkrHasLiveSession = nkrTimingRows.length > 0 || activeRotations > 0 || nkrCtrl === "RUNNING" ||
+                        (Array.isArray(rotationVisibleActiveRows) && rotationVisibleActiveRows.some((sess) => {
+                          const st = String(getRotationDerivedStatus(sess) || sess?.status || "").toUpperCase();
+                          const qty = Number(sess?.positionQty ?? sess?.positionAmount ?? sess?.openRotation?.positionQty ?? sess?.meta?.nkr_position_qty ?? 0) || 0;
+                          return qty > 0 || ["RUNNING", "ACTIVE", "EXECUTOR", "POSITION_ACTIVE", "CLOSING"].includes(st);
+                        }));
+                      const fallbackNkrStartTs = normalizeNkrTimestampMs(
+                        rotationVisibleActiveRows?.[0]?.positionOpenedAt || rotationVisibleActiveRows?.[0]?.meta?.position_opened_at ||
+                        rotationVisibleActiveRows?.[0]?.startedAt || rotationVisibleActiveRows?.[0]?.createdAt || 0
+                      );
+                      const nkrOverviewStartTs = nkrStartCandidates.length ? Math.min(...nkrStartCandidates) : fallbackNkrStartTs;
                       const configuredNkrEndTs = nkrOverviewStartTs > 0
                         ? nkrOverviewStartTs + Math.max(1, Number(nkrPeriodDays || 1)) * 24 * 60 * 60 * 1000
                         : 0;
@@ -21110,7 +21120,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         : configuredNkrEndTs;
                       const nkrOverviewElapsedMs = nkrOverviewStartTs > 0 ? Math.max(0, rotationNow - nkrOverviewStartTs) : 0;
                       const nkrOverviewRemainingMs = nkrOverviewEndTs > 0 ? Math.max(0, nkrOverviewEndTs - rotationNow) : 0;
-                      const nkrOverviewRunning = nkrTimingRows.length > 0 && nkrCtrl !== "STOPPED";
+                      const nkrOverviewRunning = nkrHasLiveSession && nkrCtrl !== "STOPPED";
                       const nkrOverviewStartedLabel = nkrOverviewStartTs > 0
                         ? new Date(nkrOverviewStartTs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
                         : "not started";
@@ -21220,7 +21230,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const gross = Number(sess?.grossProfitUsd ?? sess?.meta?.grossProfitUsd ?? profit) || 0;
                                 const costs = Number(sess?.costsUsd ?? sess?.meta?.costsUsd ?? 0) || 0;
                                 const net = Number(sess?.netProfitUsd ?? sess?.meta?.netProfitUsd ?? profit) || 0;
-                                const confidence = Number(sess?.confidence ?? sess?.score ?? rotationSelectedPick?.score ?? 0);
+                                const currentConfidence = Number(sess?.confidence ?? sess?.score ?? rotationSelectedPick?.score ?? 0);
+                                const entryConfidence = Number(
+                                  sess?.entryConfidence ?? sess?.entryScore ?? sess?.openRotation?.entryConfidence ?? sess?.openRotation?.entryScore ??
+                                  sess?.meta?.nkr_entry_confidence ?? sess?.meta?.nkr_entry_score ??
+                                  (Array.isArray(sess?.rotationEvents) ? sess.rotationEvents.find((ev) => ["BUY", "ENTRY", "OPEN"].includes(String(ev?.action || ev?.type || "").toUpperCase()))?.score : 0) ?? 0
+                                );
                                 const positionQty = Number(sess?.positionQty ?? sess?.positionAmount ?? sess?.openRotation?.positionQty ?? sess?.openRotation?.quantity ?? sess?.meta?.nkr_position_qty ?? 0) || 0;
                                 const entryPrice = Number(sess?.entryPriceUsd ?? sess?.openRotation?.entryPriceUsd ?? sess?.meta?.nkr_entry_price_usd ?? 0) || 0;
                                 const currentPositionPrice = Number(sess?.currentPriceUsd ?? sess?.openRotation?.currentPriceUsd ?? sess?.meta?.nkr_current_price_usd ?? livePrice ?? 0) || 0;
@@ -21260,7 +21275,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <div><b style={{ color: "#8bdcff" }}>NKR Runtime:</b> {runtimeText}</div>
                                       <div><b style={{ color: "#8bdcff" }}>NKR Left:</b> {leftText}</div>
                                       <div><b style={{ color: "#d8fff1" }}>Position opened:</b> {positionRuntimeText} ago</div>
-                                      <div><b style={{ color: "#ffd166" }}>Confidence:</b> {Number.isFinite(confidence) && confidence > 0 ? `${confidence}/100` : "waiting"}</div>
+                                      {Number.isFinite(entryConfidence) && entryConfidence > 0 ? <div><b style={{ color: "#ffd166" }}>Entry Score:</b> {entryConfidence.toFixed(1).replace(/\.0$/, "")}/100</div> : null}
+                                      <div><b style={{ color: "#ffd166" }}>{entryConfidence > 0 ? "Current Score" : "Confidence"}:</b> {Number.isFinite(currentConfidence) && currentConfidence > 0 ? `${currentConfidence.toFixed(1).replace(/\.0$/, "")}/100` : "waiting"}</div>
                                       <div><b style={{ color: "#8bdcff" }}>Events:</b> {eventsCount}</div>
                                     </div>
 
@@ -21476,38 +21492,57 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     {renderFundingPrompt("ROTATION")}
 
-                    <div className="btnRow">
-                      <button
-                        className="btn"
-                        type="button"
-                        disabled={(() => {
-                          const hasActiveNkrRun = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase()));
-                          const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
-                          return hasActiveNkrRun || rotationBackendLoading || privyAutomationBusy || !Number.isFinite(amount) || amount <= 0;
-                        })()}
-                        onClick={releaseRotationBudget}
-                        title="Start NKR"
-                      >
-                        {privyAutomationBusy ? "Activating Privy..." : rotationBackendLoading ? "Starting..." : "Start NKR"}
-                      </button>
-                      {Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED"].includes(String(s?.status || "").toUpperCase())) && (
-                        <button
-                          className="miniBtn"
-                          type="button"
-                          disabled={(() => {
-                            const amount = Number(String(rotationCapitalTopup || "").replace(",", "."));
-                            return !Number.isFinite(amount) || amount <= 0;
-                          })()}
-                          onClick={topUpActiveNkrCapital}
-                          title="Add capital to the existing NKR run."
-                        >
-                          Add Capital
-                        </button>
-                      )}
-                      {rotationBudgetReleased && (
-                        <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>
-                      )}
-                    </div>
+                    {(() => {
+                      const activeNkrSession = (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : []).find((s) => {
+                        const st = String(getRotationDerivedStatus(s) || s?.status || "").toUpperCase();
+                        const qty = Number(s?.positionQty ?? s?.positionAmount ?? s?.openRotation?.positionQty ?? s?.meta?.nkr_position_qty ?? 0) || 0;
+                        return qty > 0 || !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(st);
+                      }) || (Array.isArray(rotationSessions) ? rotationSessions.find((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(String(s?.status || "").toUpperCase())) : null);
+                      const hasActiveNkrRun = Boolean(activeNkrSession) || String(nkrControlState || "").toUpperCase() === "RUNNING";
+                      return (
+                        <div className="btnRow">
+                          <button
+                            className="btn"
+                            type="button"
+                            disabled={(() => {
+                              const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+                              return hasActiveNkrRun || rotationBackendLoading || privyAutomationBusy || !Number.isFinite(amount) || amount <= 0;
+                            })()}
+                            onClick={releaseRotationBudget}
+                            title={hasActiveNkrRun ? "NKR session is already running" : "Start NKR"}
+                          >
+                            {hasActiveNkrRun ? "NKR läuft" : privyAutomationBusy ? "Activating Privy..." : rotationBackendLoading ? "Starting..." : "Start NKR"}
+                          </button>
+                          {hasActiveNkrRun && (
+                            <>
+                              <button
+                                className="miniBtn"
+                                type="button"
+                                disabled={(() => {
+                                  const amount = Number(String(rotationCapitalTopup || "").replace(",", "."));
+                                  return !Number.isFinite(amount) || amount <= 0;
+                                })()}
+                                onClick={topUpActiveNkrCapital}
+                                title="Add capital to the existing NKR run."
+                              >
+                                Add Capital
+                              </button>
+                              <button
+                                className="miniBtn danger"
+                                type="button"
+                                onClick={() => applyNkrBackendControl("STOP", { sessionId: String(activeNkrSession?.id || activeNkrSession?.session_id || "") })}
+                                title="Protect the open position and stop this NKR run."
+                              >
+                                Stop NKR
+                              </button>
+                            </>
+                          )}
+                          {rotationBudgetReleased && !hasActiveNkrRun && (
+                            <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {privyAutomationError && (
                       <div className="muted tiny" style={{ marginTop: 6, color: "#ff8a8a" }}>
                         Privy automation: {privyAutomationError}

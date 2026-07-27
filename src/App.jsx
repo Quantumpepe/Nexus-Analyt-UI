@@ -1,4 +1,4 @@
-function safeSetGridOrdersFromResponse(r, setOrdersFn) {
+ function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
     r?.data?.orders ??
@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-213-NKR-RUNTIME-UI-SYNC-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-214-NKR-OVERVIEW-LIVE-SYNC-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21120,7 +21120,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         : configuredNkrEndTs;
                       const nkrOverviewElapsedMs = nkrOverviewStartTs > 0 ? Math.max(0, rotationNow - nkrOverviewStartTs) : 0;
                       const nkrOverviewRemainingMs = nkrOverviewEndTs > 0 ? Math.max(0, nkrOverviewEndTs - rotationNow) : 0;
-                      const nkrOverviewRunning = nkrHasLiveSession && nkrCtrl !== "STOPPED";
+                      // ENGINE-214: Derive overview state from the authoritative live session/position,
+                      // not only from the persisted setup control flag. A confirmed CoreVault position
+                      // must never appear as WAITING or "not running" in the overview.
+                      const nkrOverviewRunning = Boolean(nkrHasLiveSession || activeRotations > 0 || nkrOpenPositionRows.length > 0) && nkrCtrl !== "STOPPED";
+                      const nkrOverviewStatus = nkrCtrl === "PAUSED" || pausedRotations > 0
+                        ? "PAUSED"
+                        : nkrOpenPositionRows.length > 0
+                          ? "POSITION ACTIVE"
+                          : nkrOverviewRunning
+                            ? "RUNNING"
+                            : "WAITING";
+                      const nkrOverviewAvailableUsd = (() => {
+                        // Prefer the same authoritative on-chain free capital used by Live Core Vault Capital.
+                        const tokenStates = Object.values(coreVaultOnchain?.tokens || {});
+                        const onchainFree = tokenStates.reduce((sum, tokenState) => {
+                          const account = tokenState?.account || {};
+                          const total = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
+                          const allocated = Number(account?.totalAllocated || 0);
+                          return sum + Math.max(0, total - allocated);
+                        }, 0);
+                        if (coreVaultOnchain?.connected) return Math.max(0, onchainFree);
+                        return Math.max(0, availableUsd || 0);
+                      })();
+                      const nkrTopProfitAsset = topProfitRotation && Number(topProfitRotation.profit || 0) > 0
+                        ? String(topProfitRotation.sym || "").toUpperCase()
+                        : "";
+                      const nkrOverviewBestCandidate = String(
+                        rotationSelectedPick?.sym || rotationSelectedPick?.coin || rotationSelectedPick?.source || liveTopAsset || ""
+                      ).toUpperCase();
                       const nkrOverviewStartedLabel = nkrOverviewStartTs > 0
                         ? new Date(nkrOverviewStartTs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
                         : "not started";
@@ -21151,23 +21179,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               }}
                             >
                               <div><b>Vault Total:</b> {fmtUsd(nkrVaultTotalLive)}</div>
-                              <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {nkrBudgetUsd > 0 ? fmtUsd(availableUsd) : (vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending")}</div>
+                              <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {fmtUsd(nkrOverviewAvailableUsd)}</div>
                               <div><b>Open Position Value:</b> {fmtUsd(nkrOpenPositionValueUsd)}</div>
                               <div><b>Nexus NKR allocated:</b> {fmtUsd(rotationAllocatedUsd)}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               <div><b>Nexus NKR Budget:</b> <span style={{ color: nkrBudgetUsd > 0 ? "#86efac" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrBudgetUsd > 0 ? fmtUsd(nkrBudgetUsd) : fmtUsd(0)}</span></div>
                               <div><b>Active Session:</b> {activeRotations > 0 ? 1 : 0}</div>
-                              <div><b>Top Profit Asset:</b> <span style={{ color: nkrTarget !== "WAITING" ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{liveTopAsset && liveTopAsset !== "WAITING" ? liveTopAsset : "—"}</span></div>
-                              <div><b>Best Edge:</b> {rotationSelectedPick?.score ? `${rotationSelectedPick.score}/100` : "waiting"}</div>
+                              <div><b>Top Profit Asset:</b> <span style={{ color: nkrTopProfitAsset ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrTopProfitAsset || "—"}</span></div>
+                              <div><b>Best Candidate:</b> {nkrOverviewBestCandidate || "—"}{rotationSelectedPick?.score ? ` · ${rotationSelectedPick.score}/100` : ""}</div>
                               <div><b>Nexus NKR Mode:</b> {String(nkrCapitalMode || "DYNAMIC").replaceAll("_", " ")}</div>
                               <div><b>Observation:</b> {nkrObservationWindow}</div>
                               <div><b>Profit Mode:</b> {String(nkrProfitMode || "REINVEST").replaceAll("_", " ")}</div>
                               <div><b>Period:</b> {nkrPeriodDays} days</div>
                               <div><b>NKR Started:</b> {nkrOverviewStartedLabel}</div>
-                              <div><b>Runtime:</b> {nkrOverviewRunning ? fmtRotationDuration(nkrOverviewElapsedMs) : "not running"}</div>
+                              <div><b>Runtime:</b> {nkrOverviewRunning ? (nkrOverviewElapsedMs > 0 ? fmtRotationDuration(nkrOverviewElapsedMs) : "RUNNING") : "not running"}</div>
                               <div><b>Time Left:</b> <span style={{ color: nkrOverviewRunning && nkrOverviewRemainingMs > 0 ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewRunning ? (nkrOverviewEndTs > 0 ? (nkrOverviewRemainingMs > 0 ? fmtRotationDuration(nkrOverviewRemainingMs) : "expired") : "—") : "—"}</span></div>
                               <div><b>Ends:</b> {nkrOverviewRunning ? nkrOverviewEndsLabel : "—"}</div>
-                              <div><b>Status:</b> <span style={{ color: nkrOverviewRunning ? "#22c55e" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewRunning ? "ACTIVE" : "WAITING"}</span></div>
+                              <div><b>Status:</b> <span style={{ color: nkrOverviewRunning ? "#22c55e" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewStatus}</span></div>
                             </div>
                           </div>
 

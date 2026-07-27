@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-207-NKR-WORKER-HEARTBEAT-DIAGNOSTICS";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-208-NKR-EXIT-READY-ENGINE";
 const CORE_VAULT_ETH_ADDRESS = "0xF1DAb87B35B6638d679853941B19d9f3637EEFC1";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21259,6 +21259,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     <div className="muted tiny" style={{ display: "grid", gap: 5 }}>
                                       <div><b style={{ color: profit >= 0 ? "#86efac" : "#ff8a8a" }}>Collected Profit:</b> {profit >= 0 ? "+" : ""}{fmtUsd(profit)} {budget > 0 ? `(${roi >= 0 ? "+" : ""}${roi.toFixed(2)}%)` : ""}</div>
                                       <div><b style={{ color: "#86efac" }}>Gross:</b> {gross >= 0 ? "+" : ""}{fmtUsd(gross)} · <b style={{ color: "#ffd166" }}>Costs:</b> {costs ? fmtUsd(costs) : "$0"} · <b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
+                                      <div><b style={{ color: (sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "#86efac" : "#ffd166" }}>Exit Ready:</b> {(sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "YES" : "NO"}</div>
+                                      <div><b style={{ color: "#8bdcff" }}>Reason:</b> {String(sess?.exitReason || sess?.meta?.nkr_exit_reason || "Waiting for live cost calculation")}</div>
+                                      <div><b style={{ color: "#c9a7ff" }}>Strategist:</b> {String(sess?.lastRotationEvent?.action || sess?.lastAction || "HOLD")} · <b style={{ color: "#8bdcff" }}>Executor:</b> {(sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "READY / WAITING SIGNAL" : "COST BLOCKED"}</div>
                                       {lastEvent?.flow ? <div><b style={{ color: "#8bdcff" }}>Last:</b> {lastEvent.flow} · {fmtUsd(Number(lastEvent.netUsd || 0))}</div> : null}
                                     </div>
 

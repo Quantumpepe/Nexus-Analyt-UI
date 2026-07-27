@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-211-SHADOW-DEFAULT-OFF-AFTER-SUBSCRIPTION";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-212-PRIVY-DUPLICATE-SIGNER-400-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4674,29 +4674,32 @@ useEffect(() => {
         attachedPolicyId = String(window.localStorage.getItem(policyStorageKey) || "").trim();
       } catch {}
 
-      try {
-        await addSigners({
-          address,
-          signers: [{ signerId, policyIds: [policyId] }],
-        });
-        try { window.localStorage.setItem(policyStorageKey, policyId); } catch {}
-      } catch (addSignerError) {
-        const addSignerMessage = String(
-          addSignerError?.message ||
-          addSignerError?.error?.message ||
-          addSignerError ||
-          ""
-        );
-        const duplicateSigner = /duplicate\s+signer|already\s+(?:been\s+)?added|already\s+(?:exists|attached|registered)/i.test(addSignerMessage);
-        if (!duplicateSigner) throw addSignerError;
+      // Do not call Privy addSigners again when this browser already verified
+      // the exact signer + policy pair. Privy answers duplicate attachments with
+      // HTTP 400, which polluted the console and could interrupt the start flow.
+      if (attachedPolicyId === policyId) {
+        console.info("Privy trading signer already attached with the current policy; skipping duplicate attach and continuing with verification.");
+      } else {
+        try {
+          await addSigners({
+            address,
+            signers: [{ signerId, policyIds: [policyId] }],
+          });
+          try { window.localStorage.setItem(policyStorageKey, policyId); } catch {}
+        } catch (addSignerError) {
+          const addSignerMessage = String(
+            addSignerError?.message ||
+            addSignerError?.error?.message ||
+            addSignerError ||
+            ""
+          );
+          const duplicateSigner = /duplicate\s+signer|already\s+(?:been\s+)?added|already\s+(?:exists|attached|registered)/i.test(addSignerMessage);
+          if (!duplicateSigner) throw addSignerError;
 
-        // A duplicate signer is only safe when the signer is already attached
-        // with the same policy. Privy does not replace a signer's policy when
-        // addSigners is called again. After a policy ID change, revoke the old
-        // signer attachment once and add it again with the current policy.
-        if (attachedPolicyId !== policyId) {
+          // The signer exists but the browser has no proof that the active policy
+          // matches. Reattach once so the current policy becomes authoritative.
           if (typeof removeSigners !== "function") {
-            throw new Error("Privy signer policy changed, but this SDK cannot remove the old signer attachment.");
+            throw new Error("Privy signer already exists, but this SDK cannot refresh its policy attachment.");
           }
           setPrivyAutomationStatus("POLICY_REATTACH_REQUIRED");
           await removeSigners({ address });
@@ -4707,8 +4710,6 @@ useEffect(() => {
           });
           try { window.localStorage.setItem(policyStorageKey, policyId); } catch {}
           console.info("Privy trading signer reattached with the current policy.");
-        } else {
-          console.info("Privy trading signer already attached with the current policy; continuing with verification.");
         }
       }
 

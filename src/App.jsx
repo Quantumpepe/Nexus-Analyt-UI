@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-221-NKR-SESSION-RESERVE-CRASH-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-222-NKR-IMMUTABLE-SESSION-SNAPSHOT-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -8220,6 +8220,28 @@ useEffect(() => {
     const sourceSymbol = String(pickedCandidate.rawSymbol || "").toUpperCase();
     const sessionId = makeNexusSessionId("NKR");
     const expiresAt = now + periodDays * 24 * 60 * 60 * 1000;
+    // ENGINE-222: Persist an immutable snapshot of the exact settings used to start this session.
+    // The setup controls may change immediately afterward for the next session, but the Info dialog
+    // must never read those draft values.
+    try {
+      const snapshotKey = `nexus_nkr_session_snapshot_v1_${String(wallet || "").toLowerCase()}_${sessionId}`;
+      window.localStorage.setItem(snapshotKey, JSON.stringify({
+        sessionId,
+        capitalMode: startedNkrCapitalMode,
+        observationWindow: String(nkrObservationWindow || ""),
+        profitMode: String(nkrProfitMode || "").toUpperCase(),
+        periodDays,
+        maxActiveAssets: activeLimit,
+        payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+        networkScope: String(rotationNetworkScope || candidateChain || "").toUpperCase(),
+        riskLimit: Number(rotationRiskLimit || 0),
+        maxSlippage: Number(rotationMaxSlippage || 0),
+        minNetAdvantage: Number(rotationMinNetAdvantage || 0),
+        budgetUsd: amount,
+        startedAt: now,
+        endsAt: expiresAt,
+      }));
+    } catch {}
     setRotationBudgetReleased(true);
     setActiveRotationSessionId(sessionId);
     setRotationSessions((prev) => {
@@ -21260,7 +21282,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const liveVol = Number(liveRow?.volume24h ?? liveRow?.vol ?? liveRow?.total_volume ?? 0) || 0;
                                 const liveTone = liveChange > 0 ? "#86efac" : liveChange < 0 ? "#ff8a8a" : "#d8fff1";
                                 const chain = String(sess?.chain || "CHAIN").toUpperCase();
-                                const budget = Number(sess?.budgetUsd || 0);
+                                const sessionIdValue = String(sess?.id || sess?.session_id || "");
+                                const immutableSessionSnapshot = (() => {
+                                  try {
+                                    const snapshotKey = `nexus_nkr_session_snapshot_v1_${String(wallet || "").toLowerCase()}_${sessionIdValue}`;
+                                    const raw = window.localStorage.getItem(snapshotKey);
+                                    return raw ? JSON.parse(raw) : {};
+                                  } catch {
+                                    return {};
+                                  }
+                                })();
+                                let legacyPersistedActiveMode = "";
+                                try {
+                                  const modeKey = `nexus_nkr_active_session_mode_v1_${String(wallet || "").toLowerCase()}`;
+                                  legacyPersistedActiveMode = String(window.localStorage.getItem(modeKey) || "").toUpperCase();
+                                } catch {}
+                                const budget = Number(sess?.budgetUsd || immutableSessionSnapshot?.budgetUsd || 0);
                                 const sessionStatus = getRotationDerivedStatus(sess);
                                 const status = getRotationDisplayStatus(sess);
                                 const statusTone = getRotationStatusTone(status);
@@ -21288,9 +21325,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   sess?.meta?.nkr_capital_mode ||
                                   sess?.capitalMode ||
                                   sess?.meta?.capital_mode ||
-                                  sess?.mode ||
-                                  nkrOverviewActiveMode ||
-                                  "DYNAMIC"
+                                  immutableSessionSnapshot?.capitalMode ||
+                                  legacyPersistedActiveMode ||
+                                  "UNKNOWN"
                                 ).toUpperCase();
                                 const plannedReservePct = Number(reservePctByMode[sessionCapitalMode] || 0);
                                 const plannedReserveUsd = sessionBudgetUsd > 0 && plannedReservePct > 0
@@ -21385,16 +21422,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           chain,
                                           baseAsset,
                                           asset: sym,
-                                          mode: String(sess?.nkrCapitalMode || sess?.meta?.nkr_capital_mode || sess?.meta?.capital_mode || nkrOverviewActiveMode || "DYNAMIC").toUpperCase(),
-                                          observation: String(sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || nkrObservationWindow || "—"),
-                                          profitMode: String(sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || nkrProfitMode || "—").toUpperCase(),
-                                          periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || nkrPeriodDays || 0),
-                                          maxAssets: Number(sess?.maxActiveAssets || sess?.nkrMaxActiveAssets || sess?.meta?.nkr_max_active_assets || rotationMaxActive || 0),
-                                          payoutAsset: String(sess?.payoutAsset || sess?.meta?.payout_asset || manualPayoutAsset || baseAsset).toUpperCase(),
-                                          networkScope: String(sess?.networkScope || sess?.meta?.network_scope || rotationNetworkScope || chain),
-                                          riskLimit: Number(sess?.riskLimit || sess?.meta?.risk_limit || rotationRiskLimit || 0),
-                                          maxSlippage: Number(sess?.maxSlippage || sess?.meta?.max_slippage || rotationMaxSlippage || 0),
-                                          minNetAdvantage: Number(sess?.minNetAdvantage || sess?.meta?.min_net_advantage || rotationMinNetAdvantage || 0),
+                                          mode: sessionCapitalMode,
+                                          observation: String(sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || immutableSessionSnapshot?.observationWindow || "—"),
+                                          profitMode: String(sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || immutableSessionSnapshot?.profitMode || "—").toUpperCase(),
+                                          periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || immutableSessionSnapshot?.periodDays || 0),
+                                          maxAssets: Number(sess?.maxActiveAssets || sess?.nkrMaxActiveAssets || sess?.meta?.nkr_max_active_assets || immutableSessionSnapshot?.maxActiveAssets || 0),
+                                          payoutAsset: String(sess?.payoutAsset || sess?.meta?.payout_asset || immutableSessionSnapshot?.payoutAsset || baseAsset).toUpperCase(),
+                                          networkScope: String(sess?.networkScope || sess?.meta?.network_scope || immutableSessionSnapshot?.networkScope || chain),
+                                          riskLimit: Number(sess?.riskLimit || sess?.meta?.risk_limit || sess?.riskLimitPct || immutableSessionSnapshot?.riskLimit || 0),
+                                          maxSlippage: Number(sess?.maxSlippage || sess?.meta?.max_slippage || sess?.maxSlippagePct || immutableSessionSnapshot?.maxSlippage || 0),
+                                          minNetAdvantage: Number(sess?.minNetAdvantage || sess?.meta?.min_net_advantage || sess?.minNetAdvantagePct || immutableSessionSnapshot?.minNetAdvantage || 0),
                                           sessionBudgetUsd,
                                           workingCapital,
                                           protectedReserveUsd,

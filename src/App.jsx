@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-226-NKR-GROSS-COST-NET-SESSION-CARD";
+const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-227-NKR-SESSION-MODE-TRUE-START-SNAPSHOT-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -8224,9 +8224,10 @@ useEffect(() => {
     // The setup controls may change immediately afterward for the next session, but the Info dialog
     // must never read those draft values.
     try {
-      const snapshotKey = `nexus_nkr_session_snapshot_v1_${String(wallet || "").toLowerCase()}_${sessionId}`;
-      window.localStorage.setItem(snapshotKey, JSON.stringify({
+      const walletKey = String(wallet || "").toLowerCase();
+      const snapshotData = {
         sessionId,
+        coreVaultSessionId: String(coreVaultSession?.sessionId ?? ""),
         capitalMode: startedNkrCapitalMode,
         observationWindow: String(nkrObservationWindow || ""),
         profitMode: String(nkrProfitMode || "").toUpperCase(),
@@ -8240,7 +8241,16 @@ useEffect(() => {
         budgetUsd: amount,
         startedAt: now,
         endsAt: expiresAt,
-      }));
+      };
+      const snapshotJson = JSON.stringify(snapshotData);
+      window.localStorage.setItem(`nexus_nkr_session_snapshot_v1_${walletKey}_${sessionId}`, snapshotJson);
+      // Store the same immutable start snapshot under the authoritative CoreVault/backend ID.
+      // Live rows can replace the local UI ID after synchronization; both IDs must resolve to
+      // the exact mode selected at session start.
+      const authoritativeSessionId = String(coreVaultSession?.sessionId ?? "").trim();
+      if (authoritativeSessionId) {
+        window.localStorage.setItem(`nexus_nkr_session_snapshot_v1_${walletKey}_${authoritativeSessionId}`, snapshotJson);
+      }
     } catch {}
     setRotationBudgetReleased(true);
     setActiveRotationSessionId(sessionId);
@@ -21337,13 +21347,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   TACTICAL: 25,
                                   DEFENSIVE: 35,
                                 };
+                                // ENGINE-227: The Info dialog must show the mode frozen at session start.
+                                // Never let mutable setup/session enrichment overwrite the immutable snapshot.
+                                // For an already-running legacy session, the persisted start mode is preferred
+                                // over live row fields because those fields may still mirror the setup selector.
                                 const sessionCapitalMode = String(
+                                  immutableSessionSnapshot?.capitalMode ||
+                                  legacyPersistedActiveMode ||
                                   sess?.nkrCapitalMode ||
                                   sess?.meta?.nkr_capital_mode ||
                                   sess?.capitalMode ||
                                   sess?.meta?.capital_mode ||
-                                  immutableSessionSnapshot?.capitalMode ||
-                                  legacyPersistedActiveMode ||
                                   "UNKNOWN"
                                 ).toUpperCase();
                                 const plannedReservePct = Number(reservePctByMode[sessionCapitalMode] || 0);

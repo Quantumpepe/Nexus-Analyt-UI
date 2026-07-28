@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-245-WALLET-EVM-INFO";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-246-NKR-BACKEND-ONLY-STATE";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -8226,10 +8226,6 @@ useEffect(() => {
     if (!Number.isFinite(amount) || amount <= 0) return;
     // Freeze the selected mode for this session before the setup draft is reset to Dynamic.
     const startedNkrCapitalMode = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
-    try {
-      const modeKey = `nexus_nkr_active_session_mode_v1_${String(wallet || "").toLowerCase()}`;
-      window.localStorage.setItem(modeKey, startedNkrCapitalMode);
-    } catch {}
     let coreVaultSession = null;
     try {
       setRotationBackendLoading(true);
@@ -8331,128 +8327,20 @@ useEffect(() => {
     const sourceSymbol = String(pickedCandidate.rawSymbol || "").toUpperCase();
     const sessionId = makeNexusSessionId("NKR");
     const expiresAt = now + periodDays * 24 * 60 * 60 * 1000;
-    // ENGINE-222: Persist an immutable snapshot of the exact settings used to start this session.
-    // The setup controls may change immediately afterward for the next session, but the Info dialog
-    // must never read those draft values.
-    try {
-      const walletKey = String(wallet || "").toLowerCase();
-      const snapshotData = {
-        sessionId,
-        coreVaultSessionId: String(coreVaultSession?.sessionId ?? ""),
-        capitalMode: startedNkrCapitalMode,
-        observationWindow: String(nkrObservationWindow || ""),
-        profitMode: String(nkrProfitMode || "").toUpperCase(),
-        periodDays,
-        maxActiveAssets: activeLimit,
-        payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
-        networkScope: String(rotationNetworkScope || candidateChain || "").toUpperCase(),
-        riskLimit: Number(rotationRiskLimit || 0),
-        maxSlippage: Number(rotationMaxSlippage || 0),
-        minNetAdvantage: Number(rotationMinNetAdvantage || 0),
-        budgetUsd: amount,
-        startedAt: now,
-        endsAt: expiresAt,
-      };
-      const snapshotJson = JSON.stringify(snapshotData);
-      window.localStorage.setItem(`nexus_nkr_session_snapshot_v1_${walletKey}_${sessionId}`, snapshotJson);
-      // Store the same immutable start snapshot under the authoritative CoreVault/backend ID.
-      // Live rows can replace the local UI ID after synchronization; both IDs must resolve to
-      // the exact mode selected at session start.
-      const authoritativeSessionId = String(coreVaultSession?.sessionId ?? "").trim();
-      if (authoritativeSessionId) {
-        window.localStorage.setItem(`nexus_nkr_session_snapshot_v1_${walletKey}_${authoritativeSessionId}`, snapshotJson);
-      }
-    } catch {}
+    // NKR session state is backend-owned. The browser stores no session snapshot.
     setRotationBudgetReleased(true);
-    setActiveRotationSessionId(sessionId);
-    setRotationSessions((prev) => {
-      const existing = Array.isArray(prev) ? prev : [];
-      return [
-        {
-          id: sessionId,
-          type: "NKR",
-          budgetUsd: amount,
-          chain: candidateChain,
-          symbol: candidateSymbol,
-          sourceSymbol,
-          targetAsset: candidateSymbol,
-          status: candidateSymbol ? "WAITING" : "SCANNING",
-          lifecycleState: candidateSymbol ? "WAITING" : "SCANNING",
-          positionState: candidateSymbol ? "WAITING" : "CASH",
-          executionMode: "live",
-          coreVaultSessionId: coreVaultSession?.sessionId ?? null,
-          coreVaultTxHash: coreVaultSession?.hash || "",
-          coreVaultExecution: "server_side_privy",
-          mode: rotationMode,
-          nkrCapitalMode: startedNkrCapitalMode,
-          nkrObservationWindow,
-          nkrProfitMode,
-          nkrPeriodDays,
-          networkScope: rotationNetworkScope,
-          runtimeHours,
-          startedAt: now,
-          campaignStartedAt: now,
-          campaignExpiresAt: expiresAt,
-          periodDays,
-          expiresAt,
-          riskLimitPct: rotationRiskLimit,
-          minNetAdvantagePct: rotationMinNetAdvantage,
-          maxSlippagePct: rotationMaxSlippage,
-          maxActiveNkrSessions: activeLimit,
-          payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
-          baseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
-          lockedTargetSymbol: sourceSymbol || "",
-          lockedChain: candidateChain,
-          lockedBaseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
-          workingCapitalUsd: amount,
-          sessionCapitalUsd: amount,
-          reservedUsd: amount,
-          collectedProfitUsd: 0,
-          grossProfitUsd: 0,
-          costsUsd: 0,
-          netProfitUsd: 0,
-          rotationEvents: [],
-          openRotation: null,
-          engineMode: "shadow_capital_manager_v1",
-          liveVaultReady: false,
-          createdAt: now,
-          updatedAt: now,
-          meta: {
-            nkr_session: true,
-            source: "nkr_autonomous_start",
-            candidate_source: pickedCandidate.source || "autonomous_watchlist_scan",
-            autonomous_selection: !sourceSymbol,
-            source_symbol: sourceSymbol,
-            selected_symbol: candidateSymbol,
-            strategist_score: pickedCandidate.strategistScore ?? pickedCandidate.score ?? null,
-            strategist_rank: pickedCandidate.rank || "",
-            vault_asset_ok: pickedCandidate.ok !== false,
-            capital_flow: "BASE_TO_TARGET_TO_BASE",
-            base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
-            live_vault_ready: false,
-            execution_mode: "shadow",
-            lifecycle_state: "WAITING",
-            position_state: "WAITING",
-            locked_target_symbol: sourceSymbol,
-            locked_chain: candidateChain,
-            locked_base_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
-            runtime_hours: runtimeHours,
-            campaign_started_at: now,
-            campaign_expires_at: expiresAt,
-            nkr_period_days: periodDays,
-            nkr_capital_mode: startedNkrCapitalMode,
-            nkr_runtime_source: "PERIOD_DAYS_ONLY",
-            expires_at: expiresAt,
-            max_active_nkr_sessions: activeLimit,
-            risk_limit_pct: rotationRiskLimit,
-            min_net_advantage_pct: rotationMinNetAdvantage,
-            max_slippage_pct: rotationMaxSlippage,
-            payout_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
-          },
-        },
-        ...existing,
-      ].slice(0, 20);
-    });
+    try {
+      const liveState = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(String(wallet || ""))}&wallet_address=${encodeURIComponent(String(wallet || ""))}`, { method: "GET", token, wallet });
+      const backendSessions = Array.isArray(liveState?.sessions) ? liveState.sessions : [];
+      setRotationSessions(backendSessions);
+      setActiveRotationSessionId(String(liveState?.activeRotationSessionId || ""));
+      setNkrControlState(backendSessions.length ? "RUNNING" : "IDLE");
+    } catch (syncError) {
+      console.warn("NKR backend refresh after start failed", syncError);
+      setRotationSessions([]);
+      setActiveRotationSessionId("");
+      setNkrControlState("UNKNOWN");
+    }
     setRotationBackendMsg(`NKR session approved ✓ ${sessionId}. Period ${periodDays} days, max active NKR sessions ${activeLimit}. Paper-only until live permissions are connected.`);
     // ENGINE-215: Setup always returns to Dynamic for the next NKR run.
     // The active session keeps its saved mode and the overview reads that session mode separately.
@@ -11410,7 +11298,6 @@ useEffect(() => {
         if (rotationSettingsSource.nkrObservationWindow != null) setNkrObservationWindow(String(rotationSettingsSource.nkrObservationWindow));
         if (rotationSettingsSource.nkrProfitMode != null) setNkrProfitMode(String(rotationSettingsSource.nkrProfitMode));
         if (rotationSettingsSource.nkrPeriodDays != null) setNkrPeriodDays(String(rotationSettingsSource.nkrPeriodDays));
-        if (rotationSettingsSource.nkrControlState != null) setNkrControlState(String(rotationSettingsSource.nkrControlState || "WAITING").toUpperCase());
         if (rotationSettingsSource.rotationBudgetRelease != null) setRotationBudgetRelease(String(rotationSettingsSource.rotationBudgetRelease));
         if (rotationSettingsSource.rotationShadowSnapshot && typeof rotationSettingsSource.rotationShadowSnapshot === "object") setRotationShadowSnapshot(rotationSettingsSource.rotationShadowSnapshot);
         if (Array.isArray(rotationSettingsSource.rotationShadowEvents)) setRotationShadowEvents(rotationSettingsSource.rotationShadowEvents);
@@ -11482,7 +11369,6 @@ useEffect(() => {
         nkrObservationWindow,
         nkrProfitMode,
         nkrPeriodDays,
-        nkrControlState,
         rotationBudgetRelease,
         rotationShadowSnapshot,
         rotationShadowEvents: (Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []),
@@ -11503,7 +11389,7 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, nkrControlState, rotationBudgetRelease, rotationShadowSnapshot, rotationShadowEvents, rotationNetworkScope, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationBudgetRelease, rotationShadowSnapshot, rotationShadowEvents, rotationNetworkScope, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   // Rotation runtime persistence: backend-first, wallet-bound, Trading-style.
   // The Rotation lifecycle is stored through /api/rotation-sessions. /api/app-state only keeps settings/display state.
@@ -11567,26 +11453,10 @@ useEffect(() => {
         : []);
       const activeIdRaw = String(r?.activeRotationSessionId || "").trim();
       const activeId = deletedIds.has(activeIdRaw) ? "" : activeIdRaw;
-      // ENGINE-232: Never erase a paused/stopping/stopped session card merely because
-      // the backend active-session endpoint temporarily returns an empty list. A user must
-      // still see the session until the open asset is sold and the session is truly FINALIZED.
-      setRotationSessions((prev) => {
-        const previous = Array.isArray(prev) ? prev : [];
-        if (sessions.length) return sessions;
-        const retained = previous.filter((sess) => {
-          const st = String(sess?.status || sess?.state || sess?.lifecycleState || "").toUpperCase();
-          const openQty = Number(sess?.positionQty ?? sess?.openAssetQty ?? sess?.assetQty ?? sess?.meta?.position_qty ?? sess?.meta?.open_asset_qty ?? 0);
-          const hasOpenAsset = openQty > 0 || Boolean(sess?.positionOpen || sess?.openPosition || sess?.meta?.position_open || sess?.meta?.open_position);
-          return hasOpenAsset || ["PAUSED", "STOPPING", "STOPPED", "EXITING", "CLOSING", "EXIT_FAILED"].includes(st);
-        }).map((sess) => ({
-          ...sess,
-          status: ["STOPPED", "STOPPING", "CLOSING"].includes(String(sess?.status || "").toUpperCase()) ? "STOPPING" : sess?.status,
-          lifecycleState: ["STOPPED", "STOPPING", "CLOSING"].includes(String(sess?.lifecycleState || sess?.status || "").toUpperCase()) ? "STOPPING" : sess?.lifecycleState,
-          meta: { ...(sess?.meta || {}), nkr_retained_until_exit_confirmed: true },
-        }));
-        return retained;
-      });
-      setActiveRotationSessionId((prevId) => activeId || (sessions[0]?.id ? String(sessions[0].id) : prevId));
+      // Backend is the only NKR truth. An empty backend list immediately clears the UI.
+      setRotationSessions(sessions);
+      setActiveRotationSessionId(activeId || (sessions[0]?.id ? String(sessions[0].id) : ""));
+      setNkrControlState(sessions.length ? String(r?.summary?.runtime || "RUNNING").toUpperCase() : "IDLE");
     } catch (e) {
       console.warn("rotation session sync failed", e);
     } finally {
@@ -11619,39 +11489,8 @@ useEffect(() => {
     };
   }, [wallet, syncRotationSessionsFromServer, syncAppStateFromServer]);
 
-  useEffect(() => {
-    const wa = resolveWalletAddress(wallet);
-    if (!wa || !appStateHydratedRef.current || !rotationBackendHydratedRef.current) return;
-    if (rotationBackendApplyingRef.current || appStateApplyingServerRef.current) return;
-    const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
-    const sessions = canonicalizeNkrSessions(Array.isArray(rotationSessions)
-      ? rotationSessions.filter((x) => x && typeof x === "object" && !deletedIds.has(String(x?.id || x?.session_id || "")))
-      : []);
-    const body = {
-      wallet: wa,
-      wallet_address: wa,
-      sessions: sessions.slice(0, 30),
-      activeRotationSessionId: String(activeRotationSessionId || ""),
-    };
-    const t = setTimeout(async () => {
-      if (rotationBackendSyncBusyRef.current || rotationBackendApplyingRef.current) return;
-      rotationBackendSyncBusyRef.current = true;
-      try {
-        const saved = await api("/api/rotation-sessions", { method: "POST", token, wallet: wa, body });
-        const savedSessions = canonicalizeNkrSessions(Array.isArray(saved?.sessions) ? saved.sessions.filter((x) => x && typeof x === "object") : sessions);
-        const savedActiveId = String(saved?.activeRotationSessionId || activeRotationSessionId || "").trim();
-        rotationBackendApplyingRef.current = true;
-        setRotationSessions(savedSessions);
-        if (savedActiveId) setActiveRotationSessionId(savedActiveId);
-        setTimeout(() => { rotationBackendApplyingRef.current = false; }, 0);
-      } catch (e) {
-        console.warn("rotation session save failed", e);
-      } finally {
-        rotationBackendSyncBusyRef.current = false;
-      }
-    }, 350);
-    return () => clearTimeout(t);
-  }, [wallet, token, rotationSessions, activeRotationSessionId, canonicalizeNkrSessions]);
+  // NKR session rows are read-only in the browser. No frontend POST persistence.
+
 
   const resetWalletBoundUi = useCallback(({ clearAuth = false } = {}) => {
     try {
@@ -21202,9 +21041,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return sum + Math.max(0, Number(account?.allocatedNkr || 0) || 0);
                       }, 0);
                       const nkrControlU = String(nkrControlState || "WAITING").toUpperCase();
-                      const needsControlFallback = localRotationRows.length === 0 &&
-                        (["RUNNING", "PAUSED", "CLOSING", "STOPPING"].includes(nkrControlU) || liveReservedNkrUsd > 0);
-                      const controlFallbackRows = needsControlFallback ? [{
+                      const needsControlFallback = false;
+                      const controlFallbackRows = false ? [{
                         id: String(activeRotationSessionId || `NKR-CONTROL-${String(wallet || "wallet").toLowerCase()}`),
                         session_id: String(activeRotationSessionId || `NKR-CONTROL-${String(wallet || "wallet").toLowerCase()}`),
                         type: "NKR",
@@ -21499,11 +21337,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const nkrModeSourceRow = (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : []).find((sess) =>
                         sess?.nkrCapitalMode || sess?.meta?.nkr_capital_mode || sess?.meta?.capital_mode
                       ) || firstRotation;
-                      let persistedNkrActiveMode = "";
-                      try {
-                        const modeKey = `nexus_nkr_active_session_mode_v1_${String(wallet || "").toLowerCase()}`;
-                        persistedNkrActiveMode = String(window.localStorage.getItem(modeKey) || "").toUpperCase();
-                      } catch {}
+                      const persistedNkrActiveMode = "";
                       const nkrOverviewActiveMode = String(
                         nkrModeSourceRow?.nkrCapitalMode ||
                         nkrModeSourceRow?.meta?.nkr_capital_mode ||
@@ -21588,20 +21422,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const liveTone = liveChange > 0 ? "#86efac" : liveChange < 0 ? "#ff8a8a" : "#d8fff1";
                                 const chain = String(sess?.chain || "CHAIN").toUpperCase();
                                 const sessionIdValue = String(sess?.id || sess?.session_id || "");
-                                const immutableSessionSnapshot = (() => {
-                                  try {
-                                    const snapshotKey = `nexus_nkr_session_snapshot_v1_${String(wallet || "").toLowerCase()}_${sessionIdValue}`;
-                                    const raw = window.localStorage.getItem(snapshotKey);
-                                    return raw ? JSON.parse(raw) : {};
-                                  } catch {
-                                    return {};
-                                  }
-                                })();
-                                let legacyPersistedActiveMode = "";
-                                try {
-                                  const modeKey = `nexus_nkr_active_session_mode_v1_${String(wallet || "").toLowerCase()}`;
-                                  legacyPersistedActiveMode = String(window.localStorage.getItem(modeKey) || "").toUpperCase();
-                                } catch {}
+                                const immutableSessionSnapshot = {};
+                                const legacyPersistedActiveMode = "";
                                 const budget = Number(sess?.budgetUsd || immutableSessionSnapshot?.budgetUsd || 0);
                                 const sessionStatus = getRotationDerivedStatus(sess);
                                 const status = getRotationDisplayStatus(sess);
@@ -22070,26 +21892,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         (Array.isArray(rotationSessions)
                           ? rotationSessions.find((sess) => !["STOPPED", "EXPIRED", "CLOSED", "FINALIZED"].includes(String(sess?.status || "").toUpperCase()))
                           : null);
-                      if (!activeSession && !["RUNNING", "PAUSED", "CLOSING", "STOPPING"].includes(String(nkrControlState || "WAITING").toUpperCase())) return <div className="muted tiny" style={{ marginTop: 8 }}>Status: Ready</div>;
-                      const statusSession = activeSession || { id: activeRotationSessionId || "NKR-CONTROL", status: nkrControlState, budgetUsd: Object.values(coreVaultOnchain?.tokens || {}).reduce((sum, tokenState) => sum + Math.max(0, Number(tokenState?.account?.allocatedNkr || 0) || 0), 0), targetAsset: "WAITING", meta: { control_fallback: true } };
+                      if (!activeSession) return <div className="muted tiny" style={{ marginTop: 8 }}>Status: Ready</div>;
+                      const statusSession = activeSession;
                       const asset = String(statusSession?.symbol || statusSession?.targetAsset || "").toUpperCase();
                       const activeSessionId = String(statusSession?.id || statusSession?.session_id || "");
-                      const activeSessionSnapshot = (() => {
-                        try {
-                          const snapshotKey = `nexus_nkr_session_snapshot_v1_${String(wallet || "").toLowerCase()}_${activeSessionId}`;
-                          const raw = window.localStorage.getItem(snapshotKey);
-                          return raw ? JSON.parse(raw) : {};
-                        } catch {
-                          return {};
-                        }
-                      })();
+                      const activeSessionSnapshot = {};
                       const activeWorkingCapital = getNkrSessionWorkingCapitalUsd(activeSession) || Number(statusSession?.budgetUsd || 0) || 0;
                       const activeReserveRaw = Number(statusSession?.nkrCashReserveUsd ?? statusSession?.meta?.nkr_cash_reserve_usd ?? statusSession?.protectedReserveUsd ?? statusSession?.meta?.protected_reserve_usd);
                       const activeReserve = Number.isFinite(activeReserveRaw) ? Math.max(0, activeReserveRaw) : 0;
-                      let activePersistedStartMode = "";
-                      try {
-                        activePersistedStartMode = String(window.localStorage.getItem(`nexus_nkr_active_session_mode_v1_${String(wallet || "").toLowerCase()}`) || "").toUpperCase();
-                      } catch {}
+                      const activePersistedStartMode = "";
                       const activeStartMode = String(activeSessionSnapshot?.capitalMode || activePersistedStartMode || statusSession?.nkrCapitalMode || statusSession?.meta?.nkr_capital_mode || "DYNAMIC").toUpperCase();
                       const activeReservePctByMode = { AGGRESSIVE: 10, DYNAMIC: 20, TACTICAL: 25, DEFENSIVE: 35 };
                       const activeAllocationFraction = Math.max(0.01, 1 - (Number(activeReservePctByMode[activeStartMode] ?? 0) / 100));

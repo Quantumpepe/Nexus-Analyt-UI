@@ -20780,31 +20780,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <Help showClose dismissable
                   de={
                     <>
-                      <p><b>Grid Trader</b> ist der gemeinsame Order-Bereich fuer <b>Nexus Grid</b>, <b>Nexus NKR</b> und <b>Nexus Trading</b>.</p>
-                      <p>Alle drei Bereiche nutzen denselben sauberen Order-Flow. Stop, Delete und Resume bleiben wallet-gebunden und werden synchron gehalten.</p>
+                      <p><b>Grid Trader</b> is the shared order area for <b>Nexus Grid</b>, <b>Nexus NKR</b>, and <b>Nexus Trading</b>.</p>
+                      <p>All three areas use the same clean order flow. Stop, Delete and Resume stay wallet-bound and synchronized.</p>
 
-                      <p><b>Budget-System:</b> Das Budget ist der maximale Betrag, den der jeweilige Modus verwenden darf. Nexus Trading darf nach der Freigabe nicht mehr Kapital einsetzen als vom User genehmigt wurde.</p>
-                      <p><b>Slot-System:</b> Das Budget wird in einzelne Slots aufgeteilt. Jeder Slot ist ein eigenes taktisches Setup mit eigener Prioritaet. Ein Slot kann warten, aktiv werden oder blockiert bleiben, je nach Confidence, Liquiditaet, Risiko und Marktstruktur.</p>
+                      <p><b>Budget System:</b> The budget is the maximum amount the selected mode may use. Nexus Trading may not use more capital than the user has approved.</p>
+                      <p><b>Slot System:</b> The budget is divided into tactical slots. Each slot has its own priority and may wait, activate, or remain blocked depending on confidence, liquidity, risk, and market structure.</p>
 
-                      <p><b>Slot-Farben:</b></p>
-                      <p><b style={{ color: '#21d07a' }}>Gruen / ACTIVE:</b> Bedingungen sind stark genug. Der Slot ist bereit oder aktiv.</p>
-                      <p><b style={{ color: '#ffc107' }}>Gelb / WAIT:</b> Die Richtung ist interessant, aber es fehlt noch Bestaetigung. Die AI beobachtet weiter und wartet auf bessere Bedingungen.</p>
-                      <p><b style={{ color: '#ff6b6b' }}>Rot / BLOCKED:</b> Risiko, Confidence oder Liquiditaet sind aktuell nicht gut genug. Die AI blockiert den Slot bewusst, statt einen schlechten Entry zu nehmen.</p>
+                      <p><b>Slot Colors:</b></p>
+                      <p><b style={{ color: '#21d07a' }}>Green / ACTIVE:</b> Conditions are strong enough. The slot is ready or active.</p>
+                      <p><b style={{ color: '#ffc107' }}>Yellow / WAIT:</b> The direction is interesting, but confirmation is still missing. The AI keeps monitoring and waits for better conditions.</p>
+                      <p><b style={{ color: '#ff6b6b' }}>Red / BLOCKED:</b> Risk, confidence, or liquidity are not good enough. The AI blocks the slot instead of taking a weak entry.</p>
 
-                      <p><b>Nexus Grid:</b> einfacher Exit-Manager fuer Token, die du bereits besitzt. Du waehlst Network, Coin, Menge, Verkaufsziel, maximalen Verlust und Auszahlung. Grid kauft nichts, sucht keine Assets und nutzt keinen Strategist.</p>
-                      <p><b>Vor dem Start:</b> Die Token muessen zuerst in den <b>Core Vault</b> eingezahlt werden. Erst danach erscheinen sie unter „Coin im Vault“ und koennen fuer eine Grid-Regel reserviert werden. Token, die nur in deiner verbundenen Wallet liegen, kann Grid nicht verwenden.</p>
-                      <p><b>Ablauf:</b> Grid reserviert nur die ausgewaehlte Token-Menge, beobachtet den Kurs und verkauft beim Zielpreis oder bei der festgelegten Verlustgrenze. Es wird keine Kauforder erstellt.</p>
+                      <p><b>Nexus Grid:</b> A simple exit manager for tokens you already own. You choose the network, coin, amount, sell target, maximum loss, and payout asset. Grid does not buy assets, search for assets, or use the Strategist.</p>
+                      <p><b>Before Starting:</b> Tokens must first be deposited into the <b>Core Vault</b>. Only then do they appear under “Coin in Vault” and become available for a Grid rule. Tokens held only in the connected wallet cannot be used by Grid.</p>
+                      <p><b>Process:</b> Grid reserves only the selected token amount, monitors the price, and sells at the target price or the defined loss limit. No buy order is created.</p>
 
-                      <p><b>Nexus NKR:</b> Kapitalrotation. Nexus NKR beobachtet die Watchlist laufend, nutzt die besten Marktchancen, kann schwache Sessions stoppen und Kapital zu staerkeren Assets verschieben. Die eingestellte Session-Zahl ist nur das Maximum, nicht eine Pflichtanzahl.</p>
+                      <p><b>Nexus NKR:</b> Capital rotation. Nexus NKR continuously monitors the watchlist, uses the strongest market opportunities, may stop weak sessions, and can rotate capital toward stronger assets. The selected session count is a maximum, not a required number.</p>
 
-                      <p><b>Nexus Trading:</b> autonomer Trading-Modus nach Budget-Freigabe. Du definierst Budget, Slots, Runtime, Style, erlaubte Assets/Chains, Risk Mode, Drawdown, Profit Lock, Slippage und Max Trades. Danach arbeitet Nexus Trading innerhalb dieser Grenzen selbststaendig.</p>
-                      <p><b>HOLD / OBSERVE:</b> Nach einem Risk Exit, Protect oder Stop wird Kapital zuerst geschuetzt. Die HOLD-Zeit ist ein Mindestschutz von 1-12h. Nach Ablauf darf Nexus nicht blind neu einsteigen; der Strategist prueft weiter Marktstruktur, Liquiditaet, RVOL und Risiko.</p>
-                      <p><b>Kein Blind-Reentry:</b> Wenn der Markt nach HOLD weiterhin schlecht ist, bleibt der Slot in OBSERVE. Nach der maximalen Beobachtungszeit muss der User Kapital wieder freigeben, bevor Nexus Trading neu allokieren darf.</p>
-                      <p><b>Wichtig:</b> WAIT oder BLOCKED ist kein Fehler. Es bedeutet, dass das System lieber wartet oder blockiert, wenn Qualitaet und Risiko noch nicht passen. Lieber kein Trade als ein schlechter Trade.</p>
+                      <p><b>Nexus Trading:</b> An autonomous trading mode after budget approval. You define the budget, slots, runtime, style, allowed assets and chains, risk mode, drawdown, profit lock, slippage, and maximum trades. Nexus Trading then operates independently within those limits.</p>
+                      <p><b>HOLD / OBSERVE:</b> After a risk exit, protection event, or stop, capital is protected first. HOLD is a minimum protection period of 1–12 hours. After it ends, Nexus does not re-enter blindly; the Strategist continues to evaluate market structure, liquidity, RVOL, and risk.</p>
+                      <p><b>No Blind Re-entry:</b> If the market remains weak after HOLD, the slot stays in OBSERVE. After the maximum observation period, the user must release the capital again before Nexus Trading may reallocate it.</p>
+                      <p><b>Important:</b> WAIT or BLOCKED is not an error. It means the system prefers to wait or block when quality and risk are not suitable. No trade is better than a bad trade.</p>
 
-                      <p><b>Auszahlung:</b> Du bestimmst vor dem Start, ob der Verkaufserloes im Vault als USDC, USDT oder – mit einer ausdruecklich definierten Rueckkaufregel – wieder als urspruenglicher Token gehalten werden soll.</p>
-
-                      
+                      <p><b>Payout:</b> Before starting, you choose whether the sale proceeds remain in the Vault as USDC, USDT, or — with an explicitly defined buy-back rule — return to the original token.</p>
                     </>
                   }
                   en={
@@ -23506,7 +23504,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </select>
                   </div>
                   <div className="formRow">
-                    <label>Coin im Vault</label>
+                    <label>Coin in Vault</label>
                     <select value={gridItem} onChange={(e) => setGridItem(e.target.value)}>
                       {gridWalletCoins.filter((c) => !["USDC","USDT","DAI","FRAX","FDUSD","TUSD","PYUSD","USDP","LUSD","GUSD"].includes(String(c || "").toUpperCase())).map((c) => (
                         <option key={`${activeGridChainKey}:${c}`} value={c}>{c}</option>
@@ -23514,7 +23512,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </select>
                   </div>
                   <div className="formRow">
-                    <label>Verfuegbar</label>
+                    <label>Available</label>
                     <div className="mono" style={{ minHeight: 38, display: "flex", alignItems: "center", padding: "0 10px", borderRadius: 9, border: "1px solid rgba(255,255,255,.10)", background: "rgba(0,0,0,.18)", fontWeight: 900 }}>
                       {manualVaultAvailableQty.toFixed(6)} {String(gridItem || activeGridChainSymbol || "TOKEN").toUpperCase()}
                     </div>
@@ -23523,28 +23521,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10, alignItems: "end" }}>
                   <div className="formRow">
-                    <label>Einzusetzende Menge</label>
-                    <input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="z. B. 500" />
+                    <label>Amount to Use</label>
+                    <input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="e.g. 500" />
                   </div>
                   <div className="formRow">
-                    <label>Aktueller Preis</label>
+                    <label>Current Price</label>
                     <div className="mono" style={{ minHeight: 38, display: "flex", alignItems: "center", padding: "0 10px", borderRadius: 9, border: "1px solid rgba(255,255,255,.10)", background: "rgba(0,0,0,.18)", fontWeight: 900 }}>
                       {shownGridPrice ? fmtUsd(Number(shownGridPrice)) : "—"}
                     </div>
                   </div>
                   <div className="formRow">
-                    <label>Verkaufen bei</label>
-                    <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="z. B. 0.45" />
+                    <label>Sell Target</label>
+                    <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="e.g. 0.45" />
                   </div>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10, alignItems: "end" }}>
                   <div className="formRow">
-                    <label>Maximaler Verlust (%)</label>
-                    <input value={manualMaxLossPct} onChange={(e) => setManualMaxLossPct(e.target.value)} placeholder="z. B. 15" />
+                    <label>Maximum Loss (%)</label>
+                    <input value={manualMaxLossPct} onChange={(e) => setManualMaxLossPct(e.target.value)} placeholder="e.g. 15" />
                   </div>
                   <div className="formRow">
-                    <label>Auszahlung</label>
+                    <label>Payout Asset</label>
                     <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
                       <option value="USDC">USDC</option>
                       <option value="USDT">USDT</option>
@@ -23563,7 +23561,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div style={{ display: "grid", gap: 8, padding: "12px", borderRadius: 14, border: "1px solid rgba(255,255,255,.10)", background: "rgba(0,0,0,.12)", minHeight: 118 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                   <div style={{ fontWeight: 900 }}>Grid Orders</div>
-                  <span className="pill silver">{Array.isArray(gridOrders) ? gridOrders.length : 0} aktiv</span>
+                  <span className="pill silver">{Array.isArray(gridOrders) ? gridOrders.length : 0} Active</span>
                 </div>
                 {Array.isArray(gridOrders) && gridOrders.length ? (
                   <div style={{ display: "grid", gap: 8 }}>
@@ -23571,7 +23569,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const oid = idOf(o);
                       const statusTxt = inferOrderStatus(o);
                       return <div key={oid || idx} style={{ padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.03)", display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                        <div><b>{String(o?.item || o?.item_id || gridItem || "TOKEN").split(":").pop()}</b> · {fmtQty(Number(o?.qty || 0), 6)} · Ziel {fmtUsd(Number(o?.price || 0))} · Auszahlung {inferOrderPayoutAsset(o)}</div>
+                        <div><b>{String(o?.item || o?.item_id || gridItem || "TOKEN").split(":").pop()}</b> · {fmtQty(Number(o?.qty || 0), 6)} · Target {fmtUsd(Number(o?.price || 0))} · Payout {inferOrderPayoutAsset(o)}</div>
                         <div style={{ display: "flex", gap: 6 }}>
                           <span className="pill silver">{statusTxt}</span>
                           <button className="miniBtn" type="button" onClick={() => statusTxt === "PAUSED" ? resumeGridOrder(oid) : stopGridOrder(oid)}>{statusTxt === "PAUSED" ? "Resume" : "Stop"}</button>
@@ -23582,7 +23580,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : (
                   <div className="muted" style={{ minHeight: 58, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", border: "1px dashed rgba(255,255,255,.10)", borderRadius: 11 }}>
-                    Noch keine Grid-Order aktiv.
+                    No active Grid orders.
                   </div>
                 )}
               </div>

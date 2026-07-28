@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-250-GRID-EXIT-MANAGER";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-252-GRID-EXIT-MANAGER-VALIDATED";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -20759,7 +20759,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
               )}
 
-              {String(gridMode || "normal") !== "normal" ? (() => {
+              {(() => {
                 const modeKey = String(gridMode || "normal");
                 const selectedChain = String(liveVaultChainByMode?.[modeKey] || "ETH").toUpperCase();
                 const tokenEntries = Object.entries(coreVaultOnchain?.tokens || {}).filter(([, tokenState]) => {
@@ -20833,9 +20833,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ) : null}
                   </div>
                 );
-              })() : null}
+              })()}
 
-              {strategistBridge && String(gridMode || "normal") !== "normal" ? (
+              {strategistBridge ? (
                 <div
                   style={{
                     marginBottom: 10,
@@ -23502,6 +23502,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <EngineEventHistory engine="GRID" events={gridEventHistory} />
                 </>
               )}
+
+            </div>
 
           </div></div>
         </section>

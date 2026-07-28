@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-233-NKR-ONCHAIN-SESSION-REHYDRATION-SYSTEM-ACTIONS-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-234-COREVAULT-PREVIEW-REFERENCE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -3043,7 +3043,7 @@ function EngineEventHistory({ engine, events = [] }) {
   );
 }
 
-function AppInner() {
+function AppInner({ coreVaultSessionPreview = null }) {
 
   // Multi-chain config (UI is ready; test phase enables POL + BNB)
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
@@ -25952,7 +25952,7 @@ export default function App() {
 
   return (
     <>
-      <AppInner />
+      <AppInner coreVaultSessionPreview={coreVaultSessionPreview} />
 
       <div className="nexus-footer-left">
         {canOpenSystemInfo && (

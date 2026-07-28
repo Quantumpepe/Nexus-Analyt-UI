@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-230-NKR-PAUSED-SESSION-VISIBLE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-231-NKR-STOP-EXIT-CONTROL-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -11666,7 +11666,7 @@ const [aiLoading, setAiLoading] = useState(false);
   const applyNkrBackendControl = useCallback(async (action, opts = {}) => {
     const actionU = String(action || "").toUpperCase();
     const now = Date.now();
-    const localStatus = actionU === "PAUSE" ? "PAUSED" : actionU === "RESUME" ? "RUNNING" : actionU === "STOP" ? "STOPPING" : actionU === "DELETE" ? "WAITING" : actionU;
+    const localStatus = actionU === "PAUSE" ? "PAUSED" : actionU === "RESUME" ? "RUNNING" : actionU === "STOP" || actionU === "STOP_EXIT" ? "STOPPING" : actionU === "DELETE" ? "WAITING" : actionU;
     try {
       const resp = await api("/api/nkr/control", { method: "POST", token, wallet, body: { action: actionU, sessionId: opts.sessionId || "" } });
       if (Array.isArray(resp?.sessions)) {
@@ -11677,14 +11677,14 @@ const [aiLoading, setAiLoading] = useState(false);
       if (resp?.controlState) setNkrControlState(String(resp.controlState).toUpperCase());
       else setNkrControlState(localStatus);
       await syncAppStateFromServer();
-      if (["STOP", "PANIC_STOP"].includes(actionU)) {
+      if (["STOP", "STOP_EXIT", "PANIC_STOP"].includes(actionU)) {
         setTimeout(() => { syncRotationSessionsFromServer(); syncAppStateFromServer(); }, 2500);
         setTimeout(() => { syncRotationSessionsFromServer(); syncAppStateFromServer(); }, 8000);
       }
       setRotationShadowEvents((prev) => [{
         id: `NKR-CTRL-${now}`,
         ts: now,
-        text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" ? "NKR wird sicher beendet. Neue Trades sind gesperrt, das Kapital wird automatisch freigegeben." : "NKR deleted forever from backend.",
+        text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" || actionU === "STOP_EXIT" ? "Stop & Exit läuft. Offene Positionen werden zuerst verkauft, danach wird die Session finalisiert." : "NKR deleted forever from backend.",
       }, ...(Array.isArray(prev) ? prev : [])]);
       setRotationBackendMsg(resp?.message || (actionU === "DELETE" ? "NKR deleted forever." : `NKR ${actionU.toLowerCase()} stored in backend.`));
     } catch (e) {
@@ -21492,7 +21492,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         ) : (
                                           <>
                                             <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: String(sess?.id || sess?.session_id || "") })}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
-                                            <button className="miniBtn danger" type="button" onClick={() => applyNkrBackendControl("STOP", { sessionId: String(sess?.id || sess?.session_id || "") })}>Protect / Stop</button>
+                                            <button className="miniBtn danger" type="button" onClick={() => applyNkrBackendControl("STOP_EXIT", { sessionId: String(sess?.id || sess?.session_id || "") })}>Stop & Exit</button>
                                           </>
                                         )}
                                       </div>
@@ -21755,10 +21755,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <button
                                 className="miniBtn danger"
                                 type="button"
-                                onClick={() => applyNkrBackendControl("STOP", { sessionId: String(activeNkrSession?.id || activeNkrSession?.session_id || "") })}
-                                title="Protect the open position and stop this NKR run."
+                                onClick={() => applyNkrBackendControl("STOP_EXIT", { sessionId: String(activeNkrSession?.id || activeNkrSession?.session_id || "") })}
+                                title="Stop & Exit: sell the open position to the settlement asset, then finalize this NKR session."
                               >
-                                Stop NKR
+                                Stop & Exit
                               </button>
                             </>
                           )}
@@ -21868,11 +21868,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   className="miniBtn"
                                   type="button"
                                   disabled={!controllableRotations && String(nkrControlState || "WAITING").toUpperCase() === "WAITING"}
-                                  onClick={() => applyNkrBackendControl("STOP")}
-                                  title="Stop all active NKR sessions and release paper-reserved capital. No Vault transaction is sent."
+                                  onClick={() => applyNkrBackendControl("STOP_EXIT")}
+                                  title="Stop & Exit: sell every open CoreVault position to the settlement asset, then finalize the session."
                                   style={{ borderColor: "rgba(255,107,107,.45)", color: "#ff8a8a" }}
                                 >
-                                  Stop NKR
+                                  Stop & Exit
                                 </button>
                                 {String(nkrControlState || "").toUpperCase() === "STOPPED" ? (
                                   <>

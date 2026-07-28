@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-239-WALLET-COMPARE-ACCESS-RELIABILITY-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-240-NKR-RUNNING-SESSION-CONTROL-REGRESSION-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21076,7 +21076,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const hasRealAsset = !!target && !["ASSET", "WAITING", "NONE", "—"].includes(target);
                         if (["FINALIZED", "COMPLETE", "COMPLETED", "CLOSED", "RELEASED", "REBALANCED_OUT", "DELETED"].includes(st)) return false;
                         if (["ACTIVE", "RUNNING", "APPROVED", "EXECUTOR", "OPEN", "CLOSING", "STOPPING", "EXITING", "EXIT_REQUESTED", "EXIT_PENDING", "EXIT_FAILED"].includes(st)) return true;
-                        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
+                        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
                         const rowId = String(row?.id ?? row?.session_id ?? "");
                         const isCurrentLocal = !!rowId && rowId === String(activeRotationSessionId || "");
                         // Historical PAUSED/STOPPED rows must never reappear after a page refresh merely
@@ -21109,11 +21109,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const localRotationRows = rawLocalRotationRows.filter((row) => {
                         if (!isRelevantLiveRotationRow(row)) return false;
                         if (!previewSessions.length) return true;
-                        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
+                        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
+                        const rowId = String(row?.id ?? row?.session_id ?? "");
+                        const st = String(row?.status || row?.statusLabel || "").toUpperCase();
+                        const control = String(nkrControlState || "WAITING").toUpperCase();
+                        const isCurrentLocal = !!rowId && rowId === String(activeRotationSessionId || "");
+                        const isFreshRunningLocal = isCurrentLocal && ["RUNNING", "PAUSED", "CLOSING", "STOPPING"].includes(control) &&
+                          !["FINALIZED", "CLOSED", "COMPLETE", "DELETED"].includes(st);
+                        if (isFreshRunningLocal) return true;
                         return !!sid && authoritativeOnChainIds.has(sid);
                       });
                       const localOnChainIds = new Set(localRotationRows.map((row) => String(
-                        row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? ""
+                        row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? ""
                       )).filter(Boolean));
                       // System Info refresh is intentionally independent from the user-facing live list.
                       // It must never add/remove cards in Active NKR Sessions.
@@ -21157,9 +21164,34 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }
                           };
                         });
+                      const liveReservedNkrUsd = Object.values(coreVaultOnchain?.tokens || {}).reduce((sum, tokenState) => {
+                        const account = tokenState?.account || {};
+                        return sum + Math.max(0, Number(account?.allocatedNkr || 0) || 0);
+                      }, 0);
+                      const nkrControlU = String(nkrControlState || "WAITING").toUpperCase();
+                      const needsControlFallback = localRotationRows.length === 0 &&
+                        (["RUNNING", "PAUSED", "CLOSING", "STOPPING"].includes(nkrControlU) || liveReservedNkrUsd > 0);
+                      const controlFallbackRows = needsControlFallback ? [{
+                        id: String(activeRotationSessionId || `NKR-CONTROL-${String(wallet || "wallet").toLowerCase()}`),
+                        session_id: String(activeRotationSessionId || `NKR-CONTROL-${String(wallet || "wallet").toLowerCase()}`),
+                        type: "NKR",
+                        chain: String(rotationNetworkScope || activeGridChainKey || "ETH").toUpperCase(),
+                        baseAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+                        payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+                        targetAsset: "WAITING",
+                        positionAsset: "WAITING",
+                        status: nkrControlU === "PAUSED" ? "PAUSED" : ["CLOSING", "STOPPING"].includes(nkrControlU) ? "CLOSING" : "RUNNING",
+                        lifecycleState: nkrControlU,
+                        budgetUsd: liveReservedNkrUsd > 0 ? liveReservedNkrUsd : Math.max(0, Number(String(rotationBudgetRelease || "0").replace(",", ".")) || 0),
+                        workingCapitalUsd: 0,
+                        positionValueUsd: 0,
+                        startedAt: Date.now(),
+                        campaignStartedAt: Date.now(),
+                        meta: { nkr_session: true, control_fallback: true, open_asset_count: 0, nkr_exit_reason: "NKR is running and scanning for an executable entry." }
+                      }] : [];
                       const rotationRows = Array.from(new Map(
-                        [...localRotationRows, ...onChainRotationRows].map((row) => {
-                          const key = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? row?.id ?? row?.session_id ?? "");
+                        [...localRotationRows, ...controlFallbackRows, ...onChainRotationRows].map((row) => {
+                          const key = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? row?.id ?? row?.session_id ?? "");
                           return [key || `local-${Math.random()}`, row];
                         })
                       ).values());
@@ -21980,9 +22012,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 Add Capital
                               </button>
                               <button
+                                className="miniBtn"
+                                type="button"
+                                onClick={() => applyNkrBackendControl(String(nkrControlState || "").toUpperCase() === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: String(activeNkrSession?.onchainSessionId ?? activeNkrSession?.coreVaultSessionId ?? activeNkrSession?.id ?? activeNkrSession?.session_id ?? "") })}
+                                title="Pause or resume this NKR run without hiding its controls."
+                              >
+                                {String(nkrControlState || "").toUpperCase() === "PAUSED" ? "Resume" : "Pause"}
+                              </button>
+                              <button
                                 className="miniBtn danger"
                                 type="button"
-                                onClick={() => applyNkrBackendControl("STOP_EXIT", { sessionId: String(activeNkrSession?.id || activeNkrSession?.session_id || "") })}
+                                onClick={() => applyNkrBackendControl("STOP_EXIT", { sessionId: String(activeNkrSession?.onchainSessionId ?? activeNkrSession?.coreVaultSessionId ?? activeNkrSession?.id ?? activeNkrSession?.session_id ?? "") })}
                                 title="Stop & Exit: sell the open position to the settlement asset, then finalize this NKR session."
                               >
                                 Stop & Exit
@@ -22001,12 +22041,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     )}
                     {(() => {
-                      const activeSession = Array.isArray(rotationSessions)
-                        ? rotationSessions.find((sess) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(String(sess?.status || "").toUpperCase()))
-                        : null;
-                      if (!activeSession) return <div className="muted tiny" style={{ marginTop: 8 }}>Status: Ready</div>;
-                      const asset = String(activeSession?.symbol || activeSession?.targetAsset || "").toUpperCase();
-                      const activeSessionId = String(activeSession?.id || activeSession?.session_id || "");
+                      const activeSession = (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows[0] : null) ||
+                        (Array.isArray(rotationSessions)
+                          ? rotationSessions.find((sess) => !["STOPPED", "EXPIRED", "CLOSED", "FINALIZED"].includes(String(sess?.status || "").toUpperCase()))
+                          : null);
+                      if (!activeSession && !["RUNNING", "PAUSED", "CLOSING", "STOPPING"].includes(String(nkrControlState || "WAITING").toUpperCase())) return <div className="muted tiny" style={{ marginTop: 8 }}>Status: Ready</div>;
+                      const statusSession = activeSession || { id: activeRotationSessionId || "NKR-CONTROL", status: nkrControlState, budgetUsd: Object.values(coreVaultOnchain?.tokens || {}).reduce((sum, tokenState) => sum + Math.max(0, Number(tokenState?.account?.allocatedNkr || 0) || 0), 0), targetAsset: "WAITING", meta: { control_fallback: true } };
+                      const asset = String(statusSession?.symbol || statusSession?.targetAsset || "").toUpperCase();
+                      const activeSessionId = String(statusSession?.id || statusSession?.session_id || "");
                       const activeSessionSnapshot = (() => {
                         try {
                           const snapshotKey = `nexus_nkr_session_snapshot_v1_${String(wallet || "").toLowerCase()}_${activeSessionId}`;
@@ -22016,26 +22058,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           return {};
                         }
                       })();
-                      const activeWorkingCapital = getNkrSessionWorkingCapitalUsd(activeSession) || Number(activeSession?.budgetUsd || 0) || 0;
-                      const activeReserveRaw = Number(activeSession?.nkrCashReserveUsd ?? activeSession?.meta?.nkr_cash_reserve_usd ?? activeSession?.protectedReserveUsd ?? activeSession?.meta?.protected_reserve_usd);
+                      const activeWorkingCapital = getNkrSessionWorkingCapitalUsd(activeSession) || Number(statusSession?.budgetUsd || 0) || 0;
+                      const activeReserveRaw = Number(statusSession?.nkrCashReserveUsd ?? statusSession?.meta?.nkr_cash_reserve_usd ?? statusSession?.protectedReserveUsd ?? statusSession?.meta?.protected_reserve_usd);
                       const activeReserve = Number.isFinite(activeReserveRaw) ? Math.max(0, activeReserveRaw) : 0;
                       let activePersistedStartMode = "";
                       try {
                         activePersistedStartMode = String(window.localStorage.getItem(`nexus_nkr_active_session_mode_v1_${String(wallet || "").toLowerCase()}`) || "").toUpperCase();
                       } catch {}
-                      const activeStartMode = String(activeSessionSnapshot?.capitalMode || activePersistedStartMode || activeSession?.nkrCapitalMode || activeSession?.meta?.nkr_capital_mode || "DYNAMIC").toUpperCase();
+                      const activeStartMode = String(activeSessionSnapshot?.capitalMode || activePersistedStartMode || statusSession?.nkrCapitalMode || statusSession?.meta?.nkr_capital_mode || "DYNAMIC").toUpperCase();
                       const activeReservePctByMode = { AGGRESSIVE: 10, DYNAMIC: 20, TACTICAL: 25, DEFENSIVE: 35 };
                       const activeAllocationFraction = Math.max(0.01, 1 - (Number(activeReservePctByMode[activeStartMode] ?? 0) / 100));
-                      const activeModeDerivedTotal = activeWorkingCapital > 0 ? activeWorkingCapital / activeAllocationFraction : 0;
-                      const activeTotalBudget = Math.max(
-                        Number(activeSession?.nkrTotalBudgetUsd || activeSession?.meta?.nkr_total_budget_usd || activeSession?.sessionBudgetUsd || activeSession?.meta?.session_budget_usd || 0) || 0,
-                        Number(activeSessionSnapshot?.budgetUsd || 0) || 0,
-                        activeModeDerivedTotal,
-                        Math.max(0, activeWorkingCapital) + Math.max(0, activeReserve)
+                      const explicitActiveTotalBudget = Math.max(
+                        Number(statusSession?.nkrTotalBudgetUsd || statusSession?.meta?.nkr_total_budget_usd || statusSession?.sessionBudgetUsd || statusSession?.meta?.session_budget_usd || statusSession?.budgetUsd || 0) || 0,
+                        Number(activeSessionSnapshot?.budgetUsd || 0) || 0
                       );
+                      const activeModeDerivedTotal = explicitActiveTotalBudget <= 0 && activeWorkingCapital > 0 ? activeWorkingCapital / activeAllocationFraction : 0;
+                      const activeTotalBudget = explicitActiveTotalBudget > 0
+                        ? explicitActiveTotalBudget
+                        : Math.max(activeModeDerivedTotal, Math.max(0, activeWorkingCapital) + Math.max(0, activeReserve));
                       return (
                         <div className="muted tiny" style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                          <span><b>Status:</b> Running</span>
+                          <span><b>Status:</b> {String(nkrControlState || statusSession?.status || "RUNNING").toUpperCase()}</span>
                           {asset ? <span><b>Asset:</b> {asset}</span> : null}
                           <span><b>Budget:</b> {fmtUsd(activeTotalBudget)}</span>
                         </div>

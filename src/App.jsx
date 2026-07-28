@@ -23494,9 +23494,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div style={{ display: "grid", gap: 10 }}>
               <div style={{ padding: "11px 12px", borderRadius: 14, border: "1px solid rgba(34,197,94,.24)", background: "rgba(34,197,94,.055)" }}>
                 <div style={{ fontWeight: 950, color: "#7cf7a2" }}>Nexus Grid · Token Exit Manager</div>
-                <div className="muted tiny" style={{ marginTop: 4 }}>
-                  Bereits vorhandenen Token ueberwachen und nach deinen Regeln verkaufen. Die Token muessen zuerst in den Core Vault eingezahlt werden. Kein Kauf, keine Asset-Suche, kein Strategist.
-                </div>
+
               </div>
 
               <div className="gridControls" style={{ border: "1px solid rgba(46,204,113,.18)", borderRadius: 14, padding: "12px", background: "rgba(0,0,0,.10)", minWidth: 0, display: "grid", gap: 10 }}>
@@ -23558,29 +23556,36 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </button>
                 </div>
 
-                <div className="muted tiny">
-                  Die Token muessen zuerst im Core Vault liegen. Grid reserviert nur die ausgewaehlte Menge; Token, die nur im Wallet liegen, sind nicht verfuegbar. Es wird keine Kauforder erzeugt. Verkauf erfolgt beim Zielpreis oder bei der festgelegten Verlustgrenze.
-                </div>
+
                 {errorMsg ? <div style={{ padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(245,193,108,.30)", background: "rgba(245,193,108,.08)", color: "#f5c16c", fontSize: 12 }}>{errorMsg}</div> : null}
               </div>
 
-              {Array.isArray(gridOrders) && gridOrders.length ? (
-                <div style={{ display: "grid", gap: 8 }}>
-                  <div style={{ fontWeight: 900 }}>Aktive Grid-Regeln</div>
-                  {gridOrders.map((o, idx) => {
-                    const oid = idOf(o);
-                    const statusTxt = inferOrderStatus(o);
-                    return <div key={oid || idx} style={{ padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.03)", display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                      <div><b>{String(o?.item || o?.item_id || gridItem || "TOKEN").split(":").pop()}</b> · {fmtQty(Number(o?.qty || 0), 6)} · Ziel {fmtUsd(Number(o?.price || 0))} · Auszahlung {inferOrderPayoutAsset(o)}</div>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <span className="pill silver">{statusTxt}</span>
-                        <button className="miniBtn" type="button" onClick={() => statusTxt === "PAUSED" ? resumeGridOrder(oid) : stopGridOrder(oid)}>{statusTxt === "PAUSED" ? "Resume" : "Stop"}</button>
-                        <button className="miniBtn" type="button" onClick={() => deleteGridOrder(oid)} style={{ color: "#ff8a8a" }}>Delete</button>
-                      </div>
-                    </div>;
-                  })}
+              <div style={{ display: "grid", gap: 8, padding: "12px", borderRadius: 14, border: "1px solid rgba(255,255,255,.10)", background: "rgba(0,0,0,.12)", minHeight: 118 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ fontWeight: 900 }}>Grid Orders</div>
+                  <span className="pill silver">{Array.isArray(gridOrders) ? gridOrders.length : 0} aktiv</span>
                 </div>
-              ) : null}
+                {Array.isArray(gridOrders) && gridOrders.length ? (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {gridOrders.map((o, idx) => {
+                      const oid = idOf(o);
+                      const statusTxt = inferOrderStatus(o);
+                      return <div key={oid || idx} style={{ padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.03)", display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                        <div><b>{String(o?.item || o?.item_id || gridItem || "TOKEN").split(":").pop()}</b> · {fmtQty(Number(o?.qty || 0), 6)} · Ziel {fmtUsd(Number(o?.price || 0))} · Auszahlung {inferOrderPayoutAsset(o)}</div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <span className="pill silver">{statusTxt}</span>
+                          <button className="miniBtn" type="button" onClick={() => statusTxt === "PAUSED" ? resumeGridOrder(oid) : stopGridOrder(oid)}>{statusTxt === "PAUSED" ? "Resume" : "Stop"}</button>
+                          <button className="miniBtn" type="button" onClick={() => deleteGridOrder(oid)} style={{ color: "#ff8a8a" }}>Delete</button>
+                        </div>
+                      </div>;
+                    })}
+                  </div>
+                ) : (
+                  <div className="muted" style={{ minHeight: 58, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", border: "1px dashed rgba(255,255,255,.10)", borderRadius: 11 }}>
+                    Noch keine Grid-Order aktiv.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

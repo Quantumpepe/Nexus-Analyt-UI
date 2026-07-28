@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-244-COMPARE-DEPLOY-HYDRATION-PERSISTENCE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-245-WALLET-EVM-INFO";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -18844,6 +18844,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           de={
                             <>
                               <p><b>Privy Wallet</b> ist deine persönliche Wallet innerhalb von Nexus. Hier siehst du alle erkannten Assets und deren aktuellen Wert.</p>
+                              <p><b>Nur EVM-kompatible Netzwerke:</b> NKR unterstützt derzeit ausschliesslich EVM-kompatible Netzwerke.</p>
+                              <p><b>Native Layer-1-Assets:</b> BTC wird als WBTC auf Ethereum verwendet, SOL als Wrapped SOL auf Ethereum und XRP als XRP auf der BNB Chain.</p>
+                              <p>Weitere Netzwerke und native Assets können in zukünftigen Versionen unterstützt werden.</p>
                               <p><b>Wallet und Core Vault sind getrennt:</b> Guthaben in der Privy Wallet ist noch nicht im Core Vault geschützt oder für Nexus-Systeme reserviert.</p>
                               <p><b>Alle Assets bleiben sichtbar:</b> Nexus blendet unbekannte oder riskante Token nicht aus. Nicht bewertbare Assets werden angezeigt, aber nicht in den USD-Gesamtwert eingerechnet.</p>
                               <p><b>Einzahlung in den Core Vault:</b> Nur der exakte freigegebene Token-Vertrag auf der richtigen Chain darf eingezahlt werden. Symbol, Name oder Logo allein reichen nicht.</p>
@@ -18853,6 +18856,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           en={
                             <>
                               <p><b>Privy Wallet</b> is your personal wallet inside Nexus. It shows all detected assets and their current value.</p>
+                              <p><b>EVM-compatible networks only:</b> NKR currently supports EVM-compatible networks only.</p>
+                              <p><b>Native Layer-1 assets:</b> BTC is used as WBTC on Ethereum, SOL as Wrapped SOL on Ethereum, and XRP as XRP on BNB Chain.</p>
+                              <p>Additional networks and native assets may be supported in future updates.</p>
                               <p><b>Wallet and Core Vault are separate:</b> Funds in the Privy Wallet are not yet protected inside the Core Vault or allocated to Nexus systems.</p>
                               <p><b>All assets remain visible:</b> Nexus does not hide unknown or risky tokens. Unpriced assets remain visible but are excluded from the USD total.</p>
                               <p><b>Core Vault deposits:</b> Only the exact approved token contract on the correct chain can enter the Vault. A symbol, name or logo is never sufficient.</p>
@@ -18895,6 +18901,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         />
                       )}
                     </InfoButton>
+                    {walletPanelTab === "WALLET" && (
+                      <span
+                        className="muted"
+                        style={{ fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" }}
+                      >
+                        Only EVM-Chain
+                      </span>
+                    )}
                   </div>
                   <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
                     {walletPanelTab === "WALLET" ? "Assets held in your personal embedded wallet" : "Protected capital and secured profit inside Nexus"}

@@ -20669,7 +20669,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b style={{ color: '#ffc107' }}>Gelb / WAIT:</b> Die Richtung ist interessant, aber es fehlt noch Bestaetigung. Die AI beobachtet weiter und wartet auf bessere Bedingungen.</p>
                       <p><b style={{ color: '#ff6b6b' }}>Rot / BLOCKED:</b> Risiko, Confidence oder Liquiditaet sind aktuell nicht gut genug. Die AI blockiert den Slot bewusst, statt einen schlechten Entry zu nehmen.</p>
 
-                      <p><b>Nexus Grid:</b> einfacher Exit-Manager fuer bereits vorhandene Token. Du waehlst Network, Coin, Menge, Verkaufsziel, maximalen Verlust und Auszahlung. Grid kauft nichts, sucht keine Assets und nutzt keinen Strategist.</p>
+                      <p><b>Nexus Grid:</b> einfacher Exit-Manager fuer Token, die du bereits besitzt. Du waehlst Network, Coin, Menge, Verkaufsziel, maximalen Verlust und Auszahlung. Grid kauft nichts, sucht keine Assets und nutzt keinen Strategist.</p>
+                      <p><b>Vor dem Start:</b> Die Token muessen zuerst in den <b>Core Vault</b> eingezahlt werden. Erst danach erscheinen sie unter „Coin im Vault“ und koennen fuer eine Grid-Regel reserviert werden. Token, die nur in deiner verbundenen Wallet liegen, kann Grid nicht verwenden.</p>
+                      <p><b>Ablauf:</b> Grid reserviert nur die ausgewaehlte Token-Menge, beobachtet den Kurs und verkauft beim Zielpreis oder bei der festgelegten Verlustgrenze. Es wird keine Kauforder erstellt.</p>
 
                       <p><b>Nexus NKR:</b> Kapitalrotation. Nexus NKR beobachtet die Watchlist laufend, nutzt die besten Marktchancen, kann schwache Sessions stoppen und Kapital zu staerkeren Assets verschieben. Die eingestellte Session-Zahl ist nur das Maximum, nicht eine Pflichtanzahl.</p>
 
@@ -20678,7 +20680,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Kein Blind-Reentry:</b> Wenn der Markt nach HOLD weiterhin schlecht ist, bleibt der Slot in OBSERVE. Nach der maximalen Beobachtungszeit muss der User Kapital wieder freigeben, bevor Nexus Trading neu allokieren darf.</p>
                       <p><b>Wichtig:</b> WAIT oder BLOCKED ist kein Fehler. Es bedeutet, dass das System lieber wartet oder blockiert, wenn Qualitaet und Risiko noch nicht passen. Lieber kein Trade als ein schlechter Trade.</p>
 
-                      <p><b>Payout Asset:</b> bestimmt, wohin eine ausgefuehrte Order settled, z. B. USDC oder USDT. Wenn zu wenig direktes Asset vorhanden ist, kann Nexus einen Funding-/Swap-Vorschlag anzeigen. Nichts wird automatisch geswapt, bevor der User zustimmt.</p>
+                      <p><b>Auszahlung:</b> Du bestimmst vor dem Start, ob der Verkaufserloes im Vault als USDC, USDT oder – mit einer ausdruecklich definierten Rueckkaufregel – wieder als urspruenglicher Token gehalten werden soll.</p>
 
                       
                     </>
@@ -20696,7 +20698,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b style={{ color: '#ffc107' }}>Yellow / WAIT:</b> The direction is interesting, but confirmation is still missing. The AI keeps monitoring and waits for better conditions.</p>
                       <p><b style={{ color: '#ff6b6b' }}>Red / BLOCKED:</b> Risk, confidence or liquidity are not good enough yet. The AI intentionally blocks the slot instead of taking a weak entry.</p>
 
-                      <p><b>Nexus Grid:</b> simple exit manager for tokens already held in the Vault. You choose network, coin, amount, sell target, maximum loss and payout. Grid never buys, discovers assets or uses the Strategist.</p>
+                      <p><b>Nexus Grid:</b> a simple exit manager for tokens you already own. You choose network, coin, amount, sell target, maximum loss and payout. Grid never buys, discovers assets or uses the Strategist.</p>
+                      <p><b>Before starting:</b> The tokens must first be deposited into the <b>Core Vault</b>. Only then do they appear under “Coin in Vault” and become available for a Grid rule. Tokens held only in the connected wallet cannot be used by Grid.</p>
+                      <p><b>Flow:</b> Grid reserves only the selected token amount, monitors the price and sells at the target price or the defined loss limit. No buy order is created.</p>
 
                       <p><b>Nexus NKR:</b> capital rotation. Nexus NKR continuously watches the watchlist, uses the strongest market opportunities, can stop weak sessions and redirect capital toward stronger assets. The selected session number is only the maximum, not a required count.</p>
 
@@ -20705,7 +20709,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>No blind re-entry:</b> If the market is still weak after HOLD, the slot stays in OBSERVE. After the maximum observation window, the user must release the capital again before Nexus Trading may allocate it.</p>
                       <p><b>Important:</b> WAIT or BLOCKED is not an error. It means the system prefers to wait or block if quality and risk are not good enough. No trade is better than a bad trade.</p>
 
-                      <p><b>Payout Asset:</b> defines where an executed order settles, for example USDC or USDT. If the direct asset is insufficient, Nexus can show a funding/swap suggestion. Nothing is swapped automatically before user approval.</p>
+                      <p><b>Payout:</b> Before starting, you choose whether the sale proceeds remain in the Vault as USDC, USDT or – with an explicitly defined repurchase rule – return to the original token.</p>
 
                       
                     </>
@@ -20783,7 +20787,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 const systemLabel = modeKey === "rotation" ? "NKR" : modeKey === "trading" ? "Trader" : "Grid";
                 const chainConnected = selectedChain === "ETH" && !!coreVaultOnchain?.connected;
                 return (
-                  <div style={{ marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)" }}>
+                  <div style={{ display: modeKey === "normal" ? "none" : "block", marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <div>
                         <div style={{ fontWeight: 950, fontSize: 12 }}>Live Core Vault Capital</div>
@@ -20835,7 +20839,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 );
               })()}
 
-              {strategistBridge ? (
+              {strategistBridge && String(gridMode || "normal") !== "normal" ? (
                 <div
                   style={{
                     marginBottom: 10,
@@ -23306,47 +23310,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <>
 
           <div className="gridWrap" style={{ gridTemplateColumns: "1fr", gap: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr 1fr" : "repeat(6, minmax(0, 1fr))", gap: 8 }}>
-              {[
-                ["Network", activeGridChainKey || "—"],
-                ["Coin", gridItem || "—"],
-                ["Budget", `${gridInvestQty || "—"} ${activeGridChainSymbol || ""}`],
-                ["Price", shownGridPrice ? fmtUsd(shownGridPrice) : "—"],
-                ["Available", `${manualVaultAvailableQty.toFixed(4)} ${activeGridChainSymbol}`],
-                ["Orders", String(gridOrders.length || 0)],
-              ].map(([label, value]) => (
-                <div key={label} style={{ border: "1px solid rgba(46,204,113,.14)", borderRadius: 12, padding: "9px 10px", background: "rgba(0,0,0,.12)", minWidth: 0 }}>
-                  <div className="muted tiny" style={{ fontWeight: 850, textTransform: "uppercase", letterSpacing: .25 }}>{label}</div>
-                  <div style={{ fontWeight: 950, color: "#eafff5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ border: "1px solid rgba(139,220,255,.16)", borderRadius: 14, padding: "10px 12px", background: "rgba(0,0,0,.10)", display: "grid", gap: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <b style={{ color: "#eafff5" }}>Active Grid Session</b>
-                  <span className={`pill ${isGridReady ? "good" : "silver"}`}>{isGridReady ? "ACTIVE" : "WAITING"}</span>
-                  <span className="muted tiny">{activeGridChainKey} · {gridItem} · {gridOrders.length} order{gridOrders.length === 1 ? "" : "s"}</span>
-                </div>
-                <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
-                  {gridOrders.length ? (
-                    <button type="button" className="miniBtn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setGridOrdersOpen((v) => !v); }} style={{ height: 30, paddingInline: 10 }}>
-                      {gridOrdersOpen ? "Hide Orders ▲" : `Show Orders (${gridOrders.length}) ▼`}
-                    </button>
-                  ) : null}
-                  <button className="miniBtn" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start} style={{ height: 30, paddingInline: 10, color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}>
-                    {gridBusy.stop ? "Stopping..." : "Protect / Reset"}
-                  </button>
-                </div>
-              </div>
-              <div className="muted tiny" style={{ display: "flex", gap: "6px 12px", flexWrap: "wrap" }}>
-                <span>Allocated: <b>{fmtUsd(Number(manualVaultAllocatedQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
-                <span>Settled: <b>{fmtUsd(Number(manualVaultSettledQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
-                <span>Available: <b>{fmtUsd(Number(manualVaultAvailableQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
-              </div>
-            </div>
-
             {gridOrders.length && gridOrdersOpen ? (
               <div className="gridOrders" style={{ border: "1px solid rgba(46,204,113,.16)", borderRadius: 14, padding: "10px 12px", background: "rgba(0,0,0,.10)", display: "grid", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
@@ -23410,7 +23373,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div style={{ padding: "11px 12px", borderRadius: 14, border: "1px solid rgba(34,197,94,.24)", background: "rgba(34,197,94,.055)" }}>
                 <div style={{ fontWeight: 950, color: "#7cf7a2" }}>Nexus Grid · Token Exit Manager</div>
                 <div className="muted tiny" style={{ marginTop: 4 }}>
-                  Bereits vorhandenen Token ueberwachen und nach deinen Regeln verkaufen. Kein Kauf, keine Asset-Suche, kein Strategist.
+                  Bereits vorhandenen Token ueberwachen und nach deinen Regeln verkaufen. Die Token muessen zuerst in den Core Vault eingezahlt werden. Kein Kauf, keine Asset-Suche, kein Strategist.
                 </div>
               </div>
 
@@ -23474,7 +23437,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
 
                 <div className="muted tiny">
-                  Grid reserviert nur den ausgewaehlten Token. Es wird keine Kauforder erzeugt. Verkauf erfolgt beim Zielpreis oder bei der festgelegten Verlustgrenze.
+                  Die Token muessen zuerst im Core Vault liegen. Grid reserviert nur die ausgewaehlte Menge; Token, die nur im Wallet liegen, sind nicht verfuegbar. Es wird keine Kauforder erzeugt. Verkauf erfolgt beim Zielpreis oder bei der festgelegten Verlustgrenze.
                 </div>
                 {errorMsg ? <div style={{ padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(245,193,108,.30)", background: "rgba(245,193,108,.08)", color: "#f5c16c", fontSize: 12 }}>{errorMsg}</div> : null}
               </div>

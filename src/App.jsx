@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-248-TRADER-NORMALIZER-ORDER-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-249-TRADER-ONE-CLICK-START";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -9576,7 +9576,12 @@ useEffect(() => {
   ]);
 
   const tradingCanApprove = !!tradingPreflight.ok;
-  const tradingCanStart = false;
+  // One-click Trader flow: the same Start Trading action creates/reserves the
+  // CoreVault V4 budget first and starts the backend worker after confirmation.
+  const tradingCanStart = !!wallet && (
+    !!tradingPreflight.ok ||
+    !!String(selectedTradingSessionId || activeTradingSessionId || "").trim()
+  );
 
   // Controls must be based on the selected Trading session first, not only on
   // temporary Shadow slot states. A Shadow run can promote slots or keep cards
@@ -9978,14 +9983,14 @@ useEffect(() => {
 
   const handleTradingApproveBudget = useCallback(async () => {
     if (!tradingCanApprove) {
-      setErrorMsg(tradingPreflight.title || "Complete Nexus Trading preflight before approving.");
-      return;
+      setErrorMsg(tradingPreflight.title || "Complete Nexus Trading setup before starting.");
+      return null;
     }
     if (String(tradingStyle || "").toUpperCase() === "AGGRESSIVE" && !aggressiveRiskAcceptedForDraft) {
       setAggressiveRiskPendingValue("AGGRESSIVE");
       setAggressiveRiskConsentOpen(true);
-      setErrorMsg("Please accept the Aggressive Performance risk warning before approving this budget.");
-      return;
+      setErrorMsg("Please accept the Aggressive Performance risk warning before starting this Trading session.");
+      return null;
     }
     try {
       setErrorMsg("Reserving Trading budget in CoreVault...");
@@ -9999,7 +10004,7 @@ useEffect(() => {
       setErrorMsg("");
     } catch (e) {
       setErrorMsg(`Trading CoreVault: ${e?.message || e}`);
-      return;
+      return null;
     }
     const now = Date.now();
     const sessionId = makeNexusSessionId("TRD");
@@ -10291,23 +10296,49 @@ useEffect(() => {
     setAggressiveRiskConsentOpen(false);
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
-    setErrorMsg(`Trading budget approved: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Press Start Trading to activate it.`);
+    setErrorMsg(`Trading budget confirmed: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Starting Trader...`);
+    return sessionId;
   }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, normalizeTradingRuntimeHours, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, tradingStyle, tradingRiskMode, tradingMaxTrades, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingCautionDrawdownPct, manualPayoutAsset, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
 
   const handleTradingStartSession = useCallback(async () => {
-    if (!tradingCanStart || !wallet) return;
-    const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
-    if (!sid) { setErrorMsg("No armed Trading session found."); return; }
+    if (!wallet) { setErrorMsg("Connect the wallet before starting Trading."); return; }
+
+    let sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+
+    // No separate Approve step: when there is no already-created Trader session,
+    // Start Trading first requests the mandatory CoreVault wallet confirmation,
+    // then starts the backend Strategist/Trader worker automatically.
+    if (!sid) {
+      if (!tradingPreflight.ok) {
+        setErrorMsg(tradingPreflight.title || "Complete the Trading setup before starting.");
+        return;
+      }
+      sid = String((await handleTradingApproveBudget()) || "").trim();
+      if (!sid) return;
+    }
+
     try {
-      await api("/api/nexus/trading/control", { method: "POST", wallet, body: { action: "start", session_id: sid, chain: String(activeGridChainKey || "ETH").toUpperCase(), allowed_assets: selectedTraderAssets, settlement_asset: String(manualPayoutAsset || "USDC").toUpperCase() } });
+      await api("/api/nexus/trading/control", {
+        method: "POST",
+        wallet,
+        body: {
+          action: "start",
+          session_id: sid,
+          chain: String(activeGridChainKey || "ETH").toUpperCase(),
+          allowed_assets: selectedTraderAssets,
+          settlement_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
+        },
+      });
       const now = Date.now();
       setTradingSessionStatus("ACTIVE");
       setTradingSessionUpdatedTs(now);
       updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, userAction: { started: true } });
       await refreshNexusBackendState();
       setErrorMsg(`Trading started: ${sid}`);
-    } catch (e) { setErrorMsg(`Start Trading failed: ${e?.message || e}`); }
-  }, [tradingCanStart, wallet, selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, selectedTraderAssets, manualPayoutAsset, api, refreshNexusBackendState, setErrorMsg, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+    } catch (e) {
+      setErrorMsg(`Start Trading failed: ${e?.message || e}`);
+    }
+  }, [wallet, selectedTradingSessionId, activeTradingSessionId, tradingPreflight, handleTradingApproveBudget, activeGridChainKey, selectedTraderAssets, manualPayoutAsset, api, refreshNexusBackendState, setErrorMsg, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const handleTradingPauseSession = useCallback(() => {
     if (!tradingCanPause) return;
@@ -22669,22 +22700,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     </div>
 
-                    <div
-                      className="muted tiny"
-                      style={{
-                        marginTop: -2,
-                        padding: "7px 9px",
-                        borderRadius: 10,
-                        border: tradingPreflight.ok ? "1px solid rgba(34,197,94,.22)" : "1px solid rgba(255,193,7,.28)",
-                        background: tradingPreflight.ok ? "rgba(34,197,94,.06)" : "rgba(255,193,7,.075)",
-                        color: tradingPreflight.ok ? "#9ff7b5" : "#ffd166",
-                        fontWeight: 800,
-                      }}
-                    >
-                      {tradingPreflight.ok
-                        ? `Trading preflight ready · ${fmtUsd(tradingPreflight.budget)} · ${tradingPreflight.assets.join(", ")} · ${tradingPreflight.chains.join(",")}`
-                        : `Trading preflight needs: ${tradingPreflight.issues.join(", ")}. Add Budget and at least one executable asset. Chain and settlement asset come from Live Core Vault Capital.`}
-                    </div>
+
 
                     {renderPayoutAssetSelector("Payout asset")}
 
@@ -23219,6 +23235,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     ) : null}
 
+                    {selectedTradingSession ? (
                     <div
                       style={{
                         padding: "7px 10px",
@@ -23244,10 +23261,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         
-                        <button className="btnGhost" type="button" onClick={handleTradingApproveBudget} disabled={!tradingCanApprove} title={tradingPreflight.title} style={{ height: 30, paddingInline: 10 }}>
-                          {Array.isArray(openTradingSessions) && openTradingSessions.length ? "Approve Next Budget" : "Approve Budget"}
-                        </button>
-                        <button className="btn" type="button" onClick={handleTradingStartSession} disabled={!tradingCanStart} title="Start the armed Trader worker with the central Strategist" style={{ height: 30, paddingInline: 10 }}>Start Trading</button>
+                        {selectedTradingSessionLabel === "ARMED" ? (
+                          <button className="btn" type="button" onClick={handleTradingStartSession} disabled={!tradingCanStart} title="Start the Trader worker with the central Strategist" style={{ height: 30, paddingInline: 10 }}>Start Trading</button>
+                        ) : null}
                         {(String(tradingBudgetUsd || "").trim() || String(tradingBudgetSplitInput || "").trim()) ? (
                           <button
                             className="miniBtn"
@@ -23274,6 +23290,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         ) : null}
                       </div>
                     </div>
+                    ) : (
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                        <button
+                          className="btn"
+                          type="button"
+                          onClick={handleTradingStartSession}
+                          disabled={!tradingCanStart}
+                          title={tradingPreflight.ok ? "Confirm the CoreVault budget in the wallet and start Trading automatically" : tradingPreflight.title}
+                          style={{ height: 34, paddingInline: 14 }}
+                        >
+                          Start Trading
+                        </button>
+                        {(String(tradingBudgetUsd || "").trim() || String(tradingBudgetSplitInput || "").trim()) ? (
+                          <button className="miniBtn" type="button" onClick={() => { resetAggressiveDraftSelection(); setTradingBudgetUsd(""); setTradingBudgetSplitInput(""); }} style={{ height: 34, paddingInline: 10 }}>Clear</button>
+                        ) : null}
+                      </div>
+                    )}
 
                     
                   </div>

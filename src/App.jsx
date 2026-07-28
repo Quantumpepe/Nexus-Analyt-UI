@@ -23496,12 +23496,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   })}
                 </div>
               ) : null}
+            </div>
+          </div>
 
                 <EngineEventHistory engine="GRID" events={gridEventHistory} />
                 </>
               )}
-
-            </div>
 
           </div></div>
         </section>

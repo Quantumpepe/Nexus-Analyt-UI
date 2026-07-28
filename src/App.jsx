@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-236-AUTHORITATIVE-SESSION-FILTER-EXIT-FEEDBACK-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-237-EXIT-PENDING-AND-REFRESH-INDEPENDENCE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -7916,6 +7916,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [traderEventHistory, setTraderEventHistory] = useState([]);
   const [activeTradingSessionId, setActiveTradingSessionId] = useState("");
   const [rotationSessions, setRotationSessions] = useState([]);
+  const [nkrExitUiState, setNkrExitUiState] = useState({});
   const [activeRotationSessionId, setActiveRotationSessionId] = useState("");
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
   // Derived identifiers for backend grid endpoints (stable across refreshes)
@@ -20965,8 +20966,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const target = String(row?.targetAsset || row?.positionAsset || row?.asset || "").toUpperCase();
                         const hasRealAsset = !!target && !["ASSET", "WAITING", "NONE", "—"].includes(target);
                         if (["FINALIZED", "COMPLETE", "COMPLETED", "CLOSED", "RELEASED", "REBALANCED_OUT", "DELETED"].includes(st)) return false;
-                        if (["ACTIVE", "RUNNING", "APPROVED", "EXECUTOR", "OPEN", "CLOSING", "STOPPING", "EXITING"].includes(st)) return true;
-                        if (["PAUSED", "STOPPED"].includes(st)) return openCount > 0 || positionValue > 0 || hasRealAsset;
+                        if (["ACTIVE", "RUNNING", "APPROVED", "EXECUTOR", "OPEN", "CLOSING", "STOPPING", "EXITING", "EXIT_REQUESTED", "EXIT_PENDING", "EXIT_FAILED"].includes(st)) return true;
+                        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
+                        const rowId = String(row?.id ?? row?.session_id ?? "");
+                        const isCurrentLocal = !!rowId && rowId === String(activeRotationSessionId || "");
+                        // Historical PAUSED/STOPPED rows must never reappear after a page refresh merely
+                        // because an old working-capital or target-asset value is still stored.
+                        if (["PAUSED", "STOPPED"].includes(st)) return openCount > 0 || (isCurrentLocal && !!sid);
                         return openCount > 0;
                       };
                       const rawLocalRotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
@@ -20990,7 +20996,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const localOnChainIds = new Set(localRotationRows.map((row) => String(
                         row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? ""
                       )).filter(Boolean));
-                      const onChainRotationRows = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+                      // System Info refresh is intentionally independent from the user-facing live list.
+                      // It must never add/remove cards in Active NKR Sessions.
+                      const onChainRotationRows = ([])
                         .filter((row) => {
                           const st = String(row?.statusLabel || "").toUpperCase();
                           const openCount = Number(row?.openAssetCount || 0) || 0;
@@ -21547,7 +21555,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <div><b style={{ color: gross >= 0 ? "#86efac" : "#ff8a8a" }}>Gross:</b> <span style={{ fontWeight: 850, color: gross >= 0 ? "#86efac" : "#ff8a8a" }}>{gross >= 0 ? "+" : ""}{fmtUsd(gross)}</span></div>
                                         <div><b style={{ color: "#ffd166" }}>Costs:</b> <span style={{ fontWeight: 850, color: "#ffd166" }}>{costs > 0 ? "-" : ""}{fmtUsd(Math.abs(costs))}</span></div>
                                         <div><b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> <span style={{ fontSize: 15, fontWeight: 950, color: net >= 0 ? "#86efac" : "#ff8a8a" }}>{net >= 0 ? "+" : ""}{fmtUsd(net)}</span></div>
-                                        <div><b style={{ color: (sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "#86efac" : "#ffd166" }}>Exit:</b> {(sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "READY / WAITING" : "WAITING"}</div>
+                                        <div><b style={{ color: ["REQUESTED","PENDING","EXITING"].includes(String(nkrExitUiState[String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "")] || "").toUpperCase()) ? "#8bdcff" : ((sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "#86efac" : "#ffd166") }}>Exit:</b> {(() => { const k=String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? ""); const ui=String(nkrExitUiState[k] || "").toUpperCase(); const st=String(sess?.status || sess?.statusLabel || "").toUpperCase(); if (ui === "REQUESTED") return "REQUESTED"; if (ui === "PENDING" || ["CLOSING","STOPPING","EXITING","EXIT_PENDING"].includes(st)) return "PENDING"; if (ui === "FAILED" || st === "EXIT_FAILED") return "FAILED"; return (sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "READY / WAITING" : "WAITING"; })()}</div>
                                       </div>
 
                                       <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "stretch", justifyContent: "center", minWidth: 98 }}>
@@ -21587,12 +21595,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         {sessionStatus === "STOPPED" ? (
                                           <>
                                             <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl("RESUME", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>Resume</button>
-                                            <button className="miniBtn danger" type="button" onClick={() => applyNkrBackendControl("STOP_EXIT", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>Stop &amp; Exit</button>
+                                            <button className="miniBtn danger" type="button" onClick={async () => { const k=String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? ""); setNkrExitUiState((p)=>({ ...p, [k]: "REQUESTED" })); try { await applyNkrBackendControl("STOP_EXIT", { sessionId: k }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED" })); } }}>Stop &amp; Exit</button>
                                           </>
                                         ) : (
                                           <>
                                             <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
-                                            <button className="miniBtn danger" type="button" onClick={() => applyNkrBackendControl("STOP_EXIT", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>Stop & Exit</button>
+                                            <button className="miniBtn danger" type="button" onClick={async () => { const k=String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? ""); setNkrExitUiState((p)=>({ ...p, [k]: "REQUESTED" })); try { await applyNkrBackendControl("STOP_EXIT", { sessionId: k }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED" })); } }}>Stop & Exit</button>
                                           </>
                                         )}
                                       </div>

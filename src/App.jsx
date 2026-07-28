@@ -4520,6 +4520,106 @@ useEffect(() => {
   const [coreVaultAccounting, setCoreVaultAccounting] = useState(null);
   const [coreVaultOnchain, setCoreVaultOnchain] = useState(null);
   const [coreVaultOnchainLoading, setCoreVaultOnchainLoading] = useState(false);
+
+  // Deposit selector: show every asset currently detected in the connected
+  // Ethereum wallet. CoreVault admission remains strict: only the exact token
+  // contract configured with depositEnabled can actually be deposited.
+  const coreDepositWalletAssets = useMemo(() => {
+    const chainKey = "ETH";
+    const walletState = balByChain?.[chainKey] || {};
+    const vaultTokens = coreVaultOnchain?.tokens || {};
+    const configured = Object.entries(vaultTokens).map(([vaultSymbol, state]) => ({
+      vaultSymbol: String(vaultSymbol || "").toUpperCase(),
+      state: state || {},
+      address: String(state?.address || "").toLowerCase(),
+    }));
+
+    const matchVaultToken = (address, symbol) => {
+      const addr = String(address || "").toLowerCase();
+      const sym = String(symbol || "").toUpperCase();
+      return configured.find((row) => (addr && row.address === addr) || (!addr && row.vaultSymbol === sym)) || null;
+    };
+
+    const rows = [];
+    const nativeBalance = Number(walletState?.native || 0);
+    if (Number.isFinite(nativeBalance) && nativeBalance > 0) {
+      rows.push({
+        key: "native:ETH",
+        chain: chainKey,
+        symbol: "ETH",
+        name: "Ethereum",
+        address: "",
+        decimals: 18,
+        balance: String(walletState.native),
+        isNative: true,
+        vaultApproved: false,
+        tokenState: null,
+        note: "Wrap to WETH before Vault deposit",
+      });
+    }
+
+    const stableSpecs = getStableWhitelistForChain(chainKey);
+    for (const spec of stableSpecs) {
+      const symbol = String(spec?.symbol || "").toUpperCase();
+      const balance = Number(walletState?.stables?.[symbol] || 0);
+      if (!Number.isFinite(balance) || balance <= 0) continue;
+      const matched = matchVaultToken(spec?.address, symbol);
+      rows.push({
+        key: `erc20:${String(spec?.address || "").toLowerCase()}`,
+        chain: chainKey,
+        symbol,
+        name: String(spec?.name || symbol),
+        address: String(spec?.address || ""),
+        decimals: Number(spec?.decimals ?? matched?.state?.decimals ?? 18),
+        balance: String(walletState?.stables?.[symbol] || "0"),
+        isNative: false,
+        vaultApproved: !!matched?.state?.config?.depositEnabled,
+        tokenState: matched?.state || null,
+        note: matched?.state?.config?.depositEnabled ? "Vault approved" : "Owner approval required",
+      });
+    }
+
+    for (const tokenRow of (walletState?.custom || [])) {
+      const balance = Number(tokenRow?.balance || 0);
+      if (!Number.isFinite(balance) || balance <= 0) continue;
+      const address = String(tokenRow?.address || "");
+      const symbol = String(tokenRow?.symbol || "TOKEN").toUpperCase();
+      const matched = matchVaultToken(address, symbol);
+      rows.push({
+        key: `erc20:${address.toLowerCase()}`,
+        chain: chainKey,
+        symbol,
+        name: String(tokenRow?.name || symbol),
+        address,
+        decimals: Number(tokenRow?.decimals ?? matched?.state?.decimals ?? 18),
+        balance: String(tokenRow?.balance || "0"),
+        isNative: false,
+        vaultApproved: !!matched?.state?.config?.depositEnabled,
+        tokenState: matched?.state || null,
+        note: matched?.state?.config?.depositEnabled ? "Vault approved" : "Owner approval required",
+      });
+    }
+
+    const seen = new Set();
+    return rows
+      .filter((row) => row.key && !seen.has(row.key) && seen.add(row.key))
+      .sort((a, b) => Number(b.vaultApproved) - Number(a.vaultApproved) || a.symbol.localeCompare(b.symbol));
+  }, [balByChain, coreVaultOnchain]);
+
+  const selectedCoreDepositAsset = useMemo(() => {
+    const requested = String(coreDepositAsset || "");
+    return coreDepositWalletAssets.find((row) => row.key === requested)
+      || coreDepositWalletAssets.find((row) => row.symbol === requested.toUpperCase())
+      || null;
+  }, [coreDepositAsset, coreDepositWalletAssets]);
+
+  useEffect(() => {
+    if (!coreDepositWalletAssets.length) return;
+    if (selectedCoreDepositAsset) return;
+    const first = coreDepositWalletAssets.find((row) => row.vaultApproved) || coreDepositWalletAssets[0];
+    if (first?.key) setCoreDepositAsset(first.key);
+  }, [coreDepositWalletAssets, selectedCoreDepositAsset]);
+
   const [privyAutomationStatus, setPrivyAutomationStatus] = useState("NOT_VERIFIED");
   const [privyAutomationError, setPrivyAutomationError] = useState("");
   const [privyAutomationBusy, setPrivyAutomationBusy] = useState(false);
@@ -4816,15 +4916,27 @@ useEffect(() => {
       if (!_isAddr(vault) || !coreVaultOnchain?.connected) throw new Error("Ethereum Core Vault is not connected.");
       if (coreVaultOnchain?.paused) throw new Error("Core Vault is currently paused.");
 
-      const symbol = String(coreDepositAsset || "USDC").toUpperCase();
-      const tokenState = coreVaultOnchain?.tokens?.[symbol] || {};
-      const tokenAddress = String(tokenState?.address || "").trim();
-      const decimals = Number(tokenState?.decimals ?? 6);
+      const selectedAsset = selectedCoreDepositAsset;
+      if (!selectedAsset) throw new Error("Select an asset that is present in the connected wallet.");
+      if (selectedAsset.isNative) {
+        throw new Error(`${selectedAsset.symbol} is the native coin and cannot be sent to the ERC-20 Vault directly. Wrap it to WETH first; WETH will then appear here as a depositable wallet asset.`);
+      }
+
+      const symbol = String(selectedAsset.symbol || "TOKEN").toUpperCase();
+      const tokenState = selectedAsset.tokenState || {};
+      const tokenAddress = String(selectedAsset.address || tokenState?.address || "").trim();
+      const decimals = Number(selectedAsset.decimals ?? tokenState?.decimals ?? 18);
       if (!_isAddr(tokenAddress)) throw new Error(`${symbol} contract is not available.`);
-      if (!tokenState?.config?.depositEnabled) throw new Error(`${symbol} deposits are not enabled.`);
+      if (!selectedAsset.vaultApproved || !tokenState?.config?.depositEnabled) {
+        throw new Error(`${symbol} is visible in your wallet but is not yet approved for Core Vault deposits. The exact contract must pass GoPlus and be enabled by the Vault owner first.`);
+      }
 
       const rawAmount = String(coreDepositAmount || "").trim();
       if (!/^\d+(\.\d+)?$/.test(rawAmount) || Number(rawAmount) <= 0) throw new Error("Enter a valid deposit amount.");
+      const walletBalance = Number(selectedAsset.balance || 0);
+      if (Number.isFinite(walletBalance) && Number(rawAmount) > walletBalance + 1e-12) {
+        throw new Error(`Amount exceeds the wallet balance of ${selectedAsset.balance} ${symbol}.`);
+      }
       const amountUnits = decimalStringToUnits(rawAmount, decimals);
       if (amountUnits <= 0n) throw new Error("Deposit amount is too small.");
 
@@ -4847,10 +4959,11 @@ useEffect(() => {
       const currentHex = await provider.request({ method: "eth_chainId" });
       if (String(currentHex).toLowerCase() !== "0x1") throw new Error("Please switch your wallet to Ethereum Mainnet.");
 
-      // Verify the official token contract again immediately before signing.
-      const official = getStableWhitelistForChain("ETH").find((t) => String(t.symbol).toUpperCase() === symbol);
-      if (!official || String(official.address).toLowerCase() !== tokenAddress.toLowerCase()) {
-        throw new Error("Token contract does not match the approved Ethereum stablecoin address.");
+      // Verify the exact configured Vault token again immediately before signing.
+      // Symbols are display-only; contract identity is authoritative.
+      const configuredAddress = String(tokenState?.address || "").toLowerCase();
+      if (!configuredAddress || configuredAddress !== tokenAddress.toLowerCase() || !tokenState?.config?.depositEnabled) {
+        throw new Error("Token contract does not match an enabled Core Vault deposit configuration.");
       }
 
       const amountWord = _encodeUint256(amountUnits);
@@ -18962,14 +19075,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   ) : null}
                   <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
                     <div style={{ fontWeight: 900, fontSize: 13 }}>Deposit to Vault</div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Ethereum Mainnet · USDC or USDT</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: 8, marginTop: 9 }}>
-                      <select className="input" value={coreDepositAsset} onChange={(e) => { setCoreDepositAsset(e.target.value); setCoreDepositMsg(""); }} disabled={coreDepositBusy} style={{ height: 42 }}>
-                        <option value="USDC">USDC</option>
-                        <option value="USDT">USDT</option>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Ethereum Mainnet · all assets detected in the connected wallet</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr) 1fr", gap: 8, marginTop: 9 }}>
+                      <select className="input" value={coreDepositAsset} onChange={(e) => { setCoreDepositAsset(e.target.value); setCoreDepositMsg(""); }} disabled={coreDepositBusy || !coreDepositWalletAssets.length} style={{ height: 42 }}>
+                        {!coreDepositWalletAssets.length ? <option value="">No wallet assets found</option> : null}
+                        {coreDepositWalletAssets.map((asset) => (
+                          <option key={asset.key} value={asset.key}>
+                            {asset.symbol} · {asset.balance} {asset.vaultApproved ? "· Vault ready" : asset.isNative ? "· wrap required" : "· approval required"}
+                          </option>
+                        ))}
                       </select>
-                      <input className="input" inputMode="decimal" value={coreDepositAmount} onChange={(e) => { setCoreDepositAmount(e.target.value); setCoreDepositMsg(""); }} placeholder="Amount" disabled={coreDepositBusy} style={{ height: 42 }} />
+                      <input className="input" inputMode="decimal" value={coreDepositAmount} onChange={(e) => { setCoreDepositAmount(e.target.value); setCoreDepositMsg(""); }} placeholder={selectedCoreDepositAsset ? `Max ${selectedCoreDepositAsset.balance} ${selectedCoreDepositAsset.symbol}` : "Amount"} disabled={coreDepositBusy || !selectedCoreDepositAsset} style={{ height: 42 }} />
                     </div>
+                    {selectedCoreDepositAsset ? (
+                      <div className="muted" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.35 }}>
+                        Wallet balance: <b>{selectedCoreDepositAsset.balance} {selectedCoreDepositAsset.symbol}</b> · {selectedCoreDepositAsset.note}
+                      </div>
+                    ) : null}
                     <button type="button" className="btn" onClick={depositToCoreVault} disabled={!wallet || coreDepositBusy || !coreVaultOnchain?.connected || coreVaultOnchain?.paused} style={{ width: "100%", height: 44, marginTop: 8 }}>
                       {coreDepositBusy ? "Processing…" : "Deposit to Vault"}
                     </button>

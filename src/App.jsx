@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-249-TRADER-ONE-CLICK-START";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-250-GRID-EXIT-MANAGER";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -11097,7 +11097,8 @@ useEffect(() => {
     [idOf]
   );
 
-  const [manualSide, setManualSide] = useState("BUY");
+  const [manualSide, setManualSide] = useState("SELL");
+  const [manualMaxLossPct, setManualMaxLossPct] = useState("15");
   const [manualPrice, setManualPrice] = useState("");
   const [manualBuyMode, setManualBuyMode] = useState("QTY"); // USD | QTY (only used for BUY)
   const [manualUsd, setManualUsd] = useState("");
@@ -13738,7 +13739,9 @@ setGridBusy((s) => ({ ...s, stop: true }));
         client_order_id: clientOrderId,
         payout_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
         payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
-        settlement_mode: "swap_on_fill_hold_until_withdraw",
+        settlement_mode: "sell_existing_asset_on_rule",
+        max_loss_pct: Math.max(0, Math.min(100, Number(manualMaxLossPct) || 0)),
+        original_asset: String(gridItem || "").toUpperCase(),
         slippage_bps: Math.round(Math.max(0.1, Math.min(20, Number.isFinite(slippagePct) ? slippagePct : 1)) * 100),
         deadline_sec: Math.floor(Math.max(5, Math.min(120, Number.isFinite(deadlineMin) ? deadlineMin : 20)) * 60),
         nativePriceUsd: Number(activeGridNativeUsd || 0),
@@ -14031,7 +14034,7 @@ try {
         item: gridItemId,
         addr: walletAddress || undefined,
         wallet: walletAddress || undefined,
-        side: manualSide,
+        side: "SELL",
         price,
         chain: String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase(),
         payout_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
@@ -14053,22 +14056,9 @@ body.nativePriceUsd = Number(activeGridNativeUsd || 0);
 body.funding_approved = !!opts.fundingApproved;
 body.funding_source_asset = String(opts.fundingSourceAsset || "").toUpperCase();
 
-const manualFundingOk = await resolveFundingBeforeOrder({
-  source: "GRID",
-  chain: String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase(),
-  symbol: String(gridItem || "").toUpperCase(),
-  side: manualSide,
-  priceUsd: price,
-  qty,
-  budgetUsd: price * qty,
-  meta: { payout_asset: String(manualPayoutAsset || "USDC").toUpperCase() },
-  fundingApproved: !!opts.fundingApproved,
-  fundingSourceAsset: String(opts.fundingSourceAsset || "").toUpperCase(),
-  pendingKind: "MANUAL",
-});
-if (!manualFundingOk) {
-  setGridBusy((s) => ({ ...s, add: false }));
-  return;
+// Grid never funds a purchase. It can only reserve an already-held token quantity.
+if (qty > Number(manualVaultAvailableQty || 0)) {
+  throw new Error(`Not enough ${String(gridItem || "token").toUpperCase()} available in the Vault.`);
 }
 
 	// Canonical endpoint is /api/grid/manual/add.
@@ -14101,7 +14091,7 @@ if (!manualFundingOk) {
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
-      setErrorMsg(`Manual add: ${e.message}`);
+      setErrorMsg(`Grid start: ${e.message}`);
     
       setGridBusy((s) => ({ ...s, add: false }));}
   }
@@ -20679,7 +20669,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b style={{ color: '#ffc107' }}>Gelb / WAIT:</b> Die Richtung ist interessant, aber es fehlt noch Bestaetigung. Die AI beobachtet weiter und wartet auf bessere Bedingungen.</p>
                       <p><b style={{ color: '#ff6b6b' }}>Rot / BLOCKED:</b> Risiko, Confidence oder Liquiditaet sind aktuell nicht gut genug. Die AI blockiert den Slot bewusst, statt einen schlechten Entry zu nehmen.</p>
 
-                      <p><b>Nexus Grid:</b> manueller Order-Modus. Du waehlst Network, Coin, Budget, Side, Preis und Payout Asset. <b>Approve Budget</b> reserviert das Grid-Budget lokal; <b>Add Order</b> erstellt die Order. Das Budget gilt fuer alle offenen Grid-Orders zusammen, nicht pro Order.</p>
+                      <p><b>Nexus Grid:</b> einfacher Exit-Manager fuer bereits vorhandene Token. Du waehlst Network, Coin, Menge, Verkaufsziel, maximalen Verlust und Auszahlung. Grid kauft nichts, sucht keine Assets und nutzt keinen Strategist.</p>
 
                       <p><b>Nexus NKR:</b> Kapitalrotation. Nexus NKR beobachtet die Watchlist laufend, nutzt die besten Marktchancen, kann schwache Sessions stoppen und Kapital zu staerkeren Assets verschieben. Die eingestellte Session-Zahl ist nur das Maximum, nicht eine Pflichtanzahl.</p>
 
@@ -20706,7 +20696,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b style={{ color: '#ffc107' }}>Yellow / WAIT:</b> The direction is interesting, but confirmation is still missing. The AI keeps monitoring and waits for better conditions.</p>
                       <p><b style={{ color: '#ff6b6b' }}>Red / BLOCKED:</b> Risk, confidence or liquidity are not good enough yet. The AI intentionally blocks the slot instead of taking a weak entry.</p>
 
-                      <p><b>Nexus Grid:</b> manual order mode. You choose network, coin, budget, side, price, and payout asset. <b>Approve Budget</b> reserves the Grid budget locally; <b>Add Order</b> creates the order. The budget is shared across all open Grid orders, not per order.</p>
+                      <p><b>Nexus Grid:</b> simple exit manager for tokens already held in the Vault. You choose network, coin, amount, sell target, maximum loss and payout. Grid never buys, discovers assets or uses the Strategist.</p>
 
                       <p><b>Nexus NKR:</b> capital rotation. Nexus NKR continuously watches the watchlist, uses the strongest market opportunities, can stop weak sessions and redirect capital toward stronger assets. The selected session number is only the maximum, not a required count.</p>
 
@@ -20769,7 +20759,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
               )}
 
-              {(() => {
+              {String(gridMode || "normal") !== "normal" ? (() => {
                 const modeKey = String(gridMode || "normal");
                 const selectedChain = String(liveVaultChainByMode?.[modeKey] || "ETH").toUpperCase();
                 const tokenEntries = Object.entries(coreVaultOnchain?.tokens || {}).filter(([, tokenState]) => {
@@ -20843,9 +20833,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ) : null}
                   </div>
                 );
-              })()}
+              })() : null}
 
-              {strategistBridge ? (
+              {strategistBridge && String(gridMode || "normal") !== "normal" ? (
                 <div
                   style={{
                     marginBottom: 10,
@@ -23416,456 +23406,96 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
             ) : null}
 
-            <div className="gridCompactSummary" style={{ padding: "8px 10px", borderRadius: 12, border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.035)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <b style={{ color: "#eafff5" }}>Grid Setup & Presets</b>
-                <span className="pill silver">{manualSide}</span>
-                <span className="muted tiny">Price <b>{manualPrice || (shownGridPrice ? fmtUsd(Number(shownGridPrice)) : "—")}</b></span>
-                <span className="muted tiny">Manual Grid · no Shadow Executor</span>
-              </div>
-              <button type="button" className="btnGhost" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setGridSetupOpen((v) => !v); }} style={{ height: 30, paddingInline: 10, fontSize: 12 }}>
-                {gridSetupOpen ? "Hide ▲" : "Show ▼"}
-              </button>
-            </div>
-            <div className="gridControls" style={{ display: gridSetupOpen ? "block" : "none", border: "1px solid rgba(46,204,113,.18)", borderRadius: 14, padding: "10px 12px", background: "rgba(0,0,0,.10)", minWidth: 0 }}>              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr",
-                  gap: isCompactMobile ? 8 : 10,
-                  alignItems: "end",
-                }}
-              >
-                <div className="formRow">
-                  <label>Network</label>
-                  <select value={activeGridChainKey} onChange={(e) => setGridChain(String(e.target.value || "").toUpperCase())}>
-                    {gridWalletChains.map((ck) => (
-                      <option key={ck} value={ck}>
-                        {ck}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="formRow">
-                  <label>Coin</label>
-                  <select value={gridItem} onChange={(e) => setGridItem(e.target.value)}>
-                    {gridWalletCoins.map((c) => (
-                      <option key={`${activeGridChainKey}:${c}`} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="formRow">
-                  <label>Budget (Qty)</label>
-                  <input value={gridInvestQty} onChange={(e) => setGridInvestQty(e.target.value)} placeholder="e.g. 10" />
-                </div>
-              </div>
-<div className="hint" style={{ marginTop: 4, marginBottom: 4, opacity: 0.95 }}>
-  {tB("Available:")} <b>{manualVaultAvailableQty.toFixed(6)}</b> {activeGridChainSymbol}
-  {" · "}
-  {tB("Allocated:")} <b>{manualVaultAllocatedQty.toFixed(6)}</b> {activeGridChainSymbol}
-  {" · "}
-  {tB("Settled:")} <b>{manualVaultSettledQty.toFixed(6)}</b> {String(manualPayoutAsset || "USDC").toUpperCase()}
-</div>
-{renderFundingPrompt("GRID")}
-{isEthChain ? (
-
-              <div className="formRow" style={{ marginTop: 6 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="checkbox"
-                    checked={!!gridAutoPath}
-                    onChange={(e) => setGridAutoPath(e.target.checked)}
-                    style={{ transform: "scale(1.1)" }}
-                  />
-                  <span>
-                    Auto-path (V2 → V3 fallback)
-                    <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
-                      Helps avoid failed swaps when liquidity is only on V3 (mainly ETH).
-                    </span>
-                  </span>
-                </label>
-              </div>
-
-              ) : null}
-<div className="btnRow">
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    gridStart();
-                  }}
-                  disabled={!isGridReady || gridBusy.start || gridBusy.stop}
-                  title={!isPro ? "Subscribe to Nexus Pro to start trading" : ""}
-                >
-                  {gridBusy.start ? "Approving..." : "Approve Budget"}
-                </button>
-                <button className="btnDanger" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); gridStop(); }} disabled={!isGridReady || gridBusy.stop || gridBusy.start}>{gridBusy.stop ? "Resetting..." : "Reset Budget"}</button>
-              </div>
-              {errorMsg && !(
-                String(errorMsg).includes("wallet/Vault") ||
-                String(errorMsg).includes("fund or add") ||
-                String(errorMsg).includes("apply again") ||
-                String(errorMsg).includes("No vault liquidity") ||
-                String(errorMsg).includes("Prepared ") ||
-                String(errorMsg).includes("Review ")
-              ) ? (
-                <div
-                  style={{
-                    marginTop: "10px",
-                    padding: "8px 10px",
-                    borderRadius: "8px",
-                    background: "rgba(245, 193, 108, 0.14)",
-                    border: "1px solid rgba(245, 193, 108, 0.34)",
-                    color: "#f5c16c",
-                    fontSize: "13px",
-                    lineHeight: "1.4",
-                  }}
-                >
-                  {errorMsg}
-                </div>
-              ) : null}
-</div>
-
-              {gridSetupOpen ? (
-                <div className="gridSetupAccordion" style={{ display: "grid", gap: isCompactMobile ? 8 : 10, marginTop: 8 }}>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
-                  gap: isCompactMobile ? 8 : 10,
-                  alignItems: "end",
-                  marginTop: isCompactMobile ? 0 : -4,
-                }}
-              >
-                <div className="formRow">
-                  <label>Side</label>
-                  <select value={manualSide} onChange={(e) => setManualSide(e.target.value)}>
-                    <option value="BUY">BUY</option>
-                    <option value="SELL">SELL</option>
-                  </select>
-                </div>
-
-                <div className="formRow">
-                  <label>Price</label>
-                  <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="e.g. 94442" />
+            <div style={{ display: "grid", gap: 10 }}>
+              <div style={{ padding: "11px 12px", borderRadius: 14, border: "1px solid rgba(34,197,94,.24)", background: "rgba(34,197,94,.055)" }}>
+                <div style={{ fontWeight: 950, color: "#7cf7a2" }}>Nexus Grid · Token Exit Manager</div>
+                <div className="muted tiny" style={{ marginTop: 4 }}>
+                  Bereits vorhandenen Token ueberwachen und nach deinen Regeln verkaufen. Kein Kauf, keine Asset-Suche, kein Strategist.
                 </div>
               </div>
 
-              <div className="formRow">
-                <label>Payout asset</label>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  {visiblePayoutAssets.map((asset) => {
-                    const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
-                    return (
-                      <button
-                        key={asset}
-                        type="button"
-                        onClick={() => setManualPayoutAsset(String(asset).toUpperCase())}
-                        style={{
-                          ...compactGridChipStyle,
-                          minWidth: 66,
-                          background: active ? "linear-gradient(90deg, #22c55e, #16a34a)" : "rgba(34,197,94,.16)",
-                          color: active ? "#071512" : "#d9fff0",
-                          border: active ? "1px solid rgba(34,197,94,.55)" : "1px solid rgba(34,197,94,.32)",
-                          boxShadow: active ? "0 0 12px rgba(34,197,94,.28)" : "none",
-                          fontWeight: active ? 800 : 700,
-                        }}
-                        title={`Set payout asset to ${asset}`}
-                      >
-                        {asset}
-                      </button>
-                    );
-                  })}
-                  {extraPayoutAssets.length > 0 && (
-                    <div ref={payoutMenuRef} style={{ position: "relative", minWidth: 220 }}>
-                      <button
-                        type="button"
-                        onClick={() => setPayoutMenuOpen((v) => !v)}
-                        style={{
-                          width: "100%",
-                          height: isCompactMobile ? 32 : 36,
-                          padding: "0 12px",
-                          borderRadius: 10,
-                          background: "rgba(34,197,94,.16)",
-                          color: "#ffffff",
-                          border: "1px solid rgba(34,197,94,.38)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                          fontWeight: 800,
-                          boxShadow: payoutMenuOpen ? "0 0 12px rgba(34,197,94,.22)" : "none",
-                        }}
-                      >
-                        <span>{extraPayoutAssets.includes(String(manualPayoutAsset || "").toUpperCase()) ? String(manualPayoutAsset || "").toUpperCase() : "More assets"}</span>
-                        <span style={{ fontSize: 12 }}>{payoutMenuOpen ? "▲" : "▼"}</span>
-                      </button>
-                      {payoutMenuOpen && (
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "calc(100% + 6px)",
-                            left: 0,
-                            right: 0,
-                            zIndex: 50,
-                            borderRadius: 12,
-                            overflow: "hidden",
-                            background: "linear-gradient(180deg, rgba(74,222,128,.98), rgba(34,197,94,.98))",
-                            border: "1px solid rgba(34,197,94,.55)",
-                            boxShadow: "0 16px 34px rgba(0,0,0,.35)",
-                          }}
-                        >
-                          {extraPayoutAssets.map((asset) => {
-                            const active = String(manualPayoutAsset || "").toUpperCase() === String(asset).toUpperCase();
-                            return (
-                              <button
-                                key={asset}
-                                type="button"
-                                onClick={() => {
-                                  setManualPayoutAsset(String(asset).toUpperCase());
-                                  setPayoutMenuOpen(false);
-                                }}
-                                style={{
-                                  width: "100%",
-                                  textAlign: "left",
-                                  padding: "8px 10px",
-                                  background: active ? "linear-gradient(90deg, #86efac, #4ade80)" : "rgba(255,255,255,.10)",
-                                  color: "#071512",
-                                  border: "none",
-                                  borderTop: "1px solid rgba(7,21,18,.10)",
-                                  fontWeight: active ? 800 : 700,
-                                  cursor: "pointer",
-                                }}
-                              >
-                                {asset}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="muted tiny" style={{ marginTop: 6 }}>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  marginTop: 4,
-                  marginBottom: 8,
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  background: "rgba(255,255,255,.04)",
-                  border: "1px solid rgba(255,255,255,.06)",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 5 }}>
-                  <div style={{ fontWeight: 800, fontSize: 14 }}>Execution Preview</div>
-                  <div
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: 999,
-                      background: manualRiskState.tone,
-                      border: manualRiskState.border,
-                      color: manualRiskState.color,
-                      fontWeight: 800,
-                      fontSize: 12,
-                      lineHeight: 1.1,
-                    }}
-                  >
-                    {manualRiskState.label}
-                  </div>
-                </div>
-                <div className="tiny muted" style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", lineHeight: 1.25 }}>
-                  <span>Chain: <b>{activeGridChainSymbol}</b></span>
-                  <span>Liquidity: <b>{manualPoolLiquidityUsd == null ? "Checking..." : (Number(manualPoolLiquidityUsd) <= 0 ? "No liquidity" : fmtUsd(manualPoolLiquidityUsd))}</b></span>
-                  <span>Exposure: <b>{fmtUsd(manualOpenExposureUsd)}</b></span>
-                  <span>After: <b>{fmtUsd(manualExposureAfterUsd)}</b></span>
-                  <span>Impact: <b>{manualPoolLiquidityUsd == null ? "Checking..." : (Number(manualPoolLiquidityUsd) <= 0 ? "No liquidity" : (manualEstimatedImpactPct == null ? "Enter order" : `${manualEstimatedImpactPct.toFixed(2)}%`))}</b></span>
-                  <span>Payout: <b>{String(manualPayoutAsset || "USDC").toUpperCase()}</b></span>
-                </div>
-                <div className="tiny muted" style={{ marginTop: 4, lineHeight: 1.25, whiteSpace: "normal", overflowWrap: "anywhere" }}>
-                  Settlement: <b>{manualSettlementPreview}</b>
-                </div>
-                <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: "4px 10px", fontSize: 12, color: "#bdebd8", lineHeight: 1.2 }}>
-                  <span>In chain: <b>{fmtUsd(Number(manualVaultTotalQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
-                  <span>Allocated: <b>{fmtUsd(Number(manualVaultAllocatedQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
-                  <span>Settled: <b>{fmtUsd(Number(manualVaultSettledQty || 0) * Number(activeGridNativeUsd || 0))}</b></span>
-                  <span>Cycle out: <b>{fmtUsd((Number(manualVaultAvailableQty || 0) + Number(manualVaultAllocatedQty || 0) + Number(manualVaultSettledQty || 0)) * Number(activeGridNativeUsd || 0))}</b></span>
-                </div>
-              </div>
-
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: -4, marginBottom: 8 }}>
-                <div className="muted" style={{ fontSize: 12 }}>Slippage:</div>
-                <input
-                  value={manualSlippagePct}
-                  onChange={(e) => { setAiGridManualOverride(true); setManualSlippagePct(e.target.value); }}
-                  style={{ width: 90 }}
-                  placeholder="5"
-                />
-                <div className="muted" style={{ fontSize: 12 }}>%</div>
-
-                <div style={{ width: 10 }} />
-
-                <div className="muted" style={{ fontSize: 12 }}>Deadline:</div>
-                <input
-                  value={manualDeadlineMin}
-                  onChange={(e) => setManualDeadlineMin(e.target.value)}
-                  style={{ width: 90 }}
-                  placeholder="20"
-                />
-                <div className="muted" style={{ fontSize: 12 }}>min</div>
-
-                <div style={{ width: 10 }} />
-                <div className="muted tiny">
-                </div>
-              </div>
-
-              <div className="row" style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: -2, marginBottom: 7 }}>
-                <div className="muted" style={{ fontSize: 12, minWidth: 76 }}>Preset:</div>
-
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => { setAiGridManualOverride(true); setManualPricePreset("FAST"); }}
-                  style={{ ...compactGridChipStyle, opacity: manualPricePreset === "FAST" ? 1 : 0.88 }}
-                  title="Fast preset (0.25 / 0.5 / 1)"
-                >
-                  Fast
-                </button>
-
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => { setAiGridManualOverride(true); setManualPricePreset("STANDARD"); }}
-                  style={{ ...compactGridChipStyle, opacity: manualPricePreset === "STANDARD" ? 1 : 0.88 }}
-                  title="Standard preset (0.5 / 1 / 2)"
-                >
-                  Std
-                </button>
-
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => { setAiGridManualOverride(true); setManualPricePreset("WIDE"); }}
-                  style={{ ...compactGridChipStyle, opacity: manualPricePreset === "WIDE" ? 1 : 0.88 }}
-                  title="Wide preset (1 / 2 / 3)"
-                >
-                  Wide
-                </button>
-
-                <button
-                  className="btn"
-                  type="button"
-                  onClick={() => { setAiGridManualOverride(true); setManualPricePreset("VERY_WIDE"); }}
-                  style={{ ...compactGridChipStyle, opacity: manualPricePreset === "VERY_WIDE" ? 1 : 0.88 }}
-                  title="Very Wide preset (5 / 10 / 15)"
-                >
-                  VWide
-                </button>
-              </div>
-
-              <div className="row" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 7 }}>
-                <div className="muted" style={{ fontSize: 12, minWidth: 76 }}>Quick:</div>
-
-                <button className="btn" type="button" onClick={setManualPriceFromMarket} disabled={!shownGridPrice} title="Set price to current market" style={compactGridChipStyle}>
-                  MKT
-                </button>
-
-                {manualSide === "BUY" ? (
-                  <>
-                    {gridQuickSteps.map((p) => (
-                      <button
-                        key={p}
-                        className="btn"
-                        type="button"
-                        onClick={() => nudgeManualPricePct(-p)}
-                        disabled={!shownGridPrice}
-                        title={`Set BUY limit ${p}% below market`}
-                        style={compactGridChipStyle}
-                      >
-                        -{p}%
-                      </button>
-                    ))}
-                  </>
-                ) : (
-                  <>
-                    {gridQuickSteps.map((p) => (
-                      <button
-                        key={p}
-                        className="btn"
-                        type="button"
-                        onClick={() => nudgeManualPricePct(p)}
-                        disabled={!shownGridPrice}
-                        title={`Set SELL limit ${p}% above market`}
-                        style={compactGridChipStyle}
-                      >
-                        +{p}%
-                      </button>
-                    ))}
-                  </>
-                )}
-
-                {!shownGridPrice ? <span className="muted tiny">No live price yet.</span> : null}
-              </div>
-              {manualSide === "BUY" ? (
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr",
-                    gap: isCompactMobile ? 8 : 10,
-                    alignItems: "end",
-                  }}
-                >
+              <div className="gridControls" style={{ border: "1px solid rgba(46,204,113,.18)", borderRadius: 14, padding: "12px", background: "rgba(0,0,0,.10)", minWidth: 0, display: "grid", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10, alignItems: "end" }}>
                   <div className="formRow">
-                    <label>Order mode</label>
-                    <select value={manualBuyMode} onChange={(e) => setManualBuyMode(e.target.value)}>                      <option value="QTY">Token qty</option>
+                    <label>Network</label>
+                    <select value={activeGridChainKey} onChange={(e) => setGridChain(String(e.target.value || "").toUpperCase())}>
+                      {gridWalletChains.map((ck) => <option key={ck} value={ck}>{ck}</option>)}
                     </select>
                   </div>
-
-                  {manualBuyMode === "USD" ? (
-                    <div className="formRow">
-                      <label>Spend (Qty)</label>
-                      <input value={manualUsd} onChange={(e) => setManualUsd(e.target.value)} placeholder="e.g. 300" />
-                      {manualUsd && manualPrice ? (
-                        <div className="muted tiny" style={{ marginTop: 4 }}>
-                          Est. qty ≈ {(Number(manualUsd) > 0 && Number(manualPrice) > 0) ? (Number(manualUsd) / Number(manualPrice)).toFixed(8) : "—"}
-                        </div>
-                      ) : null}
+                  <div className="formRow">
+                    <label>Coin im Vault</label>
+                    <select value={gridItem} onChange={(e) => setGridItem(e.target.value)}>
+                      {gridWalletCoins.filter((c) => !["USDC","USDT","DAI","FRAX","FDUSD","TUSD","PYUSD","USDP","LUSD","GUSD"].includes(String(c || "").toUpperCase())).map((c) => (
+                        <option key={`${activeGridChainKey}:${c}`} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="formRow">
+                    <label>Verfuegbar</label>
+                    <div className="mono" style={{ minHeight: 38, display: "flex", alignItems: "center", padding: "0 10px", borderRadius: 9, border: "1px solid rgba(255,255,255,.10)", background: "rgba(0,0,0,.18)", fontWeight: 900 }}>
+                      {manualVaultAvailableQty.toFixed(6)} {String(gridItem || activeGridChainSymbol || "TOKEN").toUpperCase()}
                     </div>
-                  ) : (
-                    <div className="formRow">
-                      <label>Amount</label>
-                      <input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="e.g. 0.01" />
+                  </div>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10, alignItems: "end" }}>
+                  <div className="formRow">
+                    <label>Einzusetzende Menge</label>
+                    <input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="z. B. 500" />
+                  </div>
+                  <div className="formRow">
+                    <label>Aktueller Preis</label>
+                    <div className="mono" style={{ minHeight: 38, display: "flex", alignItems: "center", padding: "0 10px", borderRadius: 9, border: "1px solid rgba(255,255,255,.10)", background: "rgba(0,0,0,.18)", fontWeight: 900 }}>
+                      {shownGridPrice ? fmtUsd(Number(shownGridPrice)) : "—"}
                     </div>
-                  )}
+                  </div>
+                  <div className="formRow">
+                    <label>Verkaufen bei</label>
+                    <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="z. B. 0.45" />
+                  </div>
                 </div>
-              ) : (
-                <div className="formRow">
-                  <label>Amount</label>
-                  <input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="e.g. 0.01" />
+
+                <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10, alignItems: "end" }}>
+                  <div className="formRow">
+                    <label>Maximaler Verlust (%)</label>
+                    <input value={manualMaxLossPct} onChange={(e) => setManualMaxLossPct(e.target.value)} placeholder="z. B. 15" />
+                  </div>
+                  <div className="formRow">
+                    <label>Auszahlung</label>
+                    <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
+                      <option value="USDC">USDC</option>
+                      <option value="USDT">USDT</option>
+                      <option value={String(gridItem || "TOKEN").toUpperCase()}>{String(gridItem || "Original Token").toUpperCase()}</option>
+                    </select>
+                  </div>
+                  <button className="btn" type="button" onClick={() => addManualOrder()} disabled={!isGridReady || gridBusy.add} style={{ minHeight: 40 }}>
+                    {gridBusy.add ? "Starting..." : "Start Grid"}
+                  </button>
                 </div>
-              )}
 
-              <button
-                className="btn"
-                onClick={addManualOrder}
-                disabled={!isGridReady || gridBusy.add}
-                title={!isPro ? "Subscribe to Nexus Pro to trade" : ""}
-              >
-                {gridBusy.add ? "Adding..." : "Add Order"}
-              </button>
+                <div className="muted tiny">
+                  Grid reserviert nur den ausgewaehlten Token. Es wird keine Kauforder erzeugt. Verkauf erfolgt beim Zielpreis oder bei der festgelegten Verlustgrenze.
+                </div>
+                {errorMsg ? <div style={{ padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(245,193,108,.30)", background: "rgba(245,193,108,.08)", color: "#f5c16c", fontSize: 12 }}>{errorMsg}</div> : null}
+              </div>
 
-              {!token && <div className="muted tiny">Wallet connected. First protected action may require one signature.</div>}
+              {Array.isArray(gridOrders) && gridOrders.length ? (
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div style={{ fontWeight: 900 }}>Aktive Grid-Regeln</div>
+                  {gridOrders.map((o, idx) => {
+                    const oid = idOf(o);
+                    const statusTxt = inferOrderStatus(o);
+                    return <div key={oid || idx} style={{ padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.03)", display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                      <div><b>{String(o?.item || o?.item_id || gridItem || "TOKEN").split(":").pop()}</b> · {fmtQty(Number(o?.qty || 0), 6)} · Ziel {fmtUsd(Number(o?.price || 0))} · Auszahlung {inferOrderPayoutAsset(o)}</div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <span className="pill silver">{statusTxt}</span>
+                        <button className="miniBtn" type="button" onClick={() => statusTxt === "PAUSED" ? resumeGridOrder(oid) : stopGridOrder(oid)}>{statusTxt === "PAUSED" ? "Resume" : "Stop"}</button>
+                        <button className="miniBtn" type="button" onClick={() => deleteGridOrder(oid)} style={{ color: "#ff8a8a" }}>Delete</button>
+                      </div>
+                    </div>;
+                  })}
                 </div>
               ) : null}
-</div>
 
                 <EngineEventHistory engine="GRID" events={gridEventHistory} />
                 </>

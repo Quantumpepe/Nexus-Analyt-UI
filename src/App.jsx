@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.27-ENGINE-228-NKR-SETUP-STATUS-TOTAL-BUDGET-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-230-NKR-PAUSED-SESSION-VISIBLE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -10788,13 +10788,16 @@ useEffect(() => {
       return;
     }
     setNkrAggressiveAcceptedForDraft(false);
-    await applyRunningNkrMode(next);
-  }, [applyRunningNkrMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
+    // Draft selector only: never mutate a running session.
+    setNkrCapitalMode(next);
+    setRotationBudgetReleased(false);
+  }, [setNkrCapitalMode, setRotationBudgetReleased, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
 
   const confirmNkrAggressiveConsent = useCallback(async () => {
     const next = String(nkrAggressivePendingValue || "AGGRESSIVE").toUpperCase();
-    const applied = await applyRunningNkrMode(next);
-    if (!applied) return;
+    // Aggressive confirmation applies only to the next-session draft.
+    setNkrCapitalMode(next);
+    setRotationBudgetReleased(false);
     setNkrAggressiveAcceptedForDraft(true);
     setNkrAggressivePendingValue("");
     setNkrAggressiveConsentOpen(false);
@@ -10816,7 +10819,7 @@ useEffect(() => {
     } catch (e) {
       console.warn("NKR Aggressive warning audit failed", e);
     }
-  }, [nkrAggressivePendingValue, applyRunningNkrMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, wallet, api, rotationBudgetRelease]);
+  }, [nkrAggressivePendingValue, setNkrCapitalMode, setRotationBudgetReleased, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, wallet, api, rotationBudgetRelease]);
 
   const cancelNkrAggressiveConsent = useCallback(() => {
     setNkrAggressiveAcceptedForDraft(false);
@@ -20979,7 +20982,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return { border: "rgba(255,255,255,.12)", bg: cardBg, pill: "silver", color: "rgba(235,255,247,.78)" };
                       };
                       const rotationMaxActive = Math.max(1, Math.floor(Number(String(rotationMaxActiveSessions || "3").replace(",", ".")) || 3));
-                      const NKR_INACTIVE_STATUSES = ["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL", "CAPITAL_RELEASED", "INACTIVE"];
+                      const NKR_INACTIVE_STATUSES = ["STOPPED", "EXPIRED", "CLOSED", "COMPLETE", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL", "CAPITAL_RELEASED", "INACTIVE"]; // ENGINE-230: PAUSED sessions remain visible, especially while an on-chain asset is still open.
                       const rotationVisibleActiveRows = rotationRows.filter((s) => !NKR_INACTIVE_STATUSES.includes(getRotationDerivedStatus(s)));
                       const rotationAllocatableRows = rotationVisibleActiveRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL"].includes(getRotationDerivedStatus(s)));
                       const getNkrSessionWorkingCapitalUsd = (sess) => {
@@ -21331,22 +21334,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   workingCapital ||
                                   0
                                 ) || 0;
-                                const protectedReserveUsdRaw = Number(sess?.nkrCashReserveUsd ?? sess?.meta?.nkr_cash_reserve_usd ?? sess?.protectedReserveUsd ?? sess?.meta?.protected_reserve_usd);
-                                const protectedReserveUsd = Number.isFinite(protectedReserveUsdRaw)
-                                  ? Math.max(0, protectedReserveUsdRaw)
-                                  : Math.max(0, reportedSessionBudgetUsd - workingCapital);
-                                const snapshotBudgetUsd = Number(immutableSessionSnapshot?.budgetUsd || 0) || 0;
-                                const sessionBudgetUsd = Math.max(
-                                  reportedSessionBudgetUsd,
-                                  snapshotBudgetUsd,
-                                  Math.max(0, workingCapital) + Math.max(0, protectedReserveUsd)
-                                );
                                 const reservePctByMode = {
                                   AGGRESSIVE: 10,
                                   DYNAMIC: 20,
                                   TACTICAL: 25,
                                   DEFENSIVE: 35,
                                 };
+                                const protectedReserveUsdRaw = Number(sess?.nkrCashReserveUsd ?? sess?.meta?.nkr_cash_reserve_usd ?? sess?.protectedReserveUsd ?? sess?.meta?.protected_reserve_usd);
+                                const snapshotBudgetUsd = Number(immutableSessionSnapshot?.budgetUsd || 0) || 0;
                                 // ENGINE-227: The Info dialog must show the mode frozen at session start.
                                 // Never let mutable setup/session enrichment overwrite the immutable snapshot.
                                 // For an already-running legacy session, the persisted start mode is preferred
@@ -21360,6 +21355,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   sess?.meta?.capital_mode ||
                                   "UNKNOWN"
                                 ).toUpperCase();
+                                // Recover the true total for legacy live rows that expose working capital only.
+                                const modeReservePct = Number(reservePctByMode[sessionCapitalMode] ?? 0);
+                                const modeAllocationFraction = Math.max(0.01, 1 - (modeReservePct / 100));
+                                const modeDerivedTotalBudgetUsd = workingCapital > 0 ? (workingCapital / modeAllocationFraction) : 0;
+                                const explicitReserveUsd = Number.isFinite(protectedReserveUsdRaw) ? Math.max(0, protectedReserveUsdRaw) : 0;
+                                const sessionBudgetUsd = Math.max(
+                                  reportedSessionBudgetUsd,
+                                  snapshotBudgetUsd,
+                                  modeDerivedTotalBudgetUsd,
+                                  Math.max(0, workingCapital) + explicitReserveUsd
+                                );
+                                const protectedReserveUsd = Number.isFinite(protectedReserveUsdRaw) && protectedReserveUsdRaw > 0
+                                  ? Math.max(0, protectedReserveUsdRaw)
+                                  : Math.max(0, sessionBudgetUsd - workingCapital);
                                 const plannedReservePct = Number(reservePctByMode[sessionCapitalMode] || 0);
                                 const plannedReserveUsd = sessionBudgetUsd > 0 && plannedReservePct > 0
                                   ? (sessionBudgetUsd * plannedReservePct) / 100
@@ -21500,7 +21509,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     background: "rgba(255,255,255,.025)",
                                   }}
                                 >
-                                  No active NKR sessions yet. Approve a NKR budget and select a target to start tracking.
+                                  No active or paused NKR sessions yet. Approve a NKR budget and select a target to start tracking.
                                 </div>
                               )}
                             </div>
@@ -21783,9 +21792,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const activeWorkingCapital = getNkrSessionWorkingCapitalUsd(activeSession) || Number(activeSession?.budgetUsd || 0) || 0;
                       const activeReserveRaw = Number(activeSession?.nkrCashReserveUsd ?? activeSession?.meta?.nkr_cash_reserve_usd ?? activeSession?.protectedReserveUsd ?? activeSession?.meta?.protected_reserve_usd);
                       const activeReserve = Number.isFinite(activeReserveRaw) ? Math.max(0, activeReserveRaw) : 0;
+                      let activePersistedStartMode = "";
+                      try {
+                        activePersistedStartMode = String(window.localStorage.getItem(`nexus_nkr_active_session_mode_v1_${String(wallet || "").toLowerCase()}`) || "").toUpperCase();
+                      } catch {}
+                      const activeStartMode = String(activeSessionSnapshot?.capitalMode || activePersistedStartMode || activeSession?.nkrCapitalMode || activeSession?.meta?.nkr_capital_mode || "DYNAMIC").toUpperCase();
+                      const activeReservePctByMode = { AGGRESSIVE: 10, DYNAMIC: 20, TACTICAL: 25, DEFENSIVE: 35 };
+                      const activeAllocationFraction = Math.max(0.01, 1 - (Number(activeReservePctByMode[activeStartMode] ?? 0) / 100));
+                      const activeModeDerivedTotal = activeWorkingCapital > 0 ? activeWorkingCapital / activeAllocationFraction : 0;
                       const activeTotalBudget = Math.max(
                         Number(activeSession?.nkrTotalBudgetUsd || activeSession?.meta?.nkr_total_budget_usd || activeSession?.sessionBudgetUsd || activeSession?.meta?.session_budget_usd || 0) || 0,
                         Number(activeSessionSnapshot?.budgetUsd || 0) || 0,
+                        activeModeDerivedTotal,
                         Math.max(0, activeWorkingCapital) + Math.max(0, activeReserve)
                       );
                       return (

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-231-NKR-STOP-EXIT-CONTROL-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-233-NKR-ONCHAIN-SESSION-REHYDRATION-SYSTEM-ACTIONS-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -11442,8 +11442,26 @@ useEffect(() => {
         : []);
       const activeIdRaw = String(r?.activeRotationSessionId || "").trim();
       const activeId = deletedIds.has(activeIdRaw) ? "" : activeIdRaw;
-      setRotationSessions(sessions);
-      setActiveRotationSessionId(activeId || (sessions[0]?.id ? String(sessions[0].id) : ""));
+      // ENGINE-232: Never erase a paused/stopping/stopped session card merely because
+      // the backend active-session endpoint temporarily returns an empty list. A user must
+      // still see the session until the open asset is sold and the session is truly FINALIZED.
+      setRotationSessions((prev) => {
+        const previous = Array.isArray(prev) ? prev : [];
+        if (sessions.length) return sessions;
+        const retained = previous.filter((sess) => {
+          const st = String(sess?.status || sess?.state || sess?.lifecycleState || "").toUpperCase();
+          const openQty = Number(sess?.positionQty ?? sess?.openAssetQty ?? sess?.assetQty ?? sess?.meta?.position_qty ?? sess?.meta?.open_asset_qty ?? 0);
+          const hasOpenAsset = openQty > 0 || Boolean(sess?.positionOpen || sess?.openPosition || sess?.meta?.position_open || sess?.meta?.open_position);
+          return hasOpenAsset || ["PAUSED", "STOPPING", "STOPPED", "EXITING", "CLOSING", "EXIT_FAILED"].includes(st);
+        }).map((sess) => ({
+          ...sess,
+          status: ["STOPPED", "STOPPING", "CLOSING"].includes(String(sess?.status || "").toUpperCase()) ? "STOPPING" : sess?.status,
+          lifecycleState: ["STOPPED", "STOPPING", "CLOSING"].includes(String(sess?.lifecycleState || sess?.status || "").toUpperCase()) ? "STOPPING" : sess?.lifecycleState,
+          meta: { ...(sess?.meta || {}), nkr_retained_until_exit_confirmed: true },
+        }));
+        return retained;
+      });
+      setActiveRotationSessionId((prevId) => activeId || (sessions[0]?.id ? String(sessions[0].id) : prevId));
     } catch (e) {
       console.warn("rotation session sync failed", e);
     } finally {
@@ -20936,7 +20954,52 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="gridWrap rotationDesktopWrap" style={{ gridTemplateColumns: "1fr", width: "100%" }}>
                   <div className="gridControls" style={{ display: "grid", gap: 10 }}>
                     {(() => {
-                      const rotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
+                      const localRotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
+                      // ENGINE-233: Rehydrate relevant CoreVault sessions into the normal NKR list.
+                      // A PAUSED/CLOSING on-chain session with open assets must remain visible even
+                      // when the local runtime row was lost after a restart or user stop.
+                      const localOnChainIds = new Set(localRotationRows.map((row) => String(
+                        row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? ""
+                      )).filter(Boolean));
+                      const onChainRotationRows = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+                        .filter((row) => {
+                          const st = String(row?.statusLabel || "").toUpperCase();
+                          const openCount = Number(row?.openAssetCount || 0) || 0;
+                          return (openCount > 0 || ["ACTIVE", "PAUSED", "CLOSING"].includes(st)) && !localOnChainIds.has(String(row?.sessionId || ""));
+                        })
+                        .map((row) => {
+                          const budgetUnits = Number(row?.budgetUnits || 0) || 0;
+                          const settlementUnits = Number(row?.settlementCashUnits || 0) || 0;
+                          const budgetUsd = budgetUnits / 1e6;
+                          const settlementUsd = settlementUnits / 1e6;
+                          return {
+                            id: `COREVAULT-${row.sessionId}`,
+                            session_id: `COREVAULT-${row.sessionId}`,
+                            onchainSessionId: Number(row.sessionId),
+                            chain: "ETHEREUM",
+                            baseAsset: "USDC",
+                            payoutAsset: "USDC",
+                            targetAsset: Number(row?.openAssetCount || 0) > 0 ? "ETH" : "WAITING",
+                            positionAsset: Number(row?.openAssetCount || 0) > 0 ? "ETH" : "WAITING",
+                            status: String(row?.statusLabel || "PAUSED").toUpperCase(),
+                            budgetUsd,
+                            workingCapitalUsd: Math.max(0, budgetUsd - settlementUsd),
+                            positionValueUsd: Math.max(0, budgetUsd - settlementUsd),
+                            exitReason: Number(row?.openAssetCount || 0) > 0
+                              ? "On-chain CoreVault position remains open. Resume or Stop & Exit is required."
+                              : "On-chain CoreVault session is waiting for finalization.",
+                            meta: {
+                              onchain_session_id: Number(row.sessionId),
+                              core_vault_session_id: Number(row.sessionId),
+                              open_asset_count: Number(row?.openAssetCount || 0),
+                              reconstructed_from_onchain: true,
+                              nkr_exit_reason: Number(row?.openAssetCount || 0) > 0
+                                ? "On-chain CoreVault position remains open. Resume or Stop & Exit is required."
+                                : "On-chain CoreVault session is waiting for finalization."
+                            }
+                          };
+                        });
+                      const rotationRows = [...localRotationRows, ...onChainRotationRows];
                       const rotationNow = Number(tradingRuntimeNowMs || Date.now());
                       const fmtRotationDuration = (ms) => {
                         const totalMin = Math.max(0, Math.floor(Number(ms || 0) / 60000));
@@ -20957,6 +21020,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       };
                       const getRotationDisplayStatus = (sess) => {
                         const derived = getRotationDerivedStatus(sess);
+                        if (["STOPPING", "CLOSING"].includes(derived)) return "EXITING";
                         if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "PROTECTED", "RELEASED", "REBALANCED_OUT"].includes(derived)) {
                           return derived === "CLOSED" ? "COMPLETE" : derived;
                         }
@@ -20964,7 +21028,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         if (["WAIT_NET_EDGE", "SEARCHING", "READY", "WAIT", "WAIT_SCORE"].includes(action)) return "WAITING";
                         if (["READY_DISPATCHED", "EXECUTOR_ACTIVE", "DISPATCHED"].includes(action)) return "EXECUTOR";
                         if (["ROTATION_OPEN", "POSITION_OPEN", "OPEN"].includes(action)) return "OPEN";
-                        if (["EXIT_PENDING", "EXITING"].includes(action)) return "EXITING";
+                        if (["EXIT_PENDING", "EXITING", "STOPPING", "CLOSING", "STOP_EXIT"].includes(action)) return "EXITING";
                         if (["USER_PAUSED"].includes(action)) return "PAUSED";
                         if (["SESSION_COMPLETE"].includes(action)) return "COMPLETE";
                         if (["PROTECTED"].includes(action)) return "PROTECTED";
@@ -20982,7 +21046,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return { border: "rgba(255,255,255,.12)", bg: cardBg, pill: "silver", color: "rgba(235,255,247,.78)" };
                       };
                       const rotationMaxActive = Math.max(1, Math.floor(Number(String(rotationMaxActiveSessions || "3").replace(",", ".")) || 3));
-                      const NKR_INACTIVE_STATUSES = ["STOPPED", "EXPIRED", "CLOSED", "COMPLETE", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL", "CAPITAL_RELEASED", "INACTIVE"]; // ENGINE-230: PAUSED sessions remain visible, especially while an on-chain asset is still open.
+                      const NKR_INACTIVE_STATUSES = ["EXPIRED", "CLOSED", "COMPLETE", "FINALIZED", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL", "CAPITAL_RELEASED", "INACTIVE"]; // ENGINE-232: PAUSED/STOPPING/STOPPED remain visible until the exit is confirmed and the session is FINALIZED.
                       const rotationVisibleActiveRows = rotationRows.filter((s) => !NKR_INACTIVE_STATUSES.includes(getRotationDerivedStatus(s)));
                       const rotationAllocatableRows = rotationVisibleActiveRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL"].includes(getRotationDerivedStatus(s)));
                       const getNkrSessionWorkingCapitalUsd = (sess) => {
@@ -21486,13 +21550,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         >Info</button>
                                         {sessionStatus === "STOPPED" ? (
                                           <>
-                                            <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl("RESUME", { sessionId: String(sess?.id || sess?.session_id || "") })}>Resume</button>
-                                            <button className="miniBtn danger" type="button" title="Delete this stopped NKR session forever from the wallet-bound backend state." onClick={() => applyNkrBackendControl("DELETE", { sessionId: String(sess?.id || sess?.session_id || "") })}>Delete</button>
+                                            <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl("RESUME", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>Resume</button>
+                                            <button className="miniBtn danger" type="button" title="Delete this stopped NKR session forever from the wallet-bound backend state." onClick={() => applyNkrBackendControl("DELETE", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>Delete</button>
                                           </>
                                         ) : (
                                           <>
-                                            <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: String(sess?.id || sess?.session_id || "") })}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
-                                            <button className="miniBtn danger" type="button" onClick={() => applyNkrBackendControl("STOP_EXIT", { sessionId: String(sess?.id || sess?.session_id || "") })}>Stop & Exit</button>
+                                            <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
+                                            <button className="miniBtn danger" type="button" onClick={() => applyNkrBackendControl("STOP_EXIT", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>Stop & Exit</button>
                                           </>
                                         )}
                                       </div>
@@ -21509,7 +21573,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     background: "rgba(255,255,255,.025)",
                                   }}
                                 >
-                                  No active or paused NKR sessions yet. Approve a NKR budget and select a target to start tracking.
+                                  No active, paused or stopping NKR sessions yet. Approve a NKR budget and select a target to start tracking.
                                 </div>
                               )}
                             </div>
@@ -26290,6 +26354,20 @@ export default function App() {
                               <span className="muted">Raw contract status</span><span>{s.rawStatusId ?? s.statusId} ({s.statusLabel || "UNKNOWN"})</span>
                               <span className="muted">Recovery</span><span>{s.recoverable ? "READY" : "NOT REQUIRED / BLOCKED"}</span>
                             </div>
+                            {["ACTIVE", "PAUSED", "CLOSING"].includes(String(s.statusLabel || "").toUpperCase()) ? (
+                              <div style={{ marginTop: 7, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {String(s.statusLabel || "").toUpperCase() === "PAUSED" ? (
+                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || rotationBackendBusy} onClick={async () => { await applyNkrBackendControl("RESUME", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 900); }}>Resume</button>
+                                ) : String(s.statusLabel || "").toUpperCase() === "ACTIVE" ? (
+                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || rotationBackendBusy} onClick={async () => { await applyNkrBackendControl("PAUSE", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 900); }}>Pause</button>
+                                ) : null}
+                                {Number(s.openAssetCount || 0) > 0 ? (
+                                  <button type="button" className="miniBtn danger" disabled={!!ownerAdminBusy || rotationBackendBusy} onClick={async () => { await applyNkrBackendControl(String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "RETRY_EXIT" : "STOP_EXIT", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 1200); }}>
+                                    {String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "Retry Exit" : "Stop & Exit"}
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
                             {s.recoverable ? <div style={{ marginTop: 7 }}>
                               <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={() => _recoverStaleNkrReservation(s.sessionId)}>
                                 {ownerAdminBusy === `Stale NKR recovery ${s.sessionId}` ? `Processing session #${s.sessionId}...` : `Finalize session #${s.sessionId}`}

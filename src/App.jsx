@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-242-NKR-EXACT-SESSION-BUDGET-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-243-COMPARE-SELECTION-NO-EMPTY-SERVER-OVERWRITE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -11350,13 +11350,17 @@ useEffect(() => {
       const serverSig = sig(serverCompare, serverTf, serverIndex, serverAi);
       const localSig = sig(localCompare, timeframe, indexMode, localAi);
 
-      // Backend is the cross-device source of truth. Do not upload local state during hydration.
-      // A server empty state is authoritative too; localStorage must never resurrect old symbols or settings.
+      // Compare selections must survive refreshes and temporary/partial backend state.
+      // An empty server compare array is NOT allowed to erase a non-empty wallet-local selection.
+      // This was the cause of the disappearing checkboxes: the 10s app-state refresh applied [],
+      // then the local persistence effect saved that empty array over the wallet key as well.
+      const effectiveServerCompare = serverCompare.length ? serverCompare : localCompare;
+      const effectiveServerSig = sig(effectiveServerCompare, serverTf, serverIndex, serverAi);
       const serverIsAuthoritative = serverUpdatedTs > 0 || hasServer || !hasLocal;
       if (serverIsAuthoritative) {
         appStateApplyingServerRef.current = true;
-        if (serverSig !== localSig) {
-          setCompareSet(serverCompare);
+        if (effectiveServerSig !== localSig) {
+          setCompareSet(effectiveServerCompare);
           setTimeframe(serverTf || "90D");
           setIndexMode(!!serverIndex);
           setAiSelected(serverAi);

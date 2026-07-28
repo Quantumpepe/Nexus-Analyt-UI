@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-234-COREVAULT-PREVIEW-REFERENCE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-235-ONCHAIN-REFRESH-FILTER-AND-SYSTEM-INFO-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -20954,10 +20954,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="gridWrap rotationDesktopWrap" style={{ gridTemplateColumns: "1fr", width: "100%" }}>
                   <div className="gridControls" style={{ display: "grid", gap: 10 }}>
                     {(() => {
-                      const localRotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
-                      // ENGINE-233: Rehydrate relevant CoreVault sessions into the normal NKR list.
-                      // A PAUSED/CLOSING on-chain session with open assets must remain visible even
-                      // when the local runtime row was lost after a restart or user stop.
+                      // ENGINE-235: The live NKR list is not a history view. Keep only sessions
+                      // that are genuinely running, paused with capital/positions, closing, or still
+                      // have an on-chain open asset. Finalized, empty and placeholder rows stay only
+                      // in System Info.
+                      const isRelevantLiveRotationRow = (row) => {
+                        const st = String(row?.status || row?.statusLabel || "").toUpperCase();
+                        const openCount = Number(row?.openAssetCount ?? row?.open_asset_count ?? row?.meta?.open_asset_count ?? 0) || 0;
+                        const positionValue = Number(row?.positionValueUsd ?? row?.position_value_usd ?? row?.workingCapitalUsd ?? row?.working_capital_usd ?? 0) || 0;
+                        const target = String(row?.targetAsset || row?.positionAsset || row?.asset || "").toUpperCase();
+                        const hasRealAsset = !!target && !["ASSET", "WAITING", "NONE", "—"].includes(target);
+                        if (["FINALIZED", "COMPLETE", "COMPLETED", "CLOSED", "RELEASED", "REBALANCED_OUT", "DELETED"].includes(st)) return false;
+                        if (["ACTIVE", "RUNNING", "APPROVED", "EXECUTOR", "OPEN", "CLOSING", "STOPPING", "EXITING"].includes(st)) return true;
+                        if (["PAUSED", "STOPPED"].includes(st)) return openCount > 0 || positionValue > 0 || hasRealAsset;
+                        return openCount > 0;
+                      };
+                      const rawLocalRotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
+                      const localRotationRows = rawLocalRotationRows.filter(isRelevantLiveRotationRow);
                       const localOnChainIds = new Set(localRotationRows.map((row) => String(
                         row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? ""
                       )).filter(Boolean));
@@ -20965,7 +20978,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         .filter((row) => {
                           const st = String(row?.statusLabel || "").toUpperCase();
                           const openCount = Number(row?.openAssetCount || 0) || 0;
-                          return (openCount > 0 || ["ACTIVE", "PAUSED", "CLOSING"].includes(st)) && !localOnChainIds.has(String(row?.sessionId || ""));
+                          const relevant = openCount > 0 || ["ACTIVE", "PAUSED", "CLOSING"].includes(st);
+                          const emptyPaused = st === "PAUSED" && openCount <= 0 && Number(row?.settlementCashUnits || 0) <= 0;
+                          return relevant && !emptyPaused && !localOnChainIds.has(String(row?.sessionId || ""));
                         })
                         .map((row) => {
                           const budgetUnits = Number(row?.budgetUnits || 0) || 0;
@@ -20999,7 +21014,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }
                           };
                         });
-                      const rotationRows = [...localRotationRows, ...onChainRotationRows];
+                      const rotationRows = Array.from(new Map(
+                        [...localRotationRows, ...onChainRotationRows].map((row) => {
+                          const key = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? row?.id ?? row?.session_id ?? "");
+                          return [key || `local-${Math.random()}`, row];
+                        })
+                      ).values());
                       const rotationNow = Number(tradingRuntimeNowMs || Date.now());
                       const fmtRotationDuration = (ms) => {
                         const totalMin = Math.max(0, Math.floor(Number(ms || 0) / 60000));
@@ -21551,7 +21571,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         {sessionStatus === "STOPPED" ? (
                                           <>
                                             <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl("RESUME", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>Resume</button>
-                                            <button className="miniBtn danger" type="button" title="Delete this stopped NKR session forever from the wallet-bound backend state." onClick={() => applyNkrBackendControl("DELETE", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>Delete</button>
+                                            <button className="miniBtn danger" type="button" onClick={() => applyNkrBackendControl("STOP_EXIT", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>Stop &amp; Exit</button>
                                           </>
                                         ) : (
                                           <>
@@ -26357,12 +26377,12 @@ export default function App() {
                             {["ACTIVE", "PAUSED", "CLOSING"].includes(String(s.statusLabel || "").toUpperCase()) ? (
                               <div style={{ marginTop: 7, display: "flex", gap: 6, flexWrap: "wrap" }}>
                                 {String(s.statusLabel || "").toUpperCase() === "PAUSED" ? (
-                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || rotationBackendBusy} onClick={async () => { await applyNkrBackendControl("RESUME", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 900); }}>Resume</button>
+                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl("RESUME", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 900); }}>Resume</button>
                                 ) : String(s.statusLabel || "").toUpperCase() === "ACTIVE" ? (
-                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || rotationBackendBusy} onClick={async () => { await applyNkrBackendControl("PAUSE", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 900); }}>Pause</button>
+                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl("PAUSE", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 900); }}>Pause</button>
                                 ) : null}
                                 {Number(s.openAssetCount || 0) > 0 ? (
-                                  <button type="button" className="miniBtn danger" disabled={!!ownerAdminBusy || rotationBackendBusy} onClick={async () => { await applyNkrBackendControl(String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "RETRY_EXIT" : "STOP_EXIT", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 1200); }}>
+                                  <button type="button" className="miniBtn danger" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl(String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "RETRY_EXIT" : "STOP_EXIT", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 1200); }}>
                                     {String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "Retry Exit" : "Stop & Exit"}
                                   </button>
                                 ) : null}

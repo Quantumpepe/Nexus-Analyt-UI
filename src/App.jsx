@@ -20780,29 +20780,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <Help showClose dismissable
                   de={
                     <>
-                      <p><b>Grid Trader</b> is the shared order area for <b>Nexus Grid</b>, <b>Nexus NKR</b>, and <b>Nexus Trading</b>.</p>
-                      <p>All three areas use the same clean order flow. Stop, Delete and Resume stay wallet-bound and synchronized.</p>
+                      <p><b>Grid Trader</b> ist der gemeinsame Order-Bereich für <b>Nexus Grid</b>, <b>Nexus NKR</b> und <b>Nexus Trading</b>.</p>
+                      <p>Alle drei Bereiche verwenden denselben übersichtlichen Order-Ablauf. Stoppen, Löschen und Fortsetzen bleiben an das Wallet gebunden und werden synchronisiert.</p>
 
-                      <p><b>Budget System:</b> The budget is the maximum amount the selected mode may use. Nexus Trading may not use more capital than the user has approved.</p>
-                      <p><b>Slot System:</b> The budget is divided into tactical slots. Each slot has its own priority and may wait, activate, or remain blocked depending on confidence, liquidity, risk, and market structure.</p>
+                      <p><b>Budget-System:</b> Das Budget ist der maximale Betrag, den der ausgewählte Modus verwenden darf. Nexus Trading darf nicht mehr Kapital einsetzen, als der Benutzer freigegeben hat.</p>
+                      <p><b>Slot-System:</b> Das Budget wird in taktische Slots aufgeteilt. Jeder Slot besitzt eine eigene Priorität und kann abhängig von Konfidenz, Liquidität, Risiko und Marktstruktur warten, aktiviert werden oder blockiert bleiben.</p>
 
-                      <p><b>Slot Colors:</b></p>
-                      <p><b style={{ color: '#21d07a' }}>Green / ACTIVE:</b> Conditions are strong enough. The slot is ready or active.</p>
-                      <p><b style={{ color: '#ffc107' }}>Yellow / WAIT:</b> The direction is interesting, but confirmation is still missing. The AI keeps monitoring and waits for better conditions.</p>
-                      <p><b style={{ color: '#ff6b6b' }}>Red / BLOCKED:</b> Risk, confidence, or liquidity are not good enough. The AI blocks the slot instead of taking a weak entry.</p>
+                      <p><b>Slot-Farben:</b></p>
+                      <p><b style={{ color: '#21d07a' }}>Grün / ACTIVE:</b> Die Bedingungen sind ausreichend stark. Der Slot ist bereit oder aktiv.</p>
+                      <p><b style={{ color: '#ffc107' }}>Gelb / WAIT:</b> Die Richtung ist interessant, aber eine Bestätigung fehlt noch. Die KI überwacht den Markt weiter und wartet auf bessere Bedingungen.</p>
+                      <p><b style={{ color: '#ff6b6b' }}>Rot / BLOCKED:</b> Risiko, Konfidenz oder Liquidität sind nicht ausreichend. Die KI blockiert den Slot, anstatt einen schwachen Einstieg auszuführen.</p>
 
-                      <p><b>Nexus Grid:</b> A simple exit manager for tokens you already own. You choose the network, coin, amount, sell target, maximum loss, and payout asset. Grid does not buy assets, search for assets, or use the Strategist.</p>
-                      <p><b>Before Starting:</b> Tokens must first be deposited into the <b>Core Vault</b>. Only then do they appear under “Coin in Vault” and become available for a Grid rule. Tokens held only in the connected wallet cannot be used by Grid.</p>
-                      <p><b>Process:</b> Grid reserves only the selected token amount, monitors the price, and sells at the target price or the defined loss limit. No buy order is created.</p>
+                      <p><b>Nexus Grid:</b> Ein einfacher Exit-Manager für Token, die du bereits besitzt. Du bestimmst Netzwerk, Coin, Menge, Verkaufsziel, maximalen Verlust und Auszahlungs-Asset. Grid kauft keine Assets, sucht keine Assets und verwendet den Strategist nicht.</p>
+                      <p><b>Vor dem Start:</b> Die Token müssen zuerst in den <b>Core Vault</b> eingezahlt werden. Erst danach erscheinen sie unter „Coin in Vault“ und können für eine Grid-Regel verwendet werden. Token, die sich nur im verbundenen Wallet befinden, können von Grid nicht genutzt werden.</p>
+                      <p><b>Ablauf:</b> Grid reserviert nur die ausgewählte Token-Menge, überwacht den Preis und verkauft beim festgelegten Zielpreis oder beim definierten Verlustlimit. Es wird keine Kauforder erstellt.</p>
 
-                      <p><b>Nexus NKR:</b> Capital rotation. Nexus NKR continuously monitors the watchlist, uses the strongest market opportunities, may stop weak sessions, and can rotate capital toward stronger assets. The selected session count is a maximum, not a required number.</p>
+                      <p><b>Nexus NKR:</b> Kapitalrotation. Nexus NKR überwacht fortlaufend die Watchlist, nutzt die stärksten Marktchancen, kann schwache Sessions stoppen und Kapital zu stärkeren Assets rotieren. Die ausgewählte Anzahl Sessions ist ein Maximum und keine Pflichtanzahl.</p>
 
-                      <p><b>Nexus Trading:</b> An autonomous trading mode after budget approval. You define the budget, slots, runtime, style, allowed assets and chains, risk mode, drawdown, profit lock, slippage, and maximum trades. Nexus Trading then operates independently within those limits.</p>
-                      <p><b>HOLD / OBSERVE:</b> After a risk exit, protection event, or stop, capital is protected first. HOLD is a minimum protection period of 1–12 hours. After it ends, Nexus does not re-enter blindly; the Strategist continues to evaluate market structure, liquidity, RVOL, and risk.</p>
-                      <p><b>No Blind Re-entry:</b> If the market remains weak after HOLD, the slot stays in OBSERVE. After the maximum observation period, the user must release the capital again before Nexus Trading may reallocate it.</p>
-                      <p><b>Important:</b> WAIT or BLOCKED is not an error. It means the system prefers to wait or block when quality and risk are not suitable. No trade is better than a bad trade.</p>
+                      <p><b>Nexus Trading:</b> Ein autonomer Trading-Modus nach der Budgetfreigabe. Du definierst Budget, Slots, Laufzeit, Stil, erlaubte Assets und Chains, Risikomodus, Drawdown, Profit Lock, Slippage und maximale Trades. Danach arbeitet Nexus Trading innerhalb dieser Grenzen selbstständig.</p>
+                      <p><b>HOLD / OBSERVE:</b> Nach einem Risk Exit, Schutzereignis oder Stop wird das Kapital zuerst geschützt. HOLD ist eine minimale Schutzdauer von 1–12 Stunden. Danach steigt Nexus nicht blind wieder ein; der Strategist bewertet weiterhin Marktstruktur, Liquidität, RVOL und Risiko.</p>
+                      <p><b>Kein blinder Wiedereinstieg:</b> Bleibt der Markt nach HOLD schwach, bleibt der Slot in OBSERVE. Nach Ablauf der maximalen Beobachtungszeit muss der Benutzer das Kapital erneut freigeben, bevor Nexus Trading es wieder zuweisen darf.</p>
+                      <p><b>Wichtig:</b> WAIT oder BLOCKED ist kein Fehler. Das System wartet oder blockiert bewusst, wenn Qualität und Risiko nicht geeignet sind. Kein Trade ist besser als ein schlechter Trade.</p>
 
-                      <p><b>Payout:</b> Before starting, you choose whether the sale proceeds remain in the Vault as USDC, USDT, or — with an explicitly defined buy-back rule — return to the original token.</p>
+                      <p><b>Auszahlung:</b> Vor dem Start bestimmst du, ob der Verkaufserlös als USDC oder USDT im Vault verbleibt oder – mit einer ausdrücklich definierten Rückkaufregel – wieder in den ursprünglichen Token zurückgeführt wird.</p>
                     </>
                   }
                   en={

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-238-FINALIZED-SESSION-TOMBSTONE-COMPARE-PERSISTENCE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-239-WALLET-COMPARE-ACCESS-RELIABILITY-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -6341,23 +6341,37 @@ const byChain = {};
   }, [ratingStatus]);
 
 
-  const compareStorageKey = useMemo(() => `nexus_compare_symbols_v2_${String(resolveWalletAddress(wallet) || wallet || "guest").toLowerCase()}`, [wallet]);
-  const [compareSet, setCompareSet] = useState(() => {
-    try {
-      const raw = localStorage.getItem(`nexus_compare_symbols_v2_${String(resolveWalletAddress(wallet) || wallet || "guest").toLowerCase()}`);
-      const arr = JSON.parse(raw || "[]");
-      return Array.isArray(arr) ? arr.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
-    } catch { return []; }
-  });
+  // Compare selections are wallet-bound. Hydrate the exact wallet key before any write,
+  // otherwise the transient "guest" render during Privy startup can overwrite a saved wallet selection.
+  const compareWalletKey = String(resolveWalletAddress(wallet) || wallet || "").toLowerCase();
+  const compareStorageKey = useMemo(
+    () => compareWalletKey ? `nexus_compare_symbols_v3_wallet_${compareWalletKey}` : "nexus_compare_symbols_v3_guest",
+    [compareWalletKey]
+  );
+  const compareHydratedKeyRef = useRef("");
+  const [compareSet, setCompareSet] = useState([]);
+
   useEffect(() => {
+    let next = [];
     try {
       const raw = localStorage.getItem(compareStorageKey);
       const arr = JSON.parse(raw || "[]");
-      if (Array.isArray(arr) && arr.length) setCompareSet(arr.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20));
+      next = Array.isArray(arr)
+        ? arr.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20)
+        : [];
     } catch {}
+    compareHydratedKeyRef.current = compareStorageKey;
+    setCompareSet(next); // empty is authoritative too; never retain another wallet's selection
   }, [compareStorageKey]);
+
   useEffect(() => {
-    try { localStorage.setItem(compareStorageKey, JSON.stringify((compareSet || []).map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20))); } catch {}
+    if (compareHydratedKeyRef.current !== compareStorageKey) return;
+    try {
+      localStorage.setItem(
+        compareStorageKey,
+        JSON.stringify((compareSet || []).map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20))
+      );
+    } catch {}
   }, [compareSet, compareStorageKey]);
   const compareSymbols = useMemo(() => {
     const uniq = [];
@@ -6499,24 +6513,62 @@ const byChain = {};
   const [autoRenewBusy, setAutoRenewBusy] = useState(false);
   const [autoRenewMsg, setAutoRenewMsg] = useState("");
 
-  const refreshAccess = useCallback(async () => {
-    if (!wallet) {
-      setAccess(null);
-      return;
-    }
+  const accessWalletKey = String(resolveWalletAddress(wallet) || wallet || "").toLowerCase();
+  const accessCacheKey = accessWalletKey ? `nexus_access_status_v2_${accessWalletKey}` : "";
+  const accessRefreshBusyRef = useRef(false);
+
+  // Restore the last verified access result immediately while the live request is loading.
+  useEffect(() => {
+    if (!accessCacheKey) return;
     try {
-      const res = await api(`/api/access/status?addr=${encodeURIComponent(wallet)}`);
-      const active = (res && res.active !== undefined) ? !!res.active : !!(res && res.plan && res.plan !== "free");
-      setAccess(res ? { ...res, active } : null);
-    } catch (e) {
-      console.warn("access/status failed", e);
-      // keep previous state
+      const cached = JSON.parse(localStorage.getItem(accessCacheKey) || "null");
+      if (cached && typeof cached === "object") setAccess(cached);
+    } catch {}
+  }, [accessCacheKey]);
+
+  const refreshAccess = useCallback(async ({ retries = 2 } = {}) => {
+    const addr = String(resolveWalletAddress(wallet) || wallet || "").trim();
+    if (!addr || accessRefreshBusyRef.current) return false;
+    accessRefreshBusyRef.current = true;
+    try {
+      let lastErr = null;
+      for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+          const res = await api(`/api/access/status?addr=${encodeURIComponent(addr)}`, { wallet: addr });
+          const active = (res && res.active !== undefined) ? !!res.active : !!(res && res.plan && res.plan !== "free");
+          const normalized = res ? { ...res, active, verified_at: Date.now() } : { active: false, verified_at: Date.now() };
+          setAccess(normalized);
+          try { localStorage.setItem(`nexus_access_status_v2_${addr.toLowerCase()}`, JSON.stringify(normalized)); } catch {}
+          return true;
+        } catch (e) {
+          lastErr = e;
+          if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+        }
+      }
+      console.warn("access/status failed after retries", lastErr);
+      return false; // keep last verified/cached status; never flicker to OFF because of a timeout
+    } finally {
+      accessRefreshBusyRef.current = false;
     }
   }, [wallet, api]);
 
   useEffect(() => {
-    refreshAccess();
-  }, [refreshAccess]);
+    if (!accessWalletKey) return;
+    refreshAccess({ retries: 3 });
+    const onFocus = () => refreshAccess({ retries: 1 });
+    const onOnline = () => refreshAccess({ retries: 2 });
+    const onVisible = () => { if (document.visibilityState === "visible") refreshAccess({ retries: 1 }); };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
+    const timer = window.setInterval(() => refreshAccess({ retries: 1 }), 60000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(timer);
+    };
+  }, [accessWalletKey, refreshAccess]);
 
   // Pro access: subscription or redeem code
   const isPro = !!(access?.active);

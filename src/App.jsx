@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-237-EXIT-PENDING-AND-REFRESH-INDEPENDENCE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-238-FINALIZED-SESSION-TOMBSTONE-COMPARE-PERSISTENCE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -6341,7 +6341,24 @@ const byChain = {};
   }, [ratingStatus]);
 
 
-  const [compareSet, setCompareSet] = useState([]);
+  const compareStorageKey = useMemo(() => `nexus_compare_symbols_v2_${String(resolveWalletAddress(wallet) || wallet || "guest").toLowerCase()}`, [wallet]);
+  const [compareSet, setCompareSet] = useState(() => {
+    try {
+      const raw = localStorage.getItem(`nexus_compare_symbols_v2_${String(resolveWalletAddress(wallet) || wallet || "guest").toLowerCase()}`);
+      const arr = JSON.parse(raw || "[]");
+      return Array.isArray(arr) ? arr.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(compareStorageKey);
+      const arr = JSON.parse(raw || "[]");
+      if (Array.isArray(arr) && arr.length) setCompareSet(arr.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20));
+    } catch {}
+  }, [compareStorageKey]);
+  useEffect(() => {
+    try { localStorage.setItem(compareStorageKey, JSON.stringify((compareSet || []).map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20))); } catch {}
+  }, [compareSet, compareStorageKey]);
   const compareSymbols = useMemo(() => {
     const uniq = [];
     for (const s of compareSet || []) {
@@ -7916,6 +7933,36 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [traderEventHistory, setTraderEventHistory] = useState([]);
   const [activeTradingSessionId, setActiveTradingSessionId] = useState("");
   const [rotationSessions, setRotationSessions] = useState([]);
+  const finalizedNkrStorageKey = useMemo(() => `nexus_nkr_finalized_onchain_v1_${String(resolveWalletAddress(wallet) || wallet || "guest").toLowerCase()}`, [wallet]);
+  const readFinalizedNkrIds = useCallback(() => {
+    try {
+      const arr = JSON.parse(localStorage.getItem(finalizedNkrStorageKey) || "[]");
+      return new Set((Array.isArray(arr) ? arr : []).map((x) => String(x)));
+    } catch { return new Set(); }
+  }, [finalizedNkrStorageKey]);
+  useEffect(() => {
+    const sessions = Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [];
+    if (!sessions.length) return;
+    const finalized = readFinalizedNkrIds();
+    for (const row of sessions) {
+      const st = String(row?.statusLabel || row?.status || "").toUpperCase();
+      const openCount = Number(row?.openAssetCount ?? row?.open_asset_count ?? 0) || 0;
+      if (["FINALIZED", "COMPLETE", "COMPLETED", "CLOSED"].includes(st) && openCount <= 0) finalized.add(String(row?.sessionId ?? row?.session_id ?? ""));
+    }
+    finalized.delete("");
+    try { localStorage.setItem(finalizedNkrStorageKey, JSON.stringify(Array.from(finalized))); } catch {}
+    if (finalized.size) {
+      setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).filter((row) => {
+        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
+        return !sid || !finalized.has(sid);
+      }));
+      setActiveRotationSessionId((prev) => {
+        const row = (Array.isArray(rotationSessions) ? rotationSessions : []).find((x) => String(x?.id || x?.session_id || "") === String(prev || ""));
+        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
+        return sid && finalized.has(sid) ? "" : prev;
+      });
+    }
+  }, [coreVaultSessionPreview, finalizedNkrStorageKey, readFinalizedNkrIds]);
   const [nkrExitUiState, setNkrExitUiState] = useState({});
   const [activeRotationSessionId, setActiveRotationSessionId] = useState("");
   const [gridUiHydrated, setGridUiHydrated] = useState(false);
@@ -11216,12 +11263,22 @@ useEffect(() => {
       // A fresh/restarted backend can temporarily have no saved app-state row. In that
       // case it must not erase the user's visible Compare selection. Recover from the
       // current watchlist only when the server truly has no persisted state.
-      if (!serverCompare.length && Number(r?.updated_ts || 0) === 0) {
-        const recovered = (Array.isArray(watchItems) ? watchItems : [])
-          .map((x) => String((x && typeof x === "object" ? (x.symbol || x.ticker || x.code) : x) || "").toUpperCase().trim())
-          .filter(Boolean)
-          .slice(0, 20);
-        if (recovered.length) serverCompare = recovered;
+      if (!serverCompare.length) {
+        let persistedCompare = [];
+        try {
+          const raw = localStorage.getItem(compareStorageKey);
+          const parsed = JSON.parse(raw || "[]");
+          persistedCompare = Array.isArray(parsed) ? parsed.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20) : [];
+        } catch {}
+        if (persistedCompare.length) {
+          serverCompare = persistedCompare;
+        } else if (Number(r?.updated_ts || 0) === 0) {
+          const recovered = (Array.isArray(watchItems) ? watchItems : [])
+            .map((x) => String((x && typeof x === "object" ? (x.symbol || x.ticker || x.code) : x) || "").toUpperCase().trim())
+            .filter(Boolean)
+            .slice(0, 20);
+          if (recovered.length) serverCompare = recovered;
+        }
       }
       const serverTf = String(state?.timeframe || "90D").toUpperCase();
       const serverIndex = state?.indexMode == null ? true : !!state.indexMode;
@@ -11306,7 +11363,7 @@ useEffect(() => {
       appStateSyncBusyRef.current = false;
       setTimeout(() => { appStateApplyingServerRef.current = false; }, 0);
     }
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, appStateSyncedWallet, setAppStateSyncedWallet, storeAppStateServerTs, compareStorageKey]);
 
   useEffect(() => {
     syncAppStateFromServer();
@@ -20972,10 +21029,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const isCurrentLocal = !!rowId && rowId === String(activeRotationSessionId || "");
                         // Historical PAUSED/STOPPED rows must never reappear after a page refresh merely
                         // because an old working-capital or target-asset value is still stored.
-                        if (["PAUSED", "STOPPED"].includes(st)) return openCount > 0 || (isCurrentLocal && !!sid);
+                        if (["PAUSED", "STOPPED"].includes(st)) {
+                          if (openCount > 0) return true;
+                          if (sid && finalizedOnChainIds.has(sid)) return false;
+                          const authoritative = previewSessions.find((p) => String(p?.sessionId ?? "") === sid);
+                          if (authoritative) return Number(authoritative?.openAssetCount || 0) > 0 || ["ACTIVE", "PAUSED", "CLOSING"].includes(String(authoritative?.statusLabel || "").toUpperCase());
+                          return false;
+                        }
                         return openCount > 0;
                       };
-                      const rawLocalRotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
+                      const finalizedOnChainIds = readFinalizedNkrIds();
+                      const rawLocalRotationRows = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((row) => {
+                        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
+                        return !sid || !finalizedOnChainIds.has(sid);
+                      });
                       const previewSessions = Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [];
                       const authoritativeOnChainIds = new Set(previewSessions
                         .filter((row) => {

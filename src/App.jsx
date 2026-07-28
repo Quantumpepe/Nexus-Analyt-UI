@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-235-ONCHAIN-REFRESH-FILTER-AND-SYSTEM-INFO-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-236-AUTHORITATIVE-SESSION-FILTER-EXIT-FEEDBACK-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -20970,7 +20970,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return openCount > 0;
                       };
                       const rawLocalRotationRows = Array.isArray(rotationSessions) ? rotationSessions : [];
-                      const localRotationRows = rawLocalRotationRows.filter(isRelevantLiveRotationRow);
+                      const previewSessions = Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [];
+                      const authoritativeOnChainIds = new Set(previewSessions
+                        .filter((row) => {
+                          const st = String(row?.statusLabel || "").toUpperCase();
+                          const openCount = Number(row?.openAssetCount || 0) || 0;
+                          return openCount > 0 || ["ACTIVE", "PAUSED", "CLOSING"].includes(st);
+                        })
+                        .map((row) => String(row?.sessionId || ""))
+                        .filter(Boolean));
+                      // Once an on-chain scan exists, it is authoritative. Historical local
+                      // placeholders without a matching live CoreVault session are excluded.
+                      const localRotationRows = rawLocalRotationRows.filter((row) => {
+                        if (!isRelevantLiveRotationRow(row)) return false;
+                        if (!previewSessions.length) return true;
+                        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
+                        return !!sid && authoritativeOnChainIds.has(sid);
+                      });
                       const localOnChainIds = new Set(localRotationRows.map((row) => String(
                         row?.onchainSessionId ?? row?.onchain_session_id ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? ""
                       )).filter(Boolean));
@@ -26382,8 +26398,19 @@ export default function App() {
                                   <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl("PAUSE", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 900); }}>Pause</button>
                                 ) : null}
                                 {Number(s.openAssetCount || 0) > 0 ? (
-                                  <button type="button" className="miniBtn danger" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl(String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "RETRY_EXIT" : "STOP_EXIT", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 1200); }}>
-                                    {String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "Retry Exit" : "Stop & Exit"}
+                                  <button type="button" className="miniBtn danger" disabled={!!ownerAdminBusy} onClick={async () => {
+                                    setOwnerAdminBusy(`Exit session ${s.sessionId}`);
+                                    try {
+                                      await applyNkrBackendControl(String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "RETRY_EXIT" : "STOP_EXIT", { sessionId: String(s.sessionId) });
+                                      setRotationBackendMsg(`Exit requested for on-chain session #${s.sessionId}. Waiting for transaction submission.`);
+                                      window.setTimeout(() => _inspectCoreVaultSessions(), 1500);
+                                      window.setTimeout(() => _inspectCoreVaultSessions(), 5000);
+                                      window.setTimeout(() => _inspectCoreVaultSessions(), 12000);
+                                    } finally {
+                                      setOwnerAdminBusy("");
+                                    }
+                                  }}>
+                                    {ownerAdminBusy === `Exit session ${s.sessionId}` ? "Requesting..." : (String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "Retry Exit" : "Stop & Exit")}
                                   </button>
                                 ) : null}
                               </div>

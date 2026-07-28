@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-243-COMPARE-SELECTION-NO-EMPTY-SERVER-OVERWRITE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-244-COMPARE-DEPLOY-HYDRATION-PERSISTENCE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -6349,6 +6349,7 @@ const byChain = {};
     [compareWalletKey]
   );
   const compareHydratedKeyRef = useRef("");
+  const compareSkipNextPersistRef = useRef(false);
   const [compareSet, setCompareSet] = useState([]);
 
   useEffect(() => {
@@ -6360,12 +6361,22 @@ const byChain = {};
         ? arr.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20)
         : [];
     } catch {}
+
+    // Critical deploy/remount guard:
+    // React runs this hydration effect and the persistence effect from the same render.
+    // Without this guard, the persistence effect still sees the initial [] and overwrites
+    // the saved wallet selection before setCompareSet(next) is rendered.
     compareHydratedKeyRef.current = compareStorageKey;
-    setCompareSet(next); // empty is authoritative too; never retain another wallet's selection
+    compareSkipNextPersistRef.current = true;
+    setCompareSet(next); // empty is authoritative for this exact wallet key
   }, [compareStorageKey]);
 
   useEffect(() => {
     if (compareHydratedKeyRef.current !== compareStorageKey) return;
+    if (compareSkipNextPersistRef.current) {
+      compareSkipNextPersistRef.current = false;
+      return;
+    }
     try {
       localStorage.setItem(
         compareStorageKey,
@@ -11660,6 +11671,10 @@ useEffect(() => {
 
     setWatchItems([]);
     setWatchRows([]);
+    // Clear only in-memory UI state. Never persist this transient reset over the
+    // wallet-bound compare selection during auth/wallet handover or a new deployment.
+    compareHydratedKeyRef.current = "";
+    compareSkipNextPersistRef.current = true;
     setCompareSet([]);
     setTimeframe("90D");
     setIndexMode(true);

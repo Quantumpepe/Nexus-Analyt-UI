@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-246-NKR-BACKEND-ONLY-STATE";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-247-TRADER-VAULT-FIRST-UI";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4749,7 +4749,7 @@ useEffect(() => {
 
   // ENGINE-175: create CoreVault sessions through the server-side Privy wallet API.
   // NKR, Trader and Grid must never trigger a browser approval popup.
-  const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500 }) => {
+  const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500, settlementAsset = manualPayoutAsset || "USDC" }) => {
     if (!wallet) throw new Error("Wallet not connected.");
     const budget = Number(String(budgetUsd ?? "").replace(",", "."));
     if (!Number.isFinite(budget) || budget <= 0) throw new Error("A positive CoreVault budget is required.");
@@ -4774,6 +4774,8 @@ useEffect(() => {
         durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
         maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
         maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
+        settlementAsset: String(settlementAsset || "USDC").toUpperCase(),
+        chain: String(activeGridChainKey || "ETH").toUpperCase(),
         },
       });
     } catch (error) {
@@ -4792,6 +4794,8 @@ useEffect(() => {
           durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
           maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
           maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
+          settlementAsset: String(settlementAsset || "USDC").toUpperCase(),
+          chain: String(activeGridChainKey || "ETH").toUpperCase(),
         },
       });
     }
@@ -8484,7 +8488,33 @@ useEffect(() => {
   }, []);
   const [tradingHoldHours, setTradingHoldHours] = useState("1");
   const [tradingAllowedAssets, setTradingAllowedAssets] = useState("");
-  const [tradingAllowedChains, setTradingAllowedChains] = useState("POL,BNB,ETH");
+  const traderAssetOptions = useMemo(() => {
+    const chain = String(activeGridChainKey || "ETH").toUpperCase();
+    const baseByChain = {
+      ETH: ["ETH", "BTC", "SOL", "LINK", "UNI", "AAVE", "PEPE", "SHIB"],
+      BNB: ["BNB", "BTC", "ETH", "XRP", "CAKE", "LINK"],
+      POL: ["POL", "ETH", "BTC", "LINK", "AAVE", "UNI"],
+    };
+    const out = new Set(baseByChain[chain] || []);
+    for (const row of Array.isArray(watchRows) ? watchRows : []) {
+      const sym = String(row?.symbol || row?.sym || row?.asset || "").trim().toUpperCase();
+      const rowChain = String(row?.chain || row?.chain_key || row?.network || "").trim().toUpperCase();
+      const routeOk = row?.routeOk ?? row?.route_ok ?? row?.executable ?? row?.tradeable ?? true;
+      if (sym && routeOk !== false && (!rowChain || rowChain === chain || (chain === "ETH" && rowChain === "ERC20"))) out.add(sym);
+    }
+    return Array.from(out).filter(Boolean).sort();
+  }, [activeGridChainKey, watchRows]);
+  const selectedTraderAssets = useMemo(() => normalizeTradingCsv(tradingAllowedAssets), [tradingAllowedAssets]);
+  const toggleTraderAsset = useCallback((symbol) => {
+    const sym = String(symbol || "").toUpperCase();
+    const next = new Set(normalizeTradingCsv(tradingAllowedAssets));
+    if (next.has(sym)) next.delete(sym); else next.add(sym);
+    setTradingAllowedAssets(Array.from(next).join(","));
+  }, [tradingAllowedAssets]);
+  // Trader chain is derived exclusively from Live Core Vault Capital.
+  // There is no second Allowed Chains selector or local chain authority.
+  const tradingAllowedChains = String(activeGridChainKey || "ETH").toUpperCase();
+  const setTradingAllowedChains = () => {};
   const [tradingRiskMode, setTradingRiskMode] = useState("BALANCED");
   const [tradingCautionDrawdownPct, setTradingCautionDrawdownPct] = useState("3");
   const [tradingHardStopPct, setTradingHardStopPct] = useState("12");
@@ -9484,9 +9514,7 @@ useEffect(() => {
     ).trim().toUpperCase();
     const assets = rawAssets.length ? rawAssets : normalizeTradingCsv(fallbackAsset);
 
-    const rawChains = normalizeTradingCsv(tradingAllowedChains);
-    const fallbackChain = String(activeGridChainKey || "POL").trim().toUpperCase();
-    const chains = rawChains.length ? rawChains : normalizeTradingCsv(fallbackChain);
+    const chains = [String(activeGridChainKey || "ETH").trim().toUpperCase()].filter(Boolean);
     const budgetSplits = parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
     const splitTotal = budgetSplits.reduce((sum, n) => sum + (Number(n) || 0), 0);
     const knownChains = new Set([...(gridWalletChains || []), "POL", "BNB", "ETH"].map((x) => String(x || "").toUpperCase()));
@@ -9496,7 +9524,6 @@ useEffect(() => {
     if (!(budget > 0)) issues.push("budget");
     if (budgetSplits.length && budget > 0 && Math.abs(splitTotal - budget) > Math.max(1, budget * 0.03)) issues.push("split total");
     if (!assets.length) issues.push("asset");
-    if (!chains.length) issues.push("chain");
     if (unsupportedChains.length) issues.push(`unsupported chain ${unsupportedChains[0]}`);
     if (!(runtime >= 1 && runtime <= 168)) issues.push("runtime 1-168h");
     if (!(holdHours >= 1 && holdHours <= 12)) issues.push("hold 1-12h");
@@ -10128,10 +10155,10 @@ useEffect(() => {
         ...existing,
       ].slice(0, 20);
     });
-    setTradingSessionStatus("ACTIVE");
+    setTradingSessionStatus("ARMED");
     setTradingSessionUpdatedTs(now);
     updateTradingPreparedSession({
-      status: "ACTIVE",
+      status: "ARMED",
       sessionId,
       approvedBudgetUsd: tradingBudgetUsd,
       approvedAt: now,
@@ -10170,8 +10197,8 @@ useEffect(() => {
       observeMaxHours: 12,
       preflight: tradingPreflight,
       executionQueue: activeQueue,
-      userAction: { approvedBudget: true, armed: true, started: true, preflightOk: true, multiSession: true },
-      note: "New independent Trading session created. Nexus Trading is autonomous only inside this session's approved limits. User controls Pause and Stop.",
+      userAction: { approvedBudget: true, armed: true, started: false, preflightOk: true, multiSession: true },
+      note: "Trading budget approved in CoreVault V4. Press Start Trading to activate the Strategist/Trader worker inside the approved limits.",
     });
 
     // Backend-first: immediately create/update the authoritative queue rows.
@@ -10264,17 +10291,23 @@ useEffect(() => {
     setAggressiveRiskConsentOpen(false);
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
-    setErrorMsg(`Trading session created: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Enter the next budget and approve/sign again when you want another independent session.`);
+    setErrorMsg(`Trading budget approved: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Press Start Trading to activate it.`);
   }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, normalizeTradingRuntimeHours, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, tradingStyle, tradingRiskMode, tradingMaxTrades, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingCautionDrawdownPct, manualPayoutAsset, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
 
-  const handleTradingStartSession = useCallback(() => {
-    if (!tradingCanStart) return;
-    const now = Date.now();
-    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => s.status === "READY" ? { ...s, status: "EXECUTED", executedAt: now } : s));
-    setTradingSessionStatus("ACTIVE");
-    setTradingSessionUpdatedTs(now);
-    updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, executionQueue: tradingExecutionQueue, userAction: { started: true } });
-  }, [tradingCanStart, tradingExecutionQueue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+  const handleTradingStartSession = useCallback(async () => {
+    if (!tradingCanStart || !wallet) return;
+    const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+    if (!sid) { setErrorMsg("No armed Trading session found."); return; }
+    try {
+      await api("/api/nexus/trading/control", { method: "POST", wallet, body: { action: "start", session_id: sid, chain: String(activeGridChainKey || "ETH").toUpperCase(), allowed_assets: selectedTraderAssets, settlement_asset: String(manualPayoutAsset || "USDC").toUpperCase() } });
+      const now = Date.now();
+      setTradingSessionStatus("ACTIVE");
+      setTradingSessionUpdatedTs(now);
+      updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, userAction: { started: true } });
+      await refreshNexusBackendState();
+      setErrorMsg(`Trading started: ${sid}`);
+    } catch (e) { setErrorMsg(`Start Trading failed: ${e?.message || e}`); }
+  }, [tradingCanStart, wallet, selectedTradingSessionId, activeTradingSessionId, activeGridChainKey, selectedTraderAssets, manualPayoutAsset, api, refreshNexusBackendState, setErrorMsg, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const handleTradingPauseSession = useCallback(() => {
     if (!tradingCanPause) return;
@@ -22162,7 +22195,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         gap: 8,
                       }}
                     >
-                      <div className="label" style={{ marginBottom: 0 }}>Vault overview</div>
+                      <div className="label" style={{ marginBottom: 0 }}>Trading Overview · CoreVault V4</div>
                       <div
                         className="muted tiny"
                         style={{
@@ -22173,11 +22206,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         }}
                       >
                         {(() => {
-                          const vaultTotalNative = Number(manualVaultTotalQty || 0);
-                          const gridAllocatedNative = Number(manualVaultAllocatedQty || 0);
-                          const px = Number(activeGridNativeUsd || 0);
-                          const vaultTotalUsd = Number.isFinite(px) && px > 0 ? vaultTotalNative * px : 0;
-                          const gridAllocatedUsd = Number.isFinite(px) && px > 0 ? gridAllocatedNative * px : 0;
+                          const selectedVaultToken = String(manualPayoutAsset || "USDC").toUpperCase();
+                          const tokenState = coreVaultOnchain?.tokens?.[selectedVaultToken] || {};
+                          const account = tokenState?.account || {};
+                          const vaultTotalUsd = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
+                          const tradingAllocatedFromVault = Number(account?.allocatedTrader || 0);
                           const activeTradingSessions = (Array.isArray(openTradingSessions) ? openTradingSessions : []);
                           const tradingAllocatedUsd = activeTradingSessions.reduce((sum, sess) => {
                             const st = String(sess?.status || "").toUpperCase();
@@ -22185,15 +22218,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             return sum + getTradingSessionBudgetUsd(sess);
                           }, 0);
                           const tradingCollectedProfitUsd = activeTradingSessions.reduce((sum, sess) => sum + getTradingSessionProfitUsd(sess), 0);
-                          const availableUsd = Math.max(0, vaultTotalUsd - gridAllocatedUsd - tradingAllocatedUsd);
-                          const usagePct = vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + tradingAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
+                          const authoritativeReservedUsd = Math.max(tradingAllocatedFromVault, tradingAllocatedUsd);
+                          const availableUsd = Math.max(0, Number(account?.freeBase ?? (vaultTotalUsd - Number(account?.totalAllocated || 0))));
                           return (
                             <>
-                              <div><b>Vault total:</b> {vaultTotalUsd ? fmtUsd(vaultTotalUsd) : `${vaultTotalNative.toFixed(6)} ${activeGridChainSymbol}`}</div>
-                              <div><b>Trading allocated:</b> {tradingAllocatedUsd ? fmtUsd(tradingAllocatedUsd) : "$0.00"}</div>
-                              <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {vaultTotalUsd ? fmtUsd(availableUsd) : "Price pending"}</div>
-                              <div style={{ color: tradingCollectedProfitUsd >= 0 ? "#22c55e" : "#ff6b6b", fontWeight: 950 }}><b>Collected Profit:</b> {`${tradingCollectedProfitUsd >= 0 ? "+" : "-"}${fmtUsd(Math.abs(tradingCollectedProfitUsd))}`}</div>
-                              <div style={{ color: "#8bdcff", fontWeight: 900 }}><b>Runtime:</b> {getTradingVaultRuntimeLabel(activeTradingSessions)}</div>
+                              <div><b>Vault asset:</b> {selectedVaultToken}</div>
+                              <div><b>Vault balance:</b> {fmtUsd(vaultTotalUsd)}</div>
+                              <div><b>Trader reserved:</b> {fmtUsd(authoritativeReservedUsd)}</div>
+                              <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Free available:</b> {fmtUsd(availableUsd)}</div>
+                              <div><b>Active sessions:</b> {activeTradingSessions.length}</div>
+                              <div style={{ color: "#8bdcff", fontWeight: 900 }}><b>Status:</b> {activeTradingSessions.length ? getTradingVaultRuntimeLabel(activeTradingSessions) : "IDLE"}</div>
                             </>
                           );
                         })()}
@@ -22621,14 +22655,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     )}
 
-                    <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr", gap: isCompactMobile ? 8 : 10 }}>
-                      <div className="formRow">
-                        <label>Allowed assets</label>
-                        <input value={tradingAllowedAssets} onChange={(e) => setTradingAllowedAssets(e.target.value.toUpperCase())} placeholder="ETH, POL, LINK" />
-                      </div>
-                      <div className="formRow">
-                        <label>Allowed chains</label>
-                        <input value={tradingAllowedChains} onChange={(e) => setTradingAllowedChains(e.target.value.toUpperCase())} placeholder="POL,BNB,ETH" />
+                    <div className="formRow">
+                      <label>Allowed assets</label>
+                      <div style={{ border: "1px solid rgba(139,220,255,.18)", borderRadius: 11, padding: 9, background: "rgba(0,0,0,.14)", display: "grid", gap: 8 }}>
+                        <div className="muted tiny">Executable assets on <b>{String(activeGridChainKey || "ETH").toUpperCase()}</b>, including compatible Watchlist assets.</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {traderAssetOptions.map((sym) => {
+                            const selected = selectedTraderAssets.includes(sym);
+                            return <button key={`trader-asset-${sym}`} type="button" className="btnGhost" onClick={() => toggleTraderAsset(sym)} style={{ height: 28, paddingInline: 9, borderColor: selected ? "rgba(34,197,94,.72)" : "rgba(255,255,255,.12)", background: selected ? "rgba(34,197,94,.18)" : "rgba(255,255,255,.03)", color: selected ? "#dfffee" : undefined }}>{selected ? "✓ " : ""}{sym}</button>;
+                          })}
+                        </div>
+                        <div className="muted tiny">Selected: {selectedTraderAssets.length ? selectedTraderAssets.join(", ") : "none"}</div>
                       </div>
                     </div>
 
@@ -22646,7 +22683,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     >
                       {tradingPreflight.ok
                         ? `Trading preflight ready · ${fmtUsd(tradingPreflight.budget)} · ${tradingPreflight.assets.join(", ")} · ${tradingPreflight.chains.join(",")}`
-                        : `Trading preflight needs: ${tradingPreflight.issues.join(", ")}. Add Budget and at least one asset/chain, or use the selected asset fallback.`}
+                        : `Trading preflight needs: ${tradingPreflight.issues.join(", ")}. Add Budget and at least one executable asset. Chain and settlement asset come from Live Core Vault Capital.`}
                     </div>
 
                     {renderPayoutAssetSelector("Payout asset")}
@@ -23210,6 +23247,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <button className="btnGhost" type="button" onClick={handleTradingApproveBudget} disabled={!tradingCanApprove} title={tradingPreflight.title} style={{ height: 30, paddingInline: 10 }}>
                           {Array.isArray(openTradingSessions) && openTradingSessions.length ? "Approve Next Budget" : "Approve Budget"}
                         </button>
+                        <button className="btn" type="button" onClick={handleTradingStartSession} disabled={!tradingCanStart} title="Start the armed Trader worker with the central Strategist" style={{ height: 30, paddingInline: 10 }}>Start Trading</button>
                         {(String(tradingBudgetUsd || "").trim() || String(tradingBudgetSplitInput || "").trim()) ? (
                           <button
                             className="miniBtn"

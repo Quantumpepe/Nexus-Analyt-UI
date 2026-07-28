@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-240-NKR-RUNNING-SESSION-CONTROL-REGRESSION-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-241-NKR-SINGLE-FLIGHT-DIAGNOSTICS-STATE-GUARD-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -25495,6 +25495,9 @@ export default function App() {
   const [evmRegistryBusy, setEvmRegistryBusy] = useState("");
   const [evmRegistryMsg, setEvmRegistryMsg] = useState("");
   const [ownerAdminBusy, setOwnerAdminBusy] = useState("");
+  const ownerSystemInfoFlightRef = useRef(false);
+  const coreVaultScanFlightRef = useRef(false);
+  const coreVaultScanAbortRef = useRef(null);
   const [ownerAdminMsg, setOwnerAdminMsg] = useState("");
   const [coreVaultSessionPreview, setCoreVaultSessionPreview] = useState(null);
   const [coreVaultRecoveryJobs, setCoreVaultRecoveryJobs] = useState({});
@@ -25661,41 +25664,62 @@ export default function App() {
 
     const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";
 
-    const loadJson = async (path) => {
+    const loadJson = async (path, timeoutMs = 8000) => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
       try {
         // Nexus API endpoints authenticate with the backend token. The Privy JWT is
-    // only a fallback during the brief login/bootstrap phase.
-    const bearer = String(localStorage.getItem("nexus_token") || localStorage.getItem("nexus_privy_jwt") || "").trim();
+        // only a fallback during the brief login/bootstrap phase.
+        const bearer = String(localStorage.getItem("nexus_token") || localStorage.getItem("nexus_privy_jwt") || "").trim();
         const headers = { Accept: "application/json" };
         if (bearer) headers.Authorization = `Bearer ${bearer}`;
         if (footerWallet) headers["X-Wallet-Address"] = footerWallet;
-        const res = await fetch(`${API_BASE}${path}`, { cache: "no-store", credentials: "include", headers });
+        const res = await fetch(`${API_BASE}${path}`, { cache: "no-store", credentials: "include", headers, signal: controller.signal });
         return res.ok ? await res.json() : null;
       } catch {
         return null;
+      } finally {
+        window.clearTimeout(timeoutId);
       }
     };
 
     const loadOwnerSystemInfo = async () => {
-      const [health, statusPanel, readiness, liveExecutorStatus, engineRuntimeStatus] = await Promise.all([
-        loadJson(`/api/shadow/health${walletParam}`),
-        loadJson(`/api/nexus/system-info-owner-panel${walletParam}`),
-        loadJson(`/api/nexus/shadow-readiness-check${walletParam}`),
-        loadJson(`/api/nexus/live-executor/status${walletParam}`),
-        loadJson(`/api/nexus/engine-runtime/status${walletParam}`),
-      ]);
-
-      if (!alive) return;
-      setShadowHealth(health);
-      setSystemInfoStatus({ ...(statusPanel || {}), liveExecutorStatus: liveExecutorStatus || null, engineRuntimeStatus: engineRuntimeStatus || null });
-      setShadowReadiness(readiness);
+      if (ownerSystemInfoFlightRef.current || document.visibilityState === "hidden") return;
+      ownerSystemInfoFlightRef.current = true;
+      try {
+        const results = await Promise.allSettled([
+          loadJson(`/api/shadow/health${walletParam}`),
+          loadJson(`/api/nexus/system-info-owner-panel${walletParam}`),
+          loadJson(`/api/nexus/shadow-readiness-check${walletParam}`),
+          loadJson(`/api/nexus/live-executor/status${walletParam}`),
+          loadJson(`/api/nexus/engine-runtime/status${walletParam}`),
+        ]);
+        if (!alive) return;
+        const valueAt = (i) => results[i]?.status === "fulfilled" ? results[i].value : null;
+        const health = valueAt(0);
+        const statusPanel = valueAt(1);
+        const readiness = valueAt(2);
+        const liveExecutorStatus = valueAt(3);
+        const engineRuntimeStatus = valueAt(4);
+        if (health) setShadowHealth(health);
+        if (statusPanel || liveExecutorStatus || engineRuntimeStatus) {
+          setSystemInfoStatus((prev) => ({ ...(prev || {}), ...(statusPanel || {}), liveExecutorStatus: liveExecutorStatus || prev?.liveExecutorStatus || null, engineRuntimeStatus: engineRuntimeStatus || prev?.engineRuntimeStatus || null }));
+        }
+        if (readiness) setShadowReadiness(readiness);
+      } finally {
+        ownerSystemInfoFlightRef.current = false;
+      }
     };
 
     loadOwnerSystemInfo();
-    const id = setInterval(loadOwnerSystemInfo, 15000);
+    const id = setInterval(loadOwnerSystemInfo, 30000);
+    const onVisible = () => { if (document.visibilityState === "visible") loadOwnerSystemInfo(); };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
+      ownerSystemInfoFlightRef.current = false;
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [canOpenSystemInfo, footerWallet]);
 
@@ -25716,12 +25740,17 @@ export default function App() {
   // It is triggered explicitly by the first live Start action and must verify
   // the signer attachment before any CoreVault session can be created.
   const _inspectCoreVaultSessions = async () => {
-    if (!canOpenSystemInfo || ownerAdminBusy) return;
+    if (!canOpenSystemInfo || ownerAdminBusy || coreVaultScanFlightRef.current) return;
+    coreVaultScanFlightRef.current = true;
+    try { coreVaultScanAbortRef.current?.abort?.(); } catch {}
+    const controller = new AbortController();
+    coreVaultScanAbortRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
     setOwnerAdminBusy("CoreVault session scan");
     setOwnerAdminMsg("Reading CoreVault sessions on-chain...");
     try {
       const q = new URLSearchParams({ wallet: footerWallet, wallet_address: footerWallet, engine: "NKR", chainId: "1", vault: CORE_VAULT_ETH_ADDRESS });
-      const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, { cache: "no-store", credentials: "include", headers: _authHeaders() });
+      const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, { cache: "no-store", credentials: "include", headers: _authHeaders(), signal: controller.signal });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `Session scan failed (${res.status})`);
       setCoreVaultSessionPreview(data);
@@ -25729,8 +25758,12 @@ export default function App() {
       const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
       setOwnerAdminMsg(`CoreVault scan complete: ${sessions.length} wallet session(s), ${candidates.length} recoverable.`);
     } catch (err) {
-      setOwnerAdminMsg(`CoreVault session scan failed: ${err?.message || err}`);
+      const aborted = err?.name === "AbortError";
+      setOwnerAdminMsg(aborted ? "CoreVault session scan timed out. No runtime state was changed." : `CoreVault session scan failed: ${err?.message || err}`);
     } finally {
+      window.clearTimeout(timeoutId);
+      if (coreVaultScanAbortRef.current === controller) coreVaultScanAbortRef.current = null;
+      coreVaultScanFlightRef.current = false;
       setOwnerAdminBusy("");
     }
   };
@@ -26563,9 +26596,9 @@ export default function App() {
                             {["ACTIVE", "PAUSED", "CLOSING"].includes(String(s.statusLabel || "").toUpperCase()) ? (
                               <div style={{ marginTop: 7, display: "flex", gap: 6, flexWrap: "wrap" }}>
                                 {String(s.statusLabel || "").toUpperCase() === "PAUSED" ? (
-                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl("RESUME", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 900); }}>Resume</button>
+                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl("RESUME", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 2500); }}>Resume</button>
                                 ) : String(s.statusLabel || "").toUpperCase() === "ACTIVE" ? (
-                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl("PAUSE", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 900); }}>Pause</button>
+                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl("PAUSE", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 2500); }}>Pause</button>
                                 ) : null}
                                 {Number(s.openAssetCount || 0) > 0 ? (
                                   <button type="button" className="miniBtn danger" disabled={!!ownerAdminBusy} onClick={async () => {
@@ -26573,9 +26606,7 @@ export default function App() {
                                     try {
                                       await applyNkrBackendControl(String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "RETRY_EXIT" : "STOP_EXIT", { sessionId: String(s.sessionId) });
                                       setRotationBackendMsg(`Exit requested for on-chain session #${s.sessionId}. Waiting for transaction submission.`);
-                                      window.setTimeout(() => _inspectCoreVaultSessions(), 1500);
-                                      window.setTimeout(() => _inspectCoreVaultSessions(), 5000);
-                                      window.setTimeout(() => _inspectCoreVaultSessions(), 12000);
+                                      window.setTimeout(() => _inspectCoreVaultSessions(), 3000);
                                     } finally {
                                       setOwnerAdminBusy("");
                                     }

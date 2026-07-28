@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-247-TRADER-VAULT-FIRST-UI";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-248-TRADER-NORMALIZER-ORDER-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -8488,6 +8488,12 @@ useEffect(() => {
   }, []);
   const [tradingHoldHours, setTradingHoldHours] = useState("1");
   const [tradingAllowedAssets, setTradingAllowedAssets] = useState("");
+  const normalizeTradingCsv = useCallback((value) => {
+    return String(value || "")
+      .split(",")
+      .map((x) => String(x || "").trim().toUpperCase())
+      .filter(Boolean);
+  }, []);
   const traderAssetOptions = useMemo(() => {
     const chain = String(activeGridChainKey || "ETH").toUpperCase();
     const baseByChain = {
@@ -9268,12 +9274,6 @@ useEffect(() => {
     return Math.max(1, Math.min(12, n));
   }, []);
 
-  const normalizeTradingCsv = useCallback((value) => {
-    return String(value || "")
-      .split(",")
-      .map((x) => String(x || "").trim().toUpperCase())
-      .filter(Boolean);
-  }, []);
 
   const parseTradingBudgetSplits = useCallback((value, totalBudget = tradingBudgetUsd) => {
     const total = Number(String(totalBudget || "").replace(",", "."));

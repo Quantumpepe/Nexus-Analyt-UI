@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-241-NKR-SINGLE-FLIGHT-DIAGNOSTICS-STATE-GUARD-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-242-NKR-EXACT-SESSION-BUDGET-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21614,24 +21614,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   sess?.meta?.capital_mode ||
                                   "UNKNOWN"
                                 ).toUpperCase();
-                                // Recover the true total for legacy live rows that expose working capital only.
-                                const modeReservePct = Number(reservePctByMode[sessionCapitalMode] ?? 0);
-                                const modeAllocationFraction = Math.max(0.01, 1 - (modeReservePct / 100));
-                                const modeDerivedTotalBudgetUsd = workingCapital > 0 ? (workingCapital / modeAllocationFraction) : 0;
+                                // ENGINE-242: The amount confirmed by the user is the complete session budget.
+                                // Never inflate 20 USDC to 22.22 USDC from the capital-mode percentage.
+                                // A reserve is displayed only when the backend/session explicitly reports one.
                                 const explicitReserveUsd = Number.isFinite(protectedReserveUsdRaw) ? Math.max(0, protectedReserveUsdRaw) : 0;
-                                const sessionBudgetUsd = Math.max(
-                                  reportedSessionBudgetUsd,
-                                  snapshotBudgetUsd,
-                                  modeDerivedTotalBudgetUsd,
-                                  Math.max(0, workingCapital) + explicitReserveUsd
-                                );
-                                const protectedReserveUsd = Number.isFinite(protectedReserveUsdRaw) && protectedReserveUsdRaw > 0
-                                  ? Math.max(0, protectedReserveUsdRaw)
-                                  : Math.max(0, sessionBudgetUsd - workingCapital);
-                                const plannedReservePct = Number(reservePctByMode[sessionCapitalMode] || 0);
-                                const plannedReserveUsd = sessionBudgetUsd > 0 && plannedReservePct > 0
-                                  ? (sessionBudgetUsd * plannedReservePct) / 100
-                                  : protectedReserveUsd;
+                                const explicitTotalBudgetUsd = Math.max(reportedSessionBudgetUsd, snapshotBudgetUsd, budget, workingCapital);
+                                const sessionBudgetUsd = explicitTotalBudgetUsd;
+                                const protectedReserveUsd = explicitReserveUsd > 0
+                                  ? Math.min(explicitReserveUsd, sessionBudgetUsd)
+                                  : 0;
+                                const plannedReserveUsd = protectedReserveUsd;
                                 const reserveEpsilon = 0.005;
                                 const reserveStatus = protectedReserveUsd <= reserveEpsilon
                                   ? "FULLY DEPLOYED"

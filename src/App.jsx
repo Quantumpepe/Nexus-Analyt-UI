@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD262-PRIVY-TX-FAST-STATUS";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD264-REMOVE-WALLET-PROFIT";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -1024,6 +1024,7 @@ async function api(
     const ctrl = new AbortController();
     const timeoutMs =
       path?.includes("/api/access/redeem") ? 60000 :
+      path?.includes("/api/access/status") ? 4500 :
       path?.includes("/api/grid/") ? 60000 :
       method === "GET" ? 15000 : 60000;
 
@@ -6733,53 +6734,103 @@ const byChain = {};
   const accessWalletKey = String(resolveWalletAddress(wallet) || wallet || "").toLowerCase();
   const accessCacheKey = accessWalletKey ? `nexus_access_status_v2_${accessWalletKey}` : "";
   const accessRefreshBusyRef = useRef(false);
+  const accessRefreshQueuedRef = useRef(false);
+  const accessRequestSeqRef = useRef(0);
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessLastError, setAccessLastError] = useState("");
 
   // Restore the last verified access result immediately while the live request is loading.
   useEffect(() => {
-    if (!accessCacheKey) return;
+    if (!accessCacheKey) {
+      setAccess(null);
+      return;
+    }
     try {
       const cached = JSON.parse(localStorage.getItem(accessCacheKey) || "null");
-      if (cached && typeof cached === "object") setAccess(cached);
-    } catch {}
+      if (cached && typeof cached === "object") {
+        setAccess(cached);
+      } else {
+        setAccess(null);
+      }
+    } catch {
+      setAccess(null);
+    }
   }, [accessCacheKey]);
 
-  const refreshAccess = useCallback(async ({ retries = 2 } = {}) => {
+  const refreshAccess = useCallback(async ({ retries = 2, force = false } = {}) => {
     const addr = String(resolveWalletAddress(wallet) || wallet || "").trim();
-    if (!addr || accessRefreshBusyRef.current) return false;
+    if (!addr) return false;
+
+    if (accessRefreshBusyRef.current && !force) {
+      // Never silently discard a refresh request. Run it immediately after the current request.
+      accessRefreshQueuedRef.current = true;
+      return false;
+    }
+
+    const requestSeq = ++accessRequestSeqRef.current;
     accessRefreshBusyRef.current = true;
+    accessRefreshQueuedRef.current = false;
+    setAccessLoading(true);
+    setAccessLastError("");
+
     try {
       let lastErr = null;
       for (let attempt = 0; attempt <= retries; attempt += 1) {
         try {
-          const res = await api(`/api/access/status?addr=${encodeURIComponent(addr)}`, { wallet: addr });
+          const res = await api(`/api/access/status?addr=${encodeURIComponent(addr)}&_ts=${Date.now()}`, { wallet: addr });
+          // Ignore a late answer belonging to an older wallet/request.
+          if (requestSeq !== accessRequestSeqRef.current) return false;
           const active = (res && res.active !== undefined) ? !!res.active : !!(res && res.plan && res.plan !== "free");
           const normalized = res ? { ...res, active, verified_at: Date.now() } : { active: false, verified_at: Date.now() };
           setAccess(normalized);
+          setAccessLastError("");
           try { localStorage.setItem(`nexus_access_status_v2_${addr.toLowerCase()}`, JSON.stringify(normalized)); } catch {}
           return true;
         } catch (e) {
           lastErr = e;
-          if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+          if (attempt < retries) {
+            // Fast startup retry sequence: 250 ms, 600 ms, 1.2 s...
+            const retryDelay = attempt === 0 ? 250 : attempt === 1 ? 600 : 1200;
+            await new Promise((resolve) => setTimeout(resolve, retryDelay));
+          }
         }
       }
       console.warn("access/status failed after retries", lastErr);
+      setAccessLastError(String(lastErr?.message || "Access status temporarily unavailable."));
       return false; // keep last verified/cached status; never flicker to OFF because of a timeout
     } finally {
-      accessRefreshBusyRef.current = false;
+      if (requestSeq === accessRequestSeqRef.current) {
+        accessRefreshBusyRef.current = false;
+        setAccessLoading(false);
+        if (accessRefreshQueuedRef.current) {
+          accessRefreshQueuedRef.current = false;
+          setTimeout(() => refreshAccess({ retries: 1 }), 0);
+        }
+      }
     }
   }, [wallet, api]);
 
   useEffect(() => {
     if (!accessWalletKey) return;
-    refreshAccess({ retries: 3 });
+
+    // Immediate request plus a short startup safety burst. This covers Privy/token hydration
+    // and sleeping backend instances without requiring manual page refreshes.
+    refreshAccess({ retries: 2 });
+    const burst1 = window.setTimeout(() => refreshAccess({ retries: 1 }), 1200);
+    const burst2 = window.setTimeout(() => refreshAccess({ retries: 1 }), 3500);
+    const burst3 = window.setTimeout(() => refreshAccess({ retries: 1 }), 8000);
+
     const onFocus = () => refreshAccess({ retries: 1 });
     const onOnline = () => refreshAccess({ retries: 2 });
     const onVisible = () => { if (document.visibilityState === "visible") refreshAccess({ retries: 1 }); };
     window.addEventListener("focus", onFocus);
     window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisible);
-    const timer = window.setInterval(() => refreshAccess({ retries: 1 }), 60000);
+    const timer = window.setInterval(() => refreshAccess({ retries: 1 }), 45000);
     return () => {
+      window.clearTimeout(burst1);
+      window.clearTimeout(burst2);
+      window.clearTimeout(burst3);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
@@ -18644,15 +18695,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {isPro ? (
                   <>
                     Access: <span className="pillOn">ACTIVE</span>
+                    {accessLoading ? <span style={{ marginLeft: 6, opacity: 0.65 }}>syncing…</span> : null}
                     {access?.until ? (
                       <span style={{ marginLeft: 6 }}>
                         until {new Date(access.until).toLocaleDateString()}
                       </span>
                     ) : null}
                   </>
+                ) : accessLoading && !access ? (
+                  <>
+                    Access: <span className="pill" style={{ opacity: 0.8 }}>LOADING…</span>
+                  </>
                 ) : (
                   <>
                     Access: <span className="pillOff">OFF</span>
+                    {accessLastError ? (
+                      <button type="button" className="miniBtn" onClick={() => refreshAccess({ retries: 3 })} style={{ marginLeft: 6 }}>
+                        Retry
+                      </button>
+                    ) : null}
                   </>
                 )}
               </div>
@@ -21708,7 +21769,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Vault Total:</b> {fmtUsd(nkrVaultTotalLive)}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {fmtUsd(nkrOverviewAvailableUsd)}</div>
                               <div><b>Open Position:</b> {fmtUsd(nkrOpenPositionValueUsd)}</div>
-                              <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
+                              
                               <div><b>Active Session:</b> {activeRotations > 0 ? 1 : 0}</div>
                               <div><b>Status:</b> <span style={{ color: nkrOverviewRunning ? "#22c55e" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewStatus}</span></div>
                               <div><b>Runtime:</b> {nkrOverviewRunning ? (nkrOverviewElapsedMs > 0 ? fmtRotationDuration(nkrOverviewElapsedMs) : "RUNNING") : "not running"}</div>

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD258-ALL-SYSTEM-SESSION-RECOVERY";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD259-TRADER-ONCHAIN-STATUS";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -22357,27 +22357,63 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const vaultTotalUsd = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
                           const tradingAllocatedFromVault = Number(account?.allocatedTrader || 0);
                           const activeTradingSessions = (Array.isArray(openTradingSessions) ? openTradingSessions : []);
+                          const onchainTraderSessions = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+                            .filter((sess) => String(sess?.engine || "").toUpperCase() === "TRADER")
+                            .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(sess?.statusLabel || "").toUpperCase()));
                           const tradingAllocatedUsd = activeTradingSessions.reduce((sum, sess) => {
                             const st = String(sess?.status || "").toUpperCase();
                             if (["RELEASED", "CLOSED", "EXPIRED"].includes(st)) return sum;
                             return sum + getTradingSessionBudgetUsd(sess);
                           }, 0);
-                          const tradingCollectedProfitUsd = activeTradingSessions.reduce((sum, sess) => sum + getTradingSessionProfitUsd(sess), 0);
                           const authoritativeReservedUsd = Math.max(tradingAllocatedFromVault, tradingAllocatedUsd);
                           const availableUsd = Math.max(0, Number(account?.freeBase ?? (vaultTotalUsd - Number(account?.totalAllocated || 0))));
+                          const localActiveCount = activeTradingSessions.length;
+                          const onchainActiveCount = onchainTraderSessions.length;
+                          const displayedActiveCount = Math.max(localActiveCount, onchainActiveCount);
+                          const recoveryRunning = onchainTraderSessions.some((sess) => {
+                            const key = `TRADER:${sess?.sessionId}`;
+                            const job = coreVaultRecoveryJobs?.[key];
+                            return ["QUEUED", "RUNNING"].includes(String(job?.job_status || "").toUpperCase());
+                          });
+                          const traderRuntimeStatus = recoveryRunning
+                            ? "RECOVERY RUNNING"
+                            : (onchainActiveCount > localActiveCount
+                                ? "ON-CHAIN SESSION PENDING"
+                                : (localActiveCount ? getTradingVaultRuntimeLabel(activeTradingSessions) : "IDLE"));
                           return (
                             <>
                               <div><b>Vault asset:</b> {selectedVaultToken}</div>
                               <div><b>Vault balance:</b> {fmtUsd(vaultTotalUsd)}</div>
                               <div><b>Trader reserved:</b> {fmtUsd(authoritativeReservedUsd)}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Free available:</b> {fmtUsd(availableUsd)}</div>
-                              <div><b>Active sessions:</b> {activeTradingSessions.length}</div>
-                              <div style={{ color: "#8bdcff", fontWeight: 900 }}><b>Status:</b> {activeTradingSessions.length ? getTradingVaultRuntimeLabel(activeTradingSessions) : "IDLE"}</div>
+                              <div><b>Active sessions:</b> {displayedActiveCount}</div>
+                              <div style={{ color: recoveryRunning || onchainActiveCount > localActiveCount ? "#ffd166" : "#8bdcff", fontWeight: 900 }}><b>Status:</b> {traderRuntimeStatus}</div>
+                              {onchainTraderSessions.map((sess) => (
+                                <div key={`trader-onchain-${sess.sessionId}`} style={{ gridColumn: isCompactMobile ? "1" : "1 / -1", color: "#ffd166", fontWeight: 900 }}>
+                                  On-chain Trader session #{sess.sessionId}: {String(sess.statusLabel || "ACTIVE").toUpperCase()} · Budget {fmtUsd(Number(sess.budget || 0))} · Open assets {Number(sess.openAssetCount || 0)}
+                                </div>
+                              ))}
                             </>
                           );
                         })()}
                       </div>
                     </div>
+
+                    {(() => {
+                      const pending = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+                        .filter((sess) => String(sess?.engine || "").toUpperCase() === "TRADER")
+                        .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(sess?.statusLabel || "").toUpperCase()));
+                      if (!pending.length) return null;
+                      return (
+                        <div style={{ padding: "9px 10px", borderRadius: 12, border: "1px solid rgba(255,209,102,.45)", background: "rgba(255,209,102,.08)", color: "#ffd166", fontWeight: 900 }}>
+                          Trader recovery required: {pending.length} on-chain session{pending.length === 1 ? "" : "s"} still reserve capital.
+                          {pending.map((sess) => ` #${sess.sessionId} (${String(sess.statusLabel || "ACTIVE").toUpperCase()})`).join(",")}
+                          <div className="muted tiny" style={{ marginTop: 4 }}>
+                            Open System Info to monitor or recover the session. Trader remains blocked until finalization is confirmed on-chain.
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {!isCompactMobile && Array.isArray(openTradingSessions) && openTradingSessions.length ? (
                       <div

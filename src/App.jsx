@@ -416,10 +416,11 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD283-GRID-V5-VAULT-BALANCE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD284-V5-POL-MULTICHAIN";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
-const CORE_VAULT_ADDRESS_BY_CHAIN = { ETH: CORE_VAULT_ETH_ADDRESS, BNB: CORE_VAULT_BNB_ADDRESS, POL: "", BASE: "", ARB: "" };
+const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
+const CORE_VAULT_ADDRESS_BY_CHAIN = { ETH: CORE_VAULT_ETH_ADDRESS, BNB: CORE_VAULT_BNB_ADDRESS, POL: CORE_VAULT_POL_ADDRESS, BASE: "", ARB: "" };
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const UNISWAP_SWAP_ROUTER_02 = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45";
@@ -25745,6 +25746,7 @@ export default function App() {
   const [coreVaultRecoveryJobs, setCoreVaultRecoveryJobs] = useState({});
   const [ownerAdminHash, setOwnerAdminHash] = useState("");
   const [privyPolicyPreview, setPrivyPolicyPreview] = useState(null);
+  const [privyPolicyChainId, setPrivyPolicyChainId] = useState(137);
   const [privyPolicyBusy, setPrivyPolicyBusy] = useState("");
   const [privyPolicyMsg, setPrivyPolicyMsg] = useState("");
   const [ownerAdminWalletMode, setOwnerAdminWalletMode] = useState(() => {
@@ -25972,18 +25974,19 @@ export default function App() {
   const _loadPrivyPolicyPreview = async () => {
     if (!canOpenSystemInfo || privyPolicyBusy) return;
     setPrivyPolicyBusy("preview");
-    setPrivyPolicyMsg("Loading current Privy policy and preparing BNB rule preview...");
+    const policyChainName = Number(privyPolicyChainId) === 137 ? "POL" : "BNB";
+    setPrivyPolicyMsg(`Loading current Privy policy and preparing ${policyChainName} rule preview...`);
     try {
       const res = await fetch(`${API_BASE}/api/nexus/system-info/privy-policy/preview`, {
         method: "POST", cache: "no-store", credentials: "include", headers: _authHeaders(),
-        body: JSON.stringify({ chainId: 56 }),
+        body: JSON.stringify({ chainId: Number(privyPolicyChainId) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data?.status !== "ok") throw new Error(data?.error || `Policy preview failed (${res.status})`);
       setPrivyPolicyPreview(data);
       setPrivyPolicyMsg((data?.toAdd || []).length
-        ? `${data.toAdd.length} BNB rule(s) are ready to add. Review every target, then confirm.`
-        : "BNB rules are already present. No policy change is required.");
+        ? `${data.toAdd.length} ${policyChainName} rule(s) are ready to add. Review every target, then confirm.`
+        : `${policyChainName} rules are already present. No policy change is required.`);
     } catch (err) {
       setPrivyPolicyPreview(null);
       setPrivyPolicyMsg(`Policy preview failed: ${err?.message || err}`);
@@ -25996,14 +25999,15 @@ export default function App() {
     if (!canOpenSystemInfo || privyPolicyBusy || !privyPolicyPreview?.confirmationToken) return;
     const count = (privyPolicyPreview?.toAdd || []).length;
     if (!count) return;
-    const ok = window.confirm(`Add ${count} reviewed BNB rule(s) to the existing Privy policy ${privyPolicyPreview?.policy?.name || ""}? Existing Ethereum rules remain unchanged.`);
+    const policyChainName = Number(privyPolicyChainId) === 137 ? "POL" : "BNB";
+    const ok = window.confirm(`Add ${count} reviewed ${policyChainName} rule(s) to the existing Privy policy ${privyPolicyPreview?.policy?.name || ""}? Existing rules remain unchanged.`);
     if (!ok) return;
     setPrivyPolicyBusy("apply");
     setPrivyPolicyMsg("Applying signed Privy policy update from the backend...");
     try {
       const res = await fetch(`${API_BASE}/api/nexus/system-info/privy-policy/apply`, {
         method: "POST", cache: "no-store", credentials: "include", headers: _authHeaders(),
-        body: JSON.stringify({ chainId: 56, confirmationToken: privyPolicyPreview.confirmationToken }),
+        body: JSON.stringify({ chainId: Number(privyPolicyChainId), confirmationToken: privyPolicyPreview.confirmationToken }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data?.status !== "ok") throw new Error(data?.error || `Policy update failed (${res.status})`);
@@ -26969,9 +26973,15 @@ export default function App() {
                         <b>{privyPolicyPreview?.policy?.name || "Existing trading policy"}</b>
                         <div className="muted" style={{ marginTop: 2, wordBreak: "break-all" }}>Policy ID: {privyPolicyPreview?.policy?.id || "Load preview to read"}</div>
                       </div>
-                      <button type="button" className="miniBtn" disabled={!!privyPolicyBusy} onClick={_loadPrivyPolicyPreview}>
-                        {privyPolicyBusy === "preview" ? "Loading..." : "Preview BNB Rules"}
-                      </button>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        <select className="select" value={String(privyPolicyChainId)} disabled={!!privyPolicyBusy} onChange={(e) => { setPrivyPolicyChainId(Number(e.target.value)); setPrivyPolicyPreview(null); setPrivyPolicyMsg(""); }} style={{ minWidth: 150 }}>
+                          <option value="137">Polygon (POL)</option>
+                          <option value="56">BNB Chain</option>
+                        </select>
+                        <button type="button" className="miniBtn" disabled={!!privyPolicyBusy} onClick={_loadPrivyPolicyPreview}>
+                          {privyPolicyBusy === "preview" ? "Loading..." : `Preview ${Number(privyPolicyChainId) === 137 ? "POL" : "BNB"} Rules`}
+                        </button>
+                      </div>
                     </div>
                     <div className="muted" style={{ marginTop: 7 }}>
                       Uses existing server ENV: PRIVY_APP_ID, PRIVY_APP_SECRET, PRIVY_TRADING_POLICY_ID, PRIVY_TRADING_KEY_QUORUM_ID and PRIVY_TRADING_AUTHORIZATION_PRIVATE_KEY. Secrets are never sent to the browser.
@@ -26982,17 +26992,17 @@ export default function App() {
                           <span className="muted">{key}</span><br /><b style={{ color: value ? "#8dffd0" : "#ff9f9f" }}>{value ? "READY" : "MISSING"}</b>
                         </div>)}
                       </div>
-                      <div style={{ marginTop: 9, fontWeight: 900 }}>BNB targets to add ({(privyPolicyPreview.toAdd || []).length})</div>
+                      <div style={{ marginTop: 9, fontWeight: 900 }}>{Number(privyPolicyChainId) === 137 ? "POL" : "BNB"} targets to add ({(privyPolicyPreview.toAdd || []).length})</div>
                       <div style={{ marginTop: 5, display: "grid", gap: 5 }}>
                         {(privyPolicyPreview.toAdd || []).map((rule) => <div key={rule.name} style={{ border: "1px solid rgba(187,134,252,.24)", borderRadius: 7, padding: 7 }}>
                           <b>{rule.name}</b><div className="muted" style={{ wordBreak: "break-all", marginTop: 2 }}>{rule.label}: {rule.target}</div>
                         </div>)}
-                        {!(privyPolicyPreview.toAdd || []).length ? <div style={{ color: "#8dffd0", fontWeight: 900 }}>All BNB targets are already present.</div> : null}
+                        {!(privyPolicyPreview.toAdd || []).length ? <div style={{ color: "#8dffd0", fontWeight: 900 }}>All selected-chain targets are already present.</div> : null}
                       </div>
                       {(privyPolicyPreview.alreadyPresent || []).length ? <div className="muted" style={{ marginTop: 7 }}>Already present: {(privyPolicyPreview.alreadyPresent || []).map((r) => r.label).join(", ")}</div> : null}
                       <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
                         <button type="button" className="miniBtn" disabled={!!privyPolicyBusy || !(privyPolicyPreview.toAdd || []).length} onClick={_applyPrivyPolicyPreview}>
-                          {privyPolicyBusy === "apply" ? "Applying signed update..." : "Confirm & Add BNB Rules"}
+                          {privyPolicyBusy === "apply" ? "Applying signed update..." : `Confirm & Add ${Number(privyPolicyChainId) === 137 ? "POL" : "BNB"} Rules`}
                         </button>
                       </div>
                     </> : null}

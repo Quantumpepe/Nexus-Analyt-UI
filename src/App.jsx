@@ -121,7 +121,8 @@ const DEMO_ALL_EVM_ENABLED = true;
 
 const ENABLE_VAULT_SUBSCRIBE = false; // Set true when vault subscription is ready and audited.
 
-const LIVE_ENABLED_CHAINS = ["ETH", "BNB", "POL"];
+const LIVE_ENABLED_CHAINS = ["ETH", "BNB", "POL", "BASE", "ARB"];
+const PRIMARY_EVM_CHAINS = ["ETH", "BNB", "POL", "BASE", "ARB"];
 
 const DEMO_MODE_NOTICE =
   "Demo Mode: All EVM networks can be simulated with real market data. Live execution is currently limited to ETH, BNB and POL.";
@@ -415,10 +416,10 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD281-PRIVY-POLICY-MANAGER";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD282-TOP5-EVM-ACTIVE-VAULTS";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
-const CORE_VAULT_ADDRESS_BY_CHAIN = { ETH: CORE_VAULT_ETH_ADDRESS, BNB: CORE_VAULT_BNB_ADDRESS };
+const CORE_VAULT_ADDRESS_BY_CHAIN = { ETH: CORE_VAULT_ETH_ADDRESS, BNB: CORE_VAULT_BNB_ADDRESS, POL: "", BASE: "", ARB: "" };
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const UNISWAP_SWAP_ROUTER_02 = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45";
@@ -3048,7 +3049,7 @@ function EngineEventHistory({ engine, events = [] }) {
 
 function AppInner({ coreVaultSessionPreview = null }) {
 
-  // Multi-chain config (UI is ready; test phase enables POL + BNB)
+  // Multi-chain config: five primary EVM networks are always visible; configured V5 Vaults activate automatically.
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
   const CHAIN_LABELS = {
     ETH: "ETH (Ethereum)",
@@ -3060,8 +3061,8 @@ function AppInner({ coreVaultSessionPreview = null }) {
     AVAX: "AVAX (Avalanche)",
     FTM: "FTM (Fantom)",
   };
-  const ENABLED_CHAINS = ["POL","BNB","ETH"];
-  const DEFAULT_CHAIN = "POL";
+  const ENABLED_CHAINS = PRIMARY_EVM_CHAINS;
+  const DEFAULT_CHAIN = "ETH";
 
 // One-time storage version gate: clears *derived* caches after deployments (keeps user selections)
 useEffect(() => {
@@ -4521,7 +4522,7 @@ const refreshProfitPayoutSettings = async () => {
       .map((c) => normalizeWalletChainKey(c))
       .filter((c) => c && supported.has(c));
     const seen = new Set();
-    const merged = [...fromWallet, ...fallback].filter((c) => !seen.has(c) && seen.add(c));
+    const merged = [...PRIMARY_EVM_CHAINS, ...fromWallet, ...fallback].filter((c) => !seen.has(c) && seen.add(c));
     return merged.length ? merged : [DEFAULT_CHAIN];
   }, [balByChain]);
 
@@ -5384,7 +5385,7 @@ useEffect(() => {
       availableForWithdrawUsd: Math.max(0, Number(availableBySource[coreWithdrawSource] || 0)),
       mode: isShadow ? "SHADOW" : "LIVE",
       isShadow,
-      note: hasLiveOnchainState ? "Live balances read directly from the verified Ethereum Core Vault." : String(a.note || ""),
+      note: hasLiveOnchainState ? `Live balances read directly from the verified ${String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()} Core Vault.` : String(a.note || ""),
     };
   }, [coreVaultAccounting, coreVaultOnchain, coreWithdrawSource]);
 
@@ -19358,6 +19359,43 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </>
               ) : (
                 <>
+                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: "rgba(64,196,255,0.045)", border: "1px solid rgba(64,196,255,0.20)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <div>
+                        <div style={{ fontWeight: 900, fontSize: 12 }}>EVM Vault Network</div>
+                        <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>The five primary EVM networks are always visible. A network becomes live automatically when its V5 Vault is configured.</div>
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 900, color: "#86efac" }}>{String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()}</span>
+                    </div>
+                    <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 6 }}>
+                      {PRIMARY_EVM_CHAINS.map((chainKey) => {
+                        const selected = String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase() === chainKey;
+                        const knownVault = _isAddr(_getVaultAddrForChain(chainKey)) || _isAddr(CORE_VAULT_ADDRESS_BY_CHAIN?.[chainKey]);
+                        const currentConnected = selected && Boolean(coreVaultOnchain?.connected);
+                        return (
+                          <button
+                            key={chainKey}
+                            type="button"
+                            className={selected ? "btn" : "btnGhost"}
+                            onClick={() => {
+                              setBalActiveChain(chainKey);
+                              setWsChainKey(chainKey);
+                              setCoreDepositAsset("");
+                              setCoreDepositAmount("");
+                              setCoreDepositMsg("");
+                              setTimeout(() => { try { refreshVaultState(chainKey); } catch (_) {} }, 0);
+                              setTimeout(() => { try { refreshCoreVaultOnchain(); } catch (_) {} }, 50);
+                            }}
+                            style={{ minWidth: 0, height: 42, padding: "5px 4px", fontSize: 11 }}
+                            title={knownVault ? `${chainKey} V5 Vault configured` : `${chainKey} is listed and will activate automatically after its V5 Vault is configured`}
+                          >
+                            <div style={{ fontWeight: 950 }}>{chainKey}</div>
+                            <div style={{ fontSize: 8, marginTop: 2, opacity: 0.8 }}>{currentConnected ? "LIVE" : knownVault ? "READY" : "PENDING"}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: coreVaultOverview.isShadow ? "rgba(255,193,7,0.10)" : "rgba(0,255,166,0.08)", border: coreVaultOverview.isShadow ? "1px solid rgba(255,193,7,0.32)" : "1px solid rgba(0,255,166,0.25)" }}>
                     <div style={{ fontWeight: 900 }}>Mode: {coreVaultOverview.mode}</div>
                     <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{coreVaultOverview.note || (coreVaultOverview.isShadow ? "Simulated funds only." : "Live Vault accounting starts at zero until a real deposit is confirmed.")}</div>
@@ -19379,7 +19417,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                       <div>
                         <div style={{ fontWeight: 900, fontSize: 13 }}>Live Core Vault</div>
-                        <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>Real on-chain funds · Ethereum Mainnet</div>
+                        <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{`Real on-chain funds · ${CHAIN_LABELS?.[String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()] || String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()}`}</div>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 900, color: coreVaultOnchain?.connected ? "#86efac" : "#ffb3b3" }}>
                         {coreVaultOnchainLoading ? "REFRESHING" : coreVaultOnchain?.connected ? "CONNECTED" : "UNAVAILABLE"}
@@ -19474,7 +19512,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   ) : null}
                   <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
                     <div style={{ fontWeight: 900, fontSize: 13 }}>Deposit to Vault</div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Ethereum Mainnet · all assets detected in the connected wallet</div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{`${CHAIN_LABELS?.[String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()] || String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()} · all assets detected in the connected wallet`}</div>
                     <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr) 1fr", gap: 8, marginTop: 9 }}>
                       <select className="input" value={coreDepositAsset} onChange={(e) => { setCoreDepositAsset(e.target.value); setCoreDepositMsg(""); }} disabled={coreDepositBusy || !coreDepositWalletAssets.length} style={{ height: 42 }}>
                         {!coreDepositWalletAssets.length ? <option value="">No wallet assets found</option> : null}

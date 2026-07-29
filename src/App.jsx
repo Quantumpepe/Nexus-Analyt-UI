@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD291-TRADER-CHAIN-SCOPE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD292-NKR-TRADER-CHAIN-SCOPE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8556,6 +8556,14 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       .toUpperCase()
       .trim();
   }, [liveVaultChainByMode?.trading, activeGridChainKey]);
+
+  // NKR has its own chain selection as well. Keep it independent from the
+  // wallet and Grid, and always define it before NKR session hydration runs.
+  const activeNkrChainKey = useMemo(() => {
+    return String(liveVaultChainByMode?.rotation || activeGridChainKey || DEFAULT_CHAIN || "ETH")
+      .toUpperCase()
+      .trim();
+  }, [liveVaultChainByMode?.rotation, activeGridChainKey]);
 
   // Keep this directly after activeGridChainKey. Several Trading/Rotation/Grid
   // preflight builders use the native chain symbol as a safe fallback, so it

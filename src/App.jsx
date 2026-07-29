@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD269-NATIVE-STATUS-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD270-DEPOSIT-ASSET-STATE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4675,10 +4675,22 @@ useEffect(() => {
 
   useEffect(() => {
     if (!coreDepositWalletAssets.length) return;
+
+    // The old state used a symbol such as "USDC", while the select options use
+    // unique keys such as "native:ETH" and "erc20:<address>". A symbol could
+    // therefore resolve for display but still leave the controlled <select>
+    // without a matching value. Normalize every resolved asset to its exact key
+    // so the visible option, helper text and deposit handler always refer to the
+    // same asset.
+    if (selectedCoreDepositAsset?.key && coreDepositAsset !== selectedCoreDepositAsset.key) {
+      setCoreDepositAsset(selectedCoreDepositAsset.key);
+      return;
+    }
+
     if (selectedCoreDepositAsset) return;
     const first = coreDepositWalletAssets.find((row) => row.vaultApproved) || coreDepositWalletAssets[0];
     if (first?.key) setCoreDepositAsset(first.key);
-  }, [coreDepositWalletAssets, selectedCoreDepositAsset]);
+  }, [coreDepositAsset, coreDepositWalletAssets, selectedCoreDepositAsset]);
 
   const [privyAutomationStatus, setPrivyAutomationStatus] = useState("NOT_VERIFIED");
   const [privyAutomationError, setPrivyAutomationError] = useState("");

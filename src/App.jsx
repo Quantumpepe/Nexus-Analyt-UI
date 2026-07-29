@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD261-NKR-HISTORY-INDEPENDENT";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD262-PRIVY-TX-FAST-STATUS";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -3657,6 +3657,55 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [walletSendAmount, setWalletSendAmount] = useState("");
   const [walletSendBusy, setWalletSendBusy] = useState(false);
   const [walletSendMsg, setWalletSendMsg] = useState("");
+  const [walletViewTab, setWalletViewTab] = useState("ASSETS");
+  const [walletTransactionsStore, setWalletTransactionsStore] = useLocalStorageState("nexus_privy_wallet_transactions_v1", {});
+
+  const walletTransactions = useMemo(() => {
+    const key = String(wallet || "").toLowerCase();
+    const rows = key && Array.isArray(walletTransactionsStore?.[key]) ? walletTransactionsStore[key] : [];
+    return [...rows].sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+  }, [wallet, walletTransactionsStore]);
+
+  const walletExplorerTxUrl = useCallback((chainKey, hash) => {
+    const chain = normalizeWalletChainKey(chainKey || DEFAULT_CHAIN);
+    const base = chain === "ETH"
+      ? "https://etherscan.io/tx/"
+      : chain === "BNB"
+        ? "https://bscscan.com/tx/"
+        : "https://polygonscan.com/tx/";
+    return hash ? `${base}${hash}` : "";
+  }, []);
+
+  const saveWalletTransaction = useCallback((entry) => {
+    const walletKey = String(wallet || "").toLowerCase();
+    if (!walletKey) return;
+    setWalletTransactionsStore((prev) => {
+      const current = Array.isArray(prev?.[walletKey]) ? prev[walletKey] : [];
+      const hash = String(entry?.txHash || "").toLowerCase();
+      const id = String(entry?.id || hash || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      const existingIndex = current.findIndex((row) =>
+        String(row?.id || "") === id ||
+        (hash && String(row?.txHash || "").toLowerCase() === hash)
+      );
+      const previous = existingIndex >= 0 ? current[existingIndex] : {};
+      const nextEntry = {
+        ...previous,
+        ...entry,
+        id,
+        createdAt: Number(previous?.createdAt || entry?.createdAt || Date.now()),
+        updatedAt: Date.now(),
+        chain: normalizeWalletChainKey(entry?.chain || previous?.chain || DEFAULT_CHAIN),
+        status: String(entry?.status || previous?.status || "SUBMITTED").toUpperCase(),
+        txHash: String(entry?.txHash || previous?.txHash || ""),
+        from: String(entry?.from || previous?.from || wallet || ""),
+      };
+      const merged = existingIndex >= 0
+        ? current.map((row, index) => index === existingIndex ? nextEntry : row)
+        : [nextEntry, ...current];
+      return { ...(prev || {}), [walletKey]: merged.slice(0, 250) };
+    });
+  }, [wallet, setWalletTransactionsStore]);
+
   const [coreWithdrawSource, setCoreWithdrawSource] = useState("SECURED_PROFIT_ONLY");
   const [coreWithdrawAsset, setCoreWithdrawAsset] = useState("USDT");
   const [coreWithdrawAmount, setCoreWithdrawAmount] = useState("");
@@ -4647,7 +4696,9 @@ useEffect(() => {
   const _waitForTxReceipt = async (provider, txHash, timeoutMs = 180000) => {
     const started = Date.now();
     let lastRpcError = null;
+    let attempts = 0;
     while (Date.now() - started < timeoutMs) {
+      attempts += 1;
       try {
         const receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [txHash] });
         if (receipt) {
@@ -4660,13 +4711,40 @@ useEffect(() => {
         // transaction into a failed transaction. Keep polling while we have a hash.
         lastRpcError = error;
       }
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // Fast immediately after broadcast, then ease off to reduce RPC load.
+      const delayMs = attempts <= 8 ? 600 : attempts <= 25 ? 1000 : 1500;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     const pending = new Error("Transaction is still pending on-chain.");
     pending.code = "TX_RECEIPT_PENDING";
     pending.txHash = txHash;
     pending.cause = lastRpcError || null;
     throw pending;
+  };
+
+  const _trackWalletTxInBackground = (provider, txHash, baseEntry, onConfirmed) => {
+    if (!txHash) return;
+    saveWalletTransaction({ ...baseEntry, txHash, status: "PENDING" });
+    void (async () => {
+      try {
+        const receipt = await _waitForTxReceipt(provider, txHash, 15 * 60 * 1000);
+        saveWalletTransaction({
+          ...baseEntry,
+          txHash,
+          status: "CONFIRMED",
+          blockNumber: receipt?.blockNumber || null,
+          gasUsed: receipt?.gasUsed || null,
+        });
+        if (typeof onConfirmed === "function") onConfirmed(receipt);
+      } catch (error) {
+        saveWalletTransaction({
+          ...baseEntry,
+          txHash,
+          status: error?.code === "TX_RECEIPT_PENDING" ? "PENDING" : "FAILED",
+          note: error?.code === "TX_RECEIPT_PENDING" ? "Still pending on-chain." : String(error?.message || error || ""),
+        });
+      }
+    })();
   };
 
   const _trackCoreVaultTxInBackground = (provider, txHash, successLabel) => {
@@ -5235,12 +5313,23 @@ useEffect(() => {
 
       setWalletSendMsg(`Confirm ${rawAmount} ${row.symbol} in Privy…`);
       const hash = await provider.request({ method: "eth_sendTransaction", params: [tx] });
-      setWalletSendMsg(`Sent. Waiting for network confirmation… ${hash}`);
-      await _waitForTxReceipt(provider, hash);
-      setWalletSendMsg(`Transfer confirmed. Tx: ${hash}`);
+      const txEntry = {
+        type: "WALLET SEND",
+        chain: chainKey,
+        asset: row.symbol,
+        amount: rawAmount,
+        from: wallet,
+        to: String(walletSendTo).trim(),
+      };
+      saveWalletTransaction({ ...txEntry, txHash: hash, status: "SUBMITTED" });
+      setWalletSendMsg(`Signed and broadcast. Confirmation continues in Transactions. Tx: ${hash}`);
       setWalletSendAmount("");
       setWalletSendTo("");
-      setTimeout(() => refreshBalances(), 250);
+      // Do not keep the Privy Wallet UI blocked while waiting for mining.
+      _trackWalletTxInBackground(provider, hash, txEntry, () => {
+        setWalletSendMsg(`Transfer confirmed on-chain. Tx: ${hash}`);
+        refreshBalances();
+      });
     } catch (e) {
       const msg = String(e?.message || e || "Transfer failed");
       const low = msg.toLowerCase();
@@ -7039,6 +7128,25 @@ const byChain = {};
             value: "0x0",
           },
         ],
+      });
+
+      saveWalletTransaction({
+        type: "SUBSCRIPTION PAYMENT",
+        chain: chainKey,
+        asset: payToken,
+        amount: String(paymentAmount),
+        from: wallet,
+        to: recipient,
+        txHash,
+        status: "SUBMITTED",
+      });
+      _trackWalletTxInBackground(provider, txHash, {
+        type: "SUBSCRIPTION PAYMENT",
+        chain: chainKey,
+        asset: payToken,
+        amount: String(paymentAmount),
+        from: wallet,
+        to: recipient,
       });
 
       const res = await api("/api/access/subscribe/verify", {
@@ -18930,6 +19038,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               {walletPanelTab === "WALLET" ? (
                 <>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 10 }}>
+                    <button type="button" className={walletViewTab === "ASSETS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("ASSETS")}>Assets</button>
+                    <button type="button" className={walletViewTab === "TRANSACTIONS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("TRANSACTIONS")}>Transactions · {walletTransactions.length}</button>
+                  </div>
+                  {walletViewTab === "ASSETS" ? (
+                    <>
                   <div style={{ marginTop: 12, padding: 11, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
                     <div className="muted" style={{ fontSize: 11 }}>Total wallet value</div>
                     <div className="mono" style={{ marginTop: 4, fontWeight: 900, fontSize: 18 }}>{walletUsdLoading ? "Loading…" : fmtUsd(Number(walletUsd?.total || 0))}</div>
@@ -18984,6 +19098,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <button type="button" className="btnGhost" onClick={() => { setWalletAssetSecurityByKey({}); refreshBalances(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 10 }}>
                     {balLoading ? "Refreshing…" : "Refresh Wallet Assets"}
                   </button>
+                    </>
+                  ) : (
+                    <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                      <div className="muted" style={{ fontSize: 10, lineHeight: 1.45 }}>
+                        Only transactions signed by this Privy Wallet inside Nexus are stored here. “Signed and broadcast” is separated from the later on-chain confirmation.
+                      </div>
+                      {walletTransactions.length ? walletTransactions.map((tx) => {
+                        const status = String(tx?.status || "PENDING").toUpperCase();
+                        const statusColor = status === "CONFIRMED" ? "#86efac" : status === "FAILED" ? "#ff8a8a" : "#ffd166";
+                        const explorer = walletExplorerTxUrl(tx?.chain, tx?.txHash);
+                        return (
+                          <div key={tx.id || tx.txHash} style={{ padding: 10, borderRadius: 12, border: "1px solid rgba(255,255,255,.09)", background: "rgba(255,255,255,.025)", display: "grid", gap: 5 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                              <b style={{ fontSize: 12 }}>{tx.type || "WALLET TRANSACTION"}</b>
+                              <b style={{ color: statusColor, fontSize: 10 }}>{status}</b>
+                            </div>
+                            <div className="muted" style={{ fontSize: 10 }}>
+                              {tx.chain || "—"} · {tx.amount ? `${tx.amount} ` : ""}{tx.asset || ""} · {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : ""}
+                            </div>
+                            {tx.to ? <div className="muted" style={{ fontSize: 9, wordBreak: "break-all" }}>To: {tx.to}</div> : null}
+                            {tx.txHash ? (
+                              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                                <span className="muted" style={{ fontFamily: "monospace", fontSize: 9 }}>{tx.txHash.slice(0, 10)}…{tx.txHash.slice(-8)}</span>
+                                <button type="button" className="miniBtn" onClick={() => navigator.clipboard?.writeText(tx.txHash)}>Copy hash</button>
+                                {explorer ? <a className="miniBtn" href={explorer} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>On-chain</a> : null}
+                              </div>
+                            ) : null}
+                            {tx.blockNumber ? <div className="muted" style={{ fontSize: 9 }}>Block: {String(tx.blockNumber)}</div> : null}
+                            {tx.note ? <div style={{ color: "#ffb3b3", fontSize: 9 }}>{tx.note}</div> : null}
+                          </div>
+                        );
+                      }) : (
+                        <div className="muted" style={{ padding: 18, textAlign: "center", border: "1px dashed rgba(255,255,255,.10)", borderRadius: 12 }}>
+                          No Privy Wallet transactions saved yet.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : (
                 <>

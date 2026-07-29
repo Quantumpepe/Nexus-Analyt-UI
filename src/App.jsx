@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD289-REMOVE-VAULT-CHAIN-CARDS";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD290-STABLE-ALLCHAIN-VAULT-READS";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -4571,6 +4571,9 @@ useEffect(() => {
   const LIVE_CORE_VAULT_CHAINS = ["ETH", "BNB", "POL", "BASE", "ARB"];
   const [coreVaultOnchainByChain, setCoreVaultOnchainByChain] = useState({});
   const [coreVaultAllChainsLoading, setCoreVaultAllChainsLoading] = useState(false);
+  // Prevent slower/older RPC responses from overwriting a newer all-chain snapshot.
+  const coreVaultAllChainsReadSeqRef = useRef(0);
+  const coreVaultAllChainsInFlightRef = useRef(false);
 
   // Deposit selector: show every asset currently detected in the connected
   // Ethereum wallet. CoreVault admission remains strict: only the exact token
@@ -4719,21 +4722,43 @@ useEffect(() => {
   useEffect(() => { refreshCoreVaultOnchain(); }, [refreshCoreVaultOnchain]);
   useInterval(refreshCoreVaultOnchain, 15000, !!wallet);
 
-  const refreshAllCoreVaultOnchain = useCallback(async () => {
+  const refreshAllCoreVaultOnchain = useCallback(async ({ force = false } = {}) => {
     if (!wallet) { setCoreVaultOnchainByChain({}); return; }
+    // The interval and chain-change effects can fire together. Never run two full
+    // five-chain reads concurrently because a slower old response can otherwise
+    // replace a newer snapshot and make balances appear to jump/disappear.
+    if (coreVaultAllChainsInFlightRef.current && !force) return;
+    const readSeq = ++coreVaultAllChainsReadSeqRef.current;
+    coreVaultAllChainsInFlightRef.current = true;
     setCoreVaultAllChainsLoading(true);
     try {
       const rows = await Promise.all(LIVE_CORE_VAULT_CHAINS.map(async (chainKey) => {
         try {
-          const res = await api(`/api/nexus/core-vault/onchain-state?chain=${encodeURIComponent(chainKey)}`, { wallet });
-          return [chainKey, res?.onchain || res || { connected: false, chain: chainKey }];
+          const res = await api(`/api/nexus/core-vault/onchain-state?chain=${encodeURIComponent(chainKey)}${force ? "&refresh=1" : ""}`, { wallet });
+          const state = res?.onchain || res || null;
+          return [chainKey, state && typeof state === "object" ? state : { connected: false, chain: chainKey, status: "empty" }, true];
         } catch (error) {
-          return [chainKey, { connected: false, chain: chainKey, status: "error", error: String(error?.message || error || "Core Vault read failed") }];
+          return [chainKey, { connected: false, chain: chainKey, status: "error", error: String(error?.message || error || "Core Vault read failed") }, false];
         }
       }));
-      setCoreVaultOnchainByChain(Object.fromEntries(rows));
+      if (readSeq !== coreVaultAllChainsReadSeqRef.current) return;
+      setCoreVaultOnchainByChain((previous) => {
+        const next = { ...(previous || {}) };
+        for (const [chainKey, incoming, readOk] of rows) {
+          const prior = previous?.[chainKey];
+          // A temporary RPC/network failure must not erase the last confirmed
+          // on-chain balance. Keep it visible, mark it stale, and retry next poll.
+          if (!readOk && prior?.connected) {
+            next[chainKey] = { ...prior, stale: true, staleError: incoming?.error || "Core Vault read failed", staleSince: prior?.staleSince || Date.now() };
+          } else {
+            next[chainKey] = { ...incoming, chain: String(incoming?.chain || chainKey).toUpperCase(), stale: false, readAt: Date.now() };
+          }
+        }
+        return next;
+      });
     } finally {
-      setCoreVaultAllChainsLoading(false);
+      if (readSeq === coreVaultAllChainsReadSeqRef.current) setCoreVaultAllChainsLoading(false);
+      coreVaultAllChainsInFlightRef.current = false;
     }
   }, [wallet, api]);
   useEffect(() => { refreshAllCoreVaultOnchain(); }, [refreshAllCoreVaultOnchain]);
@@ -17068,11 +17093,11 @@ const reservedQtyOpen = useMemo(() => {
 
 const gridV5VaultAccount = useMemo(() => {
   const selectedChain = String(activeGridChainKey || "").toUpperCase();
-  const loadedChain = String(coreVaultOnchain?.chain || coreVaultOnchain?.chainKey || "").toUpperCase();
-  if (!coreVaultOnchain?.connected || !selectedChain || loadedChain !== selectedChain) return null;
+  const selectedVault = coreVaultOnchainByChain?.[selectedChain] || null;
+  if (!selectedVault?.connected || !selectedChain) return null;
   const symbol = String(gridItem || activeGridChainSymbol || "").toUpperCase();
-  return coreVaultOnchain?.tokens?.[symbol]?.account || null;
-}, [coreVaultOnchain, activeGridChainKey, gridItem, activeGridChainSymbol]);
+  return selectedVault?.tokens?.[symbol]?.account || null;
+}, [coreVaultOnchainByChain, activeGridChainKey, gridItem, activeGridChainSymbol]);
 
 const vaultNativeBal = useMemo(() => {
   if (gridV5VaultAccount) {

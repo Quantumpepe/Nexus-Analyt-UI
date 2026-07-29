@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD280-SYSTEM-INFO-SCOPE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD281-PRIVY-POLICY-MANAGER";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_ADDRESS_BY_CHAIN = { ETH: CORE_VAULT_ETH_ADDRESS, BNB: CORE_VAULT_BNB_ADDRESS };
@@ -25677,6 +25677,9 @@ export default function App() {
   const [coreVaultSessionPreview, setCoreVaultSessionPreview] = useState(null);
   const [coreVaultRecoveryJobs, setCoreVaultRecoveryJobs] = useState({});
   const [ownerAdminHash, setOwnerAdminHash] = useState("");
+  const [privyPolicyPreview, setPrivyPolicyPreview] = useState(null);
+  const [privyPolicyBusy, setPrivyPolicyBusy] = useState("");
+  const [privyPolicyMsg, setPrivyPolicyMsg] = useState("");
   const [ownerAdminWalletMode, setOwnerAdminWalletMode] = useState(() => {
     try { return window.localStorage.getItem("nexus_owner_admin_wallet_mode_v1") || "METAMASK"; }
     catch { return "METAMASK"; }
@@ -25898,6 +25901,53 @@ export default function App() {
     };
   }, [canOpenSystemInfo, footerWallet]);
 
+
+  const _loadPrivyPolicyPreview = async () => {
+    if (!canOpenSystemInfo || privyPolicyBusy) return;
+    setPrivyPolicyBusy("preview");
+    setPrivyPolicyMsg("Loading current Privy policy and preparing BNB rule preview...");
+    try {
+      const res = await fetch(`${API_BASE}/api/nexus/system-info/privy-policy/preview`, {
+        method: "POST", cache: "no-store", credentials: "include", headers: _authHeaders(),
+        body: JSON.stringify({ chainId: 56 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.status !== "ok") throw new Error(data?.error || `Policy preview failed (${res.status})`);
+      setPrivyPolicyPreview(data);
+      setPrivyPolicyMsg((data?.toAdd || []).length
+        ? `${data.toAdd.length} BNB rule(s) are ready to add. Review every target, then confirm.`
+        : "BNB rules are already present. No policy change is required.");
+    } catch (err) {
+      setPrivyPolicyPreview(null);
+      setPrivyPolicyMsg(`Policy preview failed: ${err?.message || err}`);
+    } finally {
+      setPrivyPolicyBusy("");
+    }
+  };
+
+  const _applyPrivyPolicyPreview = async () => {
+    if (!canOpenSystemInfo || privyPolicyBusy || !privyPolicyPreview?.confirmationToken) return;
+    const count = (privyPolicyPreview?.toAdd || []).length;
+    if (!count) return;
+    const ok = window.confirm(`Add ${count} reviewed BNB rule(s) to the existing Privy policy ${privyPolicyPreview?.policy?.name || ""}? Existing Ethereum rules remain unchanged.`);
+    if (!ok) return;
+    setPrivyPolicyBusy("apply");
+    setPrivyPolicyMsg("Applying signed Privy policy update from the backend...");
+    try {
+      const res = await fetch(`${API_BASE}/api/nexus/system-info/privy-policy/apply`, {
+        method: "POST", cache: "no-store", credentials: "include", headers: _authHeaders(),
+        body: JSON.stringify({ chainId: 56, confirmationToken: privyPolicyPreview.confirmationToken }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.status !== "ok") throw new Error(data?.error || `Policy update failed (${res.status})`);
+      setPrivyPolicyMsg(`Privy policy updated: ${data.createdCount || 0} rule(s) added; ${data.remainingCount || 0} remaining.`);
+      await _loadPrivyPolicyPreview();
+    } catch (err) {
+      setPrivyPolicyMsg(`Policy update failed: ${err?.message || err}`);
+    } finally {
+      setPrivyPolicyBusy("");
+    }
+  };
 
   const _primaryEmbeddedPrivyWallet = () => {
     return (systemWallets || []).find((w) => String(w?.walletClientType || "").toLowerCase() === "privy")
@@ -26843,6 +26893,45 @@ export default function App() {
                   {ownerAdminHash ? <div className="muted" style={{ marginTop: 7, fontSize: 9, wordBreak: "break-all" }}>Action hash: {ownerAdminHash}</div> : null}
                   {ownerAdminMsg ? <div style={{ marginTop: 7, fontSize: 10, wordBreak: "break-all", color: ownerAdminMsg.includes("failed") ? "#ffb4b4" : "#8dffd0" }}>{ownerAdminMsg}</div> : null}
                 </div>
+
+                <details style={{ gridColumn: "span 8", border: "1px solid rgba(187,134,252,0.32)", borderRadius: 10, padding: 10, background: "rgba(187,134,252,0.055)" }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Privy Trading Policy · Owner only</summary>
+                  <div style={{ marginTop: 8, fontSize: 11 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <div>
+                        <b>{privyPolicyPreview?.policy?.name || "Existing trading policy"}</b>
+                        <div className="muted" style={{ marginTop: 2, wordBreak: "break-all" }}>Policy ID: {privyPolicyPreview?.policy?.id || "Load preview to read"}</div>
+                      </div>
+                      <button type="button" className="miniBtn" disabled={!!privyPolicyBusy} onClick={_loadPrivyPolicyPreview}>
+                        {privyPolicyBusy === "preview" ? "Loading..." : "Preview BNB Rules"}
+                      </button>
+                    </div>
+                    <div className="muted" style={{ marginTop: 7 }}>
+                      Uses existing server ENV: PRIVY_APP_ID, PRIVY_APP_SECRET, PRIVY_TRADING_POLICY_ID, PRIVY_TRADING_KEY_QUORUM_ID and PRIVY_TRADING_AUTHORIZATION_PRIVATE_KEY. Secrets are never sent to the browser.
+                    </div>
+                    {privyPolicyPreview ? <>
+                      <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 6 }}>
+                        {Object.entries(privyPolicyPreview.environment || {}).map(([key, value]) => <div key={key} style={{ border: "1px solid rgba(255,255,255,.10)", borderRadius: 7, padding: 6 }}>
+                          <span className="muted">{key}</span><br /><b style={{ color: value ? "#8dffd0" : "#ff9f9f" }}>{value ? "READY" : "MISSING"}</b>
+                        </div>)}
+                      </div>
+                      <div style={{ marginTop: 9, fontWeight: 900 }}>BNB targets to add ({(privyPolicyPreview.toAdd || []).length})</div>
+                      <div style={{ marginTop: 5, display: "grid", gap: 5 }}>
+                        {(privyPolicyPreview.toAdd || []).map((rule) => <div key={rule.name} style={{ border: "1px solid rgba(187,134,252,.24)", borderRadius: 7, padding: 7 }}>
+                          <b>{rule.name}</b><div className="muted" style={{ wordBreak: "break-all", marginTop: 2 }}>{rule.label}: {rule.target}</div>
+                        </div>)}
+                        {!(privyPolicyPreview.toAdd || []).length ? <div style={{ color: "#8dffd0", fontWeight: 900 }}>All BNB targets are already present.</div> : null}
+                      </div>
+                      {(privyPolicyPreview.alreadyPresent || []).length ? <div className="muted" style={{ marginTop: 7 }}>Already present: {(privyPolicyPreview.alreadyPresent || []).map((r) => r.label).join(", ")}</div> : null}
+                      <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
+                        <button type="button" className="miniBtn" disabled={!!privyPolicyBusy || !(privyPolicyPreview.toAdd || []).length} onClick={_applyPrivyPolicyPreview}>
+                          {privyPolicyBusy === "apply" ? "Applying signed update..." : "Confirm & Add BNB Rules"}
+                        </button>
+                      </div>
+                    </> : null}
+                    {privyPolicyMsg ? <div style={{ marginTop: 8, color: /failed|missing|error/i.test(privyPolicyMsg) ? "#ffb4b4" : "#8dffd0", wordBreak: "break-word" }}>{privyPolicyMsg}</div> : null}
+                  </div>
+                </details>
 
                 <div style={{ gridColumn: "span 4", marginTop: 2, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

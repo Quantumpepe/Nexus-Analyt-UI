@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD267-V5-NATIVE";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD268-V5-NATIVE-SETTLEMENT";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4950,6 +4950,7 @@ useEffect(() => {
         wallet,
         system: String(system || "").toUpperCase(),
         amountUsd: budget,
+        budgetAmount: String(settlementAsset || "USDC").toUpperCase() === "ETH" ? budget : undefined,
         durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
         maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
         maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
@@ -4970,6 +4971,7 @@ useEffect(() => {
           wallet,
           system: String(system || "").toUpperCase(),
           amountUsd: budget,
+          budgetAmount: String(settlementAsset || "USDC").toUpperCase() === "ETH" ? budget : undefined,
           durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
           maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
           maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
@@ -19317,7 +19319,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {!coreDepositWalletAssets.length ? <option value="">No wallet assets found</option> : null}
                         {coreDepositWalletAssets.map((asset) => (
                           <option key={asset.key} value={asset.key}>
-                            {asset.symbol} · {asset.balance} {asset.vaultApproved ? "· Vault ready" : asset.isNative ? "· wrap required" : "· approval required"}
+                            {asset.symbol} · {asset.balance} {asset.vaultApproved ? "· Vault ready" : asset.isNative ? "· Native not configured" : "· approval required"}
                           </option>
                         ))}
                       </select>

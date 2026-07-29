@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD284-V5-POL-MULTICHAIN";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD285-REMOVE-DUPLICATE-GRID-ORDERS";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -24162,44 +24162,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {errorMsg ? <div style={{ padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(245,193,108,.30)", background: "rgba(245,193,108,.08)", color: "#f5c16c", fontSize: 12 }}>{errorMsg}</div> : null}
               </div>
 
-              <div style={{ display: "grid", gap: 8, padding: "12px", borderRadius: 14, border: "1px solid rgba(255,255,255,.10)", background: "rgba(0,0,0,.12)", minHeight: 118 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                  <div style={{ fontWeight: 900 }}>Grid Orders</div>
-                  <span className="pill silver">{Math.max(
-                    Array.isArray(gridOrders) ? gridOrders.length : 0,
-                    (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
-                      .filter((sess) => String(sess?.engine || "").toUpperCase() === "GRID")
-                      .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(sess?.statusLabel || "").toUpperCase())).length
-                  )} Active</span>
-                </div>
-                {Array.isArray(gridOrders) && gridOrders.length ? (
-                  <div style={{ display: "grid", gap: 8 }}>
-                    {gridOrders.map((o, idx) => {
-                      const oid = idOf(o);
-                      const statusTxt = inferOrderStatus(o);
-                      return <div key={oid || idx} style={{ padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(255,255,255,.08)", background: "rgba(255,255,255,.03)", display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                        <div><b>{String(o?.item || o?.item_id || gridItem || "TOKEN").split(":").pop()}</b> · {fmtQty(Number(o?.qty || 0), 6)} · Target {fmtUsd(Number(o?.price || 0))} · Payout {inferOrderPayoutAsset(o)}</div>
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <span className="pill silver">{statusTxt}</span>
-                          <button className="miniBtn" type="button" onClick={() => statusTxt === "PAUSED" ? resumeGridOrder(oid) : stopGridOrder(oid)}>{statusTxt === "PAUSED" ? "Resume" : "Stop"}</button>
-                          <button className="miniBtn" type="button" onClick={() => deleteGridOrder(oid)} style={{ color: "#ff8a8a" }}>Delete</button>
-                        </div>
-                      </div>;
-                    })}
-                  </div>
-                ) : (() => {
-                  const pendingGridSessions = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
-                    .filter((sess) => String(sess?.engine || "").toUpperCase() === "GRID")
-                    .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(sess?.statusLabel || "").toUpperCase()));
-                  return (
-                    <div className="muted" style={{ minHeight: 58, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", border: "1px dashed rgba(255,255,255,.10)", borderRadius: 11, padding: 10 }}>
-                      {pendingGridSessions.length
-                        ? `${pendingGridSessions.length} on-chain Grid session${pendingGridSessions.length === 1 ? " is" : "s are"} still active or pending finalization. No local Grid order is currently visible.`
-                        : "No active Grid orders."}
-                    </div>
-                  );
-                })()}
-              </div>
             </div>
           </div>
 

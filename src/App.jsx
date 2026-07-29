@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD282-TOP5-EVM-ACTIVE-VAULTS";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD283-GRID-V5-VAULT-BALANCE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_ADDRESS_BY_CHAIN = { ETH: CORE_VAULT_ETH_ADDRESS, BNB: CORE_VAULT_BNB_ADDRESS, POL: "", BASE: "", ARB: "" };
@@ -4695,11 +4695,11 @@ useEffect(() => {
   // and it does not reserve or move funds by itself.
   const [liveVaultChainByMode, setLiveVaultChainByMode] = useState({ normal: "ETH", rotation: "ETH", trading: "ETH" });
   const [liveVaultAssetByMode, setLiveVaultAssetByMode] = useState({ normal: "USDC", rotation: "USDC", trading: "USDC" });
-  const refreshCoreVaultOnchain = useCallback(async () => {
+  const refreshCoreVaultOnchain = useCallback(async (preferredChainKey = "") => {
     if (!wallet) { setCoreVaultOnchain(null); return; }
     setCoreVaultOnchainLoading(true);
     try {
-      const chainKey = String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+      const chainKey = String(preferredChainKey || balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
       const res = await api(`/api/nexus/core-vault/onchain-state?chain=${encodeURIComponent(chainKey)}`, { wallet });
       setCoreVaultOnchain(res?.onchain || res || null);
     } catch (e) {
@@ -8537,13 +8537,16 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // Important: do NOT mutate wallet chain state here. We only force the vault read itself.
   useEffect(() => {
     const sym = String(gridItem || "").toUpperCase().trim();
-    if (!wallet) return;
-    if (!["POL", "BNB", "ETH"].includes(sym)) return;
+    const chain = String(activeGridChainKey || "").toUpperCase().trim();
+    if (!wallet || !chain) return;
 
-    const t1 = setTimeout(() => { try { refreshVaultState(sym, { force: true }); } catch (_) {} }, 250);
-    const t2 = setTimeout(() => { try { refreshVaultState(sym); } catch (_) {} }, 1200);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [wallet, gridItem]);
+    // Grid must read the same V5 CoreVault state as NKR and Trader. The legacy
+    // /api/vault/state read is retained only as a fallback for older chains.
+    const t0 = setTimeout(() => { try { refreshCoreVaultOnchain(chain); } catch (_) {} }, 80);
+    const t1 = setTimeout(() => { try { refreshVaultState(chain, { force: true }); } catch (_) {} }, 250);
+    const t2 = setTimeout(() => { try { refreshVaultState(chain); } catch (_) {} }, 1200);
+    return () => { clearTimeout(t0); clearTimeout(t1); clearTimeout(t2); };
+  }, [wallet, gridItem, activeGridChainKey, refreshCoreVaultOnchain]);
 
 const [gridNativeUsd, setGridNativeUsd] = useState({});
 
@@ -8608,8 +8611,18 @@ useEffect(() => {
 
   const gridWalletCoins = useMemo(() => {
     const ck = String(activeGridChainKey || DEFAULT_CHAIN || "POL").toUpperCase();
-    return gridWalletCoinsByChain?.[ck] || [];
-  }, [gridWalletCoinsByChain, activeGridChainKey]);
+    const out = [...(gridWalletCoinsByChain?.[ck] || [])];
+    const vaultChain = String(coreVaultOnchain?.chain || coreVaultOnchain?.chainKey || "").toUpperCase();
+    if (vaultChain === ck && coreVaultOnchain?.connected) {
+      for (const [symbol, state] of Object.entries(coreVaultOnchain?.tokens || {})) {
+        const account = state?.account || {};
+        const total = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
+        const positionAmount = Number(state?.position?.amount || state?.positionAmount || 0);
+        if (total > 0 || positionAmount > 0) out.push(String(symbol || "").toUpperCase());
+      }
+    }
+    return Array.from(new Set(out.map((x) => String(x || "").toUpperCase()).filter(Boolean)));
+  }, [gridWalletCoinsByChain, activeGridChainKey, coreVaultOnchain]);
 
   const handleRotationPickToGrid = useCallback((pick) => {
     const rawSym = String(pick?.sym || pick || "").toUpperCase().trim();
@@ -16976,28 +16989,44 @@ const reservedQtyOpen = useMemo(() => {
   }
 }, [gridOrders]);
 
+const gridV5VaultAccount = useMemo(() => {
+  const selectedChain = String(activeGridChainKey || "").toUpperCase();
+  const loadedChain = String(coreVaultOnchain?.chain || coreVaultOnchain?.chainKey || "").toUpperCase();
+  if (!coreVaultOnchain?.connected || !selectedChain || loadedChain !== selectedChain) return null;
+  const symbol = String(gridItem || activeGridChainSymbol || "").toUpperCase();
+  return coreVaultOnchain?.tokens?.[symbol]?.account || null;
+}, [coreVaultOnchain, activeGridChainKey, gridItem, activeGridChainSymbol]);
+
 const vaultNativeBal = useMemo(() => {
-  // The vault contract reader stores the current chain's native balance in `polBalance`
-  // for historical reasons. Do NOT branch to bnbBalance/ethBalance here.
+  if (gridV5VaultAccount) {
+    return Math.max(0,
+      Number(gridV5VaultAccount?.baseCapital || 0) +
+      Number(gridV5VaultAccount?.totalSecuredProfit || 0)
+    );
+  }
+  // Legacy fallback only. V5 Grid normally uses gridV5VaultAccount above.
   return Number(vaultState?.polBalance) || 0;
-}, [vaultState]);
+}, [gridV5VaultAccount, vaultState]);
 
-const vaultFreeQty = useMemo(
-  () => Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reservedQtyOpen) || 0)),
-  [vaultNativeBal, reservedQtyOpen]
-);
+const vaultFreeQty = useMemo(() => {
+  if (gridV5VaultAccount) {
+    const total = Math.max(0,
+      Number(gridV5VaultAccount?.baseCapital || 0) +
+      Number(gridV5VaultAccount?.totalSecuredProfit || 0)
+    );
+    return Math.max(0, total - Number(gridV5VaultAccount?.totalAllocated || 0));
+  }
+  return Math.max(0, (Number(vaultNativeBal) || 0) - (Number(reservedQtyOpen) || 0));
+}, [gridV5VaultAccount, vaultNativeBal, reservedQtyOpen]);
 
-const manualVaultAvailableQty = useMemo(() => {
-  return Number(vaultFreeQty) || 0;
-}, [vaultFreeQty]);
+const manualVaultAvailableQty = useMemo(() => Number(vaultFreeQty) || 0, [vaultFreeQty]);
 
 const manualVaultAllocatedQty = useMemo(() => {
+  if (gridV5VaultAccount) return Number(gridV5VaultAccount?.allocatedGrid || 0) || 0;
   return Number(reservedQtyOpen) || 0;
-}, [reservedQtyOpen]);
+}, [gridV5VaultAccount, reservedQtyOpen]);
 
-const manualVaultTotalQty = useMemo(() => {
-  return Number(vaultNativeBal) || 0;
-}, [vaultNativeBal]);
+const manualVaultTotalQty = useMemo(() => Number(vaultNativeBal) || 0, [vaultNativeBal]);
 
 const manualVaultSettledQty = useMemo(() => {
   const v = Number(vaultState?.heldTokenBal);

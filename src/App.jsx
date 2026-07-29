@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD286-NKR-TRADER-V5-SESSION-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD287-ALL-CHAIN-LIVE-VAULT-CAPITAL-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -4562,8 +4562,15 @@ useEffect(() => {
   const [gridBudgetsErr, setGridBudgetsErr] = useState("");
 
   const [coreVaultAccounting, setCoreVaultAccounting] = useState(null);
+  // Wallet modal state follows the wallet network selector only.
   const [coreVaultOnchain, setCoreVaultOnchain] = useState(null);
   const [coreVaultOnchainLoading, setCoreVaultOnchainLoading] = useState(false);
+  // Live Core Vault Capital is independent from the wallet selector. It keeps a
+  // simultaneous on-chain snapshot for every supported EVM chain so Grid, NKR
+  // and Trader can select/read any vault without changing the wallet panel.
+  const LIVE_CORE_VAULT_CHAINS = ["ETH", "BNB", "POL", "BASE", "ARB"];
+  const [coreVaultOnchainByChain, setCoreVaultOnchainByChain] = useState({});
+  const [coreVaultAllChainsLoading, setCoreVaultAllChainsLoading] = useState(false);
 
   // Deposit selector: show every asset currently detected in the connected
   // Ethereum wallet. CoreVault admission remains strict: only the exact token
@@ -4711,6 +4718,26 @@ useEffect(() => {
   }, [wallet, api, balActiveChain, wsChainKey]);
   useEffect(() => { refreshCoreVaultOnchain(); }, [refreshCoreVaultOnchain]);
   useInterval(refreshCoreVaultOnchain, 15000, !!wallet);
+
+  const refreshAllCoreVaultOnchain = useCallback(async () => {
+    if (!wallet) { setCoreVaultOnchainByChain({}); return; }
+    setCoreVaultAllChainsLoading(true);
+    try {
+      const rows = await Promise.all(LIVE_CORE_VAULT_CHAINS.map(async (chainKey) => {
+        try {
+          const res = await api(`/api/nexus/core-vault/onchain-state?chain=${encodeURIComponent(chainKey)}`, { wallet });
+          return [chainKey, res?.onchain || res || { connected: false, chain: chainKey }];
+        } catch (error) {
+          return [chainKey, { connected: false, chain: chainKey, status: "error", error: String(error?.message || error || "Core Vault read failed") }];
+        }
+      }));
+      setCoreVaultOnchainByChain(Object.fromEntries(rows));
+    } finally {
+      setCoreVaultAllChainsLoading(false);
+    }
+  }, [wallet, api]);
+  useEffect(() => { refreshAllCoreVaultOnchain(); }, [refreshAllCoreVaultOnchain]);
+  useInterval(refreshAllCoreVaultOnchain, 15000, !!wallet);
 
   const _waitForTxReceipt = async (provider, txHash, timeoutMs = 180000) => {
     const started = Date.now();
@@ -4997,7 +5024,8 @@ useEffect(() => {
     const modeKey = String(system || "").toUpperCase() === "NKR" ? "rotation" : String(system || "").toUpperCase() === "TRADER" ? "trading" : "normal";
     const selectedChain = String(chain || liveVaultChainByMode?.[modeKey] || activeGridChainKey || "ETH").toUpperCase();
     const selectedAsset = String(settlementAsset || liveVaultAssetByMode?.[modeKey] || ({ ETH: "ETH", BNB: "BNB", POL: "POL" }[selectedChain]) || "USDC").toUpperCase();
-    if (!coreVaultOnchain?.connected || String(coreVaultOnchain?.chain || coreVaultOnchain?.chainKey || "").toUpperCase() !== selectedChain) {
+    const selectedVaultState = coreVaultOnchainByChain?.[selectedChain] || null;
+    if (!selectedVaultState?.connected) {
       throw new Error(`${selectedChain} CoreVault V5 is not connected.`);
     }
 
@@ -21364,7 +21392,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
               {(() => {
                 const modeKey = String(gridMode || "normal");
                 const selectedChain = String(liveVaultChainByMode?.[modeKey] || "ETH").toUpperCase();
-                const tokenEntries = Object.entries(coreVaultOnchain?.tokens || {}).filter(([, tokenState]) => {
+                const selectedVaultState = coreVaultOnchainByChain?.[selectedChain] || null;
+                const tokenEntries = Object.entries(selectedVaultState?.tokens || {}).filter(([, tokenState]) => {
                   const account = tokenState?.account || {};
                   const total = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
                   return total > 0;
@@ -21372,7 +21401,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 const fallbackSymbol = tokenEntries[0]?.[0] || "USDC";
                 const selectedSymbolRaw = String(liveVaultAssetByMode?.[modeKey] || fallbackSymbol).toUpperCase();
                 const selectedSymbol = tokenEntries.some(([symbol]) => symbol === selectedSymbolRaw) ? selectedSymbolRaw : fallbackSymbol;
-                const tokenState = ["ETH","BNB","POL"].includes(selectedChain) ? (coreVaultOnchain?.tokens?.[selectedSymbol] || {}) : {};
+                const tokenState = selectedVaultState?.tokens?.[selectedSymbol] || {};
                 const account = tokenState?.account || {};
                 const total = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
                 const totalAllocated = Number(account?.totalAllocated || 0);
@@ -21383,7 +21412,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ? Number(account?.allocatedTrader || 0)
                     : Number(account?.allocatedGrid || 0);
                 const systemLabel = modeKey === "rotation" ? "NKR" : modeKey === "trading" ? "Trader" : "Grid";
-                const chainConnected = selectedChain === String(coreVaultOnchain?.chain || coreVaultOnchain?.chainKey || selectedChain).toUpperCase() && !!coreVaultOnchain?.connected;
+                const chainConnected = !!selectedVaultState?.connected;
                 const formatVaultAmount = (value, symbol) => {
                   const n = Number(value || 0);
                   const nativeLike = ["ETH", "BNB", "POL"].includes(String(symbol || "").toUpperCase());
@@ -21398,8 +21427,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ fontWeight: 950, fontSize: 12 }}>Live Core Vault Capital</div>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 900, color: chainConnected ? "#86efac" : "#ffd166" }}>
-                        {coreVaultOnchainLoading ? "REFRESHING" : chainConnected ? "LIVE CONNECTED" : "VAULT NOT AVAILABLE"}
+                        {coreVaultAllChainsLoading ? "REFRESHING ALL CHAINS" : chainConnected ? "LIVE CONNECTED" : "VAULT NOT AVAILABLE"}
                       </span>
+                    </div>
+                    <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: isCompactMobile ? "repeat(2,minmax(0,1fr))" : "repeat(5,minmax(90px,1fr))", gap: 6 }}>
+                      {LIVE_CORE_VAULT_CHAINS.map((chainKey) => {
+                        const chainState = coreVaultOnchainByChain?.[chainKey] || null;
+                        const fundedCount = Object.values(chainState?.tokens || {}).filter((state) => {
+                          const a = state?.account || {};
+                          return Number(a?.baseCapital || 0) + Number(a?.totalSecuredProfit || 0) > 0;
+                        }).length;
+                        const active = chainKey === selectedChain;
+                        return (
+                          <button key={`live-vault-chain-${modeKey}-${chainKey}`} type="button"
+                            onClick={() => setLiveVaultChainByMode((prev) => ({ ...(prev || {}), [modeKey]: chainKey }))}
+                            style={{ padding: "7px 8px", borderRadius: 10, cursor: "pointer", color: "inherit", textAlign: "left", border: active ? "1px solid rgba(34,197,94,.65)" : "1px solid rgba(255,255,255,.08)", background: active ? "rgba(34,197,94,.13)" : "rgba(0,0,0,.13)" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, fontWeight: 900 }}><span>{chainKey}</span><span style={{ color: chainState?.connected ? "#86efac" : "#ffd166" }}>{chainState?.connected ? "LIVE" : "—"}</span></div>
+                            <div className="muted tiny" style={{ marginTop: 3 }}>{fundedCount} funded asset{fundedCount === 1 ? "" : "s"}</div>
+                          </button>
+                        );
+                      })}
                     </div>
                     <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "minmax(150px,.7fr) minmax(150px,.7fr) repeat(3,minmax(110px,1fr))", gap: 8, alignItems: "stretch" }}>
                       <label style={{ display: "grid", gap: 4 }}>
@@ -21408,6 +21455,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <option value="ETH">Ethereum</option>
                           <option value="BNB">BNB Chain</option>
                           <option value="POL">Polygon</option>
+                          <option value="BASE">Base</option>
+                          <option value="ARB">Arbitrum</option>
                         </select>
                       </label>
                       <label style={{ display: "grid", gap: 4 }}>
@@ -21479,7 +21528,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     {!chainConnected ? (
                       <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>Core Vault not available on this chain yet. Live budget approval remains disabled.</div>
                     ) : tokenEntries.length === 0 ? (
-                      <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>No funded Vault asset is available on Ethereum.</div>
+                      <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>No funded Vault asset is available on this chain.</div>
                     ) : null}
                   </div>
                 );

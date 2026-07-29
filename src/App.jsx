@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD271-VAULT-ALL-ASSETS-DISPLAY";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD272-WALLET-LIVE-VAULT-ASSETS";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -19274,26 +19274,54 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {coreVaultOnchainLoading ? "REFRESHING" : coreVaultOnchain?.connected ? "CONNECTED" : "UNAVAILABLE"}
                       </span>
                     </div>
-                    <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                      {["USDC", "USDT"].map((symbol) => {
-                        const tokenState = coreVaultOnchain?.tokens?.[symbol] || {};
-                        const account = tokenState?.account || {};
-                        const base = Number(account?.baseCapital || 0);
-                        const secured = Number(account?.totalSecuredProfit || 0);
-                        const allocated = Number(account?.totalAllocated || 0);
-                        const liveTotal = base + secured;
+                    {(() => {
+                      const tokenEntries = Object.entries(coreVaultOnchain?.tokens || {})
+                        .map(([symbol, tokenState]) => {
+                          const account = tokenState?.account || {};
+                          const base = Number(account?.baseCapital || 0);
+                          const secured = Number(account?.totalSecuredProfit || 0);
+                          const allocated = Number(account?.totalAllocated || 0);
+                          const liveTotal = base + secured;
+                          const free = Number(tokenState?.freeBase ?? account?.freeBase ?? Math.max(0, liveTotal - allocated));
+                          return { symbol, tokenState, base, secured, allocated, liveTotal, free };
+                        })
+                        .filter((row) => row.liveTotal > 0 || row.allocated > 0 || row.free > 0)
+                        .sort((a, b) => b.liveTotal - a.liveTotal || a.symbol.localeCompare(b.symbol));
+
+                      const formatVaultAmount = (symbol, value) => {
+                        const n = Number(value || 0);
+                        return symbol === "ETH" || symbol === "BNB" || symbol === "POL"
+                          ? n.toFixed(6)
+                          : n.toFixed(2);
+                      };
+
+                      if (!tokenEntries.length) {
                         return (
-                          <div key={symbol} style={{ padding: 10, borderRadius: 12, background: "rgba(0,0,0,0.16)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                              <b>{symbol}</b>
-                              <span className="mono" style={{ fontWeight: 900 }}>{liveTotal.toFixed(2)}</span>
-                            </div>
-                            <div className="muted" style={{ fontSize: 9, marginTop: 5 }}>Base capital {base.toFixed(2)} · Secured profit {secured.toFixed(2)}</div>
-                            <div className="muted" style={{ fontSize: 9, marginTop: 2 }}>Allocated {allocated.toFixed(2)}</div>
+                          <div className="muted" style={{ marginTop: 9, padding: 12, textAlign: "center", borderRadius: 12, border: "1px dashed rgba(255,255,255,0.10)" }}>
+                            No funded assets in this Vault.
                           </div>
                         );
-                      })}
-                    </div>
+                      }
+
+                      return (
+                        <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))", gap: 8 }}>
+                          {tokenEntries.map(({ symbol, base, secured, allocated, liveTotal, free }) => (
+                            <div key={symbol} style={{ padding: 10, borderRadius: 12, background: "rgba(0,0,0,0.16)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                                <b>{symbol}</b>
+                                <span className="mono" style={{ fontWeight: 900 }}>{formatVaultAmount(symbol, liveTotal)}</span>
+                              </div>
+                              <div className="muted" style={{ fontSize: 9, marginTop: 5 }}>
+                                Base {formatVaultAmount(symbol, base)} · Profit {formatVaultAmount(symbol, secured)}
+                              </div>
+                              <div className="muted" style={{ fontSize: 9, marginTop: 2 }}>
+                                Free {formatVaultAmount(symbol, free)} · Allocated {formatVaultAmount(symbol, allocated)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                       <span className="muted" style={{ fontSize: 10 }}>{shadowUiEnabled ? "This balance is separate from the Shadow values below." : "Shadow simulation is hidden. Enable Shadow Mode to display simulated accounting."}</span>
                       <button type="button" className="miniBtn" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading || !wallet}>Refresh</button>

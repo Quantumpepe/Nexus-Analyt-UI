@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD294-NKR-CARD-RECOVERY-FINALIZE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD295-NKR-FINALIZED-UI-STATE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8879,7 +8879,7 @@ useEffect(() => {
       const backendSessions = Array.isArray(liveState?.sessions) ? liveState.sessions : [];
       setRotationSessions(backendSessions);
       setActiveRotationSessionId(String(liveState?.activeRotationSessionId || ""));
-      setNkrControlState(backendSessions.length ? "RUNNING" : "IDLE");
+      setNkrControlState(backendSessions.length ? "RUNNING" : "WAITING");
     } catch (syncError) {
       console.warn("NKR backend refresh after start failed", syncError);
       setRotationSessions([]);
@@ -12102,7 +12102,7 @@ useEffect(() => {
       // Backend is the only NKR truth. An empty backend list immediately clears the UI.
       setRotationSessions(sessions);
       setActiveRotationSessionId(activeId || (sessions[0]?.id ? String(sessions[0].id) : ""));
-      setNkrControlState(sessions.length ? String(r?.summary?.runtime || "RUNNING").toUpperCase() : "IDLE");
+      setNkrControlState(sessions.length ? String(r?.summary?.runtime || "RUNNING").toUpperCase() : "WAITING");
     } catch (e) {
       console.warn("rotation session sync failed", e);
     } finally {
@@ -22104,7 +22104,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at
                         ))
                         .filter((ts) => ts > 0);
-                      const nkrHasLiveSession = nkrTimingRows.length > 0 || activeRotations > 0 || nkrCtrl === "RUNNING" ||
+                      // A persisted control flag is not proof of an active V5 session.
+                      // After on-chain finalization the overview must stop immediately when
+                      // the authoritative session list is empty.
+                      const nkrHasLiveSession = nkrTimingRows.length > 0 || activeRotations > 0 ||
                         (Array.isArray(rotationVisibleActiveRows) && rotationVisibleActiveRows.some((sess) => {
                           const st = String(getRotationDerivedStatus(sess) || sess?.status || "").toUpperCase();
                           const qty = Number(sess?.positionQty ?? sess?.positionAmount ?? sess?.openRotation?.positionQty ?? sess?.meta?.nkr_position_qty ?? 0) || 0;

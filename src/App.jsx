@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD260-GRID-ONCHAIN-STATUS";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD261-NKR-HISTORY-INDEPENDENT";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -22197,6 +22197,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div>Gross {fmtUsd(Number(rotationShadowSnapshot.grossUsd || 0))} · Costs {fmtUsd(Number(rotationShadowSnapshot.costsUsd || 0))} · Net {fmtUsd(Number(rotationShadowSnapshot.netUsd || 0))} {Number.isFinite(Number(rotationShadowSnapshot.netPct)) ? `(${Number(rotationShadowSnapshot.netPct).toFixed(2)}%)` : ""}</div>
                               </div>
                             ) : null}
+                          </div>
+                          ) : null}
+
+                          {/* NKR Event History is independent from Shadow visibility/runtime. */}
                             {(() => {
                               const sessionEvents = (Array.isArray(rotationRows) ? rotationRows : []).flatMap((sess) => {
                                 const arr = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [];
@@ -22269,7 +22273,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const a = document.createElement("a");
                                 a.href = url; a.download = `nkr-event-history-${Date.now()}.csv`; a.click(); URL.revokeObjectURL(url);
                               };
-                              if (!allEvents.length) return null;
+                              // Keep the history component visible even when there are no events yet.
+                              // It must never depend on Shadow being enabled or running.
                               return (
                               <div
                                 style={{ borderRadius: 10, border: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.10)", padding: "6px 8px" }}
@@ -22295,6 +22300,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <button type="button" className="miniBtn" onClick={exportCsv}>Export CSV</button>
                                       <button type="button" className="miniBtn" onClick={exportJson}>Export JSON</button>
                                     </div>
+                                    {!visibleEvents.length ? (
+                                      <div className="muted tiny" style={{ padding: "8px 4px" }}>
+                                        No NKR events saved yet. History will appear here independently of Shadow.
+                                      </div>
+                                    ) : null}
                                     {visibleEvents.map((ev) => {
                                       const st = String(ev?.status || ev?.action || "EVENT").toUpperCase();
                                       const buyTs = ev?.buyTime || ev?.openedAt || ev?.ts;
@@ -22319,8 +22329,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
                               );
                             })()}
-                          </div>
-                          ) : null}
 
                         </>
                       );

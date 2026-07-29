@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD264-REMOVE-WALLET-PROFIT";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD265-REMOVE-HEADER-WALLET-PROFIT";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -18446,30 +18446,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   e.stopPropagation();
                   setWalletModalOpen((v) => !v);
                 }}
-                title={walletProfit.available ? "Wallet value and profit since saved baseline" : "Wallet value. Open wallet details to set profit baseline."}
+                title="Wallet value"
               >
                 <span style={{ display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>
                   Value: {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}
-                </span>
-                <span
-                  style={{
-                    display: "block",
-                    maxWidth: "100%",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    color: walletProfit.available
-                      ? Number(walletProfit.amount || 0) > 0
-                        ? "#39d98a"
-                        : Number(walletProfit.amount || 0) < 0
-                          ? "#ff6b6b"
-                          : "rgba(255,255,255,0.92)"
-                      : "rgba(255,255,255,0.72)",
-                    fontWeight: walletProfit.available ? 900 : 800,
-                  }}
-                >
-                  Profit: {walletProfit.available
-                    ? `${Number(walletProfit.amount || 0) >= 0 ? "+" : ""}${fmtUsd(walletProfit.amount)}${Number.isFinite(Number(walletProfit.pct)) ? ` (${Number(walletProfit.pct).toFixed(2)}%)` : ""}`
-                    : "Set baseline"}
                 </span>
               </button>
             )}

@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD292-NKR-TRADER-CHAIN-SCOPE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD294-NKR-CARD-RECOVERY-FINALIZE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12052,7 +12052,8 @@ useEffect(() => {
       const oid = getOnchainId(s);
       if (hasLive && !oid && !terminal.has(status)) continue;
       const sid = String(s?.id || s?.session_id || "").trim();
-      const key = oid ? `ONCHAIN:${oid}` : `LOCAL:${sid}`;
+      const chainKey = String(s?.chain || s?.chainKey || s?.meta?.chain || s?.chainId || s?.meta?.chain_id || "").toUpperCase();
+      const key = oid ? `ONCHAIN:${chainKey}:${oid}` : `LOCAL:${sid}`;
       const current = map.get(key);
       if (!current || isRicher(s, current)) map.set(key, s);
     }
@@ -12086,7 +12087,7 @@ useEffect(() => {
           const chain = String(sess?.chain || sess?.chainKey || activeNkrChainKey || "ETH").toUpperCase();
           const asset = String(sess?.settlementAsset || sess?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH")).toUpperCase();
           return {
-            id: `NKR-LIVE-${oid}`, session_id: `NKR-LIVE-${oid}`, onchainSessionId: oid, coreVaultSessionId: oid,
+            id: `NKR-LIVE-${chain}-${oid}`, session_id: `NKR-LIVE-${chain}-${oid}`, onchainSessionId: oid, coreVaultSessionId: oid,
             type: "NKR", engineType: "NKR", status: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(),
             lifecycleState: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(), positionState: "WAITING",
             active: true, visibleInActiveSessions: true, chain, chainId: Number(sess?.chainId || 0),
@@ -22056,10 +22057,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const nkrProtectedReserveUsd = 0;
                       const nkrAvailableUsd = nkrBudgetUsd > 0 ? Math.max(0, nkrBudgetUsd - rotationAllocatedUsd) : 0;
                       const availableUsd = nkrBudgetUsd > 0 ? nkrAvailableUsd : Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
-                      const nkrVaultTotalLive = Object.values(coreVaultOnchain?.tokens || {}).reduce((sum, tokenState) => {
-                        const account = tokenState?.account || {};
-                        return sum + Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
-                      }, 0);
+                      // Use the exact selected NKR chain/asset account. Reserved capital is
+                      // already part of the account total and must never be added a second time.
+                      const nkrSelectedChain = String(liveVaultChainByMode?.rotation || activeNkrChainKey || "ETH").toUpperCase();
+                      const nkrSelectedAsset = String(liveVaultAssetByMode?.rotation || firstRotation?.settlementAsset || firstRotation?.asset || "USDC").toUpperCase();
+                      const nkrSelectedVaultState = coreVaultOnchainByChain?.[nkrSelectedChain] || null;
+                      const nkrSelectedAccount = nkrSelectedVaultState?.tokens?.[nkrSelectedAsset]?.account || {};
+                      const nkrVaultTotalLive = Math.max(0,
+                        Number(nkrSelectedAccount?.baseCapital || 0) +
+                        Number(nkrSelectedAccount?.totalSecuredProfit || 0)
+                      );
                       const usagePct = nkrBudgetUsd > 0 ? Math.min(100, Math.max(0, (rotationAllocatedUsd / nkrBudgetUsd) * 100)) : vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
                       const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
                       const rotationShadowRuntimeStatus = rotationShadowBusy ? "READING LIVE DATA" : nkrCtrl === "STOPPED" ? "STOPPED" : nkrCtrl === "PAUSED" || pausedRotations > 0 ? "PAUSED" : activeRotations > 0 || nkrCtrl === "RUNNING" ? "RUNNING" : "READY";
@@ -22129,14 +22136,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             : "WAITING";
                       const nkrOverviewAvailableUsd = (() => {
                         // Prefer the same authoritative on-chain free capital used by Live Core Vault Capital.
-                        const tokenStates = Object.values(coreVaultOnchain?.tokens || {});
-                        const onchainFree = tokenStates.reduce((sum, tokenState) => {
-                          const account = tokenState?.account || {};
-                          const total = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
-                          const allocated = Number(account?.totalAllocated || 0);
-                          return sum + Math.max(0, total - allocated);
-                        }, 0);
-                        if (coreVaultOnchain?.connected) return Math.max(0, onchainFree);
+                        const total = Number(nkrSelectedAccount?.baseCapital || 0) + Number(nkrSelectedAccount?.totalSecuredProfit || 0);
+                        const allocated = Number(nkrSelectedAccount?.totalAllocated || 0);
+                        const onchainFree = Math.max(0, total - allocated);
+                        if (nkrSelectedVaultState?.connected) return onchainFree;
                         return Math.max(0, availableUsd || 0);
                       })();
                       const nkrTopProfitAsset = topProfitRotation && Number(topProfitRotation.profit || 0) > 0

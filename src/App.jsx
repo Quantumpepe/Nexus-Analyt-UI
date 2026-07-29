@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD287-ALL-CHAIN-LIVE-VAULT-CAPITAL-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD289-REMOVE-VAULT-CHAIN-CARDS";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -9518,7 +9518,22 @@ useEffect(() => {
   }, [nexusBackendState, dedupeTradingQueue, buildTradingSessionsFromQueue, setTradingExecutionQueue, setTradingSessionStatus]);
 
   const openTradingSessions = useMemo(() => {
-    const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
+    const localSessions = Array.isArray(tradingSessions) ? tradingSessions : [];
+    const onchainFallback = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+      .filter((sess) => String(sess?.engine || "").toUpperCase() === "TRADER")
+      .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED", "CLOSED"].includes(String(sess?.statusLabel || sess?.status || "").toUpperCase()))
+      .map((sess) => {
+        const oid = String(sess?.sessionId || sess?.onchainSessionId || "");
+        const chain = String(sess?.chain || sess?.chainKey || activeTraderChainKey || activeGridChainKey || "ETH").toUpperCase();
+        const asset = String(sess?.settlementAsset || sess?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH")).toUpperCase();
+        return {
+          id: `TRADER-LIVE-${oid}`, session_id: `TRADER-LIVE-${oid}`, onchainSessionId: oid, coreVaultSessionId: oid,
+          status: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(), chains: [chain], chain, chainId: Number(sess?.chainId || 0),
+          asset, settlementAsset: asset, budgetUsd: Number(sess?.budget || sess?.budgetAmount || 0),
+          createdAt: Number(sess?.createdAt || Date.now()), updatedAt: Date.now(), queue: [], source: "corevault_onchain"
+        };
+      });
+    const sessions = [...localSessions, ...onchainFallback];
     const active = sessions.filter((sess) => {
       const st = String(sess?.status || "").toUpperCase();
       return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st);
@@ -9540,7 +9555,7 @@ useEffect(() => {
     });
 
     return Array.from(bySessionId.values()).sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
-  }, [tradingSessions]);
+  }, [tradingSessions, coreVaultSessionPreview, activeTraderChainKey, activeGridChainKey]);
 
   const stoppedTradingSessions = useMemo(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
@@ -12015,9 +12030,31 @@ useEffect(() => {
     try {
       const r = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, { method: "GET", token, wallet: wa });
       const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
-      const sessions = canonicalizeNkrSessions(Array.isArray(r?.sessions)
+      const backendRows = Array.isArray(r?.sessions)
         ? r.sessions.filter((x) => x && typeof x === "object" && !deletedIds.has(String(x?.id || x?.session_id || "")))
-        : []);
+        : [];
+      // A confirmed on-chain NKR session must be visible before the first position/tick.
+      // Merge the read-only CoreVault preview as a fallback when local presentation
+      // hydration is delayed by another Gunicorn worker.
+      const onchainFallbackRows = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+        .filter((sess) => String(sess?.engine || "").toUpperCase() === "NKR")
+        .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED", "CLOSED"].includes(String(sess?.statusLabel || sess?.status || "").toUpperCase()))
+        .map((sess) => {
+          const oid = String(sess?.sessionId || sess?.onchainSessionId || "");
+          const budget = Number(sess?.budget || sess?.budgetAmount || 0);
+          const chain = String(sess?.chain || sess?.chainKey || activeNkrChainKey || "ETH").toUpperCase();
+          const asset = String(sess?.settlementAsset || sess?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH")).toUpperCase();
+          return {
+            id: `NKR-LIVE-${oid}`, session_id: `NKR-LIVE-${oid}`, onchainSessionId: oid, coreVaultSessionId: oid,
+            type: "NKR", engineType: "NKR", status: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(),
+            lifecycleState: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(), positionState: "WAITING",
+            active: true, visibleInActiveSessions: true, chain, chainId: Number(sess?.chainId || 0),
+            settlementAsset: asset, asset, budgetUsd: budget, budgetAmount: budget, reservedUsd: budget,
+            maxActiveAssets: Number(rotationMaxActiveSessions || 0), createdAt: Number(sess?.createdAt || Date.now()), updatedAt: Date.now(),
+            meta: { nkr_session: true, onchain_session_id: oid, chain, chain_id: Number(sess?.chainId || 0), settlement_asset: asset }
+          };
+        });
+      const sessions = canonicalizeNkrSessions([...backendRows, ...onchainFallbackRows]);
       const activeIdRaw = String(r?.activeRotationSessionId || "").trim();
       const activeId = deletedIds.has(activeIdRaw) ? "" : activeIdRaw;
       // Backend is the only NKR truth. An empty backend list immediately clears the UI.
@@ -12031,7 +12068,7 @@ useEffect(() => {
       rotationBackendSyncBusyRef.current = false;
       setTimeout(() => { rotationBackendApplyingRef.current = false; }, 0);
     }
-  }, [wallet, token, canonicalizeNkrSessions]);
+  }, [wallet, token, canonicalizeNkrSessions, coreVaultSessionPreview, activeNkrChainKey, rotationMaxActiveSessions]);
 
   useEffect(() => {
     rotationBackendHydratedRef.current = false;
@@ -21429,24 +21466,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <span style={{ fontSize: 10, fontWeight: 900, color: chainConnected ? "#86efac" : "#ffd166" }}>
                         {coreVaultAllChainsLoading ? "REFRESHING ALL CHAINS" : chainConnected ? "LIVE CONNECTED" : "VAULT NOT AVAILABLE"}
                       </span>
-                    </div>
-                    <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: isCompactMobile ? "repeat(2,minmax(0,1fr))" : "repeat(5,minmax(90px,1fr))", gap: 6 }}>
-                      {LIVE_CORE_VAULT_CHAINS.map((chainKey) => {
-                        const chainState = coreVaultOnchainByChain?.[chainKey] || null;
-                        const fundedCount = Object.values(chainState?.tokens || {}).filter((state) => {
-                          const a = state?.account || {};
-                          return Number(a?.baseCapital || 0) + Number(a?.totalSecuredProfit || 0) > 0;
-                        }).length;
-                        const active = chainKey === selectedChain;
-                        return (
-                          <button key={`live-vault-chain-${modeKey}-${chainKey}`} type="button"
-                            onClick={() => setLiveVaultChainByMode((prev) => ({ ...(prev || {}), [modeKey]: chainKey }))}
-                            style={{ padding: "7px 8px", borderRadius: 10, cursor: "pointer", color: "inherit", textAlign: "left", border: active ? "1px solid rgba(34,197,94,.65)" : "1px solid rgba(255,255,255,.08)", background: active ? "rgba(34,197,94,.13)" : "rgba(0,0,0,.13)" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 6, fontWeight: 900 }}><span>{chainKey}</span><span style={{ color: chainState?.connected ? "#86efac" : "#ffd166" }}>{chainState?.connected ? "LIVE" : "—"}</span></div>
-                            <div className="muted tiny" style={{ marginTop: 3 }}>{fundedCount} funded asset{fundedCount === 1 ? "" : "s"}</div>
-                          </button>
-                        );
-                      })}
                     </div>
                     <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "minmax(150px,.7fr) minmax(150px,.7fr) repeat(3,minmax(110px,1fr))", gap: 8, alignItems: "stretch" }}>
                       <label style={{ display: "grid", gap: 4 }}>

@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD270-DEPOSIT-ASSET-STATE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD271-VAULT-ALL-ASSETS-DISPLAY";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21166,6 +21166,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     : Number(account?.allocatedGrid || 0);
                 const systemLabel = modeKey === "rotation" ? "NKR" : modeKey === "trading" ? "Trader" : "Grid";
                 const chainConnected = selectedChain === "ETH" && !!coreVaultOnchain?.connected;
+                const formatVaultAmount = (value, symbol) => {
+                  const n = Number(value || 0);
+                  const nativeLike = ["ETH", "BNB", "POL"].includes(String(symbol || "").toUpperCase());
+                  return nativeLike
+                    ? n.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 8 })
+                    : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+                };
                 return (
                   <div style={{ display: modeKey === "normal" ? "none" : "block", marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -21195,7 +21202,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           {tokenEntries.length ? tokenEntries.map(([symbol, state]) => {
                             const a = state?.account || {};
                             const amount = Number(a?.baseCapital || 0) + Number(a?.totalSecuredProfit || 0);
-                            return <option key={symbol} value={symbol}>{symbol} · {amount.toFixed(2)}</option>;
+                            return <option key={symbol} value={symbol}>{symbol} · {formatVaultAmount(amount, symbol)}</option>;
                           }) : <option value="USDC">No funded asset</option>}
                         </select>
                       </label>
@@ -21206,10 +21213,51 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       ].map(([label, value]) => (
                         <div key={label} style={{ padding: "8px 10px", borderRadius: 11, border: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.14)" }}>
                           <div className="muted tiny">{label}</div>
-                          <div className="mono" style={{ marginTop: 4, fontWeight: 950 }}>{chainConnected ? `${Number(value || 0).toFixed(2)} ${selectedSymbol}` : "—"}</div>
+                          <div className="mono" style={{ marginTop: 4, fontWeight: 950 }}>{chainConnected ? `${formatVaultAmount(value, selectedSymbol)} ${selectedSymbol}` : "—"}</div>
                         </div>
                       ))}
                     </div>
+                    {chainConnected && tokenEntries.length > 0 ? (
+                      <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(auto-fit,minmax(210px,1fr))", gap: 8 }}>
+                        {tokenEntries.map(([symbol, state]) => {
+                          const a = state?.account || {};
+                          const assetTotal = Number(a?.baseCapital || 0) + Number(a?.totalSecuredProfit || 0);
+                          const assetAllocated = Number(a?.totalAllocated || 0);
+                          const assetFree = Math.max(0, assetTotal - assetAllocated);
+                          const assetReserved = modeKey === "rotation"
+                            ? Number(a?.allocatedNkr || 0)
+                            : modeKey === "trading"
+                              ? Number(a?.allocatedTrader || 0)
+                              : Number(a?.allocatedGrid || 0);
+                          const active = symbol === selectedSymbol;
+                          return (
+                            <button
+                              key={`vault-all-${modeKey}-${symbol}`}
+                              type="button"
+                              onClick={() => setLiveVaultAssetByMode((prev) => ({ ...(prev || {}), [modeKey]: symbol }))}
+                              style={{
+                                textAlign: "left",
+                                padding: "9px 10px",
+                                borderRadius: 11,
+                                border: active ? "1px solid rgba(34,197,94,.62)" : "1px solid rgba(255,255,255,.08)",
+                                background: active ? "rgba(34,197,94,.11)" : "rgba(0,0,0,.13)",
+                                color: "inherit",
+                                cursor: "pointer",
+                              }}
+                            >
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                                <strong>{symbol}</strong>
+                                <span className="mono" style={{ fontWeight: 950 }}>{formatVaultAmount(assetTotal, symbol)}</span>
+                              </div>
+                              <div className="muted tiny" style={{ marginTop: 5, display: "flex", justifyContent: "space-between", gap: 8 }}>
+                                <span>Free {formatVaultAmount(assetFree, symbol)}</span>
+                                <span>{systemLabel} {formatVaultAmount(assetReserved, symbol)}</span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                     {!chainConnected ? (
                       <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>Core Vault not available on this chain yet. Live budget approval remains disabled.</div>
                     ) : tokenEntries.length === 0 ? (

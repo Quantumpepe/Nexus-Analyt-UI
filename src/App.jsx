@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD265-REMOVE-HEADER-WALLET-PROFIT";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD266-RESTORE-NKR-COLLECTED-PROFIT";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -21749,6 +21749,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Vault Total:</b> {fmtUsd(nkrVaultTotalLive)}</div>
                               <div style={{ color: "#22c55e", fontWeight: 900 }}><b>Available:</b> {fmtUsd(nkrOverviewAvailableUsd)}</div>
                               <div><b>Open Position:</b> {fmtUsd(nkrOpenPositionValueUsd)}</div>
+                              <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               
                               <div><b>Active Session:</b> {activeRotations > 0 ? 1 : 0}</div>
                               <div><b>Status:</b> <span style={{ color: nkrOverviewRunning ? "#22c55e" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewStatus}</span></div>

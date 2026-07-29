@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD273-V5-ALL-WITHDRAW-PATHS";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD274-WITHDRAW-TRANSACTION-HISTORY-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4219,14 +4219,27 @@ const refreshProfitPayoutSettings = async () => {
       await _trySwitchChain(provider, chainId);
       const hash = await provider.request({ method: "eth_sendTransaction", params: [{ from: wallet, to: tx.to, value: tx.value || "0x0", data: tx.data }] });
       const transactionType = selected.source === "BASE_CAPITAL" ? (selected.tokenState?.native ? "NATIVE VAULT WITHDRAW" : "ERC20 VAULT WITHDRAW") : `${profitSystem} PROFIT WITHDRAW`;
-      try {
-        addWalletTransaction?.({ type: transactionType, chain: prepared?.chain || "ETH", asset: selected.symbol, amount: rawAmount, from: wallet, to: tx.to, txHash: hash, status: "SUBMITTED" });
-      } catch {}
-      setTxMsg(`Withdrawal sent. Waiting for confirmation… ${hash}`);
-      await _waitForTxReceipt(provider, hash);
-      setTxMsg(`Withdrawal confirmed. Tx: ${hash}`);
-      setCoreWithdrawQuote(null); setCoreWithdrawAmount("");
-      await Promise.allSettled([refreshCoreVaultOnchain(), refreshCoreVaultOverview(), refreshWalletBalances?.()]);
+      const txEntry = {
+        type: transactionType,
+        chain: prepared?.chain || "ETH",
+        asset: selected.symbol,
+        amount: rawAmount,
+        from: wallet,
+        to: String(tx.to || ""),
+        recipient: coreWithdrawAddress,
+      };
+      // Store every directly user-signed Vault withdrawal immediately after a txHash exists.
+      // Receipt confirmation continues in the background and must not block the wallet window.
+      saveWalletTransaction({ ...txEntry, txHash: hash, status: "SUBMITTED" });
+      setTxMsg(`Withdrawal signed and broadcast. Confirmation continues in Transactions. Tx: ${hash}`);
+      setCoreWithdrawQuote(null);
+      setCoreWithdrawAmount("");
+      _trackWalletTxInBackground(provider, hash, txEntry, () => {
+        setTxMsg(`Withdrawal confirmed on-chain. Tx: ${hash}`);
+        refreshCoreVaultOnchain();
+        refreshCoreVaultOverview();
+        refreshWalletBalances?.();
+      });
     } catch (e) {
       setTxMsg(String(e?.message || e || "Withdrawal failed"));
     } finally {

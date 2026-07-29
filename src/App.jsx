@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD274-WITHDRAW-TRANSACTION-HISTORY-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD275-ERC20-TRANSACTION-HISTORY-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -5106,7 +5106,13 @@ useEffect(() => {
       let allowance = 0n;
       try { allowance = BigInt(allowanceHex || "0x0"); } catch { allowance = 0n; }
 
-      const sendAndWait = async (to, data, label) => {
+      const _extractTxHashFromError = (error) => {
+        const text = String(error?.message || error?.details || error || "");
+        const match = text.match(/0x[a-fA-F0-9]{64}/);
+        return match ? match[0] : "";
+      };
+
+      const sendAndWait = async (to, data, label, transactionEntry) => {
         setCoreDepositMsg(label);
         let hash = "";
         try {
@@ -5115,21 +5121,48 @@ useEffect(() => {
             params: [{ from: wallet, to, value: "0x0", data }],
           });
         } catch (error) {
-          // Without a transaction hash we cannot prove that the wallet broadcast
-          // the transaction. This remains a real signing/submission error.
-          throw error;
+          // Privy/Viem can time out after creating a transaction hash. Preserve that
+          // user-signed action in Transactions instead of losing it completely.
+          hash = _extractTxHashFromError(error);
+          if (!hash) throw error;
+          const timeoutEntry = {
+            ...(transactionEntry || {}),
+            from: wallet,
+            to,
+            txHash: hash,
+            status: "BROADCAST_UNKNOWN",
+            note: "Privy timed out before broadcast confirmation. Nexus is checking the network in the background; do not submit again until the status is resolved.",
+          };
+          saveWalletTransaction(timeoutEntry);
+          keepBusyForPending = true;
+          _trackWalletTxInBackground(provider, hash, timeoutEntry, () => {
+            refreshCoreVaultOnchain();
+            refreshCoreVaultAccounting();
+            refreshBalances();
+          });
+          setCoreDepositMsg(`${label.replace(/…$/, "")} signed. Broadcast confirmation is being checked in Transactions. Tx: ${hash}`);
+          return { hash, confirmed: false, pending: true, broadcastUnknown: true };
         }
 
-        setCoreDepositMsg(`${label.replace(/…$/, "")} sent. Waiting for Ethereum confirmation… Tx: ${hash}`);
+        const baseEntry = {
+          ...(transactionEntry || {}),
+          from: wallet,
+          to,
+        };
+        saveWalletTransaction({ ...baseEntry, txHash: hash, status: "SUBMITTED" });
+        _trackWalletTxInBackground(provider, hash, baseEntry, () => {
+          refreshCoreVaultOnchain();
+          refreshCoreVaultAccounting();
+          refreshBalances();
+        });
+
+        setCoreDepositMsg(`${label.replace(/…$/, "")} signed and broadcast. Confirmation continues in Transactions. Tx: ${hash}`);
         try {
-          await _waitForTxReceipt(provider, hash);
+          await _waitForTxReceipt(provider, hash, 90000);
           return { hash, confirmed: true };
         } catch (error) {
           if (error?.code !== "TX_RECEIPT_PENDING") throw error;
-          // The transaction already has a hash and may be mined after the Privy UI
-          // times out. Continue monitoring without allowing a duplicate click.
           keepBusyForPending = true;
-          _trackCoreVaultTxInBackground(provider, hash, label.replace(/…$/, ""));
           return { hash, confirmed: false, pending: true };
         }
       };
@@ -5137,7 +5170,12 @@ useEffect(() => {
       if (allowance < amountUnits) {
         // USDT can require allowance reset to zero before increasing it.
         if (allowance > 0n) {
-          const resetResult = await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(0n), `Resetting ${symbol} approval…`);
+          const resetResult = await sendAndWait(
+            tokenAddress,
+            "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(0n),
+            `Resetting ${symbol} approval…`,
+            { type: "ERC20 VAULT APPROVAL RESET", chain: "ETH", asset: symbol, amount: "0", spender: vault }
+          );
           if (!resetResult.confirmed) {
             setCoreDepositMsg(`Approval reset was sent and is still pending. Tx: ${resetResult.hash}`);
             return;
@@ -5147,7 +5185,12 @@ useEffect(() => {
         // The cap is 10,000 stablecoins (or the current amount when larger), not unlimited.
         const reusableCap = 10000n * (10n ** BigInt(decimals));
         const approvalUnits = amountUnits > reusableCap ? amountUnits : reusableCap;
-        const approvalResult = await sendAndWait(tokenAddress, "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(approvalUnits), `One-time ${symbol} Vault approval…`);
+        const approvalResult = await sendAndWait(
+          tokenAddress,
+          "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(approvalUnits),
+          `One-time ${symbol} Vault approval…`,
+          { type: "ERC20 VAULT APPROVAL", chain: "ETH", asset: symbol, amount: String(Number(approvalUnits) / (10 ** decimals)), spender: vault }
+        );
         if (!approvalResult.confirmed) {
           setCoreDepositMsg(`Vault approval was sent and is still pending. Tx: ${approvalResult.hash}`);
           return;
@@ -5157,7 +5200,8 @@ useEffect(() => {
       const depositResult = await sendAndWait(
         vault,
         "0x47e7ef24" + _encodeAddress(tokenAddress) + amountWord,
-        `Depositing ${rawAmount} ${symbol} into Core Vault…`
+        `Depositing ${rawAmount} ${symbol} into Core Vault…`,
+        { type: "ERC20 VAULT DEPOSIT", chain: "ETH", asset: symbol, amount: rawAmount, tokenAddress }
       );
 
       if (depositResult.confirmed) {

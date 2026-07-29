@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD285-REMOVE-DUPLICATE-GRID-ORDERS";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD286-NKR-TRADER-V5-SESSION-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -4990,11 +4990,16 @@ useEffect(() => {
 
   // ENGINE-175: create CoreVault sessions through the server-side Privy wallet API.
   // NKR, Trader and Grid must never trigger a browser approval popup.
-  const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500, settlementAsset = manualPayoutAsset || "USDC" }) => {
+  const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500, settlementAsset, chain }) => {
     if (!wallet) throw new Error("Wallet not connected.");
     const budget = Number(String(budgetUsd ?? "").replace(",", "."));
     if (!Number.isFinite(budget) || budget <= 0) throw new Error("A positive CoreVault budget is required.");
-    if (!coreVaultOnchain?.connected) throw new Error("CoreVault V5 is not connected.");
+    const modeKey = String(system || "").toUpperCase() === "NKR" ? "rotation" : String(system || "").toUpperCase() === "TRADER" ? "trading" : "normal";
+    const selectedChain = String(chain || liveVaultChainByMode?.[modeKey] || activeGridChainKey || "ETH").toUpperCase();
+    const selectedAsset = String(settlementAsset || liveVaultAssetByMode?.[modeKey] || ({ ETH: "ETH", BNB: "BNB", POL: "POL" }[selectedChain]) || "USDC").toUpperCase();
+    if (!coreVaultOnchain?.connected || String(coreVaultOnchain?.chain || coreVaultOnchain?.chainKey || "").toUpperCase() !== selectedChain) {
+      throw new Error(`${selectedChain} CoreVault V5 is not connected.`);
+    }
 
     await ensurePrivyAutomationReady();
 
@@ -5012,12 +5017,12 @@ useEffect(() => {
         wallet,
         system: String(system || "").toUpperCase(),
         amountUsd: budget,
-        budgetAmount: ["ETH","BNB","POL","NATIVE"].includes(String(settlementAsset || "USDC").toUpperCase()) ? budget : undefined,
+        budgetAmount: budget,
         durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
         maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
         maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
-        settlementAsset: String(settlementAsset || "USDC").toUpperCase(),
-        chain: String(activeGridChainKey || "ETH").toUpperCase(),
+        settlementAsset: selectedAsset,
+        chain: selectedChain,
         },
       });
     } catch (error) {
@@ -5033,12 +5038,12 @@ useEffect(() => {
           wallet,
           system: String(system || "").toUpperCase(),
           amountUsd: budget,
-          budgetAmount: ["ETH","BNB","POL","NATIVE"].includes(String(settlementAsset || "USDC").toUpperCase()) ? budget : undefined,
+          budgetAmount: budget,
           durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
           maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
           maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
-          settlementAsset: String(settlementAsset || "USDC").toUpperCase(),
-          chain: String(activeGridChainKey || "ETH").toUpperCase(),
+          settlementAsset: selectedAsset,
+          chain: selectedChain,
         },
       });
     }
@@ -8705,6 +8710,8 @@ useEffect(() => {
         durationHours: Math.max(24, Math.round((Number(nkrPeriodDays) || 10) * 24)),
         maxSlippageBps: Math.round((Number(rotationMaxSlippage) || 1) * 100),
         maxLossBps: Math.round((Number(rotationRiskLimit) || 15) * 100),
+        chain: String(liveVaultChainByMode?.rotation || activeGridChainKey || "ETH").toUpperCase(),
+        settlementAsset: String(liveVaultAssetByMode?.rotation || "USDC").toUpperCase(),
       });
       setRotationBackendMsg("NKR started. Capital is reserved in CoreVault and automatic watchlist scanning is active.");
     } catch (e) {
@@ -10465,6 +10472,8 @@ useEffect(() => {
         durationHours: normalizeTradingRuntimeHours(),
         maxSlippageBps: Math.round((Number(tradingMaxSlippagePct) || 1) * 100),
         maxLossBps: Math.round((Number(tradingHardStopPct) || 15) * 100),
+        chain: String(liveVaultChainByMode?.trading || activeGridChainKey || "ETH").toUpperCase(),
+        settlementAsset: String(liveVaultAssetByMode?.trading || "USDC").toUpperCase(),
       });
       setErrorMsg("");
     } catch (e) {
@@ -13957,10 +13966,12 @@ setGridBusy((s) => ({ ...s, start: true }));
       };
       await createCoreVaultSystemSession({
         system: "GRID",
-        budgetUsd: investUsd,
+        budgetUsd: investQty,
         durationHours: 24,
         maxSlippageBps: Math.round((Number(manualSlippagePct) || 1) * 100),
         maxLossBps: 1500,
+        chain: String(chainKey || "ETH").toUpperCase(),
+        settlementAsset: String(gridItem || ({ ETH: "ETH", BNB: "BNB", POL: "POL" }[String(chainKey || "ETH").toUpperCase()]) || "USDC").toUpperCase(),
       });
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body: { ...body, core_vault_session_reserved: true } });
       applyGridMetaResponse(r, itemId);

@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD295-NKR-FINALIZED-UI-STATE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD296-NKR-RESTART-BUTTON-STATE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -22649,7 +22649,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const qty = Number(s?.positionQty ?? s?.positionAmount ?? s?.openRotation?.positionQty ?? s?.meta?.nkr_position_qty ?? 0) || 0;
                         return qty > 0 || !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(st);
                       }) || (Array.isArray(rotationSessions) ? rotationSessions.find((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(String(s?.status || "").toUpperCase())) : null);
-                      const hasActiveNkrRun = Boolean(activeNkrSession) || String(nkrControlState || "").toUpperCase() === "RUNNING";
+                      // Only a real active session may block Start NKR. A stale persisted
+                      // RUNNING control flag must never prevent a new session after FINALIZED.
+                      const hasActiveNkrRun = Boolean(activeNkrSession);
                       return (
                         <div className="btnRow">
                           <button

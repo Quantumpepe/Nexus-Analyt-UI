@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD272-WALLET-LIVE-VAULT-ASSETS";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD273-V5-ALL-WITHDRAW-PATHS";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -3707,8 +3707,8 @@ const [wsChainKey, setWsChainKey] = useState(() => {
     });
   }, [wallet, setWalletTransactionsStore]);
 
-  const [coreWithdrawSource, setCoreWithdrawSource] = useState("SECURED_PROFIT_ONLY");
-  const [coreWithdrawAsset, setCoreWithdrawAsset] = useState("USDT");
+  const [coreWithdrawSource, setCoreWithdrawSource] = useState("BASE_CAPITAL");
+  const [coreWithdrawAsset, setCoreWithdrawAsset] = useState("ETH");
   const [coreWithdrawAmount, setCoreWithdrawAmount] = useState("");
   const [coreWithdrawAddress, setCoreWithdrawAddress] = useState("");
   const [coreWithdrawQuote, setCoreWithdrawQuote] = useState(null);
@@ -4152,50 +4152,39 @@ const refreshProfitPayoutSettings = async () => {
     refreshProfitPayoutSettings();
   }, [withdrawSendOpen, wallet]);
 
+  const _selectedWithdrawState = () => {
+    const symbol = String(coreWithdrawAsset || "").toUpperCase();
+    const tokenState = coreVaultOnchain?.tokens?.[symbol] || {};
+    const account = tokenState?.account || {};
+    const source = String(coreWithdrawSource || "BASE_CAPITAL").toUpperCase();
+    const available = source === "BASE_CAPITAL"
+      ? Number(account?.freeBase || 0)
+      : source === "SECURED_NKR" ? Number(account?.securedNkrProfit || 0)
+      : source === "SECURED_TRADER" ? Number(account?.securedTraderProfit || 0)
+      : source === "SECURED_GRID" ? Number(account?.securedGridProfit || 0)
+      : 0;
+    return { symbol, tokenState, account, source, available: Math.max(0, available) };
+  };
+
   const previewCoreVaultWithdraw = async () => {
     try {
       setTxMsg("");
       setCoreWithdrawQuote(null);
       if (!wallet) throw new Error("Wallet not connected.");
-      const amountUsd = Number(String(coreWithdrawAmount || "").replace(",", "."));
-      if (!Number.isFinite(amountUsd) || amountUsd <= 0) throw new Error("Enter a valid withdraw amount.");
+      const selected = _selectedWithdrawState();
+      const amount = Number(String(coreWithdrawAmount || "").replace(",", "."));
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid withdraw amount.");
       if (!_isAddr(coreWithdrawAddress)) throw new Error("Enter a valid destination address.");
-      if (amountUsd > coreVaultOverview.availableForWithdrawUsd + 0.000001) {
-        throw new Error("Amount exceeds the available balance for the selected source.");
-      }
+      if (!selected.tokenState?.config?.withdrawEnabled) throw new Error(`${selected.symbol} withdrawals are not enabled in CoreVault.`);
+      if (amount > selected.available + 1e-12) throw new Error("Amount exceeds the available balance for the selected asset and source.");
       setCoreWithdrawQuoteBusy(true);
-
-      // Base-capital withdrawal in the same stablecoin is a direct CoreVault call.
-      // No swap and no routing buffer are involved; gas is paid separately in ETH.
-      if (coreWithdrawSource === "BASE_CAPITAL") {
-        const symbol = String(coreWithdrawAsset || "USDC").toUpperCase();
-        const tokenState = coreVaultOnchain?.tokens?.[symbol] || {};
-        if (!_isAddr(tokenState?.address || "")) throw new Error(`${symbol} contract is not available.`);
-        if (!tokenState?.config?.withdrawEnabled) throw new Error(`${symbol} withdrawals are not enabled in CoreVault.`);
-        setCoreWithdrawQuote({
-          kind: "DIRECT_BASE_WITHDRAW",
-          grossUsd: amountUsd,
-          netUsd: amountUsd,
-          costsIncluded: { gasUsd: 0, swapUsd: 0, slippageUsd: 0, routingBufferUsd: 0 },
-          gasPaidSeparately: true,
-        });
-        return;
-      }
-
-      const response = await api(`/api/nexus/withdraw-quote-preview`, {
-        method: "POST",
-        token,
-        wallet,
-        body: {
-          amountUsd,
-          inputAsset: "USDC_USDT",
-          outputAsset: coreWithdrawAsset,
-          chain: balActiveChain || wsChainKey || DEFAULT_CHAIN,
-          source: coreWithdrawSource,
-          destination: coreWithdrawAddress,
-        },
+      setCoreWithdrawQuote({
+        kind: selected.source === "BASE_CAPITAL" ? "DIRECT_BASE_WITHDRAW" : "DIRECT_PROFIT_WITHDRAW",
+        asset: selected.symbol, amount, grossAmount: amount, netAmount: amount,
+        source: selected.source, available: selected.available,
+        costsIncluded: { gasUsd: 0, swapUsd: 0, slippageUsd: 0, routingBufferUsd: 0 },
+        gasPaidSeparately: true, directVaultWithdrawal: true,
       });
-      setCoreWithdrawQuote(response?.quote || null);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Withdraw preview failed"));
     } finally {
@@ -4208,50 +4197,36 @@ const refreshProfitPayoutSettings = async () => {
       setTxMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
       if (!coreWithdrawQuote) throw new Error("Prepare the withdraw preview first.");
-      if (coreWithdrawSource !== "BASE_CAPITAL") {
-        throw new Error("Only direct Base Capital withdrawal is enabled in this build.");
-      }
-
-      const vault = String(coreVaultOnchain?.contractAddress || "").trim();
-      if (!_isAddr(vault) || !coreVaultOnchain?.connected) throw new Error("Ethereum Core Vault is not connected.");
-      if (coreVaultOnchain?.paused) throw new Error("Core Vault is currently paused.");
-
-      const symbol = String(coreWithdrawAsset || "USDC").toUpperCase();
-      const tokenState = coreVaultOnchain?.tokens?.[symbol] || {};
-      const tokenAddress = String(tokenState?.address || "").trim();
-      const decimals = Number(tokenState?.decimals ?? 6);
-      if (!_isAddr(tokenAddress)) throw new Error(`${symbol} contract is not available.`);
-      if (!tokenState?.config?.withdrawEnabled) throw new Error(`${symbol} withdrawals are not enabled in CoreVault.`);
+      const selected = _selectedWithdrawState();
       if (!_isAddr(coreWithdrawAddress)) throw new Error("Enter a valid destination address.");
-
-      const rawAmount = String(coreWithdrawAmount || "").trim();
+      const rawAmount = String(coreWithdrawAmount || "").trim().replace(",", ".");
       if (!/^\d+(\.\d+)?$/.test(rawAmount) || Number(rawAmount) <= 0) throw new Error("Enter a valid withdraw amount.");
-      const amountUnits = decimalStringToUnits(rawAmount, decimals);
-      if (amountUnits <= 0n) throw new Error("Withdraw amount is too small.");
-
+      const profitSystem = selected.source === "SECURED_NKR" ? "NKR" : selected.source === "SECURED_TRADER" ? "TRADER" : selected.source === "SECURED_GRID" ? "GRID" : null;
       setCoreWithdrawExecuteBusy(true);
-      setTxMsg(`Preparing ${rawAmount} ${symbol} withdrawal…`);
-      const provider = await _getEmbeddedProvider();
-      await _trySwitchChain(provider, 1);
-      const currentHex = await provider.request({ method: "eth_chainId" });
-      if (String(currentHex).toLowerCase() !== "0x1") throw new Error("Please switch your wallet to Ethereum Mainnet.");
-
-      // withdrawBase(address token,uint256 amount,address recipient)
-      const data = "0xad151a50" + _encodeAddress(tokenAddress) + _encodeUint256(amountUnits) + _encodeAddress(coreWithdrawAddress);
-      const hash = await provider.request({
-        method: "eth_sendTransaction",
-        params: [{ from: wallet, to: vault, value: "0x0", data }],
+      setTxMsg(`Preparing ${rawAmount} ${selected.symbol} withdrawal…`);
+      const prepared = await api(`/api/nexus/core-vault/withdraw/prepare-transaction`, {
+        method: "POST", token, wallet,
+        body: {
+          wallet, chain: balActiveChain || wsChainKey || DEFAULT_CHAIN, asset: selected.symbol, amount: rawAmount,
+          recipient: coreWithdrawAddress, source: selected.source === "BASE_CAPITAL" ? "BASE_CAPITAL" : "SECURED_PROFIT",
+          system: profitSystem,
+        },
       });
+      const tx = prepared?.transaction;
+      if (!tx?.to || !tx?.data) throw new Error("Backend did not return a V5 withdrawal transaction.");
+      const provider = await _getEmbeddedProvider();
+      const chainId = Number(prepared?.chainId || 1);
+      await _trySwitchChain(provider, chainId);
+      const hash = await provider.request({ method: "eth_sendTransaction", params: [{ from: wallet, to: tx.to, value: tx.value || "0x0", data: tx.data }] });
+      const transactionType = selected.source === "BASE_CAPITAL" ? (selected.tokenState?.native ? "NATIVE VAULT WITHDRAW" : "ERC20 VAULT WITHDRAW") : `${profitSystem} PROFIT WITHDRAW`;
+      try {
+        addWalletTransaction?.({ type: transactionType, chain: prepared?.chain || "ETH", asset: selected.symbol, amount: rawAmount, from: wallet, to: tx.to, txHash: hash, status: "SUBMITTED" });
+      } catch {}
       setTxMsg(`Withdrawal sent. Waiting for confirmation… ${hash}`);
       await _waitForTxReceipt(provider, hash);
       setTxMsg(`Withdrawal confirmed. Tx: ${hash}`);
-      setCoreWithdrawQuote(null);
-      setCoreWithdrawAmount("");
-      await Promise.allSettled([
-        refreshCoreVaultOnchain(),
-        refreshCoreVaultOverview(),
-        refreshWalletBalances?.(),
-      ]);
+      setCoreWithdrawQuote(null); setCoreWithdrawAmount("");
+      await Promise.allSettled([refreshCoreVaultOnchain(), refreshCoreVaultOverview(), refreshWalletBalances?.()]);
     } catch (e) {
       setTxMsg(String(e?.message || e || "Withdrawal failed"));
     } finally {
@@ -5214,6 +5189,32 @@ useEffect(() => {
   // allocation change or reserve change. The shared backend endpoint is cheap
   // and wallet-bound; overlapping requests are prevented by useInterval.
   useInterval(refreshCoreVaultAccounting, 5000, !!wallet);
+
+  const coreWithdrawAssetRows = useMemo(() => {
+    const tokens = coreVaultOnchain?.tokens || {};
+    return Object.values(tokens).filter((row) => row && row?.config?.configured && row?.config?.withdrawEnabled).map((row) => ({
+      symbol: String(row.symbol || "").toUpperCase(), native: !!row.native, decimals: Number(row.decimals ?? (row.native ? 18 : 6)),
+      account: row.account || {},
+    })).filter((row) => row.symbol);
+  }, [coreVaultOnchain]);
+
+  useEffect(() => {
+    if (!coreWithdrawAssetRows.length) return;
+    if (!coreWithdrawAssetRows.some((row) => row.symbol === String(coreWithdrawAsset || "").toUpperCase())) {
+      setCoreWithdrawAsset(coreWithdrawAssetRows[0].symbol);
+      setCoreWithdrawQuote(null);
+    }
+  }, [coreWithdrawAssetRows, coreWithdrawAsset]);
+
+  const coreWithdrawAvailable = useMemo(() => {
+    const row = coreWithdrawAssetRows.find((item) => item.symbol === String(coreWithdrawAsset || "").toUpperCase());
+    const a = row?.account || {};
+    if (coreWithdrawSource === "BASE_CAPITAL") return Math.max(0, Number(a.freeBase || 0));
+    if (coreWithdrawSource === "SECURED_NKR") return Math.max(0, Number(a.securedNkrProfit || 0));
+    if (coreWithdrawSource === "SECURED_TRADER") return Math.max(0, Number(a.securedTraderProfit || 0));
+    if (coreWithdrawSource === "SECURED_GRID") return Math.max(0, Number(a.securedGridProfit || 0));
+    return 0;
+  }, [coreWithdrawAssetRows, coreWithdrawAsset, coreWithdrawSource]);
 
   const coreVaultOverview = useMemo(() => {
     const a = coreVaultAccounting || {};
@@ -19460,22 +19461,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div style={{ marginTop: 12 }}>
                       <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Source</div>
                       <select className="input" value={coreWithdrawSource} onChange={(e) => { setCoreWithdrawSource(e.target.value); setCoreWithdrawQuote(null); }} style={{ width: "100%", height: 42 }}>
-                        <option value="SECURED_PROFIT_ONLY">Secured Profit Only</option>
-                        <option value="BASE_CAPITAL">Base Capital</option>
-                        <option value="ALL_STABLE">All Stable</option>
+                        <option value="BASE_CAPITAL">Free Base Capital</option>
+                        <option value="SECURED_NKR">Secured NKR Profit</option>
+                        <option value="SECURED_TRADER">Secured Trader Profit</option>
+                        <option value="SECURED_GRID">Secured Grid Profit</option>
                       </select>
                     </div>
 
                     <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 130px", gap: 8 }}>
                       <div>
-                        <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Amount (USD)</div>
+                        <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Amount</div>
                         <input className="input" value={coreWithdrawAmount} onChange={(e) => { setCoreWithdrawAmount(e.target.value); setCoreWithdrawQuote(null); }} placeholder="0.00" inputMode="decimal" style={{ width: "100%", height: 42 }} />
                       </div>
                       <div>
                         <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Asset</div>
                         <select className="input" value={coreWithdrawAsset} onChange={(e) => { setCoreWithdrawAsset(e.target.value); setCoreWithdrawQuote(null); }} style={{ width: "100%", height: 42 }}>
-                          <option value="USDT">USDT</option>
-                          <option value="USDC">USDC</option>
+                          {coreWithdrawAssetRows.map((row) => <option key={row.symbol} value={row.symbol}>{row.symbol}</option>)}
                         </select>
                       </div>
                     </div>
@@ -19487,7 +19488,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     <div style={{ marginTop: 9, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12 }}>
                       <span className="muted">Available from selected source</span>
-                      <b>{fmtUsd(coreVaultOverview.availableForWithdrawUsd)}</b>
+                      <b>{coreWithdrawAvailable.toFixed(coreWithdrawAssetRows.find((row) => row.symbol === coreWithdrawAsset)?.native ? 6 : 2)} {coreWithdrawAsset}</b>
                     </div>
 
                     <button type="button" className="btn" onClick={previewCoreVaultWithdraw} disabled={coreWithdrawQuoteBusy || !wallet} style={{ width: "100%", height: 44, marginTop: 12 }}>
@@ -19501,14 +19502,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div className="muted" style={{ fontSize: 12, lineHeight: 1.5, marginTop: 10 }}>Enter the amount and destination, then select <b>Preview Withdraw</b>. No funds move during preview.</div>
                     ) : (
                       <div style={{ marginTop: 10, display: "grid", gap: 8, fontSize: 12 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Withdraw amount</span><b>{fmtUsd(Number(coreWithdrawQuote.grossUsd || 0))}</b></div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Withdraw amount</span><b>{Number(coreWithdrawQuote.grossAmount || 0).toFixed(coreWithdrawAssetRows.find((row) => row.symbol === coreWithdrawAsset)?.native ? 6 : 2)} {coreWithdrawAsset}</b></div>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Network / gas fee</span><b>{fmtUsd(Number(coreWithdrawQuote.costsIncluded?.gasUsd || 0))}</b></div>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Swap / routing cost</span><b>{fmtUsd(Number(coreWithdrawQuote.costsIncluded?.swapUsd || 0) + Number(coreWithdrawQuote.costsIncluded?.slippageUsd || 0))}</b></div>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Routing buffer</span><b>{fmtUsd(Number(coreWithdrawQuote.costsIncluded?.routingBufferUsd || 0))}</b></div>
                         <div className="hr" style={{ margin: "2px 0" }} />
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 14 }}><span>Estimated receive</span><b style={{ color: "#54f0a4" }}>{fmtUsd(Number(coreWithdrawQuote.netUsd || 0))} {coreWithdrawAsset}</b></div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 14 }}><span>Receive</span><b style={{ color: "#54f0a4" }}>{Number(coreWithdrawQuote.netAmount || 0).toFixed(coreWithdrawAssetRows.find((row) => row.symbol === coreWithdrawAsset)?.native ? 6 : 2)} {coreWithdrawAsset}</b></div>
                         <div className="muted" style={{ fontSize: 11, lineHeight: 1.4 }}>{coreWithdrawQuote.gasPaidSeparately ? "Direct CoreVault withdrawal. Network gas is paid separately in ETH; no swap or routing buffer is deducted." : "Preview only. Unused routing buffer returns to the user stable balance."}</div>
-                        <button type="button" className="btn" onClick={confirmCoreVaultWithdraw} disabled={coreWithdrawExecuteBusy || !coreWithdrawQuote || coreWithdrawSource !== "BASE_CAPITAL" || Number(coreWithdrawQuote.netUsd || 0) <= 0} style={{ width: "100%", height: 42, marginTop: 3 }}>{coreWithdrawExecuteBusy ? "Withdrawing…" : "Confirm Withdraw"}</button>
+                        <button type="button" className="btn" onClick={confirmCoreVaultWithdraw} disabled={coreWithdrawExecuteBusy || !coreWithdrawQuote || Number(coreWithdrawQuote.netAmount || 0) <= 0} style={{ width: "100%", height: 42, marginTop: 3 }}>{coreWithdrawExecuteBusy ? "Withdrawing…" : "Confirm Withdraw"}</button>
                       </div>
                     )}
                   </div>
@@ -19518,7 +19519,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                     <div>
                       <div className="cardTitle" style={{ margin: 0, fontSize: 15 }}>Automatic Profit Payout</div>
-                      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Only realized profit already secured in USDT/USDC can be paid out. Open position profit never counts.</div>
+                      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>Only realized profit already secured in the selected V5 settlement asset can be paid out. Open-position profit never counts.</div>
                     </div>
                     <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 800 }}>
                       <input

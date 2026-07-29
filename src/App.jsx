@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD268-V5-NATIVE-SETTLEMENT";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD269-NATIVE-STATUS-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4591,6 +4591,16 @@ useEffect(() => {
     };
 
     const rows = [];
+    // Backend V5 on-chain state exposes the native asset inside tokens (ETH on Ethereum),
+    // not as coreVaultOnchain.native. Resolve it by symbol first and then by address(0)
+    // so the same logic also works later for BNB and POL.
+    const nativeTokenState =
+      vaultTokens?.ETH ||
+      Object.values(vaultTokens).find((state) =>
+        state?.native === true ||
+        String(state?.address || "").toLowerCase() === ZERO_ADDRESS.toLowerCase()
+      ) ||
+      null;
     const nativeBalance = Number(walletState?.native || 0);
     if (Number.isFinite(nativeBalance) && nativeBalance > 0) {
       rows.push({
@@ -4598,13 +4608,13 @@ useEffect(() => {
         chain: chainKey,
         symbol: "ETH",
         name: "Ethereum",
-        address: "",
-        decimals: 18,
+        address: ZERO_ADDRESS,
+        decimals: Number(nativeTokenState?.decimals ?? 18),
         balance: String(walletState.native),
         isNative: true,
-        vaultApproved: !!coreVaultOnchain?.native?.config?.depositEnabled,
-        tokenState: coreVaultOnchain?.native || null,
-        note: coreVaultOnchain?.native?.config?.depositEnabled ? "V5 Native deposit enabled" : "Native deposit not configured on-chain",
+        vaultApproved: !!nativeTokenState?.config?.depositEnabled,
+        tokenState: nativeTokenState,
+        note: nativeTokenState?.config?.depositEnabled ? "V5 Native deposit enabled" : "Native deposit not configured on-chain",
       });
     }
 

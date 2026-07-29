@@ -415,8 +415,10 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD277-TX-ONCHAIN-RECONCILIATION";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD278-V5-BNB-MULTICHAIN";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
+const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
+const CORE_VAULT_ADDRESS_BY_CHAIN = { ETH: CORE_VAULT_ETH_ADDRESS, BNB: CORE_VAULT_BNB_ADDRESS };
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 const UNISWAP_SWAP_ROUTER_02 = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45";
@@ -4565,7 +4567,8 @@ useEffect(() => {
   // Ethereum wallet. CoreVault admission remains strict: only the exact token
   // contract configured with depositEnabled can actually be deposited.
   const coreDepositWalletAssets = useMemo(() => {
-    const chainKey = "ETH";
+    const chainKey = String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+    const nativeSymbol = chainKey === "BNB" ? "BNB" : chainKey === "POL" ? "POL" : "ETH";
     const walletState = balByChain?.[chainKey] || {};
     const vaultTokens = coreVaultOnchain?.tokens || {};
     const configured = Object.entries(vaultTokens).map(([vaultSymbol, state]) => ({
@@ -4585,7 +4588,7 @@ useEffect(() => {
     // not as coreVaultOnchain.native. Resolve it by symbol first and then by address(0)
     // so the same logic also works later for BNB and POL.
     const nativeTokenState =
-      vaultTokens?.ETH ||
+      vaultTokens?.[nativeSymbol] ||
       Object.values(vaultTokens).find((state) =>
         state?.native === true ||
         String(state?.address || "").toLowerCase() === ZERO_ADDRESS.toLowerCase()
@@ -4594,10 +4597,10 @@ useEffect(() => {
     const nativeBalance = Number(walletState?.native || 0);
     if (Number.isFinite(nativeBalance) && nativeBalance > 0) {
       rows.push({
-        key: "native:ETH",
+        key: `native:${nativeSymbol}`,
         chain: chainKey,
-        symbol: "ETH",
-        name: "Ethereum",
+        symbol: nativeSymbol,
+        name: chainKey === "BNB" ? "BNB Chain" : chainKey === "POL" ? "Polygon" : "Ethereum",
         address: ZERO_ADDRESS,
         decimals: Number(nativeTokenState?.decimals ?? 18),
         balance: String(walletState.native),
@@ -4654,7 +4657,7 @@ useEffect(() => {
     return rows
       .filter((row) => row.key && !seen.has(row.key) && seen.add(row.key))
       .sort((a, b) => Number(b.vaultApproved) - Number(a.vaultApproved) || a.symbol.localeCompare(b.symbol));
-  }, [balByChain, coreVaultOnchain]);
+  }, [balByChain, coreVaultOnchain, balActiveChain, wsChainKey]);
 
   const selectedCoreDepositAsset = useMemo(() => {
     const requested = String(coreDepositAsset || "");
@@ -4695,14 +4698,15 @@ useEffect(() => {
     if (!wallet) { setCoreVaultOnchain(null); return; }
     setCoreVaultOnchainLoading(true);
     try {
-      const res = await api(`/api/nexus/core-vault/onchain-state?chain=ETH`, { wallet });
+      const chainKey = String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+      const res = await api(`/api/nexus/core-vault/onchain-state?chain=${encodeURIComponent(chainKey)}`, { wallet });
       setCoreVaultOnchain(res?.onchain || res || null);
     } catch (e) {
       setCoreVaultOnchain({ connected: false, status: "error", error: String(e?.message || e || "Core Vault read failed") });
     } finally {
       setCoreVaultOnchainLoading(false);
     }
-  }, [wallet, api]);
+  }, [wallet, api, balActiveChain, wsChainKey]);
   useEffect(() => { refreshCoreVaultOnchain(); }, [refreshCoreVaultOnchain]);
   useInterval(refreshCoreVaultOnchain, 15000, !!wallet);
 
@@ -4988,7 +4992,7 @@ useEffect(() => {
     if (!wallet) throw new Error("Wallet not connected.");
     const budget = Number(String(budgetUsd ?? "").replace(",", "."));
     if (!Number.isFinite(budget) || budget <= 0) throw new Error("A positive CoreVault budget is required.");
-    if (!coreVaultOnchain?.connected) throw new Error("Ethereum CoreVault is not connected.");
+    if (!coreVaultOnchain?.connected) throw new Error("CoreVault V5 is not connected.");
 
     await ensurePrivyAutomationReady();
 
@@ -5006,7 +5010,7 @@ useEffect(() => {
         wallet,
         system: String(system || "").toUpperCase(),
         amountUsd: budget,
-        budgetAmount: String(settlementAsset || "USDC").toUpperCase() === "ETH" ? budget : undefined,
+        budgetAmount: ["ETH","BNB","POL","NATIVE"].includes(String(settlementAsset || "USDC").toUpperCase()) ? budget : undefined,
         durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
         maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
         maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
@@ -5027,7 +5031,7 @@ useEffect(() => {
           wallet,
           system: String(system || "").toUpperCase(),
           amountUsd: budget,
-          budgetAmount: String(settlementAsset || "USDC").toUpperCase() === "ETH" ? budget : undefined,
+          budgetAmount: ["ETH","BNB","POL","NATIVE"].includes(String(settlementAsset || "USDC").toUpperCase()) ? budget : undefined,
           durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
           maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
           maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
@@ -5050,7 +5054,7 @@ useEffect(() => {
       setCoreDepositMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
       const vault = String(coreVaultOnchain?.contractAddress || "").trim();
-      if (!_isAddr(vault) || !coreVaultOnchain?.connected) throw new Error("Ethereum Core Vault is not connected.");
+      if (!_isAddr(vault) || !coreVaultOnchain?.connected) throw new Error(`${String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()} Core Vault is not connected.`);
       if (coreVaultOnchain?.paused) throw new Error("Core Vault is currently paused.");
 
       const selectedAsset = selectedCoreDepositAsset;
@@ -5073,7 +5077,7 @@ useEffect(() => {
           method: "POST",
           token: backendToken,
           wallet,
-          body: { wallet, chain: "ETH", action: "deposit", amount: rawAmount },
+          body: { wallet, chain: String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase(), action: "deposit", amount: rawAmount },
         });
         if (prepared?.status !== "ok" || !prepared?.transaction) {
           throw new Error(prepared?.error || prepared?.message || "Native V5 deposit preparation failed.");
@@ -5083,14 +5087,14 @@ useEffect(() => {
         const currentHex = await provider.request({ method: "eth_chainId" });
         const expectedHex = "0x" + Number(prepared.chainId || 1).toString(16);
         if (String(currentHex).toLowerCase() !== expectedHex.toLowerCase()) {
-          throw new Error("Please switch your Privy wallet to Ethereum Mainnet.");
+          throw new Error(`Please switch your Privy wallet to ${String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()}.`);
         }
         const tx = { ...prepared.transaction, from: wallet };
         setCoreDepositMsg(`Confirm ${rawAmount} ${selectedAsset.symbol} Native Deposit in Privy…`);
         const hash = await provider.request({ method: "eth_sendTransaction", params: [tx] });
         const txEntry = {
           type: "NATIVE VAULT DEPOSIT",
-          chain: "ETH",
+          chain: String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase(),
           asset: selectedAsset.symbol,
           amount: rawAmount,
           from: wallet,
@@ -5123,7 +5127,7 @@ useEffect(() => {
       setCoreDepositBusy(true);
       setCoreDepositMsg(`Running GoPlus security check for ${symbol}…`);
       const security = await securityPrecheckForDeposit({
-        chainKey: "ETH",
+        chainKey: String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase(),
         tokenAddress,
         symbol,
         isNative: false,
@@ -5135,9 +5139,12 @@ useEffect(() => {
       }
       setCoreDepositMsg(`GoPlus approved ${symbol}. Preparing wallet…`);
       const provider = await _getEmbeddedProvider();
-      await _trySwitchChain(provider, 1);
+      const activeChainKey = String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+      const activeChainId = Number(CHAIN_ID?.[activeChainKey] || 1);
+      await _trySwitchChain(provider, activeChainId);
       const currentHex = await provider.request({ method: "eth_chainId" });
-      if (String(currentHex).toLowerCase() !== "0x1") throw new Error("Please switch your wallet to Ethereum Mainnet.");
+      const expectedHex = "0x" + activeChainId.toString(16);
+      if (String(currentHex).toLowerCase() !== expectedHex.toLowerCase()) throw new Error(`Please switch your wallet to ${activeChainKey}.`);
 
       // Verify the exact configured Vault token again immediately before signing.
       // Symbols are display-only; contract identity is authoritative.
@@ -19201,7 +19208,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <p><b>Total Secured Profit:</b> Nur geschlossene Netto-Ergebnisse von NKR, Trader und Grid werden als gesicherter Gewinn verbucht.</p>
                               <p><b>Available for Withdraw:</b> Betrag, der nach den Vault-Regeln aktuell zur Auszahlung verfügbar ist. Im Shadow-Modus bleibt dieser Wert null.</p>
                               <p><b>Auszahlungsgebühr:</b> Insgesamt 3 %. Standardmäßig fließen 2 % in die dauerhafte Liquidität und 1 % in die Vault-Reserve.</p>
-                              <p><b>Ethereum Core Vault:</b> {coreVaultOnchainLoading ? "Status wird gelesen." : coreVaultOnchain?.connected ? "Der Vertrag ist verbunden." : "Der Vertragsstatus ist derzeit nicht verfügbar."}</p>
+                              <p><b>Selected Core Vault:</b> {coreVaultOnchainLoading ? "Status wird gelesen." : coreVaultOnchain?.connected ? "Der Vertrag ist verbunden." : "Der Vertragsstatus ist derzeit nicht verfügbar."}</p>
                               <p><b>Contract:</b> {coreVaultOnchain?.contractAddress || "Nicht verfügbar"}</p>
                               <p><b>Status:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.paused ? "Pausiert" : "Aktiv") : "Nicht verbunden"} · <b>Solvenz:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.allConfiguredTokensSolvent ? "OK" : "Prüfen") : "Nicht verfügbar"}</p>
                               <p><b>Token:</b> USDC und USDT sind für Einzahlungen und Auszahlungen freigegeben. Trading-Ausführung bleibt deaktiviert, bis der geprüfte Executor später ausdrücklich aktiviert wird.</p>
@@ -19216,7 +19223,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <p><b>Total Secured Profit:</b> Only closed net results from NKR, Trader and Grid become secured profit.</p>
                               <p><b>Available for Withdraw:</b> Amount currently available under the Vault rules. In Shadow mode this remains zero.</p>
                               <p><b>Withdrawal fee:</b> 3% total. By default, 2% supports permanent liquidity and 1% remains in the Vault reserve.</p>
-                              <p><b>Ethereum Core Vault:</b> {coreVaultOnchainLoading ? "Reading status." : coreVaultOnchain?.connected ? "The contract is connected." : "The contract status is currently unavailable."}</p>
+                              <p><b>Selected Core Vault:</b> {coreVaultOnchainLoading ? "Reading status." : coreVaultOnchain?.connected ? "The contract is connected." : "The contract status is currently unavailable."}</p>
                               <p><b>Contract:</b> {coreVaultOnchain?.contractAddress || "Unavailable"}</p>
                               <p><b>Status:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.paused ? "Paused" : "Active") : "Not connected"} · <b>Solvency:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.allConfiguredTokensSolvent ? "OK" : "Check") : "Unavailable"}</p>
                               <p><b>Tokens:</b> USDC and USDT are enabled for deposits and withdrawals. Trading execution remains disabled until the audited executor is explicitly activated later.</p>
@@ -21286,7 +21293,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 const fallbackSymbol = tokenEntries[0]?.[0] || "USDC";
                 const selectedSymbolRaw = String(liveVaultAssetByMode?.[modeKey] || fallbackSymbol).toUpperCase();
                 const selectedSymbol = tokenEntries.some(([symbol]) => symbol === selectedSymbolRaw) ? selectedSymbolRaw : fallbackSymbol;
-                const tokenState = selectedChain === "ETH" ? (coreVaultOnchain?.tokens?.[selectedSymbol] || {}) : {};
+                const tokenState = ["ETH","BNB","POL"].includes(selectedChain) ? (coreVaultOnchain?.tokens?.[selectedSymbol] || {}) : {};
                 const account = tokenState?.account || {};
                 const total = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
                 const totalAllocated = Number(account?.totalAllocated || 0);
@@ -21297,7 +21304,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ? Number(account?.allocatedTrader || 0)
                     : Number(account?.allocatedGrid || 0);
                 const systemLabel = modeKey === "rotation" ? "NKR" : modeKey === "trading" ? "Trader" : "Grid";
-                const chainConnected = selectedChain === "ETH" && !!coreVaultOnchain?.connected;
+                const chainConnected = selectedChain === String(coreVaultOnchain?.chain || coreVaultOnchain?.chainKey || selectedChain).toUpperCase() && !!coreVaultOnchain?.connected;
                 const formatVaultAmount = (value, symbol) => {
                   const n = Number(value || 0);
                   const nativeLike = ["ETH", "BNB", "POL"].includes(String(symbol || "").toUpperCase());
@@ -26755,7 +26762,7 @@ export default function App() {
                     <b>CoreVault V5</b>
                     <span style={{ color: "#8de8ff", fontWeight: 900 }}>ON-CHAIN STATUS & RECOVERY</span>
                   </div>
-                  <div className="muted" style={{ marginTop: 5, fontSize: 10, wordBreak: "break-all" }}>CoreVault: {CORE_VAULT_ETH_ADDRESS}</div>
+                  <div className="muted" style={{ marginTop: 5, fontSize: 10, wordBreak: "break-all" }}>CoreVault: {CORE_VAULT_ADDRESS_BY_CHAIN[String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()] || coreVaultOnchain?.contractAddress || "not configured"}</div>
                   <div className="muted" style={{ marginTop: 3, fontSize: 10 }}>V5 keeps backend-controlled dynamic execution and adds Native Coin support. Legacy token, route and wallet configuration panels have been removed.</div>
 
                   <div style={{ marginTop: 9, padding: 9, borderRadius: 9, border: "1px solid rgba(141,232,255,0.25)", background: "rgba(141,232,255,0.045)" }}>

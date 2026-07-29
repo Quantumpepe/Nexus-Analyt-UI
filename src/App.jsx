@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD278-V5-BNB-MULTICHAIN";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD279-SYSTEM-INFO-CHAIN-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_ADDRESS_BY_CHAIN = { ETH: CORE_VAULT_ETH_ADDRESS, BNB: CORE_VAULT_BNB_ADDRESS };
@@ -26762,7 +26762,7 @@ export default function App() {
                     <b>CoreVault V5</b>
                     <span style={{ color: "#8de8ff", fontWeight: 900 }}>ON-CHAIN STATUS & RECOVERY</span>
                   </div>
-                  <div className="muted" style={{ marginTop: 5, fontSize: 10, wordBreak: "break-all" }}>CoreVault: {CORE_VAULT_ADDRESS_BY_CHAIN[String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()] || coreVaultOnchain?.contractAddress || "not configured"}</div>
+                  <div className="muted" style={{ marginTop: 5, fontSize: 10, wordBreak: "break-all" }}>CoreVault: {CORE_VAULT_ADDRESS_BY_CHAIN[String((systemInfoStatus?.active_chain || systemInfoStatus?.activeChain || DEFAULT_CHAIN)).toUpperCase()] || "not configured"}</div>
                   <div className="muted" style={{ marginTop: 3, fontSize: 10 }}>V5 keeps backend-controlled dynamic execution and adds Native Coin support. Legacy token, route and wallet configuration panels have been removed.</div>
 
                   <div style={{ marginTop: 9, padding: 9, borderRadius: 9, border: "1px solid rgba(141,232,255,0.25)", background: "rgba(141,232,255,0.045)" }}>

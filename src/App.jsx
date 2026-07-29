@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.28-ENGINE-252-GRID-EXIT-MANAGER-VALIDATED";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD258-ALL-SYSTEM-SESSION-RECOVERY";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -25366,24 +25366,68 @@ export default function App() {
   // Privy signer provisioning is intentionally not run during page load.
   // It is triggered explicitly by the first live Start action and must verify
   // the signer attachment before any CoreVault session can be created.
+  const CORE_VAULT_SESSION_ENGINES = Object.freeze(["GRID", "NKR", "TRADER"]);
+
   const _inspectCoreVaultSessions = async () => {
     if (!canOpenSystemInfo || ownerAdminBusy || coreVaultScanFlightRef.current) return;
     coreVaultScanFlightRef.current = true;
     try { coreVaultScanAbortRef.current?.abort?.(); } catch {}
     const controller = new AbortController();
     coreVaultScanAbortRef.current = controller;
-    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 25000);
     setOwnerAdminBusy("CoreVault session scan");
-    setOwnerAdminMsg("Reading CoreVault sessions on-chain...");
+    setOwnerAdminMsg("Reading Grid, NKR and Trader CoreVault sessions on-chain...");
     try {
-      const q = new URLSearchParams({ wallet: footerWallet, wallet_address: footerWallet, engine: "NKR", chainId: "1", vault: CORE_VAULT_ETH_ADDRESS });
-      const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, { cache: "no-store", credentials: "include", headers: _authHeaders(), signal: controller.signal });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || `Session scan failed (${res.status})`);
-      setCoreVaultSessionPreview(data);
-      const sessions = Array.isArray(data?.sessions) ? data.sessions : [];
-      const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
-      setOwnerAdminMsg(`CoreVault scan complete: ${sessions.length} wallet session(s), ${candidates.length} recoverable.`);
+      const results = await Promise.all(CORE_VAULT_SESSION_ENGINES.map(async (engine) => {
+        const q = new URLSearchParams({
+          wallet: footerWallet,
+          wallet_address: footerWallet,
+          engine,
+          chainId: "1",
+          vault: CORE_VAULT_ETH_ADDRESS,
+        });
+        const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, {
+          cache: "no-store",
+          credentials: "include",
+          headers: _authHeaders(),
+          signal: controller.signal,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(`${engine}: ${data?.error || `session scan failed (${res.status})`}`);
+        return { engine, data };
+      }));
+
+      const sessionMap = new Map();
+      const candidateMap = new Map();
+      let nextSessionId = 0;
+
+      for (const { engine, data } of results) {
+        nextSessionId = Math.max(nextSessionId, Number(data?.nextSessionId || 0));
+        for (const raw of (Array.isArray(data?.sessions) ? data.sessions : [])) {
+          const session = { ...raw, engine: String(raw?.engine || engine).toUpperCase() };
+          const key = String(session?.sessionId ?? `${session.engine}-${sessionMap.size}`);
+          sessionMap.set(key, session);
+        }
+        for (const raw of (Array.isArray(data?.candidates) ? data.candidates : [])) {
+          const candidate = { ...raw, engine: String(raw?.engine || engine).toUpperCase() };
+          const key = String(candidate?.sessionId ?? `${candidate.engine}-${candidateMap.size}`);
+          candidateMap.set(key, candidate);
+        }
+      }
+
+      const sessions = Array.from(sessionMap.values()).sort((a, b) => Number(a?.sessionId || 0) - Number(b?.sessionId || 0));
+      const candidates = Array.from(candidateMap.values());
+      const counts = CORE_VAULT_SESSION_ENGINES.reduce((acc, engine) => {
+        acc[engine] = sessions.filter((s) => String(s?.engine || "").toUpperCase() === engine).length;
+        return acc;
+      }, {});
+
+      setCoreVaultSessionPreview({ nextSessionId, sessions, candidates, counts, engines: CORE_VAULT_SESSION_ENGINES });
+      setOwnerAdminMsg(
+        `CoreVault scan complete: ${sessions.length} session(s) ` +
+        `(Grid ${counts.GRID || 0}, NKR ${counts.NKR || 0}, Trader ${counts.TRADER || 0}); ` +
+        `${candidates.length} recoverable.`
+      );
     } catch (err) {
       const aborted = err?.name === "AbortError";
       setOwnerAdminMsg(aborted ? "CoreVault session scan timed out. No runtime state was changed." : `CoreVault session scan failed: ${err?.message || err}`);
@@ -25395,39 +25439,42 @@ export default function App() {
     }
   };
 
-  const _recoverStaleNkrReservation = async (sessionId) => {
-    if (!canOpenSystemInfo || ownerAdminBusy || !sessionId) return;
-    setOwnerAdminBusy(`Stale NKR recovery ${sessionId}`);
-    setOwnerAdminMsg(`Starting diagnostics for CoreVault session #${sessionId}...`);
+  const _recoverStaleCoreVaultReservation = async (sessionId, engine) => {
+    const normalizedEngine = String(engine || "").toUpperCase();
+    if (!canOpenSystemInfo || ownerAdminBusy || !sessionId || !CORE_VAULT_SESSION_ENGINES.includes(normalizedEngine)) return;
+    setOwnerAdminBusy(`Stale ${normalizedEngine} recovery ${sessionId}`);
+    setOwnerAdminMsg(`Starting ${normalizedEngine} recovery for CoreVault session #${sessionId}...`);
     try {
       const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover`, {
         method: "POST", cache: "no-store", credentials: "include", headers: _authHeaders(),
-        body: JSON.stringify({ engine: "NKR", chainId: 1, vault: CORE_VAULT_ETH_ADDRESS, execute: true, sessionId: Number(sessionId) }),
+        body: JSON.stringify({ engine: normalizedEngine, chainId: 1, vault: CORE_VAULT_ETH_ADDRESS, execute: true, sessionId: Number(sessionId) }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.status !== 202 || !data?.jobId) throw new Error(data?.error || `Recovery start failed (${res.status})`);
       const jobId = data.jobId;
-      setCoreVaultRecoveryJobs((prev) => ({ ...prev, [sessionId]: data.job || { job_id: jobId, job_status: "QUEUED", step: 0, step_label: "QUEUED" } }));
+      const jobKey = `${normalizedEngine}:${sessionId}`;
+      setCoreVaultRecoveryJobs((prev) => ({ ...prev, [jobKey]: data.job || { job_id: jobId, job_status: "QUEUED", step: 0, step_label: "QUEUED", engine: normalizedEngine } }));
       const deadline = Date.now() + 7 * 60 * 1000;
       while (Date.now() < deadline) {
         await new Promise((resolve) => window.setTimeout(resolve, 2000));
-        const q = new URLSearchParams({ wallet: footerWallet, wallet_address: footerWallet, jobId });
+        const q = new URLSearchParams({ wallet: footerWallet, wallet_address: footerWallet, jobId, engine: normalizedEngine });
         const poll = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, { cache: "no-store", credentials: "include", headers: _authHeaders() });
         const pd = await poll.json().catch(() => ({}));
         if (!poll.ok || !pd?.job) throw new Error(pd?.error || `Recovery status failed (${poll.status})`);
         const job = pd.job;
-        setCoreVaultRecoveryJobs((prev) => ({ ...prev, [sessionId]: job }));
+        setCoreVaultRecoveryJobs((prev) => ({ ...prev, [jobKey]: { ...job, engine: normalizedEngine } }));
         const st = String(job?.job_status || "").toUpperCase();
-        setOwnerAdminMsg(`Session #${sessionId}: ${job?.step_label || st} · receipt ${job?.receipt_status || "—"}`);
+        setOwnerAdminMsg(`${normalizedEngine} session #${sessionId}: ${job?.step_label || st} · receipt ${job?.receipt_status || "—"}`);
         if (st === "SUCCESS") {
-          setOwnerAdminMsg(`Session #${sessionId} finalized and confirmed on-chain.`);
-          await _refreshOwnerSystemInfoNow(); await _inspectCoreVaultSessions();
+          setOwnerAdminMsg(`${normalizedEngine} session #${sessionId} finalized and confirmed on-chain.`);
+          await _refreshOwnerSystemInfoNow();
+          await _inspectCoreVaultSessions();
           break;
         }
         if (st === "FAILED") throw new Error(job?.last_error || "Recovery failed");
       }
     } catch (err) {
-      setOwnerAdminMsg(`Session #${sessionId} recovery failed: ${err?.message || err}`);
+      setOwnerAdminMsg(`${normalizedEngine} session #${sessionId} recovery failed: ${err?.message || err}`);
     } finally { setOwnerAdminBusy(""); }
   };
 
@@ -26197,21 +26244,22 @@ export default function App() {
                   <details open style={{ marginTop: 9, border: "1px solid rgba(255,193,7,0.28)", borderRadius: 9, padding: 9, background: "rgba(255,193,7,0.045)" }}>
                     <summary style={{ cursor: "pointer", fontWeight: 800, color: "#ffe08a" }}>CoreVault sessions & stale reservation recovery</summary>
                     <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>
-                      Reads the real on-chain CoreVault sessions for this wallet. Recovery is enabled only for NKR sessions with no open assets and no active local NKR run.
+                      Reads all real on-chain CoreVault sessions for this wallet across Grid, NKR and Trader. Sessions with no open assets can be recovered through the matching engine.
                     </div>
                     <div style={{ marginTop: 8, display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
                       <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_inspectCoreVaultSessions}>
                         {ownerAdminBusy === "CoreVault session scan" ? "Scanning..." : "Refresh on-chain sessions"}
                       </button>
-                      <span className="muted" style={{ fontSize: 9 }}>Ethereum · NKR · CoreVault V4</span>
+                      <span className="muted" style={{ fontSize: 9 }}>Ethereum · Grid · NKR · Trader · CoreVault</span>
                     </div>
                     {coreVaultSessionPreview ? (
                       <div style={{ marginTop: 9, display: "grid", gap: 6 }}>
-                        <div className="muted" style={{ fontSize: 9 }}>Next session ID: {coreVaultSessionPreview?.nextSessionId ?? "—"} · Found: {(coreVaultSessionPreview?.sessions || []).length} · Recoverable: {(coreVaultSessionPreview?.candidates || []).length}</div>
+                        <div className="muted" style={{ fontSize: 9 }}>Next session ID: {coreVaultSessionPreview?.nextSessionId ?? "—"} · Found: {(coreVaultSessionPreview?.sessions || []).length} (Grid {coreVaultSessionPreview?.counts?.GRID || 0}, NKR {coreVaultSessionPreview?.counts?.NKR || 0}, Trader {coreVaultSessionPreview?.counts?.TRADER || 0}) · Recoverable: {(coreVaultSessionPreview?.candidates || []).length}</div>
                         {(coreVaultSessionPreview?.sessions || []).length ? (coreVaultSessionPreview.sessions || []).slice().reverse().map((s) => (
                           <div key={`core-session-${s.sessionId}`} style={{ border: `1px solid ${s.recoverable ? "rgba(255,193,7,0.42)" : "rgba(255,255,255,0.10)"}`, borderRadius: 8, padding: 8, background: s.recoverable ? "rgba(255,193,7,0.06)" : "rgba(255,255,255,0.02)", fontSize: 9 }}>
                             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}><b>Session #{s.sessionId}</b><b style={{ color: s.recoverable ? "#ffe08a" : "#b9d8ce" }}>{s.statusLabel || `Status ${s.statusId}`}</b></div>
                             <div style={{ marginTop: 4, display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 8px", wordBreak: "break-all" }}>
+                              <span className="muted">System</span><span style={{ fontWeight: 900, color: "#9fe8ff" }}>{String(s.engine || "UNKNOWN").toUpperCase()}</span>
                               <span className="muted">Owner</span><span>{s.owner}</span>
                               <span className="muted">Settlement token</span><span>{s.settlementToken}</span>
                               <span className="muted">Budget units</span><span>{s.budgetUnits}</span>
@@ -26220,35 +26268,17 @@ export default function App() {
                               <span className="muted">Raw contract status</span><span>{s.rawStatusId ?? s.statusId} ({s.statusLabel || "UNKNOWN"})</span>
                               <span className="muted">Recovery</span><span>{s.recoverable ? "READY" : "NOT REQUIRED / BLOCKED"}</span>
                             </div>
-                            {["ACTIVE", "PAUSED", "CLOSING"].includes(String(s.statusLabel || "").toUpperCase()) ? (
-                              <div style={{ marginTop: 7, display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                {String(s.statusLabel || "").toUpperCase() === "PAUSED" ? (
-                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl("RESUME", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 2500); }}>Resume</button>
-                                ) : String(s.statusLabel || "").toUpperCase() === "ACTIVE" ? (
-                                  <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={async () => { await applyNkrBackendControl("PAUSE", { sessionId: String(s.sessionId) }); window.setTimeout(() => _inspectCoreVaultSessions(), 2500); }}>Pause</button>
-                                ) : null}
-                                {Number(s.openAssetCount || 0) > 0 ? (
-                                  <button type="button" className="miniBtn danger" disabled={!!ownerAdminBusy} onClick={async () => {
-                                    setOwnerAdminBusy(`Exit session ${s.sessionId}`);
-                                    try {
-                                      await applyNkrBackendControl(String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "RETRY_EXIT" : "STOP_EXIT", { sessionId: String(s.sessionId) });
-                                      setRotationBackendMsg(`Exit requested for on-chain session #${s.sessionId}. Waiting for transaction submission.`);
-                                      window.setTimeout(() => _inspectCoreVaultSessions(), 3000);
-                                    } finally {
-                                      setOwnerAdminBusy("");
-                                    }
-                                  }}>
-                                    {ownerAdminBusy === `Exit session ${s.sessionId}` ? "Requesting..." : (String(s.statusLabel || "").toUpperCase() === "CLOSING" ? "Retry Exit" : "Stop & Exit")}
-                                  </button>
-                                ) : null}
+                            {["ACTIVE", "PAUSED", "CLOSING"].includes(String(s.statusLabel || "").toUpperCase()) && Number(s.openAssetCount || 0) > 0 ? (
+                              <div style={{ marginTop: 7, color: "#ffd978", fontSize: 9 }}>
+                                Open assets detected. Exit must be completed by the {String(s.engine || "selected").toUpperCase()} engine before finalization.
                               </div>
                             ) : null}
                             {s.recoverable ? <div style={{ marginTop: 7 }}>
-                              <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={() => _recoverStaleNkrReservation(s.sessionId)}>
-                                {ownerAdminBusy === `Stale NKR recovery ${s.sessionId}` ? `Processing session #${s.sessionId}...` : `Finalize session #${s.sessionId}`}
+                              <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={() => _recoverStaleCoreVaultReservation(s.sessionId, s.engine)}>
+                                {ownerAdminBusy === `Stale ${String(s.engine || "").toUpperCase()} recovery ${s.sessionId}` ? `Processing ${String(s.engine || "").toUpperCase()} session #${s.sessionId}...` : `Recover / Finalize ${String(s.engine || "").toUpperCase()} session #${s.sessionId}`}
                               </button>
                             </div> : null}
-                            {coreVaultRecoveryJobs?.[s.sessionId] ? (() => { const j = coreVaultRecoveryJobs[s.sessionId]; return <div style={{ marginTop: 7, padding: 7, borderRadius: 7, background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.10)", display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 8px", wordBreak: "break-all" }}>
+                            {coreVaultRecoveryJobs?.[`${String(s.engine || "").toUpperCase()}:${s.sessionId}`] ? (() => { const j = coreVaultRecoveryJobs[`${String(s.engine || "").toUpperCase()}:${s.sessionId}`]; return <div style={{ marginTop: 7, padding: 7, borderRadius: 7, background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.10)", display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 8px", wordBreak: "break-all" }}>
                               <span className="muted">Job</span><span>{j.job_status || "—"}</span>
                               <span className="muted">Step</span><span>{j.step ?? 0}/5 · {j.step_label || "—"}</span>
                               <span className="muted">Receipt</span><span>{j.receipt_status || "—"}</span>

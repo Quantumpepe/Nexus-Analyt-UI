@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-01-29-v4";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD259-TRADER-ONCHAIN-STATUS";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD260-GRID-ONCHAIN-STATUS";
 const CORE_VAULT_ETH_ADDRESS = "0x3c793350F74CA2f463114555FB4C3155B4696b3E";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -23531,6 +23531,50 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               </div>
 
+              {(() => {
+                const allSessions = Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [];
+                const onchainGridSessions = allSessions
+                  .filter((sess) => String(sess?.engine || "").toUpperCase() === "GRID")
+                  .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(sess?.statusLabel || "").toUpperCase()));
+                const recoveryRunning = onchainGridSessions.some((sess) => {
+                  const job = coreVaultRecoveryJobs?.[`GRID:${sess?.sessionId}`];
+                  return ["QUEUED", "RUNNING"].includes(String(job?.job_status || "").toUpperCase());
+                });
+                const localOrderCount = Array.isArray(gridOrders) ? gridOrders.length : 0;
+                const onchainCount = onchainGridSessions.length;
+                const hasMismatch = onchainCount > 0 && localOrderCount === 0;
+                if (!onchainCount && !recoveryRunning) return null;
+                return (
+                  <div style={{ padding: "10px 11px", borderRadius: 13, border: "1px solid rgba(255,209,102,.45)", background: "rgba(255,209,102,.08)", display: "grid", gap: 7 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ color: "#ffd166", fontWeight: 950 }}>
+                        {recoveryRunning ? "Grid recovery running" : hasMismatch ? "On-chain Grid session pending" : "On-chain Grid session active"}
+                      </div>
+                      <span className="pill silver">{onchainCount} On-chain</span>
+                    </div>
+                    {onchainGridSessions.map((sess) => {
+                      const job = coreVaultRecoveryJobs?.[`GRID:${sess?.sessionId}`];
+                      const jobStatus = String(job?.job_status || "").toUpperCase();
+                      return (
+                        <div key={`grid-onchain-session-${sess.sessionId}`} style={{ padding: "8px 9px", borderRadius: 10, border: "1px solid rgba(255,255,255,.10)", background: "rgba(0,0,0,.14)", display: "grid", gap: 4 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                            <b>Grid session #{sess.sessionId}</b>
+                            <b style={{ color: "#ffd166" }}>{jobStatus === "RUNNING" ? "RECOVERY RUNNING" : String(sess.statusLabel || "ACTIVE").toUpperCase()}</b>
+                          </div>
+                          <div className="muted tiny">
+                            Budget {fmtUsd(Number(sess.budget || 0))} · Settlement cash {fmtUsd(Number(sess.settlementCash || 0))} · Open assets {Number(sess.openAssetCount || 0)}
+                          </div>
+                          {hasMismatch ? (
+                            <div className="muted tiny">No local Grid order is visible, but the Core Vault still has an unfinished Grid session. It must remain visible until on-chain finalization.</div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                    <div className="muted tiny">Open System Info to monitor or recover the session. Grid is not considered fully stopped until finalization is confirmed on-chain.</div>
+                  </div>
+                );
+              })()}
+
               <div className="gridControls" style={{ border: "1px solid rgba(46,204,113,.18)", borderRadius: 14, padding: "12px", background: "rgba(0,0,0,.10)", minWidth: 0, display: "grid", gap: 10 }}>
                 <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10, alignItems: "end" }}>
                   <div className="formRow">
@@ -23597,7 +23641,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div style={{ display: "grid", gap: 8, padding: "12px", borderRadius: 14, border: "1px solid rgba(255,255,255,.10)", background: "rgba(0,0,0,.12)", minHeight: 118 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                   <div style={{ fontWeight: 900 }}>Grid Orders</div>
-                  <span className="pill silver">{Array.isArray(gridOrders) ? gridOrders.length : 0} Active</span>
+                  <span className="pill silver">{Math.max(
+                    Array.isArray(gridOrders) ? gridOrders.length : 0,
+                    (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+                      .filter((sess) => String(sess?.engine || "").toUpperCase() === "GRID")
+                      .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(sess?.statusLabel || "").toUpperCase())).length
+                  )} Active</span>
                 </div>
                 {Array.isArray(gridOrders) && gridOrders.length ? (
                   <div style={{ display: "grid", gap: 8 }}>
@@ -23614,11 +23663,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>;
                     })}
                   </div>
-                ) : (
-                  <div className="muted" style={{ minHeight: 58, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", border: "1px dashed rgba(255,255,255,.10)", borderRadius: 11 }}>
-                    No active Grid orders.
-                  </div>
-                )}
+                ) : (() => {
+                  const pendingGridSessions = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+                    .filter((sess) => String(sess?.engine || "").toUpperCase() === "GRID")
+                    .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(sess?.statusLabel || "").toUpperCase()));
+                  return (
+                    <div className="muted" style={{ minHeight: 58, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", border: "1px dashed rgba(255,255,255,.10)", borderRadius: 11, padding: 10 }}>
+                      {pendingGridSessions.length
+                        ? `${pendingGridSessions.length} on-chain Grid session${pendingGridSessions.length === 1 ? " is" : "s are"} still active or pending finalization. No local Grid order is currently visible.`
+                        : "No active Grid orders."}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>

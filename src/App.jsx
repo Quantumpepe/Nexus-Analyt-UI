@@ -415,7 +415,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD275-ERC20-TRANSACTION-HISTORY-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.29-BUILD277-TX-ONCHAIN-RECONCILIATION";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const ETH_USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const ETH_WETH_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
@@ -4234,11 +4234,13 @@ const refreshProfitPayoutSettings = async () => {
       setTxMsg(`Withdrawal signed and broadcast. Confirmation continues in Transactions. Tx: ${hash}`);
       setCoreWithdrawQuote(null);
       setCoreWithdrawAmount("");
-      _trackWalletTxInBackground(provider, hash, txEntry, () => {
+      _trackWalletTxInBackground(provider, hash, txEntry, async () => {
         setTxMsg(`Withdrawal confirmed on-chain. Tx: ${hash}`);
-        refreshCoreVaultOnchain();
-        refreshCoreVaultOverview();
-        refreshWalletBalances?.();
+        await Promise.allSettled([
+          Promise.resolve().then(() => refreshCoreVaultOnchain?.()),
+          Promise.resolve().then(() => refreshCoreVaultAccounting?.()),
+          Promise.resolve().then(() => refreshBalances?.()),
+        ]);
       });
     } catch (e) {
       setTxMsg(String(e?.message || e || "Withdrawal failed"));
@@ -4745,8 +4747,17 @@ useEffect(() => {
           status: "CONFIRMED",
           blockNumber: receipt?.blockNumber || null,
           gasUsed: receipt?.gasUsed || null,
+          note: "",
         });
-        if (typeof onConfirmed === "function") onConfirmed(receipt);
+        // UI refresh errors happen after the receipt is confirmed and must never
+        // downgrade a successful on-chain transaction to FAILED.
+        if (typeof onConfirmed === "function") {
+          try {
+            await onConfirmed(receipt);
+          } catch (callbackError) {
+            console.warn("Post-confirmation refresh failed:", callbackError);
+          }
+        }
       } catch (error) {
         saveWalletTransaction({
           ...baseEntry,
@@ -4757,6 +4768,41 @@ useEffect(() => {
       }
     })();
   };
+
+  // BUILD277: Reconcile user-signed wallet history against the actual chain receipt.
+  // A UI refresh/callback error must never leave a successful on-chain transaction as FAILED.
+  useEffect(() => {
+    if (!wallet || !walletTransactions.length) return;
+    let cancelled = false;
+    const candidates = walletTransactions
+      .filter((row) => row?.txHash && ["SUBMITTED", "PENDING", "BROADCAST_UNKNOWN", "FAILED"].includes(String(row?.status || "").toUpperCase()))
+      .slice(0, 40);
+    if (!candidates.length) return;
+
+    void (async () => {
+      let provider;
+      try { provider = await _getEmbeddedProvider(); } catch (_) { return; }
+      for (const row of candidates) {
+        if (cancelled) return;
+        try {
+          const receipt = await provider.request({ method: "eth_getTransactionReceipt", params: [row.txHash] });
+          if (!receipt) continue;
+          const ok = String(receipt.status || "").toLowerCase() !== "0x0";
+          saveWalletTransaction({
+            ...row,
+            status: ok ? "CONFIRMED" : "FAILED",
+            blockNumber: receipt?.blockNumber || row?.blockNumber || null,
+            gasUsed: receipt?.gasUsed || row?.gasUsed || null,
+            note: ok ? "" : (row?.note || "Transaction failed on-chain."),
+          });
+        } catch (error) {
+          // Keep the current status on temporary RPC errors.
+          console.warn("Wallet transaction reconciliation delayed:", error);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [wallet, walletTransactions, saveWalletTransaction]);
 
   const _trackCoreVaultTxInBackground = (provider, txHash, successLabel) => {
     if (!txHash) return;

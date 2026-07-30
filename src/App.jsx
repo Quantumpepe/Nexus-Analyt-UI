@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD346-SCANNING-UNTIL-FOUND";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD347-NO-FOREIGN-POL-REASON";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -23043,21 +23043,30 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           const decision = String(nkrStrategistStatus?.decision || "").toUpperCase();
                                           const best = String(nkrStrategistStatus?.bestCandidate || "").toUpperCase();
                                           const score = Number(nkrStrategistStatus?.candidateScore || 0);
-                                          const detail = String(nkrStrategistStatus?.detail || "");
+                                          const detailRaw = String(nkrStrategistStatus?.detail || sess?.meta?.nkr_last_detail || "");
+                                          // Never show another chain's candidate (e.g. POL) on ETH/BNB cards.
+                                          const detailCandMatch = detailRaw.match(/Candidate\s+([A-Z0-9]+)/i);
+                                          const detailCand = String(detailCandMatch?.[1] || "").toUpperCase();
+                                          const detailIsForeign = !!(detailCand && strategistSym && detailCand !== strategistSym
+                                            && detailCand !== nativeForChain
+                                            && !(sessChain && detailCand === sessChain));
+                                          const detail = detailIsForeign ? "" : detailRaw;
                                           let whyNoBuy = "";
                                           if (Number(positionValue) <= 0) {
                                             if (gate === "WAITING_ENTRY" || decision === "WAIT" || decision === "STARTED" || decision === "HOLD") {
-                                              if (score > 0 && score < 62) {
-                                                whyNoBuy = `Why no buy: best candidate ${best || "—"} score ${score.toFixed(1)} is below entry threshold.`;
-                                              } else if (detail && /reserve|balanced|0\/\d/i.test(detail)) {
+                                              if (strategistSym) {
+                                                whyNoBuy = `Why no buy: watching ${strategistSym} on ${sessChain || "this chain"} — entry not filled yet.`;
+                                              } else if (score > 0 && score < 48 && best && (best === nativeForChain || best === strategistSym)) {
+                                                whyNoBuy = `Why no buy: best candidate ${best} score ${score.toFixed(1)} is below entry threshold.`;
+                                              } else if (detail && /reserve|balanced|0\/\d|settlement|selected|invest/i.test(detail) && !detailIsForeign) {
                                                 whyNoBuy = `Why no buy: ${detail}`;
                                               } else {
-                                                whyNoBuy = "Why no buy: strategist is waiting for entry conditions (no on-chain trade yet).";
+                                                whyNoBuy = `Why no buy: scanning ${sessChain || "chain"} — waiting for a tradable candidate.`;
                                               }
                                             } else if (decision === "SUBMITTING" || gate === "EXECUTION") {
                                               whyNoBuy = "Why no buy: trade is submitting — waiting for on-chain confirmation.";
                                             } else {
-                                              whyNoBuy = String(nkrStrategistStatus?.summary || "Why no buy: no open position yet.");
+                                              whyNoBuy = `Why no buy: no open position on ${sessChain || "this chain"} yet.`;
                                             }
                                           }
                                           const reasonText = String(

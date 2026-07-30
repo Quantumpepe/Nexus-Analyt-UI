@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD323-NKR-MINIMIZE-V95";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD324-NKR-RAIL-SUMMARY";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -21693,6 +21693,41 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
+          {/* Compact rail summary — only visible when this panel is minimized */}
+          {(() => {
+            const modeLabel = String(gridMode || "normal") === "rotation" ? "NKR" : String(gridMode || "normal") === "trading" ? "Trading" : "Grid";
+            const nkrLive = (Array.isArray(rotationSessions) ? rotationSessions : []).filter(
+              (s) => !["STOPPED", "FINALIZED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED"].includes(String(s?.status || "").toUpperCase())
+            );
+            const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
+            const nkrUser =
+              ["ERROR", "FAILED"].includes(nkrCtrl) ? "Busy"
+                : ["STOPPING", "FINALIZING", "CLOSING"].includes(nkrCtrl) ? "Stopping"
+                  : nkrCtrl === "PAUSED" ? "Paused"
+                    : ["RUNNING", "ACTIVE"].includes(nkrCtrl) ? "Running"
+                      : nkrLive.length ? "Live" : "Waiting";
+            const reserved = nkrLive.reduce((a, s) => a + (Number(s?.budgetUsd || s?.budgetAmount || s?.reservedUsd) || 0), 0);
+            const traderN = Array.isArray(openTradingSessions) ? openTradingSessions.length : 0;
+            const statusColor = nkrUser === "Running" || nkrUser === "Live" ? "#86efac" : nkrUser === "Paused" || nkrUser === "Stopping" || nkrUser === "Busy" ? "#ffd166" : "rgba(235,255,247,.78)";
+            return (
+              <div className="gridRailSummary">
+                <div className="gridRailMode">{modeLabel}</div>
+                <div className="gridRailStatus" style={{ color: statusColor }}>{nkrUser}</div>
+                {modeLabel === "NKR" ? (
+                  <>
+                    <div className="gridRailLine">{nkrLive.length ? `${nkrLive.length} session${nkrLive.length > 1 ? "s" : ""}` : "No live session"}</div>
+                    {reserved > 0 ? <div className="gridRailLine">Reserved ${Math.round(reserved)}</div> : null}
+                  </>
+                ) : modeLabel === "Trading" ? (
+                  <div className="gridRailLine">{traderN ? `${traderN} open` : "No open session"}</div>
+                ) : (
+                  <div className="gridRailLine">Exit rules · Vault tokens</div>
+                )}
+                <div className="gridRailHint">Click to open</div>
+              </div>
+            );
+          })()}
+
           <div className="panelScroll"><div className={`gridLayout ${String(gridMode || "normal") === "trading" ? "tradingDesktopLayout" : String(gridMode || "normal") === "rotation" ? "rotationDesktopLayout" : "gridDesktopLayout"}`}>
             <div className="gridLeft">
               {isCompactMobile && (
@@ -26674,13 +26709,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
     font-size: 8px !important;
   }
   .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive)::after{
-    content: "Open to manage Grid · NKR · Trading";
-    display: block !important;
-    font-size: 9px !important;
-    line-height: 1.25 !important;
-    color: rgba(235,255,247,.62) !important;
-    margin-top: 6px !important;
+    content: none !important;
+    display: none !important;
   }
+  .gridRailSummary{ display: none !important; }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailSummary{
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+    margin-top: 4px !important;
+    padding: 8px !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(255,255,255,.10) !important;
+    background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.18)) !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailMode{
+    font-size: 10px !important; font-weight: 900 !important; letter-spacing: .04em !important;
+    text-transform: uppercase !important; color: rgba(139,220,255,.92) !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailStatus{
+    font-size: 13px !important; font-weight: 900 !important; line-height: 1.15 !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailLine{
+    font-size: 10px !important; font-weight: 700 !important; color: rgba(235,255,247,.78) !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailHint{
+    font-size: 9px !important; color: rgba(235,255,247,.48) !important; margin-top: 2px !important;
+  }
+  .dashboardGrid .section-grid.panelActive .gridRailSummary,
+  .dashboardGrid:not(.hasFocus) .gridRailSummary{ display: none !important; }
 }
 
 

@@ -2571,3 +2571,23 @@ body::before {
   /* overview (not focused) keeps full card width — already fits */
 }
 /* === END live vault expanded compact === */
+
+
+/* =========================================================
+   Minimized right-rail tiles — full surface clickable
+   ========================================================= */
+@media (min-width: 981px){
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive){
+    cursor: pointer !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .gridRailSummary{
+    flex: 1 1 auto !important;
+    min-height: 40px !important;
+  }
+  .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .panelScroll{
+    pointer-events: none !important;
+  }
+}
+/* === END full-surface rail click === */

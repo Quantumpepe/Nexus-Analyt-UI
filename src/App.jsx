@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD347-NO-FOREIGN-POL-REASON";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD348-SHOW-EXEC-ERROR";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -23065,6 +23065,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                               }
                                             } else if (decision === "SUBMITTING" || gate === "EXECUTION") {
                                               whyNoBuy = "Why no buy: trade is submitting — waiting for on-chain confirmation.";
+                                            } else if (gate.includes("ERROR") || gate === "TRADE_ROUTE_ERROR" || gate === "RPC_SESSION_READ" || gate === "SESSION_DECODE_FAILED" || gate === "SETTLEMENT_LOW" || gate === "LIVE_EXECUTION_DISABLED") {
+                                              const err = String(nkrStrategistStatus?.lastError || nkrStrategistStatus?.detail || detailRaw || gate).slice(0, 180);
+                                              whyNoBuy = `Why no buy: ${err}`;
                                             } else {
                                               whyNoBuy = `Why no buy: no open position on ${sessChain || "this chain"} yet.`;
                                             }

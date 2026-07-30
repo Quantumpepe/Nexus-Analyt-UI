@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD333-UNLIMITED-MULTI-CHAIN";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD334-MULTI-START-ALL-CHAINS";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -5049,66 +5049,93 @@ useEffect(() => {
     if (!wallet) throw new Error("Wallet not connected.");
     const budget = Number(String(budgetUsd ?? "").replace(",", "."));
     if (!Number.isFinite(budget) || budget <= 0) throw new Error("A positive CoreVault budget is required.");
-    const modeKey = String(system || "").toUpperCase() === "NKR" ? "rotation" : String(system || "").toUpperCase() === "TRADER" ? "trading" : "normal";
+    const systemU = String(system || "").toUpperCase();
+    const modeKey = systemU === "NKR" ? "rotation" : systemU === "TRADER" ? "trading" : "normal";
     const selectedChain = String(chain || liveVaultChainByMode?.[modeKey] || activeGridChainKey || "ETH").toUpperCase();
-    const selectedAsset = String(settlementAsset || liveVaultAssetByMode?.[modeKey] || ({ ETH: "ETH", BNB: "BNB", POL: "POL" }[selectedChain]) || "USDC").toUpperCase();
+    // NKR + Trader always settle in stables on every live chain (ETH/BNB/POL).
+    // Never fall back to native BNB/ETH/POL for these systems — that caused 409s on parallel starts.
+    let selectedAsset = String(settlementAsset || liveVaultAssetByMode?.[modeKey] || "USDC").toUpperCase();
+    if (systemU === "NKR" || systemU === "TRADER") {
+      if (!["USDC", "USDT"].includes(selectedAsset)) selectedAsset = "USDC";
+    }
     const selectedVaultState = coreVaultOnchainByChain?.[selectedChain] || null;
     if (!selectedVaultState?.connected) {
-      throw new Error(`${selectedChain} CoreVault V5 is not connected.`);
+      throw new Error(`${selectedChain} CoreVault V5 is not connected. Switch Live Core Vault Capital to ${selectedChain} and wait for LIVE CONNECTED.`);
     }
 
     await ensurePrivyAutomationReady();
 
-    // The backend session endpoint expects the Nexus backend token. Ensure it
-    // exists before create-auto; the Privy signer request itself remains fully
-    // server-side after this one-time backend authentication bridge.
     const backendToken = await ensureBackendAuthToken(false);
+    const bodyPayload = {
+      wallet,
+      system: systemU,
+      amountUsd: budget,
+      budgetAmount: budget,
+      durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
+      maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
+      maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
+      settlementAsset: selectedAsset,
+      chain: selectedChain,
+    };
+    const enrichCreateError = (error) => {
+      const data = error?.data || {};
+      const code = String(data?.error || error?.message || "session_create_failed");
+      const avail = data?.availableAmount ?? data?.available_amount;
+      const req = data?.requestedAmount ?? data?.requested_amount;
+      if (/insufficient_free_vault_budget/i.test(code)) {
+        return new Error(
+          `Not enough free ${selectedAsset} on ${selectedChain}` +
+          (avail != null ? ` (free ~${avail}, need ~${req ?? budget})` : "") +
+          `. Deposit ${selectedAsset} on ${selectedChain}, then start again.`
+        );
+      }
+      if (/privy_live_execution_not_ready|privy_wallet_mapping/i.test(code)) {
+        const blockers = Array.isArray(data?.blockers) ? data.blockers.join(", ") : "";
+        return new Error(`Privy not ready for ${selectedChain}${blockers ? `: ${blockers}` : ""}.`);
+      }
+      if (/settlement_asset_not_execution_ready/i.test(code)) {
+        return new Error(`${selectedAsset} is not execution-ready on ${selectedChain} vault. Check token config / Owner Admin.`);
+      }
+      if (/core_vault_chain_not_supported/i.test(code)) {
+        return new Error(`Chain ${selectedChain} is not supported for CoreVault sessions yet.`);
+      }
+      const details = Array.isArray(data?.blockers) && data.blockers.length ? `: ${data.blockers.join(", ")}` : "";
+      const err = new Error(`${code}${details}`);
+      err.status = error?.status;
+      err.data = data;
+      return err;
+    };
     let result;
     try {
       result = await api("/api/nexus/core-vault/session/create-auto", {
         method: "POST",
         token: backendToken,
         wallet,
-        body: {
-        wallet,
-        system: String(system || "").toUpperCase(),
-        amountUsd: budget,
-        budgetAmount: budget,
-        durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
-        maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
-        maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
-        settlementAsset: selectedAsset,
-        chain: selectedChain,
-        },
+        body: bodyPayload,
       });
     } catch (error) {
-      // A stored Nexus token may have expired. Refresh it once through the
-      // already connected Privy embedded wallet and retry the identical call.
-      if (Number(error?.status || 0) !== 401) throw error;
-      const refreshedToken = await ensureBackendAuthToken(true);
-      result = await api("/api/nexus/core-vault/session/create-auto", {
-        method: "POST",
-        token: refreshedToken,
-        wallet,
-        body: {
-          wallet,
-          system: String(system || "").toUpperCase(),
-          amountUsd: budget,
-          budgetAmount: budget,
-          durationHours: Math.max(1, Math.round(Number(durationHours) || 24)),
-          maxSlippageBps: Math.max(1, Math.round(Number(maxSlippageBps) || 100)),
-          maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
-          settlementAsset: selectedAsset,
-          chain: selectedChain,
-        },
-      });
+      if (Number(error?.status || 0) === 401) {
+        const refreshedToken = await ensureBackendAuthToken(true);
+        try {
+          result = await api("/api/nexus/core-vault/session/create-auto", {
+            method: "POST",
+            token: refreshedToken,
+            wallet,
+            body: bodyPayload,
+          });
+        } catch (retryErr) {
+          throw enrichCreateError(retryErr);
+        }
+      } else {
+        throw enrichCreateError(error);
+      }
     }
     if (result?.status !== "ok" || !result?.txHash) {
       const details = Array.isArray(result?.blockers) && result.blockers.length ? `: ${result.blockers.join(", ")}` : "";
       throw new Error(`${result?.message || result?.error || "Automatic CoreVault session creation failed"}${details}`);
     }
     await Promise.allSettled([refreshCoreVaultOnchain(), refreshCoreVaultAccounting()]);
-    return { hash: result.txHash, sessionId: result.sessionId, result };
+    return { hash: result.txHash, sessionId: result.sessionId, result, chain: selectedChain, settlementAsset: selectedAsset };
   };
 
   const depositToCoreVault = async () => {
@@ -8777,30 +8804,50 @@ useEffect(() => {
   const [strategistRotationCandidates, setStrategistRotationCandidates] = useState([]);
 
   const releaseRotationBudget = useCallback(async () => {
-    const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
-    if (!Number.isFinite(amount) || amount <= 0) return;
-    // Freeze the selected mode for this session before the setup draft is reset to Dynamic.
+    const startChainCheck = String(liveVaultChainByMode?.rotation || activeGridChainKey || "ETH").toUpperCase();
+    const nowPre = Date.now();
+    const alreadyOnChain = (Array.isArray(rotationSessions) ? rotationSessions : []).some((s) => {
+      if (!isRotationSessionRunnable(s, nowPre)) return false;
+      const ch = String(s?.chain || s?.meta?.chain || s?.meta?.chain_key || "").toUpperCase();
+      return ch === startChainCheck || (!ch && startChainCheck === "ETH");
+    });
+    if (alreadyOnChain) {
+      setRotationBackendMsg(`NKR is already running on ${startChainCheck}. Switch the vault chain to start a parallel session.`);
+      return;
+    }
+    // Parallel start: form may show Add Capital (topup). Accept that amount as the new session budget.
+    const amount = Number(String(rotationBudgetRelease || rotationCapitalTopup || "").replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setRotationBackendMsg(`Enter a budget amount to start NKR on ${startChainCheck}.`);
+      return;
+    }
     const startedNkrCapitalMode = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
     let coreVaultSession = null;
     try {
       setRotationBackendLoading(true);
-      setRotationBackendMsg("Reserving NKR budget in CoreVault...");
+      setRotationBackendMsg(`Reserving NKR budget on ${startChainCheck} in CoreVault...`);
       coreVaultSession = await createCoreVaultSystemSession({
         system: "NKR",
         budgetUsd: amount,
         durationHours: Math.max(24, Math.round((Number(nkrPeriodDays) || 10) * 24)),
         maxSlippageBps: Math.round((Number(rotationMaxSlippage) || 1) * 100),
         maxLossBps: Math.round((Number(rotationRiskLimit) || 15) * 100),
-        chain: String(liveVaultChainByMode?.rotation || activeGridChainKey || "ETH").toUpperCase(),
+        chain: startChainCheck,
         settlementAsset: String(liveVaultAssetByMode?.rotation || "USDC").toUpperCase(),
       });
-      setRotationBackendMsg("NKR started. Capital is reserved in CoreVault and automatic watchlist scanning is active.");
+      setRotationBackendMsg(`NKR started on ${startChainCheck}. Capital reserved · scanning ${startChainCheck}-tradable assets.`);
+      setRotationCapitalTopup("");
     } catch (e) {
       const rawMessage = String(e?.message || e || "NKR CoreVault session failed");
       const routeMissing = rawMessage.includes("verified_trade_route_required") || rawMessage.toLowerCase().includes("enabled trade route") || rawMessage.toLowerCase().includes("verified corevault trade route");
-      const userMessage = routeMissing
-        ? "Live NKR cannot reserve capital yet: the deployed CoreVault requires one enabled verified TRADE route. Configure it once in Owner Admin; no new Vault deployment is needed. NKR Shadow observation remains available."
-        : `NKR CoreVault: ${rawMessage}`;
+      const noFree = /insufficient_free_vault_budget|insufficient free/i.test(rawMessage);
+      const privyBlocked = /privy_live_execution_not_ready|privy_not_ready|privy_wallet_mapping/i.test(rawMessage);
+      const notConnected = /CoreVault V5 is not connected/i.test(rawMessage);
+      let userMessage = `NKR CoreVault (${startChainCheck}): ${rawMessage}`;
+      if (routeMissing) userMessage = `Live NKR on ${startChainCheck} needs an enabled verified TRADE route on that chain (Owner Admin).`;
+      else if (noFree) userMessage = `Not enough free USDC on ${startChainCheck} vault. Deposit USDC on ${startChainCheck}, then start again.`;
+      else if (privyBlocked) userMessage = `Privy live execution is not ready for ${startChainCheck}. Check policy / wallet mapping for that chain.`;
+      else if (notConnected) userMessage = `${startChainCheck} CoreVault is not connected. Switch chain in Live Core Vault Capital and wait for LIVE CONNECTED.`;
       setRotationBackendMsg(userMessage);
       setErrorMsg(userMessage);
       setRotationBackendLoading(false);
@@ -8809,23 +8856,9 @@ useEffect(() => {
       setRotationBackendLoading(false);
     }
 
-    // Session count is unlimited across chains. Soft max-assets is advisory only (allocation), not a start lock.
     const periodDays = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
     const runtimeHours = periodDays * 24;
     const now = Date.now();
-    const activeExisting = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((s) => {
-      return isRotationSessionRunnable(s, now);
-    }).length;
-    const startChainCheck = String(liveVaultChainByMode?.rotation || activeGridChainKey || "ETH").toUpperCase();
-    const alreadyOnChain = (Array.isArray(rotationSessions) ? rotationSessions : []).some((s) => {
-      if (!isRotationSessionRunnable(s, now)) return false;
-      const ch = String(s?.chain || s?.meta?.chain || s?.meta?.chain_key || "").toUpperCase();
-      return ch === startChainCheck || (!ch && startChainCheck === "ETH");
-    });
-    if (alreadyOnChain) {
-      setRotationBackendMsg(`NKR is already running on ${startChainCheck}. Switch the vault chain to start a parallel session.`);
-      return;
-    }
 
     // Pick the next NKR target from the same pipeline that the Strategist uses.
     // Important: do not create duplicate active sessions for the same target while other
@@ -8917,7 +8950,10 @@ useEffect(() => {
       setActiveRotationSessionId("");
       setNkrControlState("UNKNOWN");
     }
-    setRotationBackendMsg(`NKR session approved ✓ ${sessionId}. Period ${periodDays} days, max active NKR sessions ${activeLimit}. Paper-only until live permissions are connected.`);
+    const onchainSid = coreVaultSession?.sessionId || coreVaultSession?.result?.sessionId || "";
+    setRotationBackendMsg(
+      `NKR session on ${startChainCheck} approved ✓${onchainSid ? ` #${onchainSid}` : ` ${sessionId}`}. Period ${periodDays} days · chain-locked scan.`
+    );
     // Keep the confirmed mode (including Aggressive after warning). Do NOT force Dynamic here —
     // the live Strategist worker reads nkrCapitalMode from app-state; resetting would drop Aggressive.
     setNkrAggressivePendingValue("");
@@ -8926,7 +8962,7 @@ useEffect(() => {
     if (String(startedNkrCapitalMode || "").toUpperCase() !== "AGGRESSIVE") {
       setNkrAggressiveAcceptedForDraft(false);
     }
-  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
+  }, [rotationBudgetRelease, rotationCapitalTopup, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -10596,20 +10632,21 @@ useEffect(() => {
       setErrorMsg("Please accept the Aggressive Performance risk warning before starting this Trading session.");
       return null;
     }
+    const traderStartChain = String(liveVaultChainByMode?.trading || activeGridChainKey || "ETH").toUpperCase();
     try {
-      setErrorMsg("Reserving Trading budget in CoreVault...");
+      setErrorMsg(`Reserving Trading budget on ${traderStartChain} in CoreVault...`);
       await createCoreVaultSystemSession({
         system: "TRADER",
         budgetUsd: Number(String(tradingBudgetUsd || "0").replace(",", ".")),
         durationHours: normalizeTradingRuntimeHours(),
         maxSlippageBps: Math.round((Number(tradingMaxSlippagePct) || 1) * 100),
         maxLossBps: Math.round((Number(tradingHardStopPct) || 15) * 100),
-        chain: String(liveVaultChainByMode?.trading || activeGridChainKey || "ETH").toUpperCase(),
+        chain: traderStartChain,
         settlementAsset: String(liveVaultAssetByMode?.trading || "USDC").toUpperCase(),
       });
       setErrorMsg("");
     } catch (e) {
-      setErrorMsg(`Trading CoreVault: ${e?.message || e}`);
+      setErrorMsg(`Trading CoreVault (${traderStartChain}): ${e?.message || e}`);
       return null;
     }
     const now = Date.now();
@@ -10639,6 +10676,8 @@ useEffect(() => {
         session_id: sessionId,
         sessionId,
         trade_session_id: sessionId,
+        chain: traderStartChain,
+        chainKey: traderStartChain,
         runtime_hours: runtimeHoursNum,
         reuse_profit_pct: reuseProfitPctNum,
         profit_reuse_pct: reuseProfitPctNum,
@@ -10728,6 +10767,9 @@ useEffect(() => {
           budgetUsd: Number(String(tradingBudgetUsd || "").replace(",", ".")) || 0,
           assets,
           chains,
+          chain: traderStartChain,
+          chainKey: traderStartChain,
+          meta: { chain: traderStartChain, chain_key: traderStartChain },
           status: activeQueue.some((s) => String(s.status || "").toUpperCase() === "READY") ? "READY" : "WAIT",
           slots: activeQueue.length,
           runtimeHours: runtimeHoursNum,
@@ -23065,20 +23107,46 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                       <div className="formRow">
                         {(() => {
-                          const hasActiveNkrRun = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED","FINALIZED","STOPPING","FINALIZING","COMPLETE","COMPLETED","CANCELLED","RELEASED","DELETED","ARCHIVED"].includes(String(s?.status || "").toUpperCase()));
+                          const normalizeNkrChain = (value) => {
+                            const k = String(value || "").trim().toUpperCase();
+                            if (k === "ETHEREUM" || k === "1") return "ETH";
+                            if (k === "BSC" || k === "56") return "BNB";
+                            if (k === "POLYGON" || k === "MATIC" || k === "137") return "POL";
+                            return k || "";
+                          };
+                          const selectedNkrChain = normalizeNkrChain(liveVaultChainByMode?.rotation || "ETH") || "ETH";
+                          const activeRows = Array.isArray(rotationSessions)
+                            ? rotationSessions.filter((s) => !["STOPPED","PAUSED","EXPIRED","CLOSED","FINALIZED","STOPPING","FINALIZING","COMPLETE","COMPLETED","CANCELLED","RELEASED","DELETED","ARCHIVED"].includes(String(s?.status || "").toUpperCase()))
+                            : [];
+                          const hasActiveNkrRun = activeRows.length > 0;
+                          const hasSessionOnSelectedChain = activeRows.some((s) => {
+                            const ch = normalizeNkrChain(s?.chain || s?.meta?.chain || s?.meta?.chain_key || "");
+                            return ch === selectedNkrChain || (!ch && selectedNkrChain === "ETH");
+                          });
+                          // Parallel start on a free chain uses the same amount field as top-up,
+                          // so the user can type 20 and press Start NKR · BNB without a hidden field.
+                          const startingParallel = hasActiveNkrRun && !hasSessionOnSelectedChain;
+                          const label = startingParallel
+                            ? `New session budget on ${selectedNkrChain} ($)`
+                            : hasActiveNkrRun
+                              ? "Add Capital ($)"
+                              : "NKR Budget ($)";
+                          const useTopupField = hasActiveNkrRun; // write amount into topup; Start also reads it
                           return (
                             <>
-                              <label>{hasActiveNkrRun ? "Add Capital ($)" : "NKR Budget ($)"}</label>
+                              <label>{label}</label>
                               <input
-                                value={hasActiveNkrRun ? rotationCapitalTopup : rotationBudgetRelease}
+                                value={useTopupField ? rotationCapitalTopup : rotationBudgetRelease}
                                 onChange={(e) => {
-                                  if (hasActiveNkrRun) {
+                                  if (useTopupField) {
                                     setRotationCapitalTopup(e.target.value);
+                                    // Keep release in sync so Start amount checks and backend budget stay consistent
+                                    if (startingParallel) handleNkrBudgetInputChange(e.target.value);
                                   } else {
                                     handleNkrBudgetInputChange(e.target.value);
                                   }
                                 }}
-                                placeholder={hasActiveNkrRun ? "e.g. add 3000" : "e.g. 12000"}
+                                placeholder={startingParallel ? `e.g. 20 for ${selectedNkrChain}` : hasActiveNkrRun ? "e.g. add 3000" : "e.g. 12000"}
                               />
                             </>
                           );
@@ -23181,7 +23249,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             className="btn"
                             type="button"
                             disabled={(() => {
-                              const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
+                              const amount = Number(String(rotationBudgetRelease || rotationCapitalTopup || "").replace(",", "."));
                               return blockStart || rotationBackendLoading || privyAutomationBusy || !Number.isFinite(amount) || amount <= 0;
                             })()}
                             onClick={releaseRotationBudget}

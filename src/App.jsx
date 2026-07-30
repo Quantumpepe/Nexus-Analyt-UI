@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD340-MULTI-CHAIN-SESSION-DEDUPE";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD341-ALL-SESSIONS-NO-USDC-TARGET";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8557,7 +8557,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [traderEventHistory, setTraderEventHistory] = useState([]);
   const [activeTradingSessionId, setActiveTradingSessionId] = useState("");
   const [rotationSessions, setRotationSessions] = useState([]);
-  const finalizedNkrStorageKey = useMemo(() => `nexus_nkr_finalized_onchain_v1_${String(resolveWalletAddress(wallet) || wallet || "guest").toLowerCase()}`, [wallet]);
+  const finalizedNkrStorageKey = useMemo(() => `nexus_nkr_finalized_onchain_v2_${String(resolveWalletAddress(wallet) || wallet || "guest").toLowerCase()}`, [wallet]);
   const readFinalizedNkrIds = useCallback(() => {
     try {
       const arr = JSON.parse(localStorage.getItem(finalizedNkrStorageKey) || "[]");
@@ -8567,23 +8567,46 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   useEffect(() => {
     const sessions = Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [];
     if (!sessions.length) return;
+    const chainFromPreviewRow = (row) => {
+      const id = Number(row?.chainId || row?.chain_id || 0);
+      if (id === 1) return "ETH";
+      if (id === 56) return "BNB";
+      if (id === 137) return "POL";
+      const k = String(row?.chain || row?.chainKey || "").toUpperCase();
+      if (k === "ETHEREUM") return "ETH";
+      if (k === "BSC") return "BNB";
+      if (k === "POLYGON" || k === "MATIC") return "POL";
+      return k || "ETH";
+    };
     const finalized = readFinalizedNkrIds();
     for (const row of sessions) {
       const st = String(row?.statusLabel || row?.status || "").toUpperCase();
       const openCount = Number(row?.openAssetCount ?? row?.open_asset_count ?? 0) || 0;
-      if (["FINALIZED", "COMPLETE", "COMPLETED", "CLOSED"].includes(st) && openCount <= 0) finalized.add(String(row?.sessionId ?? row?.session_id ?? ""));
+      const sid = String(row?.sessionId ?? row?.session_id ?? "");
+      if (!sid) continue;
+      if (["FINALIZED", "COMPLETE", "COMPLETED", "CLOSED"].includes(st) && openCount <= 0) {
+        // Chain-scoped key so ETH #1 FINALIZED never hides BNB #1 / POL #1
+        finalized.add(`${chainFromPreviewRow(row)}:${sid}`);
+      }
     }
     finalized.delete("");
     try { localStorage.setItem(finalizedNkrStorageKey, JSON.stringify(Array.from(finalized))); } catch {}
     if (finalized.size) {
-      setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).filter((row) => {
+      const rowFinalKey = (row) => {
         const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
-        return !sid || !finalized.has(sid);
+        if (!sid) return "";
+        const ch = String(row?.chain || row?.chainKey || row?.meta?.chain || row?.chainId || row?.meta?.chain_id || "").toUpperCase();
+        const chN = ch === "ETHEREUM" || ch === "1" ? "ETH" : ch === "BSC" || ch === "56" ? "BNB" : ch === "POLYGON" || ch === "MATIC" || ch === "137" ? "POL" : ch;
+        return `${chN || "UNK"}:${sid}`;
+      };
+      setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).filter((row) => {
+        const key = rowFinalKey(row);
+        return !key || !finalized.has(key);
       }));
       setActiveRotationSessionId((prev) => {
         const row = (Array.isArray(rotationSessions) ? rotationSessions : []).find((x) => String(x?.id || x?.session_id || "") === String(prev || ""));
-        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
-        return sid && finalized.has(sid) ? "" : prev;
+        const key = row ? rowFinalKey(row) : "";
+        return key && finalized.has(key) ? "" : prev;
       });
     }
   }, [coreVaultSessionPreview, finalizedNkrStorageKey, readFinalizedNkrIds]);
@@ -22240,13 +22263,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         // Explicitly keep paused sessions (with or without an open position).
                         if (["ACTIVE", "RUNNING", "APPROVED", "EXECUTOR", "OPEN", "PAUSED", "CLOSING", "STOPPING", "STOPPED", "EXITING", "EXIT_REQUESTED", "EXIT_PENDING", "EXIT_FAILED"].includes(st)) return true;
                         const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
-                        if (sid && finalizedOnChainIds.has(sid)) return false;
+                        if (sid) {
+                          const ch = String(row?.chain || row?.chainKey || row?.meta?.chain || row?.chainId || row?.meta?.chain_id || "").toUpperCase();
+                          const chN = ch === "ETHEREUM" || ch === "1" ? "ETH" : ch === "BSC" || ch === "56" ? "BNB" : ch === "POLYGON" || ch === "MATIC" || ch === "137" ? "POL" : ch;
+                          if (finalizedOnChainIds.has(`${chN || "UNK"}:${sid}`)) return false;
+                        }
                         return openCount > 0;
                       };
                       const finalizedOnChainIds = readFinalizedNkrIds();
                       const rawLocalRotationRows = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((row) => {
                         const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
-                        return !sid || !finalizedOnChainIds.has(sid);
+                        if (!sid) return true;
+                        const ch = String(row?.chain || row?.chainKey || row?.meta?.chain || row?.chainId || row?.meta?.chain_id || "").toUpperCase();
+                        const chN = ch === "ETHEREUM" || ch === "1" ? "ETH" : ch === "BSC" || ch === "56" ? "BNB" : ch === "POLYGON" || ch === "MATIC" || ch === "137" ? "POL" : ch;
+                        // Accept both chain-scoped keys and legacy bare ids during migration
+                        if (finalizedOnChainIds.has(`${chN || "UNK"}:${sid}`)) return false;
+                        if (!chN && finalizedOnChainIds.has(sid)) return false;
+                        return true;
                       });
                       const previewSessions = Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [];
                       const authoritativeOnChainIds = new Set(previewSessions
@@ -22259,24 +22292,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         .filter(Boolean));
                       // Once an on-chain scan exists, it is authoritative. Historical local
                       // placeholders without a matching live CoreVault session are excluded.
-                      const localRotationRows = rawLocalRotationRows.filter((row) => {
-                        if (!isRelevantLiveRotationRow(row)) return false;
-                        // Multi-chain: backend rows (NKR-LIVE-ETH-1, NKR-LIVE-BNB-1, …) must always
-                        // stay visible. The CoreVault preview is often only the *selected* chain and
-                        // must never drop sessions on other chains.
-                        const rowId = String(row?.id ?? row?.session_id ?? "");
-                        if (/^NKR-LIVE-[A-Z0-9]+-\d+$/i.test(rowId)) return true;
-                        if (String(row?.chain || row?.meta?.chain || "").trim() && (row?.onchainSessionId || row?.meta?.onchain_session_id)) return true;
-                        if (!previewSessions.length) return true;
-                        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
-                        const st = String(row?.status || row?.statusLabel || "").toUpperCase();
-                        const control = String(nkrControlState || "WAITING").toUpperCase();
-                        const isCurrentLocal = !!rowId && rowId === String(activeRotationSessionId || "");
-                        const isFreshRunningLocal = isCurrentLocal && ["RUNNING", "PAUSED", "CLOSING", "STOPPING"].includes(control) &&
-                          !["FINALIZED", "CLOSED", "COMPLETE", "DELETED"].includes(st);
-                        if (isFreshRunningLocal) return true;
-                        return !!sid && authoritativeOnChainIds.has(sid);
-                      });
+                      // Multi-chain: never filter by the selected-chain CoreVault preview.
+                      // Backend /api/rotation-sessions is the source of truth for ETH+BNB+POL cards.
+                      const localRotationRows = rawLocalRotationRows.filter((row) => isRelevantLiveRotationRow(row));
                       const localOnChainIds = new Set(localRotationRows.map((row) => String(
                         row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? ""
                       )).filter(Boolean));
@@ -22807,11 +22825,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const rawPosSym = String(
                                   sess?.positionAsset || sess?.openRotation?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || sess?.meta?.nkr_active_asset || ""
                                 ).toUpperCase();
-                                const strategistSym = String(nkrStrategistStatus?.bestCandidate || "").toUpperCase();
+                                const strategistSymRaw = String(nkrStrategistStatus?.bestCandidate || "").toUpperCase();
+                                // Settlement stables are never trade targets — USDC→USDC is invalid.
+                                const isStableTradeSym = (s) => {
+                                  const u = String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                                  return !u || ["USDC", "USDT", "USD", "DAI"].includes(u) || u.includes("USDC") || u.includes("USDT");
+                                };
                                 const placeholderSyms = new Set(["", "WAITING", "NONE", "NULL", "ASSET", "SCANNING", baseAsset]);
-                                // No position → always prefer Strategist best candidate over chain/settlement default.
+                                const strategistSym = (strategistSymRaw && !placeholderSyms.has(strategistSymRaw) && !isStableTradeSym(strategistSymRaw))
+                                  ? strategistSymRaw
+                                  : "";
+                                // Prefer real watchlist candidate; never show USDC as the asset being "bought".
                                 const sym = hasOpenPosition
-                                  ? (rawPosSym && !placeholderSyms.has(rawPosSym) ? rawPosSym : (strategistSym || "ASSET"))
+                                  ? (rawPosSym && !placeholderSyms.has(rawPosSym) && !isStableTradeSym(rawPosSym) ? rawPosSym : (strategistSym || "ASSET"))
                                   : (strategistSym || "SCANNING");
                                 const routeTitle = hasOpenPosition
                                   ? `${baseAsset} → ${sym} → ${baseAsset}`

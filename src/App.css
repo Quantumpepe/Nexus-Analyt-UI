@@ -2543,3 +2543,31 @@ body::before {
   min-width: 0 !important;
 }
 /* === END live vault overflow fix === */
+
+
+/* =========================================================
+   Live Core Vault — compact width when NKR panel is expanded
+   ========================================================= */
+@media (min-width: 981px){
+  .dashboardGrid.hasFocus .section-grid.panelActive .liveCoreVaultBlock{
+    max-width: 760px !important;
+    width: 100% !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.panelActive .liveCoreVaultControls{
+    max-width: 560px !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.panelActive .liveCoreVaultSelects{
+    grid-template-columns: repeat(2, minmax(0, 240px)) !important;
+    justify-content: start !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.panelActive .liveCoreVaultMetrics{
+    grid-template-columns: repeat(3, minmax(0, 160px)) !important;
+    justify-content: start !important;
+    max-width: 520px !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.panelActive .liveCoreVaultAssets{
+    max-width: 560px !important;
+  }
+  /* overview (not focused) keeps full card width — already fits */
+}
+/* === END live vault expanded compact === */

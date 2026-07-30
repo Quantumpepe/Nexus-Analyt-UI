@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD324-NKR-RAIL-SUMMARY";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD325-NKR-RAIL-BUTTONS";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -21591,7 +21591,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   gap: 8,
                   flex: "1 1 auto",
                   maxWidth: 760,
-                  minWidth: 420,
+                  minWidth: 0,
                   padding: 4,
                   borderRadius: 14,
                   background: "rgba(255,255,255,.04)",
@@ -26266,7 +26266,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           /* section-grid (NKR / Grid / Trading): clean minimize like other rail tiles */
           .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridModeSwitcher{
-            display: none !important;
+            display: grid !important;
+            grid-template-columns: 1fr !important;
+            gap: 4px !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            width: 100% !important;
+          }
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridModeSwitcher button{
+            height: 28px !important;
+            font-size: 10px !important;
+            font-weight: 900 !important;
           }
           .dashboardGrid.hasFocus .section-grid:not(.panelActive) .cardHead{
             flex-wrap: nowrap !important;
@@ -26669,12 +26679,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
    ========================================================= */
 @media (min-width: 981px){
   .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridModeSwitcher{
-    display: none !important;
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 4px !important;
     min-width: 0 !important;
-    max-width: 0 !important;
-    height: 0 !important;
-    overflow: hidden !important;
-    visibility: hidden !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    margin-top: 6px !important;
+    padding: 3px !important;
+    visibility: visible !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .cardHead{
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridModeSwitcher button{
+    height: 28px !important;
+    min-height: 28px !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    padding: 2px 6px !important;
+    border-radius: 9px !important;
   }
   .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) > .panelScroll,
   .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .panelScroll{

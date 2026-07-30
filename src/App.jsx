@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD334-MULTI-START-ALL-CHAINS";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD336-BNB-POL-START-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -21883,12 +21883,42 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     : Number(account?.allocatedGrid || 0);
                 const systemLabel = modeKey === "rotation" ? "NKR" : modeKey === "trading" ? "Trader" : "Grid";
                 const chainConnected = !!selectedVaultState?.connected;
+                const isStableSymbol = (symbol) => ["USDC", "USDT", "USD", "DAI"].includes(String(symbol || "").toUpperCase());
+                const resolveVaultUsdPrice = (symbol) => {
+                  const sym = String(symbol || "").toUpperCase();
+                  if (isStableSymbol(sym)) return 1;
+                  // Map wraps to display symbols for price lookup
+                  const lookup = { WETH: "ETH", WBNB: "BNB", WMATIC: "POL", MATIC: "POL", CBBTC: "BTC", WBTC: "BTC", BTCB: "BTC" }[sym] || sym;
+                  try {
+                    if (typeof getNexusOrderPriceUsd === "function") {
+                      const p = Number(getNexusOrderPriceUsd(lookup) || getNexusOrderPriceUsd(sym) || 0);
+                      if (p > 0) return p;
+                    }
+                  } catch {}
+                  const rows = Array.isArray(watchRows) ? watchRows : [];
+                  const row = rows.find((r) => String(r?.symbol || r?.sym || "").toUpperCase() === lookup)
+                    || rows.find((r) => String(r?.symbol || r?.sym || "").toUpperCase() === sym);
+                  const px = Number(row?.price ?? row?.priceUsd ?? row?.usd ?? row?.last ?? 0);
+                  return px > 0 ? px : 0;
+                };
                 const formatVaultAmount = (value, symbol) => {
                   const n = Number(value || 0);
-                  const nativeLike = ["ETH", "BNB", "POL"].includes(String(symbol || "").toUpperCase());
+                  const nativeLike = !isStableSymbol(symbol);
                   return nativeLike
                     ? n.toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 8 })
                     : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+                };
+                const formatVaultUsdHint = (value, symbol) => {
+                  if (isStableSymbol(symbol)) return "";
+                  const px = resolveVaultUsdPrice(symbol);
+                  if (!(px > 0)) return "";
+                  const usd = Number(value || 0) * px;
+                  return `≈ $${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                };
+                const formatVaultPrimary = (value, symbol) => {
+                  const amt = `${formatVaultAmount(value, symbol)} ${symbol}`;
+                  const usd = formatVaultUsdHint(value, symbol);
+                  return usd ? `${amt} · ${usd}` : amt;
                 };
                 return (
                   <div className="liveCoreVaultBlock" style={{ display: modeKey === "normal" ? "none" : "block", marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)", minWidth: 0, maxWidth: "100%", overflow: "hidden", boxSizing: "border-box" }}>
@@ -21925,7 +21955,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             {tokenEntries.length ? tokenEntries.map(([symbol, state]) => {
                               const a = state?.account || {};
                               const amount = Number(a?.baseCapital || 0) + Number(a?.totalSecuredProfit || 0);
-                              return <option key={symbol} value={symbol}>{symbol} · {formatVaultAmount(amount, symbol)}</option>;
+                              const usd = formatVaultUsdHint(amount, symbol);
+                              return <option key={symbol} value={symbol}>{symbol} · {formatVaultAmount(amount, symbol)}{usd ? ` (${usd})` : ""}</option>;
                             }) : <option value="USDC">No funded asset</option>}
                           </select>
                         </label>
@@ -21939,7 +21970,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         ].map(([label, value]) => (
                           <div key={label} style={{ padding: "8px 8px", borderRadius: 11, border: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.14)", minWidth: 0, overflow: "hidden" }}>
                             <div className="muted tiny" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
-                            <div className="mono" style={{ marginTop: 4, fontWeight: 950, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{chainConnected ? `${formatVaultAmount(value, selectedSymbol)} ${selectedSymbol}` : "—"}</div>
+                            <div className="mono" style={{ marginTop: 4, fontWeight: 950, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={chainConnected ? formatVaultPrimary(value, selectedSymbol) : ""}>
+                              {chainConnected ? `${formatVaultAmount(value, selectedSymbol)} ${selectedSymbol}` : "—"}
+                            </div>
+                            {chainConnected && formatVaultUsdHint(value, selectedSymbol) ? (
+                              <div className="muted tiny mono" style={{ marginTop: 2, color: "#8de8ff", fontWeight: 800 }}>
+                                {formatVaultUsdHint(value, selectedSymbol)}
+                              </div>
+                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -21958,6 +21996,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               ? Number(a?.allocatedTrader || 0)
                               : Number(a?.allocatedGrid || 0);
                           const active = symbol === selectedSymbol;
+                          const totalUsd = formatVaultUsdHint(assetTotal, symbol);
                           return (
                             <button
                               key={`vault-all-${modeKey}-${symbol}`}
@@ -21977,8 +22016,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <strong>{symbol}</strong>
                                 <span className="mono" style={{ fontWeight: 950 }}>{formatVaultAmount(assetTotal, symbol)}</span>
                               </div>
-                              <div className="muted tiny" style={{ marginTop: 5, display: "flex", justifyContent: "space-between", gap: 8 }}>
-                                <span>Free {formatVaultAmount(assetFree, symbol)}</span>
+                              {totalUsd ? (
+                                <div className="muted tiny mono" style={{ marginTop: 2, color: "#8de8ff", fontWeight: 800 }}>{totalUsd}</div>
+                              ) : null}
+                              <div className="muted tiny" style={{ marginTop: 5, display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                <span>Free {formatVaultAmount(assetFree, symbol)}{formatVaultUsdHint(assetFree, symbol) ? ` · ${formatVaultUsdHint(assetFree, symbol)}` : ""}</span>
                                 <span>{systemLabel} {formatVaultAmount(assetReserved, symbol)}</span>
                               </div>
                             </button>
@@ -23311,6 +23353,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         Privy automation: {privyAutomationError}
                       </div>
                     )}
+                    {rotationBackendMsg ? (
+                      <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(245,193,108,.35)", background: "rgba(245,193,108,.08)", color: "#f5c16c", fontSize: 12, wordBreak: "break-word" }}>
+                        {rotationBackendMsg}
+                      </div>
+                    ) : null}
                     {(() => {
                       const activeSession = (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows[0] : null) ||
                         (Array.isArray(rotationSessions)

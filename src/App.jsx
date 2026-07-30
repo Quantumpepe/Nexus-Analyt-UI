@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD319-PAUSE-STOP-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD320-USER-STATUS-MOVES";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8459,6 +8459,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [nkrProfitMode, setNkrProfitMode] = useState("REINVEST");
   const [nkrPeriodDays, setNkrPeriodDays] = useState("10");
   const [nkrControlState, setNkrControlState] = useState("WAITING");
+  // Soft clock so Strategist "Crypto Moves" rotates every ~10s without a full reload
+  const [strategistMovesTick, setStrategistMovesTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setStrategistMovesTick((n) => n + 1), 10000);
+    return () => clearInterval(id);
+  }, []);
   // User-facing Strategist status (English). Regular users have no System Info access.
   const [nkrStrategistStatus, setNkrStrategistStatus] = useState(null);
   const [rotationBudgetRelease, setRotationBudgetRelease] = useState("");
@@ -25441,7 +25447,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               const pulseValue = String(pulse?.value || "Market pulse").trim();
               const pulseDetail = String(pulse?.detail || "").slice(0, 90);
 
-              // Crypto "news" from real whale signals + strongest 24h movers in watchlist
+              // Crypto moves: rotate through watchlist movers + whale signals (never sticky same 3)
               const whaleBits = [];
               const moverBits = [];
               (Array.isArray(watchRows) ? watchRows : []).forEach((row) => {
@@ -25460,16 +25466,47 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 const ch = Number(row?.change24h ?? row?.chg_24h ?? row?.usd_24h_change ?? row?.change_24h);
                 if (Number.isFinite(ch)) moverBits.push({ sym, ch });
               });
-              moverBits.sort((a, b) => Math.abs(b.ch) - Math.abs(a.ch));
-              const newsLines = [
-                ...whaleBits.slice(0, 2).map((w) => ({ text: w.text, color: w.color })),
-                ...moverBits.slice(0, 3).map((m) => ({
+              const gainers = [...moverBits].filter((m) => m.ch > 0).sort((a, b) => b.ch - a.ch);
+              const losers = [...moverBits].filter((m) => m.ch < 0).sort((a, b) => a.ch - b.ch);
+              // Interleave: top gainer, top loser, next gainer, … then remaining by |change|
+              const interleaved = [];
+              const gq = [...gainers];
+              const lq = [...losers];
+              while (gq.length || lq.length) {
+                if (gq.length) interleaved.push(gq.shift());
+                if (lq.length) interleaved.push(lq.shift());
+              }
+              const pool = [
+                ...whaleBits.map((w) => ({ text: w.text, color: w.color, key: `w-${w.sym}` })),
+                ...interleaved.map((m) => ({
                   text: `${m.sym} ${m.ch >= 0 ? "+" : ""}${m.ch.toFixed(1)}% 24h`,
                   color: m.ch >= 0 ? "#22c55e" : "#ef4444",
+                  key: `m-${m.sym}`,
                 })),
-              ].slice(0, 3);
+              ];
+              // Rotate every ~10s so the card is not stuck on the same three names
+              const rot = pool.length ? (Number(strategistMovesTick) || 0) % pool.length : 0;
+              const newsLines = pool.length
+                ? [0, 1, 2].map((i) => pool[(rot + i) % pool.length]).filter(Boolean)
+                : [];
+              void strategistMovesTick; // ensure tick is read for re-render
 
-              // NKR card fills from live sessions
+              // User-facing status only — never show backend ERROR / FAILED labels
+              const toUserEngineStatus = (raw, controlFallback = "WAITING") => {
+                const s = String(raw || controlFallback || "WAITING").toUpperCase();
+                if (["ERROR", "FAILED", "FAIL", "REJECTED"].includes(s)) return "Busy";
+                if (["STOPPING", "FINALIZING", "CLOSING", "EXITING"].includes(s)) return "Stopping";
+                if (s === "PAUSED" || s === "USER_PAUSED") return "Paused";
+                if (["ACTIVE", "RUNNING", "OPEN", "ENTERING"].includes(s)) return "Running";
+                if (["STOPPED", "FINALIZED", "CLOSED", "COMPLETE", "COMPLETED", "CANCELLED", "EXPIRED"].includes(s)) return "Idle";
+                if (s === "WAITING" || s === "IDLE") return "Waiting";
+                if (s === "HOLD") return "Holding";
+                // Unknown technical codes → neutral label
+                if (s.includes("ERROR") || s.includes("FAIL")) return "Busy";
+                return "Live";
+              };
+
+              // NKR card fills from live sessions (ERROR rows still count as live until cleared, but never labeled ERROR)
               const nkrSessions = (Array.isArray(rotationSessions) ? rotationSessions : []).filter(
                 (s) => !["STOPPED", "FINALIZED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED"].includes(String(s?.status || "").toUpperCase())
               );
@@ -25477,16 +25514,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
               const nkrPrimary = nkrSessions[0] || null;
               const nkrAsset = String(nkrPrimary?.asset || nkrPrimary?.settlementAsset || nkrPrimary?.meta?.active_asset || nkrStrategistStatus?.bestCandidate || nkrStrategistStatus?.best_candidate || "").toUpperCase();
               const nkrBudget = Number(nkrPrimary?.budgetUsd || nkrPrimary?.budgetAmount || nkrPrimary?.reservedUsd || 0);
-              const nkrStatus = String(nkrPrimary?.status || nkrCtrl || "WAITING").toUpperCase();
+              const nkrStatusRaw = String(nkrPrimary?.status || nkrCtrl || "WAITING").toUpperCase();
+              const nkrStatus = toUserEngineStatus(nkrStatusRaw, nkrCtrl);
               const nkrLive = nkrSessions.length > 0;
+              const nkrIsStopping = ["STOPPING", "FINALIZING", "CLOSING", "EXITING", "ERROR", "FAILED"].includes(nkrStatusRaw) || nkrStatus === "Stopping" || nkrStatus === "Busy";
 
               // Trading card fills from open sessions
               const traderSessions = Array.isArray(openTradingSessions) ? openTradingSessions : [];
               const traderLive = traderSessions.length > 0;
               const traderPrimary = traderSessions[0] || null;
               const traderAsset = String(traderPrimary?.asset || traderPrimary?.settlementAsset || "").toUpperCase();
-              const traderStatus = String(traderPrimary?.status || "IDLE").toUpperCase();
+              const traderStatusRaw = String(traderPrimary?.status || tradingSessionStatus || "IDLE").toUpperCase();
+              const traderStatus = toUserEngineStatus(traderStatusRaw, "IDLE");
               const traderBudget = Number(traderPrimary?.budgetUsd || traderPrimary?.budgetAmount || 0);
+              const traderIsStopping = ["STOPPING", "FINALIZING", "CLOSING", "EXITING", "ERROR", "FAILED"].includes(traderStatusRaw) || traderStatus === "Stopping" || traderStatus === "Busy";
 
               const cardBase = {
                 borderRadius: 12,
@@ -25546,42 +25587,68 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     )}
                   </div>
 
-                  {/* NKR — auto-fills when a session is live */}
+                  {/* NKR — user-facing labels only (never ERROR) */}
                   <div style={{
                     ...cardBase,
-                    border: nkrLive ? "1px solid rgba(34,197,94,.40)" : "1px solid rgba(255,255,255,.10)",
-                    background: nkrLive
-                      ? "linear-gradient(180deg, rgba(34,197,94,.12), rgba(0,0,0,.22))"
-                      : "linear-gradient(180deg, rgba(255,255,255,.04), rgba(0,0,0,.18))",
+                    border: nkrIsStopping
+                      ? "1px solid rgba(255,209,102,.40)"
+                      : nkrLive
+                        ? "1px solid rgba(34,197,94,.40)"
+                        : "1px solid rgba(255,255,255,.10)",
+                    background: nkrIsStopping
+                      ? "linear-gradient(180deg, rgba(255,209,102,.10), rgba(0,0,0,.22))"
+                      : nkrLive
+                        ? "linear-gradient(180deg, rgba(34,197,94,.12), rgba(0,0,0,.22))"
+                        : "linear-gradient(180deg, rgba(255,255,255,.04), rgba(0,0,0,.18))",
                   }}>
-                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: nkrLive ? "#86efac" : undefined }}>NKR</div>
+                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: nkrIsStopping ? "#ffd166" : nkrLive ? "#86efac" : undefined }}>NKR</div>
                     {nkrLive ? (
                       <>
-                        <div style={{ fontWeight: 850, fontSize: 13, color: "#86efac" }}>{nkrStatus}{nkrSessions.length > 1 ? ` · ${nkrSessions.length} sessions` : ""}</div>
-                        <div style={{ fontSize: 12, color: "#dfffee" }}>{nkrAsset ? `Focus ${nkrAsset}` : "Session live"}{nkrBudget > 0 ? ` · $${Math.round(nkrBudget)}` : ""}</div>
+                        <div style={{ fontWeight: 850, fontSize: 13, color: nkrIsStopping ? "#ffd166" : "#86efac" }}>
+                          {nkrStatus}{nkrSessions.length > 1 ? ` · ${nkrSessions.length} sessions` : ""}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#dfffee" }}>
+                          {nkrIsStopping
+                            ? "Finishing session…"
+                            : (nkrAsset ? `Focus ${nkrAsset}` : "Session live")}
+                          {!nkrIsStopping && nkrBudget > 0 ? ` · $${Math.round(nkrBudget)}` : ""}
+                        </div>
                         <div className="muted tiny">{String(nkrPrimary?.chain || nkrPrimary?.meta?.chain || "").toUpperCase() || "Multi-chain ready"}</div>
                       </>
                     ) : (
                       <>
-                        <div style={{ fontWeight: 850, fontSize: 13, color: "#dfffee" }}>{nkrCtrl || "WAITING"}</div>
+                        <div style={{ fontWeight: 850, fontSize: 13, color: "#dfffee" }}>{toUserEngineStatus(nkrCtrl, "Waiting")}</div>
                         <div className="muted tiny">No live NKR session — starts filling when you run NKR.</div>
                       </>
                     )}
                   </div>
 
-                  {/* TRADING — auto-fills when a session is live */}
+                  {/* TRADING — same user-facing status rules as NKR */}
                   <div style={{
                     ...cardBase,
-                    border: traderLive ? "1px solid rgba(139,220,255,.40)" : "1px solid rgba(255,255,255,.10)",
-                    background: traderLive
-                      ? "linear-gradient(180deg, rgba(139,220,255,.12), rgba(0,0,0,.22))"
-                      : "linear-gradient(180deg, rgba(255,255,255,.04), rgba(0,0,0,.18))",
+                    border: traderIsStopping
+                      ? "1px solid rgba(255,209,102,.40)"
+                      : traderLive
+                        ? "1px solid rgba(139,220,255,.40)"
+                        : "1px solid rgba(255,255,255,.10)",
+                    background: traderIsStopping
+                      ? "linear-gradient(180deg, rgba(255,209,102,.10), rgba(0,0,0,.22))"
+                      : traderLive
+                        ? "linear-gradient(180deg, rgba(139,220,255,.12), rgba(0,0,0,.22))"
+                        : "linear-gradient(180deg, rgba(255,255,255,.04), rgba(0,0,0,.18))",
                   }}>
-                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: traderLive ? "#8bdcff" : undefined }}>Trading</div>
+                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: traderIsStopping ? "#ffd166" : traderLive ? "#8bdcff" : undefined }}>Trading</div>
                     {traderLive ? (
                       <>
-                        <div style={{ fontWeight: 850, fontSize: 13, color: "#8bdcff" }}>{traderStatus} · {traderSessions.length} open</div>
-                        <div style={{ fontSize: 12, color: "#dfffee" }}>{traderAsset || "Session"}{traderBudget > 0 ? ` · $${Math.round(traderBudget)}` : ""}</div>
+                        <div style={{ fontWeight: 850, fontSize: 13, color: traderIsStopping ? "#ffd166" : "#8bdcff" }}>
+                          {traderStatus}{traderSessions.length > 1 ? ` · ${traderSessions.length} open` : ""}
+                        </div>
+                        <div style={{ fontSize: 12, color: "#dfffee" }}>
+                          {traderIsStopping
+                            ? "Finishing session…"
+                            : (traderAsset || "Session")}
+                          {!traderIsStopping && traderBudget > 0 ? ` · $${Math.round(traderBudget)}` : ""}
+                        </div>
                         <div className="muted tiny">{String(traderPrimary?.chain || "").toUpperCase() || "Live trader runtime"}</div>
                       </>
                     ) : (

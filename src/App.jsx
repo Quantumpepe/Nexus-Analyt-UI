@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD297-NKR-RESTART-BUTTON-STATE-FIX-V2";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD298-NKR-STRATEGIST-SIGNALS-TRADER-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -9549,7 +9549,8 @@ useEffect(() => {
       if (restoredSessions.length) {
         setTradingSessions(() => restoredSessions.filter((sess) => {
           const st = String(sess?.status || "").toUpperCase();
-          return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(st);
+          // FINALIZED must never stay in the active Trader list after on-chain close.
+          return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "FINALIZED", "COMPLETED", "COMPLETE", "ARCHIVED"].includes(st);
         }));
         setActiveTradingSessionId((prev) => {
           const current = String(prev || "").trim();
@@ -9581,7 +9582,9 @@ useEffect(() => {
     const sessions = [...localSessions, ...onchainFallback];
     const active = sessions.filter((sess) => {
       const st = String(sess?.status || "").toUpperCase();
-      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(st);
+      // Keep aligned with CoreVault terminal states so FINALIZED sessions disappear
+      // from Active Trading Session cards and do not block a fresh start.
+      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "FINALIZED", "COMPLETED", "COMPLETE"].includes(st);
     });
 
     // IMPORTANT: multiple independent budgets/sessions per chain/asset are allowed.
@@ -9606,7 +9609,7 @@ useEffect(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
     return sessions.filter((sess) => {
       const st = String(sess?.status || "").toUpperCase();
-      return ["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED"].includes(st);
+      return ["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "FINALIZED", "COMPLETED", "COMPLETE", "ARCHIVED"].includes(st);
     });
   }, [tradingSessions]);
 
@@ -12359,13 +12362,31 @@ const [aiLoading, setAiLoading] = useState(false);
       // collected profit wallet-bound in SQLite. UI keeps only display/polling responsibility.
       if (sessions.length) {
         try {
+          // Enrich market rows with systemScore / volume / on-chain delta so the
+          // Strategist can use them. Missing fields stay absent → zero impact.
+          const strategistMarketRows = (Array.isArray(watchRows) ? watchRows : []).map((row) => {
+            if (!row || typeof row !== "object") return row;
+            const next = { ...row };
+            const sys = Number(typeof watchSystemScore === "function" ? watchSystemScore(row) : (row.systemScore || row.score));
+            if (Number.isFinite(sys) && sys > 0) {
+              next.systemScore = sys;
+              if (!(Number(next.score) > 0)) next.score = sys;
+            }
+            const vol = Number(row.volume24h ?? row.total_volume ?? row.volume_24h ?? row.quoteVolume ?? row.volume);
+            if (Number.isFinite(vol) && vol > 0) next.volume24h = vol;
+            const rvol = Number(row.rvol ?? row.relativeVolume ?? row.relative_volume);
+            if (Number.isFinite(rvol) && rvol > 0) next.rvol = rvol;
+            const ocDelta = Number(row.onchain_delta ?? row.score_delta ?? row?.onchain?.score_delta);
+            if (Number.isFinite(ocDelta)) next.strategist_onchain_delta = Math.max(-5, Math.min(5, ocDelta));
+            return next;
+          });
           const tick = await api(`/api/nkr/executor-tick`, {
             method: "POST",
             token,
             wallet,
             body: {
               sessions,
-              marketRows: Array.isArray(watchRows) ? watchRows : [],
+              marketRows: strategistMarketRows,
               settings: {
                 nkrCapitalMode,
                 nkrProfitMode,

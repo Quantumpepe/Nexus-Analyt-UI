@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD317-MULTI-DEVICE-SESSION-SYNC";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD319-PAUSE-STOP-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12409,8 +12409,24 @@ const [aiLoading, setAiLoading] = useState(false);
       if (targetSid) setNkrExitUiState((p) => ({ ...p, [targetSid]: "PENDING" }));
     } else if (actionU === "PAUSE") {
       setNkrControlState("PAUSED");
+      setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((s) => {
+        if (!s || typeof s !== "object") return s;
+        const sid = String(s?.onchainSessionId ?? s?.meta?.onchain_session_id ?? s?.id ?? s?.session_id ?? "");
+        if (targetSid && sid !== targetSid && String(s?.id || "") !== targetSid && String(s?.session_id || "") !== targetSid && !String(s?.id || "").endsWith(`-${targetSid}`) && sid.split("-").pop() !== targetSid) return s;
+        const meta = { ...(s.meta && typeof s.meta === "object" ? s.meta : {}), lifecycle_state: "PAUSED", position_state: String(s?.positionState || s?.meta?.position_state || "WAITING"), nkr_user_control: "PAUSED_BY_USER" };
+        return { ...s, status: "PAUSED", lifecycleState: "PAUSED", updatedAt: now, meta, pausedAt: now };
+      }));
     } else if (actionU === "RESUME") {
       setNkrControlState("RUNNING");
+      setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((s) => {
+        if (!s || typeof s !== "object") return s;
+        const sid = String(s?.onchainSessionId ?? s?.meta?.onchain_session_id ?? s?.id ?? s?.session_id ?? "");
+        const st = String(s?.status || "").toUpperCase();
+        if (st !== "PAUSED") return s;
+        if (targetSid && sid !== targetSid && String(s?.id || "") !== targetSid && String(s?.session_id || "") !== targetSid && !String(s?.id || "").endsWith(`-${targetSid}`) && sid.split("-").pop() !== targetSid) return s;
+        const meta = { ...(s.meta && typeof s.meta === "object" ? s.meta : {}), lifecycle_state: "ACTIVE", nkr_user_control: "RESUMED_BY_USER" };
+        return { ...s, status: "ACTIVE", lifecycleState: "ACTIVE", updatedAt: now, meta, resumedAt: now };
+      }));
     }
     try {
       const resp = await api("/api/nkr/control", { method: "POST", token, wallet, body: { action: actionU, sessionId: opts.sessionId || "" } });
@@ -17814,6 +17830,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
         .marketDeskChartSvg.warning .marketDeskDot,
         .marketDeskChartSvg.warning .marketDeskBar { stroke: #ffd166; fill: #ffd166; }
         .marketDeskChartSvg.warning .marketDeskArea { fill: rgba(255,209,102,0.12); }
+        .marketDeskChartSvg.positive .marketDeskLine,
+        .marketDeskChartSvg.positive .marketDeskDot,
+        .marketDeskChartSvg.positive .marketDeskBar,
+        .marketDeskChartSvg.bull .marketDeskLine,
+        .marketDeskChartSvg.bull .marketDeskDot,
+        .marketDeskChartSvg.bull .marketDeskBar,
+        .marketDeskChartSvg.green .marketDeskLine,
+        .marketDeskChartSvg.green .marketDeskDot,
+        .marketDeskChartSvg.green .marketDeskBar { stroke: #22c55e; fill: #22c55e; }
+        .marketDeskChartSvg.positive .marketDeskArea,
+        .marketDeskChartSvg.bull .marketDeskArea,
+        .marketDeskChartSvg.green .marketDeskArea { fill: rgba(34,197,94,0.14); }
         .marketDeskFadeKey {
           animation: marketDeskSoftIn 420ms ease both;
         }
@@ -25398,43 +25426,171 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
             ) : null}
 
-            {/* Top context strip — fills empty space with live Nexus context */}
+            {/* Top context strip: Pulse chart · Crypto moves/news · live NKR · live Trading */}
             {(() => {
-              const watchCount = Array.isArray(watchRows) ? watchRows.length : 0;
-              const nkrLive = Array.isArray(rotationSessions)
-                ? rotationSessions.filter((s) => !["STOPPED", "FINALIZED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED"].includes(String(s?.status || "").toUpperCase())).length
-                : 0;
-              const traderLive = Array.isArray(openTradingSessions) ? openTradingSessions.length : 0;
-              const pulse = Array.isArray(marketBannerItems) && marketBannerItems[0] ? marketBannerItems[0] : null;
-              const pulseValue = String(pulse?.value || "").trim();
-              const ctrl = String(nkrControlState || "WAITING").toUpperCase();
+              const pulse = activeMarketBanner || (Array.isArray(marketBannerItems) && marketBannerItems[0]) || null;
+              const pulseTone = String(pulse?.tone || "neutral").toLowerCase();
+              const pulseBorder = pulseTone === "bull" || pulseTone === "green" || pulseTone === "positive"
+                ? "rgba(34,197,94,.45)"
+                : pulseTone === "bear" || pulseTone === "red" || pulseTone === "negative"
+                  ? "rgba(239,68,68,.45)"
+                  : pulseTone === "warn" || pulseTone === "amber"
+                    ? "rgba(255,209,102,.40)"
+                    : "rgba(139,220,255,.28)";
+              const pulseColor = pulseBorder.replace(",.45)", ",1)").replace(",.40)", ",1)").replace(",.28)", ",1)");
+              const pulseValue = String(pulse?.value || "Market pulse").trim();
+              const pulseDetail = String(pulse?.detail || "").slice(0, 90);
+
+              // Crypto "news" from real whale signals + strongest 24h movers in watchlist
+              const whaleBits = [];
+              const moverBits = [];
+              (Array.isArray(watchRows) ? watchRows : []).forEach((row) => {
+                const sym = String(row?.symbol || row?.sym || "").toUpperCase();
+                if (!sym) return;
+                const oc = onchainBySymbol?.[sym] || row?.onchain || null;
+                const whale = getWhaleNewsSignal(oc);
+                if (whale?.type === "buy" || whale?.type === "sell") {
+                  whaleBits.push({
+                    sym,
+                    type: whale.type,
+                    text: whale.type === "buy" ? `${sym} whale buy` : `${sym} whale sell`,
+                    color: whale.color || (whale.type === "buy" ? "#22c55e" : "#ef4444"),
+                  });
+                }
+                const ch = Number(row?.change24h ?? row?.chg_24h ?? row?.usd_24h_change ?? row?.change_24h);
+                if (Number.isFinite(ch)) moverBits.push({ sym, ch });
+              });
+              moverBits.sort((a, b) => Math.abs(b.ch) - Math.abs(a.ch));
+              const newsLines = [
+                ...whaleBits.slice(0, 2).map((w) => ({ text: w.text, color: w.color })),
+                ...moverBits.slice(0, 3).map((m) => ({
+                  text: `${m.sym} ${m.ch >= 0 ? "+" : ""}${m.ch.toFixed(1)}% 24h`,
+                  color: m.ch >= 0 ? "#22c55e" : "#ef4444",
+                })),
+              ].slice(0, 3);
+
+              // NKR card fills from live sessions
+              const nkrSessions = (Array.isArray(rotationSessions) ? rotationSessions : []).filter(
+                (s) => !["STOPPED", "FINALIZED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED"].includes(String(s?.status || "").toUpperCase())
+              );
+              const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
+              const nkrPrimary = nkrSessions[0] || null;
+              const nkrAsset = String(nkrPrimary?.asset || nkrPrimary?.settlementAsset || nkrPrimary?.meta?.active_asset || nkrStrategistStatus?.bestCandidate || nkrStrategistStatus?.best_candidate || "").toUpperCase();
+              const nkrBudget = Number(nkrPrimary?.budgetUsd || nkrPrimary?.budgetAmount || nkrPrimary?.reservedUsd || 0);
+              const nkrStatus = String(nkrPrimary?.status || nkrCtrl || "WAITING").toUpperCase();
+              const nkrLive = nkrSessions.length > 0;
+
+              // Trading card fills from open sessions
+              const traderSessions = Array.isArray(openTradingSessions) ? openTradingSessions : [];
+              const traderLive = traderSessions.length > 0;
+              const traderPrimary = traderSessions[0] || null;
+              const traderAsset = String(traderPrimary?.asset || traderPrimary?.settlementAsset || "").toUpperCase();
+              const traderStatus = String(traderPrimary?.status || "IDLE").toUpperCase();
+              const traderBudget = Number(traderPrimary?.budgetUsd || traderPrimary?.budgetAmount || 0);
+
+              const cardBase = {
+                borderRadius: 12,
+                padding: "8px 10px",
+                minHeight: 88,
+                display: "grid",
+                gap: 4,
+                overflow: "hidden",
+              };
+
               return (
                 <div style={{
                   display: "grid",
                   gridTemplateColumns: isCompactMobile ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))",
                   gap: 8,
                 }}>
-                  {[
-                    { k: "Pulse", v: pulseValue || "Market pulse", s: String(pulse?.detail || "Live banner context").slice(0, 72) },
-                    { k: "Watchlist", v: `${watchCount} assets`, s: "Visible market scope for answers" },
-                    { k: "NKR", v: nkrLive > 0 ? `${nkrLive} live · ${ctrl}` : ctrl || "WAITING", s: nkrLive > 0 ? "Active rotation session" : "No live NKR session" },
-                    { k: "Trading", v: traderLive > 0 ? `${traderLive} open` : "Idle", s: traderLive > 0 ? "Open trader sessions" : "No open trader session" },
-                  ].map((card) => (
-                    <div
-                      key={card.k}
-                      style={{
-                        border: "1px solid rgba(255,255,255,.10)",
-                        background: "linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.18))",
-                        borderRadius: 12,
-                        padding: "8px 10px",
-                        minHeight: 58,
-                      }}
-                    >
-                      <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase" }}>{card.k}</div>
-                      <div style={{ fontWeight: 850, fontSize: 13, marginTop: 2, color: "#dfffee" }}>{card.v}</div>
-                      <div className="muted tiny" style={{ marginTop: 2, lineHeight: 1.25 }}>{card.s}</div>
+                  {/* PULSE — colored + mini chart */}
+                  <div style={{
+                    ...cardBase,
+                    border: `1px solid ${pulseBorder}`,
+                    background: pulseTone === "bull" || pulseTone === "green"
+                      ? "linear-gradient(180deg, rgba(34,197,94,.12), rgba(0,0,0,.22))"
+                      : pulseTone === "bear" || pulseTone === "red"
+                        ? "linear-gradient(180deg, rgba(239,68,68,.12), rgba(0,0,0,.22))"
+                        : "linear-gradient(180deg, rgba(139,220,255,.10), rgba(0,0,0,.22))",
+                  }}>
+                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: pulseColor }}>Pulse</div>
+                    <div style={{ fontWeight: 850, fontSize: 12, color: "#dfffee", lineHeight: 1.25 }}>{pulseValue}</div>
+                    <div style={{ height: 36, marginTop: 2, opacity: 0.95 }}>
+                      {typeof renderMarketDeskChart === "function" ? (
+                        <div style={{ transform: "scale(0.55)", transformOrigin: "left top", width: 210, height: 76, marginBottom: -40 }}>
+                          {renderMarketDeskChart(pulse)}
+                        </div>
+                      ) : null}
                     </div>
-                  ))}
+                    {pulseDetail ? <div className="muted tiny" style={{ lineHeight: 1.2 }}>{pulseDetail}</div> : null}
+                  </div>
+
+                  {/* NEWS / MOVES — crypto activity instead of plain watchlist count */}
+                  <div style={{
+                    ...cardBase,
+                    border: "1px solid rgba(255,209,102,.28)",
+                    background: "linear-gradient(180deg, rgba(255,209,102,.08), rgba(0,0,0,.22))",
+                  }}>
+                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: "#ffd166" }}>Crypto Moves</div>
+                    {newsLines.length ? (
+                      newsLines.map((line, i) => (
+                        <div key={`${line.text}-${i}`} style={{ fontSize: 12, fontWeight: 700, color: line.color, lineHeight: 1.3 }}>
+                          {line.text}
+                        </div>
+                      ))
+                    ) : (
+                      <>
+                        <div style={{ fontWeight: 850, fontSize: 12, color: "#dfffee" }}>No fresh whale NEWS</div>
+                        <div className="muted tiny" style={{ lineHeight: 1.25 }}>Watchlist movers appear here when 24h moves or whale signals are live.</div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* NKR — auto-fills when a session is live */}
+                  <div style={{
+                    ...cardBase,
+                    border: nkrLive ? "1px solid rgba(34,197,94,.40)" : "1px solid rgba(255,255,255,.10)",
+                    background: nkrLive
+                      ? "linear-gradient(180deg, rgba(34,197,94,.12), rgba(0,0,0,.22))"
+                      : "linear-gradient(180deg, rgba(255,255,255,.04), rgba(0,0,0,.18))",
+                  }}>
+                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: nkrLive ? "#86efac" : undefined }}>NKR</div>
+                    {nkrLive ? (
+                      <>
+                        <div style={{ fontWeight: 850, fontSize: 13, color: "#86efac" }}>{nkrStatus}{nkrSessions.length > 1 ? ` · ${nkrSessions.length} sessions` : ""}</div>
+                        <div style={{ fontSize: 12, color: "#dfffee" }}>{nkrAsset ? `Focus ${nkrAsset}` : "Session live"}{nkrBudget > 0 ? ` · $${Math.round(nkrBudget)}` : ""}</div>
+                        <div className="muted tiny">{String(nkrPrimary?.chain || nkrPrimary?.meta?.chain || "").toUpperCase() || "Multi-chain ready"}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontWeight: 850, fontSize: 13, color: "#dfffee" }}>{nkrCtrl || "WAITING"}</div>
+                        <div className="muted tiny">No live NKR session — starts filling when you run NKR.</div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* TRADING — auto-fills when a session is live */}
+                  <div style={{
+                    ...cardBase,
+                    border: traderLive ? "1px solid rgba(139,220,255,.40)" : "1px solid rgba(255,255,255,.10)",
+                    background: traderLive
+                      ? "linear-gradient(180deg, rgba(139,220,255,.12), rgba(0,0,0,.22))"
+                      : "linear-gradient(180deg, rgba(255,255,255,.04), rgba(0,0,0,.18))",
+                  }}>
+                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: traderLive ? "#8bdcff" : undefined }}>Trading</div>
+                    {traderLive ? (
+                      <>
+                        <div style={{ fontWeight: 850, fontSize: 13, color: "#8bdcff" }}>{traderStatus} · {traderSessions.length} open</div>
+                        <div style={{ fontSize: 12, color: "#dfffee" }}>{traderAsset || "Session"}{traderBudget > 0 ? ` · $${Math.round(traderBudget)}` : ""}</div>
+                        <div className="muted tiny">{String(traderPrimary?.chain || "").toUpperCase() || "Live trader runtime"}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontWeight: 850, fontSize: 13, color: "#dfffee" }}>Idle</div>
+                        <div className="muted tiny">No open trader session — fills when Trading is running.</div>
+                      </>
+                    )}
+                  </div>
                 </div>
               );
             })()}

@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD320-USER-STATUS-MOVES";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD321-PULSE-DISTINCT";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -25432,20 +25432,61 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
             ) : null}
 
-            {/* Top context strip: Pulse chart · Crypto moves/news · live NKR · live Trading */}
+            {/* Top context strip: Pulse (non-banner metrics) · Crypto moves · live NKR · live Trading */}
             {(() => {
-              const pulse = activeMarketBanner || (Array.isArray(marketBannerItems) && marketBannerItems[0]) || null;
-              const pulseTone = String(pulse?.tone || "neutral").toLowerCase();
-              const pulseBorder = pulseTone === "bull" || pulseTone === "green" || pulseTone === "positive"
+              // Pulse must NOT mirror the header banner. Use complementary stats:
+              // BTC/ETH dominance, market health score, watchlist breadth, ETH−BTC spread.
+              const ctx = shadowMarketContext && typeof shadowMarketContext === "object" ? shadowMarketContext : {};
+              const health = Number(ctx.market_score ?? ctx.marketScore ?? ctx.market_risk_score);
+              const btcDom = Number(ctx.btc_dominance ?? ctx.btcDominance);
+              const ethDom = Number(ctx.eth_dominance ?? ctx.ethDominance);
+              const avgVol = Number(ctx.avg_abs_volatility ?? ctx.avgAbsVolatility);
+              let watchUp = 0;
+              let watchDown = 0;
+              const watchChs = [];
+              (Array.isArray(watchRows) ? watchRows : []).forEach((row) => {
+                const ch = Number(row?.change24h ?? row?.chg_24h ?? row?.usd_24h_change ?? row?.change_24h);
+                if (!Number.isFinite(ch)) return;
+                watchChs.push(ch);
+                if (ch > 0) watchUp += 1;
+                else if (ch < 0) watchDown += 1;
+              });
+              const btcRow = (Array.isArray(watchRows) ? watchRows : []).find((r) => String(r?.symbol || "").toUpperCase() === "BTC");
+              const ethRow = (Array.isArray(watchRows) ? watchRows : []).find((r) => String(r?.symbol || "").toUpperCase() === "ETH");
+              const btcCh = Number(btcRow?.change24h ?? btcRow?.chg_24h ?? btcRow?.usd_24h_change);
+              const ethCh = Number(ethRow?.change24h ?? ethRow?.chg_24h ?? ethRow?.usd_24h_change);
+              const ethBtcSpread = (Number.isFinite(ethCh) && Number.isFinite(btcCh)) ? (ethCh - btcCh) : NaN;
+
+              const pulseTone = Number.isFinite(health)
+                ? (health >= 62 ? "positive" : health <= 42 ? "negative" : "warning")
+                : (watchUp > watchDown ? "positive" : watchDown > watchUp ? "negative" : "neutral");
+              const pulseBorder = pulseTone === "positive" || pulseTone === "bull" || pulseTone === "green"
                 ? "rgba(34,197,94,.45)"
-                : pulseTone === "bear" || pulseTone === "red" || pulseTone === "negative"
+                : pulseTone === "negative" || pulseTone === "bear" || pulseTone === "red"
                   ? "rgba(239,68,68,.45)"
-                  : pulseTone === "warn" || pulseTone === "amber"
-                    ? "rgba(255,209,102,.40)"
-                    : "rgba(139,220,255,.28)";
-              const pulseColor = pulseBorder.replace(",.45)", ",1)").replace(",.40)", ",1)").replace(",.28)", ",1)");
-              const pulseValue = String(pulse?.value || "Market pulse").trim();
-              const pulseDetail = String(pulse?.detail || "").slice(0, 90);
+                  : "rgba(255,209,102,.40)";
+              const pulseColor = pulseTone === "positive" ? "#86efac" : pulseTone === "negative" ? "#fca5a5" : "#ffd166";
+
+              const pulseValue = Number.isFinite(health)
+                ? `Health ${Math.round(health)}/100`
+                : (watchUp + watchDown > 0 ? `Watch ${watchUp}↑ / ${watchDown}↓` : "Market health");
+              const pulseLine2 = [
+                Number.isFinite(btcDom) ? `BTC.D ${btcDom.toFixed(1)}%` : null,
+                Number.isFinite(ethDom) ? `ETH.D ${ethDom.toFixed(1)}%` : null,
+                Number.isFinite(ethBtcSpread) ? `ETH−BTC ${ethBtcSpread >= 0 ? "+" : ""}${ethBtcSpread.toFixed(1)}%` : null,
+              ].filter(Boolean).join(" · ") || (Number.isFinite(avgVol) ? `Avg move ${avgVol.toFixed(1)}%` : "Dominance & rotation");
+              const pulseDetail = (watchUp + watchDown > 0)
+                ? `Watchlist ${watchUp} green / ${watchDown} red${Number.isFinite(avgVol) ? ` · vol ${avgVol.toFixed(1)}%` : ""}`
+                : "BTC/ETH dominance and watchlist breadth for Strategist context.";
+
+              // Mini chart: watchlist 24h changes (unique vs banner global curves)
+              const pulseChartItem = {
+                tone: pulseTone === "positive" ? "positive" : pulseTone === "negative" ? "negative" : "warning",
+                chartType: "bars",
+                chartData: watchChs.length
+                  ? watchChs.slice(0, 12).map((v) => Math.abs(v))
+                  : (Number.isFinite(health) ? [Math.max(5, health - 20), health, Math.min(100, health + 10)] : []),
+              };
 
               // Crypto moves: rotate through watchlist movers + whale signals (never sticky same 3)
               const whaleBits = [];
@@ -25544,22 +25585,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   gridTemplateColumns: isCompactMobile ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))",
                   gap: 8,
                 }}>
-                  {/* PULSE — colored + mini chart */}
+                  {/* PULSE — complementary to header banner (dominance / health / watch breadth) */}
                   <div style={{
                     ...cardBase,
                     border: `1px solid ${pulseBorder}`,
-                    background: pulseTone === "bull" || pulseTone === "green"
+                    background: pulseTone === "positive"
                       ? "linear-gradient(180deg, rgba(34,197,94,.12), rgba(0,0,0,.22))"
-                      : pulseTone === "bear" || pulseTone === "red"
+                      : pulseTone === "negative"
                         ? "linear-gradient(180deg, rgba(239,68,68,.12), rgba(0,0,0,.22))"
-                        : "linear-gradient(180deg, rgba(139,220,255,.10), rgba(0,0,0,.22))",
+                        : "linear-gradient(180deg, rgba(255,209,102,.10), rgba(0,0,0,.22))",
                   }}>
                     <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: pulseColor }}>Pulse</div>
-                    <div style={{ fontWeight: 850, fontSize: 12, color: "#dfffee", lineHeight: 1.25 }}>{pulseValue}</div>
-                    <div style={{ height: 36, marginTop: 2, opacity: 0.95 }}>
-                      {typeof renderMarketDeskChart === "function" ? (
-                        <div style={{ transform: "scale(0.55)", transformOrigin: "left top", width: 210, height: 76, marginBottom: -40 }}>
-                          {renderMarketDeskChart(pulse)}
+                    <div style={{ fontWeight: 850, fontSize: 13, color: "#dfffee", lineHeight: 1.25 }}>{pulseValue}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: pulseColor, lineHeight: 1.3 }}>{pulseLine2}</div>
+                    <div style={{ height: 28, marginTop: 2, opacity: 0.9 }}>
+                      {typeof renderMarketDeskChart === "function" && pulseChartItem.chartData?.length ? (
+                        <div style={{ transform: "scale(0.48)", transformOrigin: "left top", width: 210, height: 76, marginBottom: -48 }}>
+                          {renderMarketDeskChart(pulseChartItem)}
                         </div>
                       ) : null}
                     </div>

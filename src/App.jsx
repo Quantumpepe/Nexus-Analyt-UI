@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD339-MULTI-SESSION-OVERVIEW";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD340-MULTI-CHAIN-SESSION-DEDUPE";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -22261,9 +22261,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       // placeholders without a matching live CoreVault session are excluded.
                       const localRotationRows = rawLocalRotationRows.filter((row) => {
                         if (!isRelevantLiveRotationRow(row)) return false;
+                        // Multi-chain: backend rows (NKR-LIVE-ETH-1, NKR-LIVE-BNB-1, …) must always
+                        // stay visible. The CoreVault preview is often only the *selected* chain and
+                        // must never drop sessions on other chains.
+                        const rowId = String(row?.id ?? row?.session_id ?? "");
+                        if (/^NKR-LIVE-[A-Z0-9]+-\d+$/i.test(rowId)) return true;
+                        if (String(row?.chain || row?.meta?.chain || "").trim() && (row?.onchainSessionId || row?.meta?.onchain_session_id)) return true;
                         if (!previewSessions.length) return true;
                         const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
-                        const rowId = String(row?.id ?? row?.session_id ?? "");
                         const st = String(row?.status || row?.statusLabel || "").toUpperCase();
                         const control = String(nkrControlState || "WAITING").toUpperCase();
                         const isCurrentLocal = !!rowId && rowId === String(activeRotationSessionId || "");
@@ -22341,10 +22346,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         campaignStartedAt: Date.now(),
                         meta: { nkr_session: true, control_fallback: true, open_asset_count: 0, nkr_exit_reason: "NKR is running and scanning for an executable entry." }
                       }] : [];
+                      // Dedupe by chain + on-chain session id. Session ids restart per vault/chain
+                      // (ETH #1 and BNB #1 are different sessions) — never collapse them into one card.
                       const rotationRows = Array.from(new Map(
                         [...localRotationRows, ...controlFallbackRows, ...onChainRotationRows].map((row) => {
-                          const key = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? row?.id ?? row?.session_id ?? "");
-                          return [key || `local-${Math.random()}`, row];
+                          const oid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
+                          const ch = String(
+                            row?.chain || row?.chainKey || row?.chain_key || row?.meta?.chain || row?.meta?.chain_key || row?.chainId || row?.chain_id || row?.meta?.chain_id || ""
+                          ).toUpperCase();
+                          const id = String(row?.id || row?.session_id || "");
+                          const key = oid ? `${ch || "UNK"}:${oid}` : (id || `local-${Math.random()}`);
+                          return [key, row];
                         })
                       ).values());
                       const rotationNow = Number(tradingRuntimeNowMs || Date.now());

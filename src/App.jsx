@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD343-STRICT-PER-CHAIN";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD346-SCANNING-UNTIL-FOUND";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -22841,30 +22841,52 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const sessionTargetRaw = String(
                                   sess?.targetAsset || sess?.sourceSymbol || sess?.symbol || sess?.meta?.nkr_active_asset || sess?.meta?.selected_symbol || ""
                                 ).toUpperCase();
-                                const globalBestRaw = String(nkrStrategistStatus?.bestCandidate || "").toUpperCase();
-                                const globalBestChain = String(
-                                  nkrStrategistStatus?.candidateChain || nkrStrategistStatus?.sessionChain || ""
-                                ).toUpperCase();
-                                // Strict same-chain only. Empty globalBestChain must NOT paint POL onto ETH/BNB cards.
-                                const globalBestOk = globalBestRaw
-                                  && !placeholderSyms.has(globalBestRaw)
-                                  && !isStableTradeSym(globalBestRaw)
-                                  && (
-                                    globalBestRaw === nativeForChain
-                                    || (globalBestChain && globalBestChain === sessChain)
+                                // Best asset ON THIS session chain from watchlist.
+                                // If none → scanning only (no forced native, no global POL bleed).
+                                const homeChainOfSym = (sym) => {
+                                  const u = String(sym || "").toUpperCase();
+                                  if (["ETH", "WETH"].includes(u)) return "ETH";
+                                  if (["BNB", "WBNB"].includes(u)) return "BNB";
+                                  if (["POL", "MATIC", "WMATIC"].includes(u)) return "POL";
+                                  const row = (Array.isArray(watchRows) ? watchRows : []).find(
+                                    (r) => String(r?.symbol || r?.sym || r?.asset || "").toUpperCase() === u
                                   );
-                                // Session target only if it belongs on this chain (native or explicit same-chain stamp).
+                                  const ch = String(row?.chain || row?.chainKey || row?.network || "").toUpperCase();
+                                  if (ch === "ETHEREUM" || ch === "1" || ch === "ETH") return "ETH";
+                                  if (ch === "BSC" || ch === "56" || ch === "BNB") return "BNB";
+                                  if (ch === "POLYGON" || ch === "MATIC" || ch === "137" || ch === "POL") return "POL";
+                                  return "";
+                                };
+                                const scoreOfRow = (r) => {
+                                  const s = Number(r?.systemScore ?? r?.score ?? r?.strategistPerformanceScore ?? 0);
+                                  const chg = Number(r?.change24h ?? r?.chg_24h ?? r?.usd_24h_change ?? 0) || 0;
+                                  if (Number.isFinite(s) && s > 0) return s + Math.max(-5, Math.min(10, chg * 0.5));
+                                  return 55 + chg * 3;
+                                };
+                                let bestOnChain = "";
+                                let bestOnChainScore = -1e9;
+                                for (const r of (Array.isArray(watchRows) ? watchRows : [])) {
+                                  if (!r || typeof r !== "object") continue;
+                                  const u = String(r?.symbol || r?.sym || r?.asset || "").toUpperCase();
+                                  if (!u || placeholderSyms.has(u) || isStableTradeSym(u)) continue;
+                                  const home = homeChainOfSym(u);
+                                  // Include chain native + symbols tagged to this session chain only
+                                  const onThis = (nativeForChain && u === nativeForChain) || (home && home === sessChain);
+                                  if (!onThis) continue;
+                                  const sc = scoreOfRow(r);
+                                  if (sc > bestOnChainScore) {
+                                    bestOnChainScore = sc;
+                                    bestOnChain = u;
+                                  }
+                                }
                                 const sessionTargetOk = sessionTargetRaw
                                   && !placeholderSyms.has(sessionTargetRaw)
                                   && !isStableTradeSym(sessionTargetRaw)
-                                  && (
-                                    sessionTargetRaw === nativeForChain
-                                    || sessionTargetRaw === globalBestRaw && globalBestOk
-                                  );
-                                // Watching: prefer native of THIS session chain. Never borrow another chain's leader.
+                                  && homeChainOfSym(sessionTargetRaw) === sessChain;
+                                // Asset only when found — otherwise "" → route shows (scanning)
                                 const strategistSym = sessionTargetOk
                                   ? sessionTargetRaw
-                                  : (globalBestOk ? globalBestRaw : (nativeForChain || ""));
+                                  : (bestOnChain || "");
                                 const sym = hasOpenPosition
                                   ? (rawPosSym && !placeholderSyms.has(rawPosSym) && !isStableTradeSym(rawPosSym) ? rawPosSym : (strategistSym || "ASSET"))
                                   : (strategistSym || "SCANNING");

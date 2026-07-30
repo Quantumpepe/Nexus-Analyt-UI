@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD303-NKR-LIVE-CHAIN-FILTER";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD304-NKR-STRATEGIST-COMPACT";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -22257,77 +22257,62 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Runtime:</b> {nkrOverviewRunning ? (nkrOverviewElapsedMs > 0 ? fmtRotationDuration(nkrOverviewElapsedMs) : "RUNNING") : "not running"}</div>
                               <div><b>Time Left:</b> <span style={{ color: nkrOverviewRunning && nkrOverviewRemainingMs > 0 ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewRunning ? (nkrOverviewEndTs > 0 ? (nkrOverviewRemainingMs > 0 ? fmtRotationDuration(nkrOverviewRemainingMs) : "expired") : "—") : "—"}</span></div>
                             </div>
-                            {/* User-facing Strategist status — English only; not limited to System Info */}
+                            {/* Compact Strategist status — one glance, English, no wall of text */}
                             {nkrOverviewRunning || (nkrStrategistStatus && String(nkrStrategistStatus?.status || "").toUpperCase() === "RUNNING") ? (
                               <div
                                 style={{
                                   marginTop: 2,
-                                  padding: "8px 10px",
+                                  padding: "7px 10px",
                                   borderRadius: 10,
-                                  border: "1px solid rgba(139,220,255,.28)",
-                                  background: "rgba(139,220,255,.06)",
-                                  display: "grid",
-                                  gap: 6,
+                                  border: "1px solid rgba(139,220,255,.22)",
+                                  background: "rgba(139,220,255,.05)",
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  alignItems: "center",
+                                  gap: "6px 14px",
+                                  lineHeight: 1.35,
                                 }}
                               >
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                                  <b style={{ color: "#8bdcff", fontSize: 12 }}>Strategist</b>
-                                  <span className="muted tiny" style={{ fontWeight: 850 }}>
-                                    Gate: <b style={{ color: "#eafff5" }}>{String(nkrStrategistStatus?.gate || "—")}</b>
-                                    {" · "}
-                                    Decision: <b style={{ color: "#eafff5" }}>{String(nkrStrategistStatus?.decision || "—")}</b>
-                                  </span>
-                                </div>
-                                <div className="muted tiny" style={{ lineHeight: 1.45, color: "rgba(232,242,240,.92)" }}>
-                                  {String(
-                                    nkrStrategistStatus?.summary
-                                    || "Scanning market. Waiting for the next strategist tick…"
-                                  )}
-                                </div>
-                                <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                                  <span>
-                                    <b>Best on session:</b>{" "}
-                                    {String(nkrStrategistStatus?.bestCandidate || "—").toUpperCase() || "—"}
-                                    {Number(nkrStrategistStatus?.candidateScore) > 0
-                                      ? ` (${Number(nkrStrategistStatus.candidateScore).toFixed(1)})`
-                                      : ""}
-                                    {nkrStrategistStatus?.sessionChain ? ` · ${String(nkrStrategistStatus.sessionChain).toUpperCase()}` : ""}
-                                  </span>
-                                  {nkrStrategistStatus?.bestOverall && String(nkrStrategistStatus.bestOverall).toUpperCase() !== String(nkrStrategistStatus?.bestCandidate || "").toUpperCase() ? (
-                                    <span>
-                                      <b>Overall (live chains):</b>{" "}
-                                      {String(nkrStrategistStatus.bestOverall).toUpperCase()}
-                                      {Number(nkrStrategistStatus?.bestOverallScore) > 0
-                                        ? ` (${Number(nkrStrategistStatus.bestOverallScore).toFixed(1)})`
-                                        : ""}
-                                      {nkrStrategistStatus?.bestOverallChain
-                                        ? ` on ${String(nkrStrategistStatus.bestOverallChain).toUpperCase()}`
-                                        : ""}
-                                    </span>
-                                  ) : null}
-                                  {Number(nkrStrategistStatus?.candidateMomentum24h) !== 0 && Number.isFinite(Number(nkrStrategistStatus?.candidateMomentum24h)) ? (
-                                    <span>
-                                      <b>24h:</b>{" "}
-                                      {Number(nkrStrategistStatus.candidateMomentum24h) >= 0 ? "+" : ""}
-                                      {Number(nkrStrategistStatus.candidateMomentum24h).toFixed(2)}%
-                                    </span>
-                                  ) : null}
-                                  {Number(nkrStrategistStatus?.assetsScanned) > 0 ? (
-                                    <span>
-                                      <b>Scanned:</b> {Number(nkrStrategistStatus.assetsScanned)}
-                                      {" · live chains "}
-                                      {Array.isArray(nkrStrategistStatus?.liveChains) && nkrStrategistStatus.liveChains.length
-                                        ? nkrStrategistStatus.liveChains.join("/")
-                                        : "ETH/BNB/POL"}
-                                    </span>
-                                  ) : null}
-                                  {nkrStrategistStatus?.recommendation ? (
-                                    <span style={{ color: "#ffd166", fontWeight: 850 }}>{String(nkrStrategistStatus.recommendation)}</span>
-                                  ) : null}
-                                  {nkrStrategistStatus?.detail && nkrStrategistStatus.detail !== nkrStrategistStatus.summary ? (
-                                    <span style={{ opacity: 0.85 }}>{String(nkrStrategistStatus.detail)}</span>
-                                  ) : null}
-                                </div>
+                                {(() => {
+                                  const gate = String(nkrStrategistStatus?.gate || "—").toUpperCase();
+                                  const decision = String(nkrStrategistStatus?.decision || "—").toUpperCase();
+                                  const best = String(nkrStrategistStatus?.bestCandidate || "").toUpperCase();
+                                  const score = Number(nkrStrategistStatus?.candidateScore || 0);
+                                  const chain = String(nkrStrategistStatus?.sessionChain || "").toUpperCase();
+                                  const overall = String(nkrStrategistStatus?.bestOverall || "").toUpperCase();
+                                  const overallChain = String(nkrStrategistStatus?.bestOverallChain || "").toUpperCase();
+                                  const overallScore = Number(nkrStrategistStatus?.bestOverallScore || 0);
+                                  const crossChain = overall && overallChain && chain && overallChain !== chain && overall !== best;
+                                  // One short status phrase — no long paragraphs.
+                                  let statusPhrase = "Waiting for entry";
+                                  if (gate === "POSITION_ACTIVE" || decision === "HOLD") statusPhrase = "Position active";
+                                  else if (decision === "SUBMITTING" || gate === "EXECUTION") statusPhrase = "Submitting trade";
+                                  else if (gate === "SCORE_BLOCKED") statusPhrase = "Score below entry";
+                                  else if (gate === "CHAIN_NO_CANDIDATE" || gate === "CHAIN_NOT_LIVE") statusPhrase = "No tradable asset on this chain";
+                                  else if (gate === "WAITING_ENTRY" || decision === "WAIT" || decision === "STARTED") statusPhrase = "Watching · no buy yet";
+                                  else if (decision && decision !== "—") statusPhrase = decision.replaceAll("_", " ");
+                                  return (
+                                    <>
+                                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                                        <b style={{ color: "#8bdcff", fontSize: 12 }}>Strategist</b>
+                                        <span className="muted tiny" style={{ color: "#eafff5", fontWeight: 850 }}>{statusPhrase}</span>
+                                      </span>
+                                      <span className="muted tiny">
+                                        {best ? (
+                                          <><b>{best}</b>{score > 0 ? ` ${score.toFixed(0)}` : ""}{chain ? ` · ${chain}` : ""}</>
+                                        ) : "—"}
+                                        {crossChain ? (
+                                          <span style={{ color: "#ffd166", marginLeft: 8 }}>
+                                            · tip: {overall}{overallScore > 0 ? ` ${overallScore.toFixed(0)}` : ""} on {overallChain}
+                                          </span>
+                                        ) : null}
+                                      </span>
+                                      <span className="muted tiny" style={{ opacity: 0.75, marginLeft: "auto" }}>
+                                        {gate !== "—" ? gate.replaceAll("_", " ") : ""}
+                                      </span>
+                                    </>
+                                  );
+                                })()}
                               </div>
                             ) : null}
                           </div>

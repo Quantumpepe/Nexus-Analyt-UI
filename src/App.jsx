@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD296-NKR-RESTART-BUTTON-STATE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD297-NKR-ONCHAIN-SESSION-CARD-HYDRATION-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -21784,6 +21784,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const previewSessions = Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [];
                       const authoritativeOnChainIds = new Set(previewSessions
                         .filter((row) => {
+                          const engine = String(row?.engine || row?.system || row?.engineType || row?.type || "").toUpperCase();
+                          if (engine && engine !== "NKR") return false;
                           const st = String(row?.statusLabel || "").toUpperCase();
                           const openCount = Number(row?.openAssetCount || 0) || 0;
                           return openCount > 0 || ["ACTIVE", "PAUSED", "CLOSING"].includes(st);
@@ -21810,8 +21812,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       )).filter(Boolean));
                       // System Info refresh is intentionally independent from the user-facing live list.
                       // It must never add/remove cards in Active NKR Sessions.
-                      const onChainRotationRows = ([])
+                      const onChainRotationRows = previewSessions
                         .filter((row) => {
+                          const engine = String(row?.engine || row?.system || row?.engineType || row?.type || "").toUpperCase();
+                          if (engine && engine !== "NKR") return false;
                           const st = String(row?.statusLabel || "").toUpperCase();
                           const openCount = Number(row?.openAssetCount || 0) || 0;
                           const relevant = openCount > 0 || ["ACTIVE", "PAUSED", "CLOSING"].includes(st);
@@ -21821,17 +21825,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         .map((row) => {
                           const budgetUnits = Number(row?.budgetUnits || 0) || 0;
                           const settlementUnits = Number(row?.settlementCashUnits || 0) || 0;
-                          const budgetUsd = budgetUnits / 1e6;
-                          const settlementUsd = settlementUnits / 1e6;
+                          const decimals = Math.max(0, Number(row?.decimals || row?.settlementDecimals || 6) || 6);
+                          const divisor = 10 ** decimals;
+                          const budgetUsd = Number(row?.budget ?? row?.budgetAmount ?? row?.budgetUsd ?? 0) || (budgetUnits / divisor);
+                          const settlementUsd = Number(row?.settlementCash ?? row?.settlementCashAmount ?? 0) || (settlementUnits / divisor);
+                          const chain = String(row?.chain || row?.chainKey || ({ 1: "ETH", 56: "BNB", 137: "POL", 8453: "BASE", 42161: "ARB" }[Number(row?.chainId || 0)] || activeNkrChainKey || "ETH")).toUpperCase();
+                          const baseAsset = String(row?.settlementAsset || row?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : chain === "BASE" ? "ETH" : chain === "ARB" ? "ETH" : "ETH")).toUpperCase();
                           return {
-                            id: `COREVAULT-${row.sessionId}`,
-                            session_id: `COREVAULT-${row.sessionId}`,
+                            id: `NKR-LIVE-${chain}-${row.sessionId}`,
+                            session_id: `NKR-LIVE-${chain}-${row.sessionId}`,
                             onchainSessionId: Number(row.sessionId),
-                            chain: "ETHEREUM",
-                            baseAsset: "USDC",
-                            payoutAsset: "USDC",
-                            targetAsset: Number(row?.openAssetCount || 0) > 0 ? "ETH" : "WAITING",
-                            positionAsset: Number(row?.openAssetCount || 0) > 0 ? "ETH" : "WAITING",
+                            coreVaultSessionId: Number(row.sessionId),
+                            type: "NKR",
+                            engineType: "NKR",
+                            chain,
+                            chainId: Number(row?.chainId || 0),
+                            vault: String(row?.vault || row?.vaultAddress || ""),
+                            vaultAddress: String(row?.vault || row?.vaultAddress || ""),
+                            baseAsset,
+                            settlementAsset: baseAsset,
+                            payoutAsset: baseAsset,
+                            targetAsset: Number(row?.openAssetCount || 0) > 0 ? (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH") : "WAITING",
+                            positionAsset: Number(row?.openAssetCount || 0) > 0 ? (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH") : "WAITING",
                             status: String(row?.statusLabel || "PAUSED").toUpperCase(),
                             budgetUsd,
                             workingCapitalUsd: Math.max(0, budgetUsd - settlementUsd),
@@ -21843,6 +21858,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               onchain_session_id: Number(row.sessionId),
                               core_vault_session_id: Number(row.sessionId),
                               open_asset_count: Number(row?.openAssetCount || 0),
+                              nkr_session: true,
+                              chain,
+                              chain_id: Number(row?.chainId || 0),
+                              vault: String(row?.vault || row?.vaultAddress || ""),
+                              settlement_asset: baseAsset,
                               reconstructed_from_onchain: true,
                               nkr_exit_reason: Number(row?.openAssetCount || 0) > 0
                                 ? "On-chain CoreVault position remains open. Resume or Stop & Exit is required."

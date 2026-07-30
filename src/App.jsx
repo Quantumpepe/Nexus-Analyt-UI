@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD341-ALL-SESSIONS-NO-USDC-TARGET";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD342-PER-CHAIN-CANDIDATE";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -22825,17 +22825,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const rawPosSym = String(
                                   sess?.positionAsset || sess?.openRotation?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || sess?.meta?.nkr_active_asset || ""
                                 ).toUpperCase();
-                                const strategistSymRaw = String(nkrStrategistStatus?.bestCandidate || "").toUpperCase();
                                 // Settlement stables are never trade targets — USDC→USDC is invalid.
                                 const isStableTradeSym = (s) => {
                                   const u = String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
                                   return !u || ["USDC", "USDT", "USD", "DAI"].includes(u) || u.includes("USDC") || u.includes("USDT");
                                 };
                                 const placeholderSyms = new Set(["", "WAITING", "NONE", "NULL", "ASSET", "SCANNING", baseAsset]);
-                                const strategistSym = (strategistSymRaw && !placeholderSyms.has(strategistSymRaw) && !isStableTradeSym(strategistSymRaw))
-                                  ? strategistSymRaw
-                                  : "";
-                                // Prefer real watchlist candidate; never show USDC as the asset being "bought".
+                                // Per-session chain: ETH card must not show global POL candidate.
+                                const sessChainRaw = String(sess?.chain || sess?.chainKey || sess?.meta?.chain || sess?.chainId || "").toUpperCase();
+                                const sessChain = sessChainRaw === "ETHEREUM" || sessChainRaw === "1" ? "ETH"
+                                  : sessChainRaw === "BSC" || sessChainRaw === "56" ? "BNB"
+                                  : sessChainRaw === "POLYGON" || sessChainRaw === "MATIC" || sessChainRaw === "137" ? "POL"
+                                  : sessChainRaw;
+                                const nativeForChain = sessChain === "BNB" ? "BNB" : sessChain === "POL" ? "POL" : sessChain === "ETH" ? "ETH" : "";
+                                const sessionTargetRaw = String(
+                                  sess?.targetAsset || sess?.sourceSymbol || sess?.symbol || sess?.meta?.nkr_active_asset || sess?.meta?.selected_symbol || ""
+                                ).toUpperCase();
+                                const globalBestRaw = String(nkrStrategistStatus?.bestCandidate || "").toUpperCase();
+                                const globalBestChain = String(
+                                  nkrStrategistStatus?.candidateChain || nkrStrategistStatus?.sessionChain || nkrStrategistStatus?.bestOverallChain || ""
+                                ).toUpperCase();
+                                const globalBestOk = globalBestRaw
+                                  && !placeholderSyms.has(globalBestRaw)
+                                  && !isStableTradeSym(globalBestRaw)
+                                  && (!globalBestChain || globalBestChain === sessChain || globalBestRaw === nativeForChain);
+                                const sessionTargetOk = sessionTargetRaw
+                                  && !placeholderSyms.has(sessionTargetRaw)
+                                  && !isStableTradeSym(sessionTargetRaw);
+                                // Prefer session-local target, then global only if same chain, else native of this chain.
+                                const strategistSym = sessionTargetOk
+                                  ? sessionTargetRaw
+                                  : (globalBestOk ? globalBestRaw : (nativeForChain || ""));
                                 const sym = hasOpenPosition
                                   ? (rawPosSym && !placeholderSyms.has(rawPosSym) && !isStableTradeSym(rawPosSym) ? rawPosSym : (strategistSym || "ASSET"))
                                   : (strategistSym || "SCANNING");

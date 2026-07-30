@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD342-PER-CHAIN-CANDIDATE";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD343-STRICT-PER-CHAIN";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -22843,16 +22843,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 ).toUpperCase();
                                 const globalBestRaw = String(nkrStrategistStatus?.bestCandidate || "").toUpperCase();
                                 const globalBestChain = String(
-                                  nkrStrategistStatus?.candidateChain || nkrStrategistStatus?.sessionChain || nkrStrategistStatus?.bestOverallChain || ""
+                                  nkrStrategistStatus?.candidateChain || nkrStrategistStatus?.sessionChain || ""
                                 ).toUpperCase();
+                                // Strict same-chain only. Empty globalBestChain must NOT paint POL onto ETH/BNB cards.
                                 const globalBestOk = globalBestRaw
                                   && !placeholderSyms.has(globalBestRaw)
                                   && !isStableTradeSym(globalBestRaw)
-                                  && (!globalBestChain || globalBestChain === sessChain || globalBestRaw === nativeForChain);
+                                  && (
+                                    globalBestRaw === nativeForChain
+                                    || (globalBestChain && globalBestChain === sessChain)
+                                  );
+                                // Session target only if it belongs on this chain (native or explicit same-chain stamp).
                                 const sessionTargetOk = sessionTargetRaw
                                   && !placeholderSyms.has(sessionTargetRaw)
-                                  && !isStableTradeSym(sessionTargetRaw);
-                                // Prefer session-local target, then global only if same chain, else native of this chain.
+                                  && !isStableTradeSym(sessionTargetRaw)
+                                  && (
+                                    sessionTargetRaw === nativeForChain
+                                    || sessionTargetRaw === globalBestRaw && globalBestOk
+                                  );
+                                // Watching: prefer native of THIS session chain. Never borrow another chain's leader.
                                 const strategistSym = sessionTargetOk
                                   ? sessionTargetRaw
                                   : (globalBestOk ? globalBestRaw : (nativeForChain || ""));

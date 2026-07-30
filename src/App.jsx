@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD331-PRIVY-POLICY-RELOAD-NATIVE-USDC-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD333-UNLIMITED-MULTI-CHAIN";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8478,7 +8478,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationMinNetAdvantage, setRotationMinNetAdvantage] = useState("0.5");
   const [rotationMaxSlippage, setRotationMaxSlippage] = useState("1");
   const [rotationRuntimeHours, setRotationRuntimeHours] = useState("24");
-  const [rotationMaxActiveSessions, setRotationMaxActiveSessions] = useState("3");
+  const [rotationMaxActiveSessions, setRotationMaxActiveSessions] = useState("0");
   const [rotationAllowDexSpread, setRotationAllowDexSpread] = useState(true);
   const [rotationAllowCexDexSpread, setRotationAllowCexDexSpread] = useState(false);
   const [rotationRouters, setRotationRouters] = useState({ QuickSwap: true, Uniswap: true, PancakeSwap: true, "1inch": true, "0x": false, SushiSwap: false });
@@ -8809,16 +8809,21 @@ useEffect(() => {
       setRotationBackendLoading(false);
     }
 
-    const activeLimitRaw = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));
-    const activeLimit = Math.max(1, Number.isFinite(activeLimitRaw) ? Math.floor(activeLimitRaw) : 3);
+    // Session count is unlimited across chains. Soft max-assets is advisory only (allocation), not a start lock.
     const periodDays = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
     const runtimeHours = periodDays * 24;
     const now = Date.now();
     const activeExisting = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((s) => {
       return isRotationSessionRunnable(s, now);
     }).length;
-    if (activeExisting >= activeLimit) {
-      setRotationBackendMsg(`Max Active NKR Assets reached (${activeExisting}/${activeLimit}). Pause/stop one NKR session or increase the limit.`);
+    const startChainCheck = String(liveVaultChainByMode?.rotation || activeGridChainKey || "ETH").toUpperCase();
+    const alreadyOnChain = (Array.isArray(rotationSessions) ? rotationSessions : []).some((s) => {
+      if (!isRotationSessionRunnable(s, now)) return false;
+      const ch = String(s?.chain || s?.meta?.chain || s?.meta?.chain_key || "").toUpperCase();
+      return ch === startChainCheck || (!ch && startChainCheck === "ETH");
+    });
+    if (alreadyOnChain) {
+      setRotationBackendMsg(`NKR is already running on ${startChainCheck}. Switch the vault chain to start a parallel session.`);
       return;
     }
 
@@ -8826,13 +8831,19 @@ useEffect(() => {
     // Important: do not create duplicate active sessions for the same target while other
     // Strategist candidates are available. The visible session target must match the
     // candidate that will be sent into Shadow/Vault-preview.
+    // Key by chain:symbol so the same display asset can run on ETH and BNB in parallel.
     const activeTargetSet = new Set((Array.isArray(rotationSessions) ? rotationSessions : [])
       .filter((s) => {
         const st = String(s?.status || "").toUpperCase();
         const exp = Number(s?.expiresAt || s?.expires_at || 0);
-        return !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st) && (!exp || exp > now);
+        return !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(st) && (!exp || exp > now);
       })
-      .map((s) => String(s?.sourceSymbol || s?.symbol || s?.targetAsset || s?.meta?.source_symbol || "").toUpperCase())
+      .map((s) => {
+        const sym = String(s?.sourceSymbol || s?.symbol || s?.targetAsset || s?.meta?.source_symbol || "").toUpperCase();
+        if (!sym) return "";
+        const ch = String(s?.chain || s?.meta?.chain || s?.meta?.chain_key || "").toUpperCase() || "ETH";
+        return `${ch}:${sym}`;
+      })
       .filter(Boolean));
 
     const normalizeCandidateSym = (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
@@ -8870,16 +8881,21 @@ useEffect(() => {
     // A recommendation may provide the first candidate, but when none exists the
     // session starts in SCANNING mode and keeps its capital in USDC/USDT until
     // the NKR engine finds an allowed, executable watchlist asset.
-    const pickedCandidate = candidatePool.find((c) => !activeTargetSet.has(c.rawSymbol)) || {
+    const startChain = String(liveVaultChainByMode?.rotation || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
+    const pickedCandidate = candidatePool.find((c) => {
+      const ch = String(c.chain || startChain || "ETH").toUpperCase();
+      return !activeTargetSet.has(`${ch}:${c.rawSymbol}`) && !activeTargetSet.has(c.rawSymbol);
+    }) || {
       rawSymbol: "",
       coin: "",
-      chain: rotationNetworkScope !== "ALL" ? rotationNetworkScope : (activeGridChainKey || DEFAULT_CHAIN || "ETH"),
+      chain: startChain,
       source: "autonomous_watchlist_scan",
       rank: "SCANNING",
       ok: true,
     };
 
-    const candidateChain = String(pickedCandidate.chain || rotationSelectedPick?.chain || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
+    // Session chain is always the vault chain the user selected for this Start — not a foreign candidate chain.
+    const candidateChain = startChain;
     const candidateSymbol = String(pickedCandidate.coin || pickedCandidate.rawSymbol || "").toUpperCase();
     const sourceSymbol = String(pickedCandidate.rawSymbol || "").toUpperCase();
     const sessionId = makeNexusSessionId("NKR");
@@ -8910,7 +8926,7 @@ useEffect(() => {
     if (String(startedNkrCapitalMode || "").toUpperCase() !== "AGGRESSIVE") {
       setNkrAggressiveAcceptedForDraft(false);
     }
-  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
+  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -9080,7 +9096,7 @@ useEffect(() => {
   const tradingAllowedChains = String(activeGridChainKey || "ETH").toUpperCase();
   const setTradingAllowedChains = () => {};
   const [tradingRiskMode, setTradingRiskMode] = useState("BALANCED");
-  const [tradingCautionDrawdownPct, setTradingCautionDrawdownPct] = useState("3");
+  const [tradingCautionDrawdownPct, setTradingCautionDrawdownPct] = useState("0");
   const [tradingHardStopPct, setTradingHardStopPct] = useState("12");
   const [tradingProfitLockPct, setTradingProfitLockPct] = useState("20");
   const [tradingReuseProfitPct, setTradingReuseProfitPct] = useState("0");
@@ -10896,11 +10912,28 @@ useEffect(() => {
   const handleTradingStartSession = useCallback(async () => {
     if (!wallet) { setErrorMsg("Connect the wallet before starting Trading."); return; }
 
-    let sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
+    const normalizeTraderChain = (value) => {
+      const k = String(value || "").trim().toUpperCase();
+      if (k === "ETHEREUM" || k === "1") return "ETH";
+      if (k === "BSC" || k === "56") return "BNB";
+      if (k === "POLYGON" || k === "MATIC" || k === "137") return "POL";
+      return k || "ETH";
+    };
+    const selectedTraderChain = normalizeTraderChain(liveVaultChainByMode?.trading || activeGridChainKey || "ETH");
+    const openTraderSessions = (Array.isArray(tradingSessions) ? tradingSessions : []).filter((s) => {
+      const st = String(s?.status || "").toUpperCase();
+      return s && !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "FINALIZED"].includes(st);
+    });
+    const sessionOnSelectedChain = openTraderSessions.find((s) => {
+      const ch = normalizeTraderChain(s?.chain || s?.chainKey || s?.meta?.chain || s?.meta?.chain_key || "");
+      return ch === selectedTraderChain;
+    });
 
-    // No separate Approve step: when there is no already-created Trader session,
-    // Start Trading first requests the mandatory CoreVault wallet confirmation,
-    // then starts the backend Strategist/Trader worker automatically.
+    // Multi-chain: if selected chain already has a Trader session, start/resume that one.
+    // If not, always create a NEW session for this chain — even when ETH/BNB already runs elsewhere.
+    let sid = sessionOnSelectedChain
+      ? String(sessionOnSelectedChain?.id || sessionOnSelectedChain?.session_id || "").trim()
+      : "";
     if (!sid) {
       if (!tradingPreflight.ok) {
         setErrorMsg(tradingPreflight.title || "Complete the Trading setup before starting.");
@@ -10917,7 +10950,7 @@ useEffect(() => {
         body: {
           action: "start",
           session_id: sid,
-          chain: String(activeGridChainKey || "ETH").toUpperCase(),
+          chain: selectedTraderChain,
           allowed_assets: selectedTraderAssets,
           settlement_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
         },
@@ -10925,13 +10958,13 @@ useEffect(() => {
       const now = Date.now();
       setTradingSessionStatus("ACTIVE");
       setTradingSessionUpdatedTs(now);
-      updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, userAction: { started: true } });
+      updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, userAction: { started: true }, chain: selectedTraderChain });
       await refreshNexusBackendState();
-      setErrorMsg(`Trading started: ${sid}`);
+      setErrorMsg(`Trading started on ${selectedTraderChain}: ${sid}`);
     } catch (e) {
       setErrorMsg(`Start Trading failed: ${e?.message || e}`);
     }
-  }, [wallet, selectedTradingSessionId, activeTradingSessionId, tradingPreflight, handleTradingApproveBudget, activeGridChainKey, selectedTraderAssets, manualPayoutAsset, api, refreshNexusBackendState, setErrorMsg, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+  }, [wallet, tradingSessions, liveVaultChainByMode, tradingPreflight, handleTradingApproveBudget, activeGridChainKey, selectedTraderAssets, manualPayoutAsset, api, refreshNexusBackendState, setErrorMsg, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
   const handleTradingPauseSession = useCallback(() => {
     if (!tradingCanPause) return;
@@ -23052,11 +23085,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         })()}
                       </div>
                       <div className="formRow">
-                        <label>Max Active NKR Assets</label>
+                        <label>Max Active NKR Assets (soft · 0 = unlimited)</label>
                         <input
                           value={rotationMaxActiveSessions}
                           onChange={(e) => { setRotationMaxActiveSessions(e.target.value); setRotationBudgetReleased(false); }}
-                          placeholder="e.g. 3, 15, 21"
+                          placeholder="0 = unlimited sessions/assets"
                         />
                       </div>
                     </div>
@@ -23104,14 +23137,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     {renderFundingPrompt("ROTATION")}
 
                     {(() => {
-                      const activeNkrSession = (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : []).find((s) => {
-                        const st = String(getRotationDerivedStatus(s) || s?.status || "").toUpperCase();
-                        const qty = Number(s?.positionQty ?? s?.positionAmount ?? s?.openRotation?.positionQty ?? s?.meta?.nkr_position_qty ?? 0) || 0;
-                        return qty > 0 || !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(st);
-                      }) || (Array.isArray(rotationSessions) ? rotationSessions.find((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(String(s?.status || "").toUpperCase())) : null);
-                      // Only a real active session may block Start NKR. A stale persisted
-                      // RUNNING control flag must never prevent a new session after FINALIZED.
-                      const hasActiveNkrRun = Boolean(activeNkrSession);
+                      const normalizeNkrChain = (value) => {
+                        const k = String(value || "").trim().toUpperCase();
+                        if (k === "ETHEREUM" || k === "1") return "ETH";
+                        if (k === "BSC" || k === "56") return "BNB";
+                        if (k === "POLYGON" || k === "MATIC" || k === "137") return "POL";
+                        return k || "";
+                      };
+                      const selectedNkrChain = normalizeNkrChain(liveVaultChainByMode?.rotation || activeNkrChainKey || "ETH") || "ETH";
+                      const activeRows = Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : [];
+                      const sessionChainOf = (s) => normalizeNkrChain(
+                        s?.chain || s?.meta?.chain || s?.meta?.chain_key || s?.chainKey ||
+                        ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(s?.chainId || s?.chain_id || s?.meta?.chain_id || 0)] || "")
+                      );
+                      // Prefer session on the selected vault chain for Pause / Stop / Top-up.
+                      const activeNkrSession = activeRows.find((s) => sessionChainOf(s) === selectedNkrChain) ||
+                        activeRows.find((s) => {
+                          const st = String(getRotationDerivedStatus(s) || s?.status || "").toUpperCase();
+                          const qty = Number(s?.positionQty ?? s?.positionAmount ?? s?.openRotation?.positionQty ?? s?.meta?.nkr_position_qty ?? 0) || 0;
+                          return qty > 0 || !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(st);
+                        }) ||
+                        (Array.isArray(rotationSessions)
+                          ? rotationSessions.find((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "FINALIZED"].includes(String(s?.status || "").toUpperCase()))
+                          : null);
+                      const hasActiveNkrRun = activeRows.length > 0 || Boolean(activeNkrSession);
+                      const hasSessionOnSelectedChain = activeRows.some((s) => sessionChainOf(s) === selectedNkrChain);
+                      // Session count is unlimited — user may run ETH + BNB + POL (+ more) in parallel.
+                      // Soft "Max Active NKR Assets" only guides capital allocation, never blocks Start.
+                      const blockStart = hasSessionOnSelectedChain;
+                      const startTitle = hasSessionOnSelectedChain
+                        ? `NKR is already running on ${selectedNkrChain}. Switch chain or stop that session to start another.`
+                        : `Start NKR on ${selectedNkrChain}`;
+                      const startLabel = hasSessionOnSelectedChain
+                        ? `Running on ${selectedNkrChain}`
+                        : privyAutomationBusy
+                          ? "Activating Privy..."
+                          : rotationBackendLoading
+                            ? "Starting..."
+                            : `Start NKR · ${selectedNkrChain}`;
                       return (
                         <div className="btnRow">
                           <button
@@ -23119,14 +23182,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             type="button"
                             disabled={(() => {
                               const amount = Number(String(rotationBudgetRelease || "").replace(",", "."));
-                              return hasActiveNkrRun || rotationBackendLoading || privyAutomationBusy || !Number.isFinite(amount) || amount <= 0;
+                              return blockStart || rotationBackendLoading || privyAutomationBusy || !Number.isFinite(amount) || amount <= 0;
                             })()}
                             onClick={releaseRotationBudget}
-                            title={hasActiveNkrRun ? "NKR session is already running" : "Start NKR"}
+                            title={startTitle}
                           >
-                            {hasActiveNkrRun ? "NKR läuft" : privyAutomationBusy ? "Activating Privy..." : rotationBackendLoading ? "Starting..." : "Start NKR"}
+                            {startLabel}
                           </button>
-                          {hasActiveNkrRun && (
+                          {hasActiveNkrRun && activeNkrSession && (
                             <>
                               <button
                                 className="miniBtn"
@@ -23136,7 +23199,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   return !Number.isFinite(amount) || amount <= 0;
                                 })()}
                                 onClick={topUpActiveNkrCapital}
-                                title="Add capital to the existing NKR run."
+                                title={`Add capital to the NKR session on ${sessionChainOf(activeNkrSession) || selectedNkrChain}.`}
                               >
                                 Add Capital
                               </button>
@@ -23144,7 +23207,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 className="miniBtn"
                                 type="button"
                                 onClick={() => applyNkrBackendControl(String(nkrControlState || "").toUpperCase() === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: String(activeNkrSession?.onchainSessionId ?? activeNkrSession?.coreVaultSessionId ?? activeNkrSession?.id ?? activeNkrSession?.session_id ?? "") })}
-                                title="Pause or resume this NKR run without hiding its controls."
+                                title={`Pause or resume NKR on ${sessionChainOf(activeNkrSession) || selectedNkrChain}.`}
                               >
                                 {String(nkrControlState || "").toUpperCase() === "PAUSED" ? "Resume" : "Pause"}
                               </button>
@@ -23152,7 +23215,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 className="miniBtn danger"
                                 type="button"
                                 onClick={() => applyNkrBackendControl("STOP_EXIT", { sessionId: String(activeNkrSession?.onchainSessionId ?? activeNkrSession?.coreVaultSessionId ?? activeNkrSession?.id ?? activeNkrSession?.session_id ?? "") })}
-                                title="Stop & Exit: sell the open position to the settlement asset, then finalize this NKR session."
+                                title={`Stop & Exit on ${sessionChainOf(activeNkrSession) || selectedNkrChain}: sell open position, then finalize.`}
                               >
                                 Stop & Exit
                               </button>
@@ -23161,6 +23224,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           {rotationBudgetReleased && !hasActiveNkrRun && (
                             <button className="miniBtn" type="button" onClick={resetRotationBudgetRelease}>Reset budget</button>
                           )}
+                          {hasActiveNkrRun ? (
+                            <div className="muted tiny" style={{ width: "100%", marginTop: 4 }}>
+                              Active sessions: {activeRows.length} (unlimited)
+                              {activeRows.length
+                                ? ` · ${[...new Set(activeRows.map(sessionChainOf).filter(Boolean))].join(", ") || "—"}`
+                                : ""}
+                              {hasSessionOnSelectedChain
+                                ? ` · ${selectedNkrChain} already has a session — pick another chain to start a parallel run`
+                                : ` · ready to start on ${selectedNkrChain}`}
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })()}

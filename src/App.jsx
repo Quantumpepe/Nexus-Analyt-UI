@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD322-NKR-MINIMIZE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD323-NKR-MINIMIZE-V95";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -26624,6 +26624,62 @@ const handlePanelActivate = useCallback((name) => (e) => {
   .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) canvas,
   .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) svg{
     max-height: 66px !important;
+  }
+}
+
+/* =========================================================
+   Nexus desktop layout v95 — section-grid minimize (final)
+   v93/v94 forced panelScroll to full height and gridLayout to
+   display:block, which left NKR/Grid/Trading looking un-minimized.
+   ========================================================= */
+@media (min-width: 981px){
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridModeSwitcher{
+    display: none !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) > .panelScroll,
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .panelScroll{
+    display: none !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridLayout,
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .liveCoreVaultBlock,
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridControls,
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridLeft,
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRight{
+    display: none !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .cardHead{
+    margin-bottom: 0 !important;
+    flex-wrap: wrap !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .cardTitle{
+    max-width: 100% !important;
+    font-size: 12px !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .cardActions .pill{
+    max-width: 90px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    font-size: 8px !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive)::after{
+    content: "Open to manage Grid · NKR · Trading";
+    display: block !important;
+    font-size: 9px !important;
+    line-height: 1.25 !important;
+    color: rgba(235,255,247,.62) !important;
+    margin-top: 6px !important;
   }
 }
 

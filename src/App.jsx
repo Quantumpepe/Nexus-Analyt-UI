@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD300-NKR-TRADER-USER-STATUS";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD301-NKR-HISTORY-CLARITY";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12337,7 +12337,12 @@ const [aiLoading, setAiLoading] = useState(false);
       setRotationShadowEvents((prev) => [{
         id: `NKR-CTRL-${now}`,
         ts: now,
-        text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" || actionU === "STOP_EXIT" ? "Stop & Exit läuft. Offene Positionen werden zuerst verkauft, danach wird die Session finalisiert." : "NKR deleted forever from backend.",
+        status: actionU,
+        action: actionU,
+        eventKind: "MONITOR",
+        onChain: false,
+        mode: "shadow",
+        text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" || actionU === "STOP_EXIT" ? "Stop & Exit in progress. Open positions are sold first, then the session is finalized." : "NKR deleted forever from backend.",
       }, ...(Array.isArray(prev) ? prev : [])]);
       setRotationBackendMsg(resp?.message || (actionU === "DELETE" ? "NKR deleted forever." : `NKR ${actionU.toLowerCase()} stored in backend.`));
     } catch (e) {
@@ -12410,7 +12415,16 @@ const [aiLoading, setAiLoading] = useState(false);
               ? tick.summary.messages.join(" · ")
               : "NKR backend executor tick completed.";
             setRotationShadowSnapshot((prev) => ({ ...(prev || {}), status: "ok", backendExecutor: true, summary: tick?.summary || {}, ts: Date.now() }));
-            setRotationShadowEvents((prev) => [{ id: `NKR-BACKEND-TICK-${Date.now()}`, ts: Date.now(), text: msg }, ...(Array.isArray(prev) ? prev : [])]);
+            setRotationShadowEvents((prev) => [{
+              id: `NKR-BACKEND-TICK-${Date.now()}`,
+              ts: Date.now(),
+              status: "TICK",
+              action: "MONITOR",
+              eventKind: "MONITOR",
+              onChain: false,
+              mode: "shadow",
+              text: msg,
+            }, ...(Array.isArray(prev) ? prev : [])]);
             if (!silent) setRotationBackendMsg(msg);
             return;
           }
@@ -22454,19 +22468,55 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       </div>
 
                                       <div className="muted tiny" style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                                        <div><b style={{ color: "#d8fff1" }}>Open:</b> {positionRuntimeText}</div>
-                                        <div><b style={{ color: "#8bdcff" }}>Invest:</b> {fmtUsd(positionValue)}</div>
-                                        <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                                          <b style={{ color: "#8bdcff" }}>Reason:</b> {String(
+                                        <div><b style={{ color: "#d8fff1" }}>Open:</b> {Number(positionValue) > 0 ? positionRuntimeText : "— (no position yet)"}</div>
+                                        <div>
+                                          <b style={{ color: "#8bdcff" }}>Invest:</b>{" "}
+                                          {Number(positionValue) > 0
+                                            ? fmtUsd(positionValue)
+                                            : <span style={{ color: "rgba(232,242,240,.72)" }}>$0 · reserved only, no buy yet</span>}
+                                        </div>
+                                        {(() => {
+                                          const gate = String(nkrStrategistStatus?.gate || "").toUpperCase();
+                                          const decision = String(nkrStrategistStatus?.decision || "").toUpperCase();
+                                          const best = String(nkrStrategistStatus?.bestCandidate || "").toUpperCase();
+                                          const score = Number(nkrStrategistStatus?.candidateScore || 0);
+                                          const detail = String(nkrStrategistStatus?.detail || "");
+                                          let whyNoBuy = "";
+                                          if (Number(positionValue) <= 0) {
+                                            if (gate === "WAITING_ENTRY" || decision === "WAIT" || decision === "STARTED" || decision === "HOLD") {
+                                              if (score > 0 && score < 62) {
+                                                whyNoBuy = `Why no buy: best candidate ${best || "—"} score ${score.toFixed(1)} is below entry threshold.`;
+                                              } else if (detail && /reserve|balanced|0\/\d/i.test(detail)) {
+                                                whyNoBuy = `Why no buy: ${detail}`;
+                                              } else {
+                                                whyNoBuy = "Why no buy: strategist is waiting for entry conditions (no on-chain trade yet).";
+                                              }
+                                            } else if (decision === "SUBMITTING" || gate === "EXECUTION") {
+                                              whyNoBuy = "Why no buy: trade is submitting — waiting for on-chain confirmation.";
+                                            } else {
+                                              whyNoBuy = String(nkrStrategistStatus?.summary || "Why no buy: no open position yet.");
+                                            }
+                                          }
+                                          const reasonText = String(
                                             sess?.exitReason
                                             || sess?.meta?.nkr_exit_reason
                                             || (Number(positionValue) <= 0
-                                              ? (nkrStrategistStatus?.summary
-                                                || nkrStrategistStatus?.detail
-                                                || "No open position yet — strategist is waiting for entry conditions.")
+                                              ? (whyNoBuy || nkrStrategistStatus?.summary || "No open position yet — strategist is waiting for entry conditions.")
                                               : "Tracking live position.")
-                                          )}
-                                        </div>
+                                          );
+                                          return (
+                                            <>
+                                              <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                                                <b style={{ color: "#8bdcff" }}>Reason:</b> {reasonText}
+                                              </div>
+                                              {Number(positionValue) <= 0 && whyNoBuy && !String(reasonText).includes("Why no buy") ? (
+                                                <div style={{ minWidth: 0, overflowWrap: "anywhere", color: "#ffd166" }}>
+                                                  <b>Why no buy:</b> {whyNoBuy.replace(/^Why no buy:\s*/i, "")}
+                                                </div>
+                                              ) : null}
+                                            </>
+                                          );
+                                        })()}
                                       </div>
 
                                       <div className="muted tiny" style={{ display: "grid", gap: 5, alignContent: "center" }}>
@@ -22951,34 +23001,59 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 return arr.map((ev) => ({ ...ev, sessionSymbol: sess?.targetAsset || sess?.symbol || ev?.targetAsset || "" }));
                               });
                               const localEvents = (Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []).map((ev) => ({ ...ev, localOnly: true }));
+                              const classifyEventKind = (ev) => {
+                                const explicit = String(ev?.eventKind || ev?.event_kind || "").toUpperCase();
+                                if (["ON_CHAIN", "ONCHAIN", "SHADOW", "MONITOR"].includes(explicit)) {
+                                  return explicit === "ONCHAIN" ? "ON_CHAIN" : explicit;
+                                }
+                                const tx = String(ev?.txHash || ev?.tx_hash || ev?.lastTxHash || ev?.tx || "").trim();
+                                const mode = String(ev?.mode || "").toLowerCase();
+                                const st = String(ev?.status || ev?.action || "").toUpperCase();
+                                const hasBuySell = ["BUY", "SELL", "OPEN", "CLOSE", "ADD", "REDUCE", "OPEN_POSITION", "BUY_OPEN", "CLOSED_PROFIT", "CLOSED_LOSS"].some((k) => st.includes(k));
+                                if (tx && hasBuySell) return "ON_CHAIN";
+                                if (mode === "live" && hasBuySell) return "ON_CHAIN";
+                                if (["WAIT", "HOLD", "MONITOR", "TICK", "WAITING_ENTRY", "POSITION_TRACKING", "READY_DISPATCHED"].some((k) => st.includes(k))) return "MONITOR";
+                                if (ev?.localOnly || mode === "shadow") return "SHADOW";
+                                return hasBuySell ? "SHADOW" : "MONITOR";
+                              };
                               const normalizedEvents = [...sessionEvents, ...localEvents]
                                 .filter((ev) => ev && typeof ev === "object")
-                                .map((ev) => ({
-                                  ...ev,
-                                  event_id: ev.event_id || ev.id || ev.eventId || "",
-                                  trade_id: ev.trade_id || ev.tradeId || "",
-                                  session_id: ev.session_id || ev.sessionId || "",
-                                  buyPriceUsd: ev.buyPriceUsd ?? ev.entryPriceUsd ?? ev.entry_price_usd ?? ev.entryPrice ?? "",
-                                  sellPriceUsd: ev.sellPriceUsd ?? ev.exitPriceUsd ?? ev.exit_price_usd ?? ev.exitPrice ?? "",
-                                  buyUsd: ev.buyUsd ?? ev.amountInUsd ?? "",
-                                  sellUsd: ev.sellUsd ?? ev.amountOutUsd ?? "",
-                                  grossUsd: ev.grossUsd ?? ev.grossProfitUsd ?? "",
-                                  netUsd: ev.netUsd ?? ev.netProfitUsd ?? "",
-                                  capitalMovedUsd: ev.capitalMovedUsd ?? ev.availableStableDeltaUsd ?? "",
-                                  capitalBeforeUsd: ev.capitalBeforeUsd ?? "",
-                                  capitalAfterUsd: ev.capitalAfterUsd ?? "",
-                                }))
-                                .filter((ev) => ev.status || ev.action || ev.targetAsset || ev.event_id || ev.trade_id);
+                                .map((ev) => {
+                                  const kind = classifyEventKind(ev);
+                                  return {
+                                    ...ev,
+                                    event_id: ev.event_id || ev.id || ev.eventId || "",
+                                    trade_id: ev.trade_id || ev.tradeId || "",
+                                    session_id: ev.session_id || ev.sessionId || "",
+                                    buyPriceUsd: ev.buyPriceUsd ?? ev.entryPriceUsd ?? ev.entry_price_usd ?? ev.entryPrice ?? "",
+                                    sellPriceUsd: ev.sellPriceUsd ?? ev.exitPriceUsd ?? ev.exit_price_usd ?? ev.exitPrice ?? "",
+                                    buyUsd: ev.buyUsd ?? ev.amountInUsd ?? "",
+                                    sellUsd: ev.sellUsd ?? ev.amountOutUsd ?? "",
+                                    grossUsd: ev.grossUsd ?? ev.grossProfitUsd ?? "",
+                                    netUsd: ev.netUsd ?? ev.netProfitUsd ?? "",
+                                    capitalMovedUsd: ev.capitalMovedUsd ?? ev.availableStableDeltaUsd ?? "",
+                                    capitalBeforeUsd: ev.capitalBeforeUsd ?? "",
+                                    capitalAfterUsd: ev.capitalAfterUsd ?? "",
+                                    eventKind: kind,
+                                    onChain: kind === "ON_CHAIN",
+                                    txHash: String(ev?.txHash || ev?.tx_hash || ev?.lastTxHash || ev?.tx || "").trim(),
+                                  };
+                                })
+                                .filter((ev) => ev.status || ev.action || ev.targetAsset || ev.event_id || ev.trade_id || ev.text);
                               const byId = new Map();
                               normalizedEvents.forEach((ev) => {
                                 const key = String(ev?.event_id || `${ev?.trade_id || "EV"}-${ev?.status || ev?.action || "EVENT"}-${ev?.ts || Math.random()}`);
                                 if (!byId.has(key)) byId.set(key, ev);
                               });
                               const allEvents = Array.from(byId.values()).sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
+                              const onChainCount = allEvents.filter((ev) => ev.eventKind === "ON_CHAIN").length;
                               const filter = String(rotationShadowEventsFilter || "ALL").toUpperCase();
                               const filteredEvents = allEvents.filter((ev) => {
                                 const st = String(ev?.status || ev?.action || "").toUpperCase();
+                                const kind = String(ev?.eventKind || "").toUpperCase();
                                 if (filter === "ALL") return true;
+                                if (filter === "ON_CHAIN") return kind === "ON_CHAIN";
+                                if (filter === "MONITOR") return kind === "MONITOR" || kind === "SHADOW";
                                 if (filter === "OPEN") return ["OPEN_POSITION", "BUY_OPEN", "POSITION_TRACKING", "EXECUTOR_ACTIVE", "DISPATCHED", "READY_DISPATCHED", "OPEN"].includes(st);
                                 if (filter === "CLOSED_PROFIT") return st === "CLOSED_PROFIT" || st === "SIMULATED_ROTATION_CLOSED";
                                 if (filter === "CLOSED_LOSS") return st === "CLOSED_LOSS" || st === "CLOSED_LOSS_REALLOCATE" || st === "REBALANCED_OUT";
@@ -23033,11 +23108,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   style={{ width: "100%", cursor: "pointer", fontWeight: 900, color: "#8bdcff", background: "transparent", border: 0, padding: 0, textAlign: "left" }}
                                 >
                                   {rotationShadowEventsOpen ? "▼" : "▶"} NKR Event History · {allEvents.length} saved
+                                  {onChainCount > 0 ? ` · ${onChainCount} on-chain` : " · 0 on-chain buys"}
                                 </button>
                                 {rotationShadowEventsOpen ? (
                                   <div style={{ display: "grid", gap: 7, marginTop: 8 }}>
                                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                                      {["ALL","OPEN","CLOSED_PROFIT","CLOSED_LOSS","CAPITAL","PROTECTED","SAFETY","ERROR"].map((f) => (
+                                      {["ALL","ON_CHAIN","MONITOR","OPEN","CLOSED_PROFIT","CLOSED_LOSS","CAPITAL","PROTECTED","SAFETY","ERROR"].map((f) => (
                                         <button key={f} type="button" className="miniBtn" onClick={() => setRotationShadowEventsFilter(f)} style={{ opacity: rotationShadowEventsFilter === f ? 1 : 0.68 }}>{f.replace("_", " ")}</button>
                                       ))}
                                       <button type="button" className="miniBtn" onClick={() => setRotationShadowEventsShowAll((v) => !v)}>{rotationShadowEventsShowAll ? "Show latest 10" : "Show Full History"}</button>
@@ -23050,21 +23126,58 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       </div>
                                     ) : null}
                                     {visibleEvents.map((ev) => {
-                                      const st = String(ev?.status || ev?.action || "EVENT").toUpperCase();
-                                      const buyTs = ev?.buyTime || ev?.openedAt || ev?.ts;
+                                      const st = String(ev?.status || ev?.action || ev?.text || "EVENT").toUpperCase();
+                                      const kind = String(ev?.eventKind || "MONITOR").toUpperCase();
+                                      const kindColor = kind === "ON_CHAIN" ? "#86efac" : kind === "MONITOR" ? "#ffd166" : "#8bdcff";
+                                      const buyTs = ev?.buyTime || ev?.openedAt || (kind === "ON_CHAIN" ? ev?.ts : null);
                                       const sellTs = ev?.sellTime || ev?.closedAt;
                                       const buyPrice = Number(ev?.buyPriceUsd ?? ev?.entryPriceUsd ?? ev?.entry_price_usd ?? ev?.entryPrice ?? 0);
                                       const sellPrice = Number(ev?.sellPriceUsd ?? ev?.exitPriceUsd ?? ev?.exit_price_usd ?? ev?.exitPrice ?? 0);
+                                      const isMonitorOnly = kind === "MONITOR" || kind === "SHADOW";
                                       return (
                                         <div key={ev.event_id || ev.id || `${ev.trade_id}-${ev.ts}`} className="muted tiny" style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 5 }}>
-                                          <div><b style={{ color: st.includes("CLOSED") ? "#86efac" : "#8bdcff" }}>{new Date(ev.ts).toLocaleTimeString()} · {ev.targetAsset || ev.sessionSymbol || "ASSET"} · {st}</b> {ev.addedToCollectedProfit ? "· added to Collected Profit" : ""}</div>
-                                          <div>Buy {buyTs ? new Date(buyTs).toLocaleTimeString() : "—"} @ {buyPrice > 0 ? fmtUsd(buyPrice) : "price missing"} → Sell {sellTs ? new Date(sellTs).toLocaleTimeString() : "open"} @ {sellPrice > 0 ? fmtUsd(sellPrice) : (sellTs ? "price missing" : "open")}</div>
-                                          <div>Route {ev.route || ev.flow || "—"}</div>
+                                          <div>
+                                            <span
+                                              style={{
+                                                display: "inline-block",
+                                                marginRight: 6,
+                                                padding: "1px 6px",
+                                                borderRadius: 6,
+                                                border: `1px solid ${kindColor}`,
+                                                color: kindColor,
+                                                fontWeight: 900,
+                                                fontSize: 10,
+                                              }}
+                                            >
+                                              {kind === "ON_CHAIN" ? "ON-CHAIN" : kind === "MONITOR" ? "MONITOR" : "SHADOW"}
+                                            </span>
+                                            <b style={{ color: st.includes("CLOSED") ? "#86efac" : "#8bdcff" }}>
+                                              {ev.ts ? new Date(ev.ts).toLocaleTimeString() : "—"}
+                                              {" · "}
+                                              {ev.targetAsset || ev.sessionSymbol || (isMonitorOnly ? "—" : "ASSET")}
+                                              {" · "}
+                                              {st}
+                                            </b>
+                                            {ev.addedToCollectedProfit ? " · added to Collected Profit" : ""}
+                                          </div>
+                                          {kind === "ON_CHAIN" ? (
+                                            <>
+                                              <div>Buy {buyTs ? new Date(buyTs).toLocaleTimeString() : "—"} @ {buyPrice > 0 ? fmtUsd(buyPrice) : "price missing"} → Sell {sellTs ? new Date(sellTs).toLocaleTimeString() : "open"} @ {sellPrice > 0 ? fmtUsd(sellPrice) : (sellTs ? "price missing" : "open")}</div>
+                                              <div>Route {ev.route || ev.flow || "—"}</div>
+                                              <div>In {fmtUsd(Number(ev.buyUsd || ev.amountInUsd || 0))} · Out {ev.sellUsd ? fmtUsd(Number(ev.sellUsd)) : "open"} · Gross {fmtUsd(Number(ev.grossUsd || ev.grossProfitUsd || 0))} · Costs {fmtUsd(Number(ev.costsUsd || 0))} · Net {fmtUsd(Number(ev.netUsd || ev.netProfitUsd || 0))}</div>
+                                              <div>Trade {ev.trade_id || "—"} · Event {ev.event_id || ev.id || "—"}{ev.txHash ? ` · Tx ${String(ev.txHash).slice(0, 12)}…` : ""}</div>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <div style={{ color: "rgba(232,242,240,.78)" }}>
+                                                {ev.text || ev.reason || ev.detail || "Status / monitor tick — not an on-chain buy."}
+                                              </div>
+                                              <div>Event {ev.event_id || ev.id || "—"} · no on-chain trade</div>
+                                            </>
+                                          )}
                                           {st === "CAPITAL_MOVEMENT" ? (
                                             <div><b style={{ color: "#ffd166" }}>Capital movement:</b> {ev.fromAsset || "—"} → {ev.toAsset || ev.baseAsset || "USDT"} · Before {fmtUsd(Number(ev.capitalBeforeUsd || 0))} · Moved {fmtUsd(Number(ev.capitalMovedUsd || ev.availableStableDeltaUsd || 0))} · After {fmtUsd(Number(ev.capitalAfterUsd || 0))} · not profit</div>
                                           ) : null}
-                                          <div>In {fmtUsd(Number(ev.buyUsd || ev.amountInUsd || 0))} · Out {ev.sellUsd ? fmtUsd(Number(ev.sellUsd)) : "open"} · Gross {fmtUsd(Number(ev.grossUsd || ev.grossProfitUsd || 0))} · Costs {fmtUsd(Number(ev.costsUsd || 0))} · Net {fmtUsd(Number(ev.netUsd || ev.netProfitUsd || 0))}</div>
-                                          <div>Trade {ev.trade_id || "—"} · Event {ev.event_id || ev.id || "—"}</div>
                                         </div>
                                       );
                                     })}

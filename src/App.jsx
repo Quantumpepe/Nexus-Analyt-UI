@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD301-NKR-HISTORY-CLARITY";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD303-NKR-LIVE-CHAIN-FILTER";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -22286,12 +22286,25 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 </div>
                                 <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                                   <span>
-                                    <b>Best candidate:</b>{" "}
+                                    <b>Best on session:</b>{" "}
                                     {String(nkrStrategistStatus?.bestCandidate || "—").toUpperCase() || "—"}
                                     {Number(nkrStrategistStatus?.candidateScore) > 0
                                       ? ` (${Number(nkrStrategistStatus.candidateScore).toFixed(1)})`
                                       : ""}
+                                    {nkrStrategistStatus?.sessionChain ? ` · ${String(nkrStrategistStatus.sessionChain).toUpperCase()}` : ""}
                                   </span>
+                                  {nkrStrategistStatus?.bestOverall && String(nkrStrategistStatus.bestOverall).toUpperCase() !== String(nkrStrategistStatus?.bestCandidate || "").toUpperCase() ? (
+                                    <span>
+                                      <b>Overall (live chains):</b>{" "}
+                                      {String(nkrStrategistStatus.bestOverall).toUpperCase()}
+                                      {Number(nkrStrategistStatus?.bestOverallScore) > 0
+                                        ? ` (${Number(nkrStrategistStatus.bestOverallScore).toFixed(1)})`
+                                        : ""}
+                                      {nkrStrategistStatus?.bestOverallChain
+                                        ? ` on ${String(nkrStrategistStatus.bestOverallChain).toUpperCase()}`
+                                        : ""}
+                                    </span>
+                                  ) : null}
                                   {Number(nkrStrategistStatus?.candidateMomentum24h) !== 0 && Number.isFinite(Number(nkrStrategistStatus?.candidateMomentum24h)) ? (
                                     <span>
                                       <b>24h:</b>{" "}
@@ -22302,7 +22315,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   {Number(nkrStrategistStatus?.assetsScanned) > 0 ? (
                                     <span>
                                       <b>Scanned:</b> {Number(nkrStrategistStatus.assetsScanned)}
+                                      {" · live chains "}
+                                      {Array.isArray(nkrStrategistStatus?.liveChains) && nkrStrategistStatus.liveChains.length
+                                        ? nkrStrategistStatus.liveChains.join("/")
+                                        : "ETH/BNB/POL"}
                                     </span>
+                                  ) : null}
+                                  {nkrStrategistStatus?.recommendation ? (
+                                    <span style={{ color: "#ffd166", fontWeight: 850 }}>{String(nkrStrategistStatus.recommendation)}</span>
                                   ) : null}
                                   {nkrStrategistStatus?.detail && nkrStrategistStatus.detail !== nkrStrategistStatus.summary ? (
                                     <span style={{ opacity: 0.85 }}>{String(nkrStrategistStatus.detail)}</span>
@@ -22340,12 +22360,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               }}
                             >
                               {rotationVisibleActiveRows.length ? rotationVisibleActiveRows.map((sess, idx) => {
-                                const sym = String(sess?.positionAsset || sess?.openRotation?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || sess?.meta?.nkr_active_asset || "WAITING").toUpperCase();
-                                const liveRow = (Array.isArray(watchRows) ? watchRows : []).find((r) => String(r?.symbol || r?.sym || r?.asset || "").toUpperCase() === sym) || null;
-                                const livePrice = Number(liveRow?.price ?? liveRow?.usd ?? liveRow?.current_price ?? sess?.livePriceUsd ?? sess?.meta?.live_price_usd ?? 0) || 0;
-                                const liveChange = Number(liveRow?.change24h ?? liveRow?.chg_24h ?? liveRow?.usd_24h_change ?? sess?.marketChange24h ?? sess?.meta?.market_change_24h ?? 0) || 0;
-                                const liveVol = Number(liveRow?.volume24h ?? liveRow?.vol ?? liveRow?.total_volume ?? 0) || 0;
-                                const liveTone = liveChange > 0 ? "#86efac" : liveChange < 0 ? "#ff8a8a" : "#d8fff1";
                                 const chain = String(sess?.chain || "CHAIN").toUpperCase();
                                 const sessionIdValue = String(sess?.id || sess?.session_id || "");
                                 const immutableSessionSnapshot = {};
@@ -22361,6 +22375,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const leftText = campaignExpiresTs ? (campaignExpiresTs > rotationNow ? fmtRotationDuration(campaignExpiresTs - rotationNow) : "expired") : "—";
                                 const positionRuntimeText = fmtRotationDuration(Math.max(0, rotationNow - positionStartTs));
                                 const baseAsset = String(sess?.baseAsset || sess?.payoutAsset || sess?.meta?.base_asset || manualPayoutAsset || "USDC").toUpperCase();
+                                // Detect a real open position before choosing the route label.
+                                // Without this, settlement defaults (ETH on Ethereum) look like an active ETH trade
+                                // while the Strategist is actually watching another candidate (e.g. BNB).
+                                const positionQtyEarly = Number(sess?.positionQty ?? sess?.positionAmount ?? sess?.openRotation?.positionQty ?? sess?.openRotation?.quantity ?? sess?.meta?.nkr_position_qty ?? 0) || 0;
+                                const positionValueEarly = Number(sess?.positionValueUsd ?? sess?.openRotation?.currentValueUsd ?? sess?.meta?.nkr_position_value_usd ?? 0) || 0;
+                                const openAssetCountEarly = Number(sess?.openAssetCount ?? sess?.meta?.open_asset_count ?? 0) || 0;
+                                const hasOpenPosition = positionQtyEarly > 0 || positionValueEarly > 0 || openAssetCountEarly > 0;
+                                const rawPosSym = String(
+                                  sess?.positionAsset || sess?.openRotation?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || sess?.meta?.nkr_active_asset || ""
+                                ).toUpperCase();
+                                const strategistSym = String(nkrStrategistStatus?.bestCandidate || "").toUpperCase();
+                                const placeholderSyms = new Set(["", "WAITING", "NONE", "NULL", "ASSET", "SCANNING", baseAsset]);
+                                // No position → always prefer Strategist best candidate over chain/settlement default.
+                                const sym = hasOpenPosition
+                                  ? (rawPosSym && !placeholderSyms.has(rawPosSym) ? rawPosSym : (strategistSym || "ASSET"))
+                                  : (strategistSym || "SCANNING");
+                                const routeTitle = hasOpenPosition
+                                  ? `${baseAsset} → ${sym} → ${baseAsset}`
+                                  : (strategistSym
+                                      ? `${baseAsset} → ${strategistSym} (watching) → ${baseAsset}`
+                                      : `${baseAsset} → (scanning) → ${baseAsset}`);
+                                const liveRow = (Array.isArray(watchRows) ? watchRows : []).find((r) => String(r?.symbol || r?.sym || r?.asset || "").toUpperCase() === sym) || null;
+                                const livePrice = Number(liveRow?.price ?? liveRow?.usd ?? liveRow?.current_price ?? (hasOpenPosition ? (sess?.livePriceUsd ?? sess?.meta?.live_price_usd) : 0) ?? 0) || 0;
+                                const liveChange = Number(liveRow?.change24h ?? liveRow?.chg_24h ?? liveRow?.usd_24h_change ?? (hasOpenPosition ? (sess?.marketChange24h ?? sess?.meta?.market_change_24h) : 0) ?? 0) || 0;
+                                const liveVol = Number(liveRow?.volume24h ?? liveRow?.vol ?? liveRow?.total_volume ?? 0) || 0;
+                                const liveTone = liveChange > 0 ? "#86efac" : liveChange < 0 ? "#ff8a8a" : "#d8fff1";
                                 const workingCapital = getNkrSessionWorkingCapitalUsd(sess) || budget;
                                 // ENGINE-223: Some live sessions expose `budgetUsd` as working capital only.
                                 // Reconstruct the true total from immutable start data and the held reserve.
@@ -22460,10 +22500,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       }}
                                     >
                                       <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                                        <b style={{ fontSize: 16, color: "#eafff5" }}>{baseAsset} → {sym} → {baseAsset}</b>
+                                        <b style={{ fontSize: 16, color: "#eafff5" }}>{routeTitle}</b>
                                         <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>
-                                          <b style={{ color: liveTone }}>{sym} Live:</b> {currentPositionPrice > 0 ? fmtUsd(currentPositionPrice) : "waiting"}
-                                          <span style={{ color: liveTone, fontWeight: 900, marginLeft: 8 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>
+                                          {hasOpenPosition ? (
+                                            <>
+                                              <b style={{ color: liveTone }}>{sym} Live:</b> {currentPositionPrice > 0 ? fmtUsd(currentPositionPrice) : "waiting"}
+                                              <span style={{ color: liveTone, fontWeight: 900, marginLeft: 8 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <b style={{ color: liveTone }}>{sym === "SCANNING" ? "Watchlist" : `${sym} (candidate)`}:</b>{" "}
+                                              {livePrice > 0 ? fmtUsd(livePrice) : "waiting"}
+                                              {livePrice > 0 ? (
+                                                <span style={{ color: liveTone, fontWeight: 900, marginLeft: 8 }}>{liveChange >= 0 ? "+" : ""}{liveChange.toFixed(2)}%</span>
+                                              ) : null}
+                                              <span style={{ color: "rgba(232,242,240,.65)", marginLeft: 8 }}>· no position yet</span>
+                                            </>
+                                          )}
                                         </div>
                                       </div>
 
@@ -22532,7 +22585,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           type="button"
                                           onClick={() => setNkrSessionInfoOpen({
                                             id: String(sess?.id || sess?.session_id || ""),
-                                            route: `${baseAsset} → ${sym} → ${baseAsset}`,
+                                            route: routeTitle,
                                             status,
                                             chain,
                                             baseAsset,

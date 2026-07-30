@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD304-NKR-STRATEGIST-COMPACT";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD309-PAUSE-KEEP-CARD";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8883,7 +8883,7 @@ useEffect(() => {
       setRotationSessions(backendSessions);
       setActiveRotationSessionId(String(liveState?.activeRotationSessionId || ""));
       // Prefer backend controlState. Never force RUNNING just because terminal FINALIZED rows still exist.
-      const liveOk = backendSessions.some((s) => !["STOPPED","FINALIZED","CLOSED","EXPIRED","CANCELLED","RELEASED","DELETED","ARCHIVED","COMPLETE","COMPLETED","STOPPING","FINALIZING","PAUSED"].includes(String(s?.status || "").toUpperCase()));
+      const liveOk = backendSessions.some((s) => !["STOPPED","FINALIZED","CLOSED","EXPIRED","CANCELLED","RELEASED","DELETED","ARCHIVED","COMPLETE","COMPLETED","STOPPING","FINALIZING"].includes(String(s?.status || "").toUpperCase()));
       const ctrl = String(liveState?.controlState || liveState?.nkrControlState || "").toUpperCase();
       setNkrControlState(ctrl || (liveOk ? "RUNNING" : "WAITING"));
     } catch (syncError) {
@@ -11418,19 +11418,19 @@ useEffect(() => {
       return;
     }
     setNkrAggressiveAcceptedForDraft(false);
-    // Draft selector only: never mutate a running session.
-    setNkrCapitalMode(next);
     setRotationBudgetReleased(false);
-  }, [setNkrCapitalMode, setRotationBudgetReleased, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
+    // Apply immediately to local state AND to the running NKR session / Strategist rules.
+    await applyRunningNkrMode(next);
+  }, [applyRunningNkrMode, setRotationBudgetReleased, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
 
   const confirmNkrAggressiveConsent = useCallback(async () => {
     const next = String(nkrAggressivePendingValue || "AGGRESSIVE").toUpperCase();
-    // Aggressive confirmation applies only to the next-session draft.
-    setNkrCapitalMode(next);
     setRotationBudgetReleased(false);
     setNkrAggressiveAcceptedForDraft(true);
     setNkrAggressivePendingValue("");
     setNkrAggressiveConsentOpen(false);
+    // Aggressive becomes the active Strategist mode for the running session (not draft-only).
+    await applyRunningNkrMode(next);
     try {
       if (wallet) {
         await api(`/api/nexus/nkr/aggressive-ack`, {
@@ -11441,7 +11441,7 @@ useEffect(() => {
             accepted: true,
             warning_version: AGGRESSIVE_WARNING_VERSION,
             frontend_build: FRONTEND_BUILD_ID,
-            scope: "draft",
+            scope: "active_or_draft",
             budget_usd: Number(String(rotationBudgetRelease || "0").replace(",", ".")) || 0,
           },
         });
@@ -11449,7 +11449,7 @@ useEffect(() => {
     } catch (e) {
       console.warn("NKR Aggressive warning audit failed", e);
     }
-  }, [nkrAggressivePendingValue, setNkrCapitalMode, setRotationBudgetReleased, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, wallet, api, rotationBudgetRelease]);
+  }, [nkrAggressivePendingValue, applyRunningNkrMode, setRotationBudgetReleased, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, wallet, api, rotationBudgetRelease]);
 
   const cancelNkrAggressiveConsent = useCallback(() => {
     setNkrAggressiveAcceptedForDraft(false);
@@ -12113,10 +12113,14 @@ useEffect(() => {
       setActiveRotationSessionId(activeId || (sessions[0]?.id ? String(sessions[0].id) : ""));
       // controlState from backend is authoritative. Terminal-only lists must become WAITING
       // so Start NKR is available after FINALIZED (handover restart requirement).
-      const liveOk = sessions.some((s) => !["STOPPED","FINALIZED","CLOSED","EXPIRED","CANCELLED","RELEASED","DELETED","ARCHIVED","COMPLETE","COMPLETED","STOPPING","FINALIZING","PAUSED"].includes(String(s?.status || "").toUpperCase()));
+      // PAUSED sessions still count as a live NKR run (control stays PAUSED, not WAITING).
+      const pausedOk = sessions.some((s) => String(s?.status || "").toUpperCase() === "PAUSED");
+      const liveOk = sessions.some((s) => !["STOPPED","FINALIZED","CLOSED","EXPIRED","CANCELLED","RELEASED","DELETED","ARCHIVED","COMPLETE","COMPLETED","STOPPING","FINALIZING"].includes(String(s?.status || "").toUpperCase()));
       const ctrl = String(r?.controlState || r?.nkrControlState || r?.summary?.runtime || "").toUpperCase();
       if (ctrl && !["FINALIZED","CLOSED","COMPLETE","COMPLETED","EXPIRED"].includes(ctrl)) {
         setNkrControlState(ctrl);
+      } else if (pausedOk) {
+        setNkrControlState("PAUSED");
       } else {
         setNkrControlState(liveOk ? "RUNNING" : "WAITING");
       }
@@ -13008,7 +13012,8 @@ const [aiLoading, setAiLoading] = useState(false);
       const netUsd = grossUsd - costsUsd;
       const minNetAdv = Number(String(minNetSource || "0.5").replace(",", "."));
       const netPct = targetUsd > 0 ? (netUsd / targetUsd) * 100 : 0;
-      const dispatchMinScore = nkrCapitalMode === "DEFENSIVE" ? 70 : nkrCapitalMode === "TACTICAL" ? 65 : nkrCapitalMode === "AGGRESSIVE" ? 58 : 62;
+      // Keep entry gates aligned with backend Strategist (Aggressive 51 / Dynamic 62 / Tactical 65 / Defensive 70).
+      const dispatchMinScore = nkrCapitalMode === "DEFENSIVE" ? 70 : nkrCapitalMode === "TACTICAL" ? 65 : nkrCapitalMode === "AGGRESSIVE" ? 51 : 62;
       const isDispatcherApproved = bestScore >= dispatchMinScore && rawEdgePct > -0.25;
       const isExecutorNetPositive = netUsd >= 0 || netPct >= (Number.isFinite(minNetAdv) ? Math.min(minNetAdv, 0.2) : 0.2);
       const isExecutableShadowEdge = isDispatcherApproved && isExecutorNetPositive;
@@ -21803,30 +21808,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="gridWrap rotationDesktopWrap" style={{ gridTemplateColumns: "1fr", width: "100%" }}>
                   <div className="gridControls" style={{ display: "grid", gap: 10 }}>
                     {(() => {
-                      // ENGINE-235: The live NKR list is not a history view. Keep only sessions
-                      // that are genuinely running, paused with capital/positions, closing, or still
-                      // have an on-chain open asset. Finalized, empty and placeholder rows stay only
-                      // in System Info.
+                      // Live NKR list: running, paused, stopping/closing stay visible.
+                      // PAUSE is not STOP — cards must remain until FINALIZED / explicit delete.
                       const isRelevantLiveRotationRow = (row) => {
                         const st = String(row?.status || row?.statusLabel || "").toUpperCase();
                         const openCount = Number(row?.openAssetCount ?? row?.open_asset_count ?? row?.meta?.open_asset_count ?? 0) || 0;
-                        const positionValue = Number(row?.positionValueUsd ?? row?.position_value_usd ?? row?.workingCapitalUsd ?? row?.working_capital_usd ?? 0) || 0;
-                        const target = String(row?.targetAsset || row?.positionAsset || row?.asset || "").toUpperCase();
-                        const hasRealAsset = !!target && !["ASSET", "WAITING", "NONE", "—"].includes(target);
-                        if (["FINALIZED", "COMPLETE", "COMPLETED", "CLOSED", "RELEASED", "REBALANCED_OUT", "DELETED"].includes(st)) return false;
-                        if (["ACTIVE", "RUNNING", "APPROVED", "EXECUTOR", "OPEN", "CLOSING", "STOPPING", "EXITING", "EXIT_REQUESTED", "EXIT_PENDING", "EXIT_FAILED"].includes(st)) return true;
+                        if (["FINALIZED", "COMPLETE", "COMPLETED", "CLOSED", "RELEASED", "REBALANCED_OUT", "DELETED", "ARCHIVED", "CANCELLED"].includes(st)) return false;
+                        // Explicitly keep paused sessions (with or without an open position).
+                        if (["ACTIVE", "RUNNING", "APPROVED", "EXECUTOR", "OPEN", "PAUSED", "CLOSING", "STOPPING", "STOPPED", "EXITING", "EXIT_REQUESTED", "EXIT_PENDING", "EXIT_FAILED"].includes(st)) return true;
                         const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
-                        const rowId = String(row?.id ?? row?.session_id ?? "");
-                        const isCurrentLocal = !!rowId && rowId === String(activeRotationSessionId || "");
-                        // Historical PAUSED/STOPPED rows must never reappear after a page refresh merely
-                        // because an old working-capital or target-asset value is still stored.
-                        if (["PAUSED", "STOPPED"].includes(st)) {
-                          if (openCount > 0) return true;
-                          if (sid && finalizedOnChainIds.has(sid)) return false;
-                          const authoritative = previewSessions.find((p) => String(p?.sessionId ?? "") === sid);
-                          if (authoritative) return Number(authoritative?.openAssetCount || 0) > 0 || ["ACTIVE", "PAUSED", "CLOSING"].includes(String(authoritative?.statusLabel || "").toUpperCase());
-                          return false;
-                        }
+                        if (sid && finalizedOnChainIds.has(sid)) return false;
                         return openCount > 0;
                       };
                       const finalizedOnChainIds = readFinalizedNkrIds();
@@ -21867,9 +21858,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         .filter((row) => {
                           const st = String(row?.statusLabel || "").toUpperCase();
                           const openCount = Number(row?.openAssetCount || 0) || 0;
-                          const relevant = openCount > 0 || ["ACTIVE", "PAUSED", "CLOSING"].includes(st);
-                          const emptyPaused = st === "PAUSED" && openCount <= 0 && Number(row?.settlementCashUnits || 0) <= 0;
-                          return relevant && !emptyPaused && !localOnChainIds.has(String(row?.sessionId || ""));
+                          // PAUSED stays visible even with $0 position / settlement (pause ≠ stop).
+                          const relevant = openCount > 0 || ["ACTIVE", "PAUSED", "CLOSING", "STOPPING"].includes(st);
+                          return relevant && !localOnChainIds.has(String(row?.sessionId || ""));
                         })
                         .map((row) => {
                           const budgetUnits = Number(row?.budgetUnits || 0) || 0;
@@ -22282,6 +22273,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   const overall = String(nkrStrategistStatus?.bestOverall || "").toUpperCase();
                                   const overallChain = String(nkrStrategistStatus?.bestOverallChain || "").toUpperCase();
                                   const overallScore = Number(nkrStrategistStatus?.bestOverallScore || 0);
+                                  const multiTip = String(nkrStrategistStatus?.multiChainTip || nkrStrategistStatus?.recommendation || "").trim();
                                   const crossChain = overall && overallChain && chain && overallChain !== chain && overall !== best;
                                   // One short status phrase — no long paragraphs.
                                   let statusPhrase = "Waiting for entry";
@@ -22301,7 +22293,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         {best ? (
                                           <><b>{best}</b>{score > 0 ? ` ${score.toFixed(0)}` : ""}{chain ? ` · ${chain}` : ""}</>
                                         ) : "—"}
-                                        {crossChain ? (
+                                        {multiTip ? (
+                                          <span style={{ color: "#ffd166", marginLeft: 8 }}>· tip: {multiTip.length > 72 ? multiTip.slice(0, 72) + "…" : multiTip}</span>
+                                        ) : crossChain ? (
                                           <span style={{ color: "#ffd166", marginLeft: 8 }}>
                                             · tip: {overall}{overallScore > 0 ? ` ${overallScore.toFixed(0)}` : ""} on {overallChain}
                                           </span>
@@ -22411,6 +22405,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 // Never let mutable setup/session enrichment overwrite the immutable snapshot.
                                 // For an already-running legacy session, the persisted start mode is preferred
                                 // over live row fields because those fields may still mirror the setup selector.
+                                // Prefer session-stamped mode; fall back to current NKR setup so Info never shows UNKNOWN
+                                // while the user has already chosen Aggressive/Dynamic/Tactical/Defensive.
                                 const sessionCapitalMode = String(
                                   immutableSessionSnapshot?.capitalMode ||
                                   legacyPersistedActiveMode ||
@@ -22418,7 +22414,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   sess?.meta?.nkr_capital_mode ||
                                   sess?.capitalMode ||
                                   sess?.meta?.capital_mode ||
-                                  "UNKNOWN"
+                                  nkrCapitalMode ||
+                                  "DYNAMIC"
                                 ).toUpperCase();
                                 // ENGINE-242: The amount confirmed by the user is the complete session budget.
                                 // Never inflate 20 USDC to 22.22 USDC from the capital-mode percentage.
@@ -22576,17 +22573,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             baseAsset,
                                             asset: sym,
                                             mode: sessionCapitalMode,
-                                            observation: String(sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || immutableSessionSnapshot?.observationWindow || "—"),
-                                            profitMode: String(sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || immutableSessionSnapshot?.profitMode || "—").toUpperCase(),
-                                            periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || immutableSessionSnapshot?.periodDays || 0),
-                                            maxAssets: Number(sess?.maxActiveAssets || sess?.nkrMaxActiveAssets || sess?.meta?.nkr_max_active_assets || immutableSessionSnapshot?.maxActiveAssets || 0),
-                                            payoutAsset: String(sess?.payoutAsset || sess?.meta?.payout_asset || immutableSessionSnapshot?.payoutAsset || baseAsset).toUpperCase(),
-                                            networkScope: String(sess?.networkScope || sess?.meta?.network_scope || immutableSessionSnapshot?.networkScope || chain),
-                                            riskLimit: Number(sess?.riskLimit || sess?.meta?.risk_limit || sess?.riskLimitPct || immutableSessionSnapshot?.riskLimit || 0),
-                                            maxSlippage: Number(sess?.maxSlippage || sess?.meta?.max_slippage || sess?.maxSlippagePct || immutableSessionSnapshot?.maxSlippage || 0),
-                                            minNetAdvantage: Number(sess?.minNetAdvantage || sess?.meta?.min_net_advantage || sess?.minNetAdvantagePct || immutableSessionSnapshot?.minNetAdvantage || 0),
-                                            sessionBudgetUsd,
-                                            workingCapital,
+                                            observation: String(sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || immutableSessionSnapshot?.observationWindow || nkrObservationWindow || "1h"),
+                                            profitMode: String(sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || immutableSessionSnapshot?.profitMode || nkrProfitMode || "REINVEST").toUpperCase(),
+                                            periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || immutableSessionSnapshot?.periodDays || nkrPeriodDays || 10),
+                                            maxAssets: Number(sess?.maxActiveAssets || sess?.nkrMaxActiveAssets || sess?.meta?.nkr_max_active_assets || immutableSessionSnapshot?.maxActiveAssets || rotationMaxActiveSessions || 3),
+                                            payoutAsset: String(sess?.payoutAsset || sess?.meta?.payout_asset || immutableSessionSnapshot?.payoutAsset || manualPayoutAsset || baseAsset || "USDC").toUpperCase(),
+                                            networkScope: String(sess?.networkScope || sess?.meta?.network_scope || immutableSessionSnapshot?.networkScope || rotationNetworkScope || chain),
+                                            riskLimit: Number(sess?.riskLimit || sess?.meta?.risk_limit || sess?.riskLimitPct || immutableSessionSnapshot?.riskLimit || rotationRiskLimit || 0),
+                                            maxSlippage: Number(sess?.maxSlippage || sess?.meta?.max_slippage || sess?.maxSlippagePct || immutableSessionSnapshot?.maxSlippage || rotationMaxSlippage || 0),
+                                            minNetAdvantage: Number(sess?.minNetAdvantage || sess?.meta?.min_net_advantage || sess?.minNetAdvantagePct || immutableSessionSnapshot?.minNetAdvantage || rotationMinNetAdvantage || 0),
+                                            sessionBudgetUsd: sessionBudgetUsd > 0 ? sessionBudgetUsd : (Number(sess?.budgetUsd || sess?.reservedUsd || workingCapital || rotationBudgetRelease || 0) || 0),
+                                            workingCapital: workingCapital > 0 ? workingCapital : (Number(sess?.workingCapitalUsd || sess?.budgetUsd || 0) || 0),
                                             protectedReserveUsd,
                                             plannedReserveUsd,
                                             reserveStatus,
@@ -23145,8 +23142,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRotationShadowEventsOpen((v) => !v); }}
                                   style={{ width: "100%", cursor: "pointer", fontWeight: 900, color: "#8bdcff", background: "transparent", border: 0, padding: 0, textAlign: "left" }}
                                 >
-                                  {rotationShadowEventsOpen ? "▼" : "▶"} NKR Event History · {allEvents.length} saved
-                                  {onChainCount > 0 ? ` · ${onChainCount} on-chain` : " · 0 on-chain buys"}
+                                  {rotationShadowEventsOpen ? "▼" : "▶"} NKR Event History · {allEvents.length} event{allEvents.length === 1 ? "" : "s"}
+                                  {` · ${onChainCount} on-chain`}
+                                  {` · ${Math.max(0, allEvents.length - onChainCount)} monitor`}
                                 </button>
                                 {rotationShadowEventsOpen ? (
                                   <div style={{ display: "grid", gap: 7, marginTop: 8 }}>

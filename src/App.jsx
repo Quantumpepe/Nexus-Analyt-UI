@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD321-PULSE-DISTINCT";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD322-NKR-MINIMIZE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -21584,6 +21584,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             {!isCompactMobile && (
               <div
+                className="gridModeSwitcher"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "1fr 1fr 1fr",
@@ -21768,7 +21769,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
                 };
                 return (
-                  <div style={{ display: modeKey === "normal" ? "none" : "block", marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)" }}>
+                  <div className="liveCoreVaultBlock" style={{ display: modeKey === "normal" ? "none" : "block", marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <div>
                         <div style={{ fontWeight: 950, fontSize: 12 }}>Live Core Vault Capital</div>
@@ -26226,6 +26227,50 @@ const handlePanelActivate = useCallback((name) => (e) => {
           .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .pairsScroll{
             max-height: 72px !important;
             overflow: hidden !important;
+          }
+
+          /* section-grid (NKR / Grid / Trading): clean minimize like other rail tiles */
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridModeSwitcher{
+            display: none !important;
+          }
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .cardHead{
+            flex-wrap: nowrap !important;
+            gap: 4px !important;
+            margin-bottom: 4px !important;
+          }
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .cardActions .pill{
+            max-width: 72px !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            white-space: nowrap !important;
+            font-size: 8px !important;
+            padding: 2px 4px !important;
+          }
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .panelScroll{
+            max-height: 78px !important;
+            overflow: hidden !important;
+            padding-right: 0 !important;
+            pointer-events: none !important;
+          }
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .liveCoreVaultBlock{
+            margin-bottom: 0 !important;
+            padding: 6px 7px !important;
+            border-radius: 10px !important;
+          }
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .liveCoreVaultBlock > div:nth-child(2),
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .liveCoreVaultBlock label,
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .liveCoreVaultBlock select,
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .liveCoreVaultBlock input,
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .liveCoreVaultBlock button{
+            display: none !important;
+          }
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .nkrSessionCard,
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .nkrSetupBlock,
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .tradingSessionCard,
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) [class*="Active NKR"],
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridLayout,
+          .dashboardGrid.hasFocus .section-grid:not(.panelActive) .gridControls{
+            display: none !important;
           }
         }
 

@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD311-MODE-STICKY-NKR-TRADER";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD312-STOP-EXIT-STABLE";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -9588,6 +9588,7 @@ useEffect(() => {
       const st = String(sess?.status || "").toUpperCase();
       // Keep aligned with CoreVault terminal states so FINALIZED sessions disappear
       // from Active Trading Session cards and do not block a fresh start.
+      // STOPPING stays visible (Pause→Stop must not vanish, then reappear as PAUSED).
       return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "FINALIZED", "COMPLETED", "COMPLETE"].includes(st);
     });
 
@@ -10955,42 +10956,56 @@ useEffect(() => {
     const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
     let stoppedQueue = [];
 
-    // Stop means: close the selected independent session and remove its slots
-    // from the active runtime view. The session is kept only as local history so
-    // old sessions are not overwritten, but they no longer count as active capital.
-    setTradingExecutionQueue((prev) => {
-      const all = Array.isArray(prev) ? prev : [];
-      stoppedQueue = all
-        .filter((slot) => tradingSessionIdMatches(getTradingSlotSessionId(slot), sid))
-        .map((slot) => ({ ...slot, status: "STOPPED", stoppedAt: now, closedAt: now }));
-      return all.filter((slot) => !tradingSessionIdMatches(getTradingSlotSessionId(slot), sid));
-    });
-
-    setTradingSessionStatus("PREPARED");
+    // Pause → Stop: show STOPPING first (card stays), then close. Never flash PAUSED again.
+    setTradingSessionStatus("STOPPING");
     setTradingSessionUpdatedTs(now);
-    updateTradingSessionMeta(sid, { status: "STOPPED", stoppedAt: now, closedAt: now, active: false });
+    updateTradingSessionMeta(sid, { status: "STOPPING", stoppingAt: now, active: true });
+    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((slot) => {
+      if (!tradingSessionIdMatches(getTradingSlotSessionId(slot), sid)) return slot;
+      return { ...slot, status: "STOPPING", stoppingAt: now };
+    }));
 
-    const remainingOpen = (Array.isArray(openTradingSessions) ? openTradingSessions : [])
-      .filter((sess) => !tradingSessionIdMatches(sess?.id, sid));
-    setActiveTradingSessionId(String(remainingOpen?.[0]?.id || ""));
-
-    updateTradingPreparedSession({
-      status: "PREPARED",
-      sessionId: sid,
-      stoppedAt: now,
-      closedAt: now,
-      executionQueue: [],
-      stoppedQueue,
-      userAction: { stopped: true, closedSession: true, sessionId: sid },
-      outcome: { status: "session_stopped_by_user" },
-      note: "Selected Trading session stopped. It is removed from active sessions and kept only as local history. A new budget must be approved/signed for the next independent session.",
-    });
+    // Finish local stop after a short stable EXITING window so the user sees a clear state.
+    const finishStop = () => {
+      setTradingExecutionQueue((prev) => {
+        const all = Array.isArray(prev) ? prev : [];
+        stoppedQueue = all
+          .filter((slot) => tradingSessionIdMatches(getTradingSlotSessionId(slot), sid))
+          .map((slot) => ({ ...slot, status: "STOPPED", stoppedAt: Date.now(), closedAt: Date.now() }));
+        return all.filter((slot) => !tradingSessionIdMatches(getTradingSlotSessionId(slot), sid));
+      });
+      setTradingSessionStatus("PREPARED");
+      setTradingSessionUpdatedTs(Date.now());
+      updateTradingSessionMeta(sid, { status: "STOPPED", stoppedAt: Date.now(), closedAt: Date.now(), active: false });
+      const remainingOpen = (Array.isArray(openTradingSessions) ? openTradingSessions : [])
+        .filter((sess) => !tradingSessionIdMatches(sess?.id, sid));
+      setActiveTradingSessionId(String(remainingOpen?.[0]?.id || ""));
+      updateTradingPreparedSession({
+        status: "PREPARED",
+        sessionId: sid,
+        stoppedAt: Date.now(),
+        closedAt: Date.now(),
+        executionQueue: [],
+        stoppedQueue,
+        userAction: { stopped: true, closedSession: true, sessionId: sid },
+        outcome: { status: "session_stopped_by_user" },
+        note: "Selected Trading session stopped. It is removed from active sessions and kept only as local history.",
+      });
+    };
+    setTimeout(finishStop, 900);
 
     api("/api/nexus/trading/hold-state", {
       method: "POST",
       body: { action: "stop", queue: [], stopped_queue: stoppedQueue, reason: "user_stop_session", session_id: sid, base_session_id: normalizeTradingSessionBaseId(sid), chain: activeGridChainKey || DEFAULT_CHAIN || "" },
     }).catch(() => {});
-  }, [tradingCanStop, selectedTradingSessionId, activeTradingSessionId, getTradingSlotSessionId, tradingSessionIdMatches, normalizeTradingSessionBaseId, activeGridChainKey, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession, openTradingSessions, setActiveTradingSessionId]);
+    // Best-effort on-chain control so paused live Trader sessions finalize cleanly.
+    api("/api/nexus/trading/control", {
+      method: "POST",
+      token,
+      wallet,
+      body: { action: "stop", session_id: sid, sessionId: sid },
+    }).catch(() => {});
+  }, [tradingCanStop, selectedTradingSessionId, activeTradingSessionId, getTradingSlotSessionId, tradingSessionIdMatches, normalizeTradingSessionBaseId, activeGridChainKey, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession, openTradingSessions, setActiveTradingSessionId, token, wallet, api]);
 
   const handleTradingReleaseCapital = useCallback(() => {
     if (!tradingCanReleaseCapital) return;
@@ -12134,11 +12149,14 @@ useEffect(() => {
       setActiveRotationSessionId(activeId || (sessions[0]?.id ? String(sessions[0].id) : ""));
       // controlState from backend is authoritative. Terminal-only lists must become WAITING
       // so Start NKR is available after FINALIZED (handover restart requirement).
-      // PAUSED sessions still count as a live NKR run (control stays PAUSED, not WAITING).
+      // STOPPING beats PAUSED (Pause→Stop must not fall back to PAUSED).
+      const stoppingOk = sessions.some((s) => ["STOPPING", "FINALIZING", "CLOSING", "EXITING"].includes(String(s?.status || "").toUpperCase()));
       const pausedOk = sessions.some((s) => String(s?.status || "").toUpperCase() === "PAUSED");
       const liveOk = sessions.some((s) => !["STOPPED","FINALIZED","CLOSED","EXPIRED","CANCELLED","RELEASED","DELETED","ARCHIVED","COMPLETE","COMPLETED","STOPPING","FINALIZING"].includes(String(s?.status || "").toUpperCase()));
       const ctrl = String(r?.controlState || r?.nkrControlState || r?.summary?.runtime || "").toUpperCase();
-      if (ctrl && !["FINALIZED","CLOSED","COMPLETE","COMPLETED","EXPIRED"].includes(ctrl)) {
+      if (stoppingOk || ctrl === "STOPPING") {
+        setNkrControlState("STOPPING");
+      } else if (ctrl && !["FINALIZED","CLOSED","COMPLETE","COMPLETED","EXPIRED"].includes(ctrl)) {
         setNkrControlState(ctrl);
       } else if (pausedOk) {
         setNkrControlState("PAUSED");
@@ -12344,20 +12362,76 @@ const [aiLoading, setAiLoading] = useState(false);
   const applyNkrBackendControl = useCallback(async (action, opts = {}) => {
     const actionU = String(action || "").toUpperCase();
     const now = Date.now();
-    const localStatus = actionU === "PAUSE" ? "PAUSED" : actionU === "RESUME" ? "RUNNING" : actionU === "STOP" || actionU === "STOP_EXIT" ? "STOPPING" : actionU === "DELETE" ? "WAITING" : actionU;
+    const localStatus = actionU === "PAUSE" ? "PAUSED" : actionU === "RESUME" ? "RUNNING" : actionU === "STOP" || actionU === "STOP_EXIT" || actionU === "PANIC_STOP" ? "STOPPING" : actionU === "DELETE" ? "WAITING" : actionU;
+    const targetSid = String(opts.sessionId || "").trim();
+    // Optimistic UI: Pause → Stop must show EXITING/STOPPING immediately, never flicker back to PAUSED.
+    if (["STOP", "STOP_EXIT", "PANIC_STOP"].includes(actionU)) {
+      setNkrControlState("STOPPING");
+      setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((s) => {
+        if (!s || typeof s !== "object") return s;
+        const sid = String(s?.onchainSessionId ?? s?.meta?.onchain_session_id ?? s?.id ?? s?.session_id ?? "");
+        if (targetSid && sid !== targetSid && String(s?.id || "") !== targetSid && String(s?.session_id || "") !== targetSid) return s;
+        const meta = { ...(s.meta && typeof s.meta === "object" ? s.meta : {}), lifecycle_state: "STOPPING", position_state: "STOPPING", stop_message: "Stop & Exit in progress" };
+        return { ...s, status: "STOPPING", lifecycleState: "STOPPING", positionState: "STOPPING", updatedAt: now, meta };
+      }));
+      if (targetSid) setNkrExitUiState((p) => ({ ...p, [targetSid]: "PENDING" }));
+    } else if (actionU === "PAUSE") {
+      setNkrControlState("PAUSED");
+    } else if (actionU === "RESUME") {
+      setNkrControlState("RUNNING");
+    }
     try {
       const resp = await api("/api/nkr/control", { method: "POST", token, wallet, body: { action: actionU, sessionId: opts.sessionId || "" } });
       if (Array.isArray(resp?.sessions)) {
-        setRotationSessions(canonicalizeNkrSessions(resp.sessions));
-      } else {
-        await syncRotationSessionsFromServer();
+        // Never let a server PAUSED row overwrite an in-flight STOPPING exit.
+        const merged = canonicalizeNkrSessions(resp.sessions).map((s) => {
+          const st = String(s?.status || "").toUpperCase();
+          const ctrl = String(resp?.controlState || localStatus || "").toUpperCase();
+          if (["STOP", "STOP_EXIT", "PANIC_STOP"].includes(actionU) && st === "PAUSED") {
+            return { ...s, status: "STOPPING", lifecycleState: "STOPPING", positionState: "STOPPING" };
+          }
+          if (ctrl === "STOPPING" && st === "PAUSED") {
+            return { ...s, status: "STOPPING", lifecycleState: "STOPPING", positionState: "STOPPING" };
+          }
+          return s;
+        });
+        setRotationSessions(merged);
       }
-      if (resp?.controlState) setNkrControlState(String(resp.controlState).toUpperCase());
-      else setNkrControlState(localStatus);
-      await syncAppStateFromServer();
+      const respCtrl = String(resp?.controlState || "").toUpperCase();
       if (["STOP", "STOP_EXIT", "PANIC_STOP"].includes(actionU)) {
-        setTimeout(() => { syncRotationSessionsFromServer(); syncAppStateFromServer(); }, 2500);
-        setTimeout(() => { syncRotationSessionsFromServer(); syncAppStateFromServer(); }, 8000);
+        setNkrControlState("STOPPING");
+      } else if (respCtrl) {
+        setNkrControlState(respCtrl);
+      } else {
+        setNkrControlState(localStatus);
+      }
+      if (["STOP", "STOP_EXIT", "PANIC_STOP"].includes(actionU)) {
+        // Poll until FINALIZED, but keep STOPPING label (never re-show PAUSED).
+        const pollOnce = async () => {
+          try {
+            const live = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(String(wallet || ""))}&wallet_address=${encodeURIComponent(String(wallet || ""))}`, { method: "GET", token, wallet });
+            const rows = Array.isArray(live?.sessions) ? canonicalizeNkrSessions(live.sessions) : [];
+            const ctrl = String(live?.controlState || "").toUpperCase();
+            const patched = rows.map((s) => {
+              const st = String(s?.status || "").toUpperCase();
+              if (st === "PAUSED" && (ctrl === "STOPPING" || ["STOPPING", "FINALIZING", "CLOSING"].includes(st))) {
+                return { ...s, status: "STOPPING", lifecycleState: "STOPPING" };
+              }
+              if (st === "PAUSED" && ctrl === "STOPPING") return { ...s, status: "STOPPING", lifecycleState: "STOPPING" };
+              return s;
+            });
+            setRotationSessions(patched);
+            if (ctrl === "STOPPING" || patched.some((s) => ["STOPPING", "CLOSING", "FINALIZING"].includes(String(s?.status || "").toUpperCase()))) {
+              setNkrControlState("STOPPING");
+            } else if (ctrl && !["PAUSED"].includes(ctrl)) {
+              setNkrControlState(ctrl);
+            }
+            if (live?.strategist && typeof live.strategist === "object") setNkrStrategistStatus(live.strategist);
+          } catch (_) {}
+        };
+        setTimeout(pollOnce, 2500);
+        setTimeout(pollOnce, 8000);
+        setTimeout(pollOnce, 15000);
       }
       setRotationShadowEvents((prev) => [{
         id: `NKR-CTRL-${now}`,
@@ -12367,7 +12441,7 @@ const [aiLoading, setAiLoading] = useState(false);
         eventKind: "MONITOR",
         onChain: false,
         mode: "shadow",
-        text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" || actionU === "STOP_EXIT" ? "Stop & Exit in progress. Open positions are sold first, then the session is finalized." : "NKR deleted forever from backend.",
+        text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" || actionU === "STOP_EXIT" || actionU === "PANIC_STOP" ? "Stop & Exit in progress — session stays visible until finalized. Not paused." : "NKR deleted forever from backend.",
       }, ...(Array.isArray(prev) ? prev : [])]);
       setRotationBackendMsg(resp?.message || (actionU === "DELETE" ? "NKR deleted forever." : `NKR ${actionU.toLowerCase()} stored in backend.`));
     } catch (e) {
@@ -12375,7 +12449,7 @@ const [aiLoading, setAiLoading] = useState(false);
       setRotationBackendMsg(`NKR control failed: ${e?.message || e}`);
       setNkrControlState(localStatus);
     }
-  }, [token, wallet, syncRotationSessionsFromServer, syncAppStateFromServer, setRotationSessions, setNkrControlState, canonicalizeNkrSessions]);
+  }, [token, wallet, setRotationSessions, setNkrControlState, canonicalizeNkrSessions, setNkrExitUiState, setNkrStrategistStatus]);
 
   const runRotationShadowSimulation = useCallback(async ({ silent = false } = {}) => {
     if (rotationShadowBusy) return;
@@ -21965,7 +22039,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       };
                       const getRotationDisplayStatus = (sess) => {
                         const derived = getRotationDerivedStatus(sess);
-                        if (["STOPPING", "CLOSING"].includes(derived)) return "EXITING";
+                        const exitKey = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "");
+                        const exitUi = String(nkrExitUiState?.[exitKey] || "").toUpperCase();
+                        // While Stop & Exit is pending, never show PAUSED (even if row briefly still says PAUSED).
+                        if (["REQUESTED", "PENDING"].includes(exitUi) || String(nkrControlState || "").toUpperCase() === "STOPPING") {
+                          if (["PAUSED", "STOPPING", "CLOSING", "FINALIZING", "EXITING", "RUNNING", "ACTIVE", "WAITING", "EXECUTOR"].includes(derived) || exitUi) {
+                            return "EXITING";
+                          }
+                        }
+                        if (["STOPPING", "CLOSING", "FINALIZING", "EXITING"].includes(derived)) return "EXITING";
                         if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "PROTECTED", "RELEASED", "REBALANCED_OUT"].includes(derived)) {
                           return derived === "CLOSED" ? "COMPLETE" : derived;
                         }
@@ -23546,51 +23628,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        if (!sid) return;
-                                        const now = Date.now();
-                                        let stoppedQueue = [];
-                                        setTradingExecutionQueue((prev) => {
-                                          const all = Array.isArray(prev) ? prev : [];
-                                          stoppedQueue = all
-                                            .filter((slot) => tradingSessionIdMatches(getTradingSlotSessionId(slot), sid))
-                                            .map((slot) => ({ ...slot, status: "STOPPED", stoppedAt: now, closedAt: now }));
-                                          return all.filter((slot) => !tradingSessionIdMatches(getTradingSlotSessionId(slot), sid));
-                                        });
-                                        setTradingSessionStatus("PREPARED");
-                                        setTradingSessionUpdatedTs(now);
-                                        updateTradingSessionMeta(sid, { status: "STOPPED", stoppedAt: now, closedAt: now, active: false });
-                                        const remainingOpen = (Array.isArray(openTradingSessions) ? openTradingSessions : [])
-                                          .filter((openSess) => !tradingSessionIdMatches(openSess?.id, sid));
-                                        setActiveTradingSessionId(String(remainingOpen?.[0]?.id || ""));
-                                        updateTradingPreparedSession({
-                                          status: "PREPARED",
-                                          sessionId: sid,
-                                          stoppedAt: now,
-                                          closedAt: now,
-                                          executionQueue: [],
-                                          stoppedQueue,
-                                          userAction: { stopped: true, closedSession: true, sessionId: sid },
-                                          outcome: { status: "session_stopped_by_user" },
-                                          note: "Selected Trading session stopped from the runtime card.",
-                                        });
-                                        api("/api/nexus/trading/hold-state", {
-                                          method: "POST",
-                                          body: {
-                                            action: "stop",
-                                            queue: [],
-                                            stopped_queue: stoppedQueue,
-                                            reason: "user_stop_session_card",
-                                            session_id: sid,
-                                            base_session_id: normalizeTradingSessionBaseId(sid),
-                                            chain: sessionChain || activeGridChainKey || DEFAULT_CHAIN || "",
-                                          },
-                                        }).catch(() => {});
+                                        if (!sid || stateLabel === "STOPPING" || stateLabel === "STOPPED") return;
+                                        // Same stable path as global Trader stop: STOPPING first, then close.
+                                        setActiveTradingSessionId(sid);
+                                        handleTradingStopSession();
                                       }}
-                                      disabled={!sid || stateLabel === "STOPPED"}
+                                      disabled={!sid || stateLabel === "STOPPED" || stateLabel === "STOPPING"}
                                       style={{ color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}
-                                      title="Protect / stop only this Trading session"
+                                      title="Stop this Trading session (stays visible as stopping until closed)"
                                     >
-                                      Protect / Stop
+                                      {stateLabel === "STOPPING" ? "Stopping…" : "Protect / Stop"}
                                     </button>
                                     <button className="miniBtn" type="button" onClick={(e) => { e.stopPropagation(); setExpandedTradingSessionSlots((prev) => ({ ...(prev || {}), [sid]: !prev?.[sid] })); }} style={{ color: "#8bdcff", borderColor: "rgba(139,220,255,.25)" }} title="Show or hide this session's slots">
                                       {slotsOpen ? "Hide Slots ▲" : `Show Slots (${sessionSlots.length}) ▼`}

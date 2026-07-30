@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD298-NKR-STRATEGIST-SIGNALS-TRADER-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD300-NKR-TRADER-USER-STATUS";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8459,6 +8459,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [nkrProfitMode, setNkrProfitMode] = useState("REINVEST");
   const [nkrPeriodDays, setNkrPeriodDays] = useState("10");
   const [nkrControlState, setNkrControlState] = useState("WAITING");
+  // User-facing Strategist status (English). Regular users have no System Info access.
+  const [nkrStrategistStatus, setNkrStrategistStatus] = useState(null);
   const [rotationBudgetRelease, setRotationBudgetRelease] = useState("");
   // ENGINE-101: separate draft input for adding capital to an active NKR run.
   // Never bind this field to rotationBudgetRelease, which is the authoritative current total budget.
@@ -12117,6 +12119,10 @@ useEffect(() => {
         setNkrControlState(ctrl);
       } else {
         setNkrControlState(liveOk ? "RUNNING" : "WAITING");
+      }
+      // Strategist snapshot for the public NKR panel (English only).
+      if (r?.strategist && typeof r.strategist === "object") {
+        setNkrStrategistStatus(r.strategist);
       }
     } catch (e) {
       console.warn("rotation session sync failed", e);
@@ -22237,6 +22243,59 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Runtime:</b> {nkrOverviewRunning ? (nkrOverviewElapsedMs > 0 ? fmtRotationDuration(nkrOverviewElapsedMs) : "RUNNING") : "not running"}</div>
                               <div><b>Time Left:</b> <span style={{ color: nkrOverviewRunning && nkrOverviewRemainingMs > 0 ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewRunning ? (nkrOverviewEndTs > 0 ? (nkrOverviewRemainingMs > 0 ? fmtRotationDuration(nkrOverviewRemainingMs) : "expired") : "—") : "—"}</span></div>
                             </div>
+                            {/* User-facing Strategist status — English only; not limited to System Info */}
+                            {nkrOverviewRunning || (nkrStrategistStatus && String(nkrStrategistStatus?.status || "").toUpperCase() === "RUNNING") ? (
+                              <div
+                                style={{
+                                  marginTop: 2,
+                                  padding: "8px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid rgba(139,220,255,.28)",
+                                  background: "rgba(139,220,255,.06)",
+                                  display: "grid",
+                                  gap: 6,
+                                }}
+                              >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                                  <b style={{ color: "#8bdcff", fontSize: 12 }}>Strategist</b>
+                                  <span className="muted tiny" style={{ fontWeight: 850 }}>
+                                    Gate: <b style={{ color: "#eafff5" }}>{String(nkrStrategistStatus?.gate || "—")}</b>
+                                    {" · "}
+                                    Decision: <b style={{ color: "#eafff5" }}>{String(nkrStrategistStatus?.decision || "—")}</b>
+                                  </span>
+                                </div>
+                                <div className="muted tiny" style={{ lineHeight: 1.45, color: "rgba(232,242,240,.92)" }}>
+                                  {String(
+                                    nkrStrategistStatus?.summary
+                                    || "Scanning market. Waiting for the next strategist tick…"
+                                  )}
+                                </div>
+                                <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                                  <span>
+                                    <b>Best candidate:</b>{" "}
+                                    {String(nkrStrategistStatus?.bestCandidate || "—").toUpperCase() || "—"}
+                                    {Number(nkrStrategistStatus?.candidateScore) > 0
+                                      ? ` (${Number(nkrStrategistStatus.candidateScore).toFixed(1)})`
+                                      : ""}
+                                  </span>
+                                  {Number(nkrStrategistStatus?.candidateMomentum24h) !== 0 && Number.isFinite(Number(nkrStrategistStatus?.candidateMomentum24h)) ? (
+                                    <span>
+                                      <b>24h:</b>{" "}
+                                      {Number(nkrStrategistStatus.candidateMomentum24h) >= 0 ? "+" : ""}
+                                      {Number(nkrStrategistStatus.candidateMomentum24h).toFixed(2)}%
+                                    </span>
+                                  ) : null}
+                                  {Number(nkrStrategistStatus?.assetsScanned) > 0 ? (
+                                    <span>
+                                      <b>Scanned:</b> {Number(nkrStrategistStatus.assetsScanned)}
+                                    </span>
+                                  ) : null}
+                                  {nkrStrategistStatus?.detail && nkrStrategistStatus.detail !== nkrStrategistStatus.summary ? (
+                                    <span style={{ opacity: 0.85 }}>{String(nkrStrategistStatus.detail)}</span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
 
                           <div
@@ -22398,7 +22457,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <div><b style={{ color: "#d8fff1" }}>Open:</b> {positionRuntimeText}</div>
                                         <div><b style={{ color: "#8bdcff" }}>Invest:</b> {fmtUsd(positionValue)}</div>
                                         <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-                                          <b style={{ color: "#8bdcff" }}>Reason:</b> {String(sess?.exitReason || sess?.meta?.nkr_exit_reason || "Waiting for live cost calculation")}
+                                          <b style={{ color: "#8bdcff" }}>Reason:</b> {String(
+                                            sess?.exitReason
+                                            || sess?.meta?.nkr_exit_reason
+                                            || (Number(positionValue) <= 0
+                                              ? (nkrStrategistStatus?.summary
+                                                || nkrStrategistStatus?.detail
+                                                || "No open position yet — strategist is waiting for entry conditions.")
+                                              : "Tracking live position.")
+                                          )}
                                         </div>
                                       </div>
 
@@ -23065,6 +23132,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             : (onchainActiveCount > localActiveCount
                                 ? "ON-CHAIN SESSION PENDING"
                                 : (localActiveCount ? getTradingVaultRuntimeLabel(activeTradingSessions) : "IDLE"));
+                          // User-facing Trader/Strategist status from backend (English). No System Info required.
+                          const traderSt = nexusBackendState?.traderStatus || nexusBackendState?.strategist || null;
                           return (
                             <>
                               <div><b>Vault asset:</b> {selectedVaultToken}</div>
@@ -23078,6 +23147,52 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   On-chain Trader session #{sess.sessionId}: {String(sess.statusLabel || "ACTIVE").toUpperCase()} · Budget {fmtUsd(Number(sess.budget || 0))} · Open assets {Number(sess.openAssetCount || 0)}
                                 </div>
                               ))}
+                              {(traderSt || displayedActiveCount > 0 || traderRuntimeStatus !== "IDLE") ? (
+                                <div
+                                  style={{
+                                    gridColumn: isCompactMobile ? "1" : "1 / -1",
+                                    marginTop: 2,
+                                    padding: "8px 10px",
+                                    borderRadius: 10,
+                                    border: "1px solid rgba(139,220,255,.28)",
+                                    background: "rgba(139,220,255,.06)",
+                                    display: "grid",
+                                    gap: 6,
+                                  }}
+                                >
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                                    <b style={{ color: "#8bdcff", fontSize: 12 }}>Trader / Strategist</b>
+                                    <span className="muted tiny" style={{ fontWeight: 850 }}>
+                                      Gate: <b style={{ color: "#eafff5" }}>{String(traderSt?.gate || "—")}</b>
+                                      {" · "}
+                                      Decision: <b style={{ color: "#eafff5" }}>{String(traderSt?.decision || traderRuntimeStatus || "—")}</b>
+                                    </span>
+                                  </div>
+                                  <div className="muted tiny" style={{ lineHeight: 1.45, color: "rgba(232,242,240,.92)" }}>
+                                    {String(
+                                      traderSt?.summary
+                                      || (traderRuntimeStatus === "IDLE"
+                                        ? "Trader is idle. Approve a budget and start a session to begin execution."
+                                        : "Trader is running. Waiting for the next decision tick…")
+                                    )}
+                                  </div>
+                                  <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                                    <span>
+                                      <b>Best candidate:</b>{" "}
+                                      {String(traderSt?.bestCandidate || "—").toUpperCase() || "—"}
+                                      {Number(traderSt?.candidateScore) > 0
+                                        ? ` (${Number(traderSt.candidateScore).toFixed(1)})`
+                                        : ""}
+                                    </span>
+                                    {Number(traderSt?.assetsScanned) > 0 ? (
+                                      <span><b>Scanned:</b> {Number(traderSt.assetsScanned)}</span>
+                                    ) : null}
+                                    {traderSt?.detail && traderSt.detail !== traderSt.summary ? (
+                                      <span style={{ opacity: 0.85 }}>{String(traderSt.detail)}</span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ) : null}
                             </>
                           );
                         })()}
@@ -23094,7 +23209,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           Trader recovery required: {pending.length} on-chain session{pending.length === 1 ? "" : "s"} still reserve capital.
                           {pending.map((sess) => ` #${sess.sessionId} (${String(sess.statusLabel || "ACTIVE").toUpperCase()})`).join(",")}
                           <div className="muted tiny" style={{ marginTop: 4 }}>
-                            Open System Info to monitor or recover the session. Trader remains blocked until finalization is confirmed on-chain.
+                            Capital remains reserved until finalization is confirmed on-chain. Use session controls or contact support if recovery stays blocked.
                           </div>
                         </div>
                       );

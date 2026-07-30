@@ -2515,3 +2515,31 @@ body::before {
   }
 }
 /* === END v98 section-grid minimize === */
+
+
+/* =========================================================
+   Live Core Vault Capital — never overflow panel width
+   ========================================================= */
+.liveCoreVaultBlock{
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+.liveCoreVaultBlock select,
+.liveCoreVaultBlock input,
+.liveCoreVaultMetrics > div{
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+.section-grid .panelScroll,
+.section-grid .gridLayout,
+.section-grid .gridLeft{
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+.dashboardGrid:not(.hasFocus) .section-grid.dashboardPanel{
+  overflow: hidden !important;
+  min-width: 0 !important;
+}
+/* === END live vault overflow fix === */

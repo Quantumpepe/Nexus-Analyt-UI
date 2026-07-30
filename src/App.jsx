@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD312-STOP-EXIT-STABLE";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD314-STRATEGIST-CHAT-HISTORY";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -16735,6 +16735,8 @@ function detectNexusUserIntent(text = "") {
   const q = String(text || "").toLowerCase();
   // Strict query router: latest user wording decides the Strategist mode.
   if (/(günstig|guenstig|billig|teurer|verkaufen|arbitrage|spread|exchange|börse|boerse|preisunterschied|premium|discount|wo.*kaufen|wo.*verkaufen|wo.*besser|wo.*mehr wert|anderer preis|lohnt|different price|cheaper|buy cheaper|sell higher|where.*buy|where.*sell|where.*better|higher price|more expensive there|worth it)/i.test(q)) return "rotation_spread";
+  // Coin / asset ranking questions must not fall back to a generic market overview.
+  if (/(welche\s+coin|welche\s+coins|welcher\s+coin|welche\s+assets?|welche\s+token|best\s+coin|best\s+coins|which\s+coin|which\s+coins|which\s+assets?|top\s+coins?|gute\s+coins?|coins?\s+sind\s+(denn\s+)?gut|assets?\s+sind\s+(denn\s+)?gut|was\s+handeln|what\s+to\s+trade|was\s+ist\s+stark)/i.test(q)) return "rotation";
   if (/(rotation|rotieren|relative|stärke|staerke|weakness|strength|kapitalfluss|capital flow|outperform|underperform|welcher.*stärker|welcher.*staerker|which.*stronger|besserer coin|better coin|stärker als|staerker als|stronger than)/i.test(q)) return "rotation";
   if (/(grid|range|seitwärts|seitwaerts|sideways|levels|raster)/i.test(q)) return "grid";
   if (/(trading|autonom|runtime|slot|allocation|budget|position|vault|execute|execution)/i.test(q)) return "trading";
@@ -16976,10 +16978,13 @@ function aiTaskPlaceholder(kind) {
 
 async function runAi() {
     setErrorMsg("");
-    setAiOutput("");
     if (!requireStrategistAccess("Nexus Strategist")) return;
     const q = (aiQuestion || "").trim();
     if (!q) return setErrorMsg("Please describe what the Nexus Strategist should do.");
+    // Capture previous output BEFORE clearing — otherwise follow-up context is lost.
+    const previousOutput = String(aiOutput || "");
+    const previousHistory = Array.isArray(aiHistory) ? aiHistory.slice(-10) : [];
+    setAiOutput("");
     const userLang = detectNexusUserLanguage(q);
     const isGermanAsk = userLang === "de";
     const isEnglishAsk = userLang === "en";
@@ -16989,7 +16994,7 @@ async function runAi() {
     // but coin chips are no longer shown in the AI Analyst UI.
     const syms = aiUsesCompareContext ? (compareSymbols || []) : [];
 
-    const isFollowUpAsk = !!aiFollowUp && !!aiOutput;
+    const isFollowUpAsk = !!aiFollowUp && !!previousOutput;
     const aiKindPrompts = isGermanAsk ? {
       research: `Arbeite als Nexus Strategist. Verstehe die Nutzerfrage zuerst, erkenne den passenden Marktmodus und antworte direkt. Nutze Rotation, relative Stärke, Spread, Volumen, Marktstruktur und Exchange-Kontext nur wenn relevant. Keine internen Module erwähnen.`,
       strategy_builder: `Arbeite als Nexus Strategist und Strategy Builder. Übersetze die Idee in eine verständliche, nicht-anweisende Strategie-Logik. Wenn der Nutzer nach günstig kaufen / teurer verkaufen / Rotation fragt, behandle es als Rotation-/Spread-Analyse und nicht als allgemeinen Trading-Report.`,
@@ -17053,13 +17058,16 @@ NEXT CHECK
     const qFinal = isFollowUpAsk
       ? `${basePrompt}${responseFormatPrompt}
 
-Follow-up mode:
-Answer only the user's follow-up. Keep the previous Strategist context.
+Follow-up mode (CRITICAL):
+- The user already received a previous answer. Do NOT repeat that answer.
+- Answer the NEW follow-up question directly and specifically.
+- If the user asks which coins/assets look good, rank concrete symbols from the provided market/watchlist context (relative strength, momentum, volume quality). Do not restate a generic market overview.
+- Keep prior context only as background; the new question is the priority.
 
-Previous Strategist output:
-${String(aiOutput || "").slice(0, 1200)}
+Previous Strategist output (context only, do not copy):
+${previousOutput.slice(0, 900)}
 
-User follow-up:
+User follow-up (answer THIS):
 ${q}`
       : `${basePrompt}${responseFormatPrompt}
 
@@ -17113,14 +17121,16 @@ ${q}`;
         .filter(Boolean)
         .join("\n\n");
 
-      const trimmedHist = (aiHistory || []).slice(-10);
+      const trimmedHist = previousHistory;
       const historyText = trimmedHist
-        .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
+        .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${String(m.content || "").slice(0, 600)}`)
         .join("\n");
 
       const header = isGermanAsk
         ? (`USER_LANGUAGE: de
 USER_INTENT: ${userIntent}
+STRATEGIST_FOLLOWUP: ${isFollowUpAsk ? "yes" : "no"}
+LATEST_USER_QUESTION: ${q}
 ` +
           `UI-Zeitraum: ${uiTf}.
 ` +
@@ -17146,6 +17156,8 @@ ${aiSignalText}
 ` : ""))
         : (`USER_LANGUAGE: en
 USER_INTENT: ${userIntent}
+STRATEGIST_FOLLOWUP: ${isFollowUpAsk ? "yes" : "no"}
+LATEST_USER_QUESTION: ${q}
 ` +
           `UI timeframe: ${uiTf}.
 ` +
@@ -17171,7 +17183,9 @@ ${aiSignalText}
 ` : ""));
 
       const questionText =
-        isFollowUpAsk && historyText ? `${header}${historyText}\nUser: ${qFinal}` : `${header}User: ${qFinal}`;
+        isFollowUpAsk && historyText
+          ? `${header}\nPrior conversation:\n${historyText}\n\nLatest user question (answer this, do not repeat prior answer):\n${q}\n\n${qFinal}`
+          : `${header}\nUser: ${qFinal}`;
 
       const body = {
         kind: aiKind,
@@ -17182,10 +17196,16 @@ ${aiSignalText}
         selected_timeframe: uiTf,
         explicit_question_timeframe: explicitTf || null,
         index_mode: !!indexMode,
-        history: isFollowUpAsk ? trimmedHist : [],
+        history: isFollowUpAsk ? trimmedHist : previousHistory,
         series_stats: seriesStats,
         insight_windows: insightWindows,
-        ai_signal_context: aiSignalContext,
+        ai_signal_context: {
+          ...(aiSignalContext && typeof aiSignalContext === "object" ? aiSignalContext : {}),
+          strategist_followup: !!isFollowUpAsk,
+          previous_response_summary: isFollowUpAsk ? previousOutput.slice(0, 1200) : "",
+          raw_user_question: q,
+          user_intent: userIntent,
+        },
         user_language: userLang,
         raw_user_question: q,
         user_intent: userIntent,
@@ -17194,7 +17214,7 @@ ${aiSignalText}
         strategist_intelligence_focus: "hidden_why_risk_context_invalidation_confidence",
         strategist_quality_gate: true,
         strategist_followup: !!isFollowUpAsk,
-        previous_response_summary: isFollowUpAsk ? String(aiOutput || "").slice(0, 1200) : "",
+        previous_response_summary: isFollowUpAsk ? previousOutput.slice(0, 1200) : "",
       };
 
       if (!token) throw new Error("Please reconnect your wallet to authorize AI.");
@@ -17212,16 +17232,16 @@ ${aiSignalText}
       text = normalizeAiOutput(text, tf, qFinal, seriesStats);
       setAiOutput(text);
 
-      if (isFollowUpAsk) {
-        setAiHistory((prev) => {
-          const next = [...(prev || []), { role: "user", content: qFinal }, { role: "assistant", content: text }];
-          return next.slice(-10);
-        });
-      }
+      // Always keep conversation memory so the next follow-up has both turns.
+      setAiHistory((prev) => {
+        const base = Array.isArray(prev) ? prev : [];
+        const next = [...base, { role: "user", content: q }, { role: "assistant", content: text }];
+        return next.slice(-10);
+      });
       if (isFollowUpAsk) {
         setAiQuestion("");
       } else if (!aiFollowUp) {
-        setAiHistory([]);
+        // Fresh non-follow-up thread still stores the current exchange for optional follow-up.
       }
     } catch (e) {
       const msg = String(e?.message || e || "AI Analyst request failed.");
@@ -25384,7 +25404,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const on = !!e.target.checked;
                       setAiFollowUp(on);
                       setAiQuestion("");
-                      if (!on) setAiHistory([]);
+                      // Keep conversation history when toggling Follow-up off/on so the thread stays visible.
+                      // Only Clear / mode change resets the thread.
                     }}
                   />
                   Follow-up
@@ -25415,70 +25436,117 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
 
             <div className="aiOut">
-              <div className="label">Strategic Output</div>
-              <div className="aiPanel">
-                {aiOutput ? (
-                  <div style={{ display: "grid", gap: 8 }}>
-                    {aiOutputSections.map((section, idx) => {
-                      const meta = aiAnalystSectionMeta[section.key] || aiAnalystSectionMeta.output;
+              <div className="label" style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                <span>Strategic Output</span>
+                {(Array.isArray(aiHistory) && aiHistory.length > 0) ? (
+                  <span className="muted tiny">{aiHistory.filter((m) => m?.role === "user").length} turn{aiHistory.filter((m) => m?.role === "user").length === 1 ? "" : "s"}</span>
+                ) : null}
+              </div>
+              <div className="aiPanel" style={{ maxHeight: 520, overflowY: "auto" }}>
+                {(Array.isArray(aiHistory) && aiHistory.length > 0) || aiOutput ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {/* Conversation thread: every user question + assistant answer stays visible for follow-ups. */}
+                    {(Array.isArray(aiHistory) && aiHistory.length > 0 ? aiHistory : (
+                      aiOutput ? [{ role: "assistant", content: aiOutput }] : []
+                    )).map((msg, mi) => {
+                      const role = String(msg?.role || "").toLowerCase();
+                      const content = String(msg?.content || "");
+                      if (!content) return null;
+                      if (role === "user") {
+                        return (
+                          <div
+                            key={`hist-user-${mi}`}
+                            style={{
+                              border: "1px solid rgba(139,220,255,.22)",
+                              background: "rgba(139,220,255,.08)",
+                              borderRadius: 12,
+                              padding: "8px 10px",
+                            }}
+                          >
+                            <div className="muted tiny" style={{ fontWeight: 800, marginBottom: 4, letterSpacing: ".06em", textTransform: "uppercase" }}>You</div>
+                            <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.35 }}>{content}</div>
+                          </div>
+                        );
+                      }
+                      // Assistant turns: parse sections for the latest answer; older turns stay as compact text.
+                      const isLatestAssistant = mi === (aiHistory?.length ? aiHistory.length - 1 : 0) && role === "assistant";
+                      const sections = isLatestAssistant && aiOutputSections?.length
+                        ? aiOutputSections
+                        : parseAiAnalystOutput(content);
                       return (
-                        <div
-                          key={`${section.key}-${idx}`}
-                          style={{
-                            border: "1px solid rgba(255,255,255,0.10)",
-                            background: "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025))",
-                            borderRadius: 14,
-                            padding: "8px 10px",
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-                            <div style={{ fontWeight: 900, fontSize: 12, letterSpacing: ".08em", textTransform: "uppercase", color: "#dfffee" }}>
-                              {meta.title}
-                            </div>
-                            <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>{meta.sub}</div>
+                        <div key={`hist-asst-${mi}`} style={{ display: "grid", gap: 8 }}>
+                          <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase" }}>
+                            Nexus Strategist{isLatestAssistant ? " · latest" : ""}
                           </div>
-                          <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.28 }}>
-                            {section.body}
-                          </div>
-                          {nexusStrategistCanShowAction(section, detectNexusUserIntent(aiQuestion || "")) ? (
-                            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-                              <button
-                                className="btn"
-                                type="button"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  if (section.key === "nexus_grid") applyStrategistToGrid(section.body);
-                                  if (section.key === "nexus_rotation" || section.key === "exchange_spread") applyStrategistToRotation(section.body);
-                                  if (section.key === "nexus_trading") applyStrategistToTrading(section.body);
+                          {(sections && sections.length ? sections : [{ key: "output", body: content }]).map((section, idx) => {
+                            const meta = aiAnalystSectionMeta[section.key] || aiAnalystSectionMeta.output || { title: section.key || "Output", sub: "" };
+                            return (
+                              <div
+                                key={`${section.key}-${mi}-${idx}`}
+                                style={{
+                                  border: "1px solid rgba(255,255,255,0.10)",
+                                  background: isLatestAssistant
+                                    ? "linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025))"
+                                    : "rgba(0,0,0,.18)",
+                                  borderRadius: 14,
+                                  padding: "8px 10px",
+                                  opacity: isLatestAssistant ? 1 : 0.88,
                                 }}
-                                title={
-                                  aiOutputLanguage === "de"
-                                    ? (section.key === "nexus_grid"
-                                      ? "Diese Idee in Nexus Grid vorbereiten. Es wird keine Order erstellt."
-                                      : section.key === "nexus_trading"
-                                        ? "Diese Idee in Nexus Trading vorbereiten. Die Automation wird nicht aktiviert."
-                                        : "Diese NKR-Idee vorbereiten. Es wird kein Swap ausgeführt.")
-                                    : (section.key === "nexus_grid"
-                                      ? "Prepare this idea in Nexus Grid. This does not create an order."
-                                      : section.key === "nexus_trading"
-                                        ? "Prepare this idea in Nexus Trading. This does not activate automation."
-                                        : "Prepare this NKR idea. This does not execute a swap.")
-                                }
-                                style={{ height: 28, paddingInline: 10, fontSize: 12 }}
                               >
-                                {aiOutputLanguage === "de"
-                                  ? (section.key === "nexus_grid" ? "In Grid nutzen" : section.key === "nexus_trading" ? "In Trading nutzen" : "In NKR nutzen")
-                                  : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Nexus NKR")}
-                              </button>
-                            </div>
-                          ) : null}
+                                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                                  <div style={{ fontWeight: 900, fontSize: 12, letterSpacing: ".08em", textTransform: "uppercase", color: "#dfffee" }}>
+                                    {meta.title}
+                                  </div>
+                                  <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>{meta.sub}</div>
+                                </div>
+                                <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.28 }}>
+                                  {section.body}
+                                </div>
+                                {isLatestAssistant && nexusStrategistCanShowAction(section, detectNexusUserIntent(aiQuestion || content || "")) ? (
+                                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                                    <button
+                                      className="btn"
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        if (section.key === "nexus_grid") applyStrategistToGrid(section.body);
+                                        if (section.key === "nexus_rotation" || section.key === "exchange_spread") applyStrategistToRotation(section.body);
+                                        if (section.key === "nexus_trading") applyStrategistToTrading(section.body);
+                                      }}
+                                      title={
+                                        aiOutputLanguage === "de"
+                                          ? (section.key === "nexus_grid"
+                                            ? "Diese Idee in Nexus Grid vorbereiten. Es wird keine Order erstellt."
+                                            : section.key === "nexus_trading"
+                                              ? "Diese Idee in Nexus Trading vorbereiten. Die Automation wird nicht aktiviert."
+                                              : "Diese NKR-Idee vorbereiten. Es wird kein Swap ausgeführt.")
+                                          : (section.key === "nexus_grid"
+                                            ? "Prepare this idea in Nexus Grid. This does not create an order."
+                                            : section.key === "nexus_trading"
+                                              ? "Prepare this idea in Nexus Trading. This does not activate automation."
+                                              : "Prepare this NKR idea. This does not execute a swap.")
+                                      }
+                                      style={{ height: 28, paddingInline: 10, fontSize: 12 }}
+                                    >
+                                      {aiOutputLanguage === "de"
+                                        ? (section.key === "nexus_grid" ? "In Grid nutzen" : section.key === "nexus_trading" ? "In Trading nutzen" : "In NKR nutzen")
+                                        : (section.key === "nexus_grid" ? "Use in Grid" : section.key === "nexus_trading" ? "Use in Trading" : "Use in Nexus NKR")}
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
                         </div>
                       );
                     })}
+                    {aiLoading ? (
+                      <div className="muted tiny" style={{ padding: "6px 2px" }}>Strategist is thinking…</div>
+                    ) : null}
                   </div>
                 ) : (
-                  <div className="muted">{aiOutputLanguage === "de" ? "Noch keine Ausgabe." : "No output yet."}</div>
+                  <div className="muted">{aiOutputLanguage === "de" ? "Noch keine Ausgabe. Follow-up behält den Verlauf hier." : "No output yet. Follow-up keeps the conversation here."}</div>
                 )}
               </div>
             </div>

@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD336-BNB-POL-START-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD338-STABLE-USD-PRICE";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -5086,7 +5086,7 @@ useEffect(() => {
         return new Error(
           `Not enough free ${selectedAsset} on ${selectedChain}` +
           (avail != null ? ` (free ~${avail}, need ~${req ?? budget})` : "") +
-          `. Deposit ${selectedAsset} on ${selectedChain}, then start again.`
+          `. Check Live Core Vault Capital → ${selectedChain} → Free. If Free is 0 while Balance looks funded, the USDC contract may differ (native vs bridged) — refresh vault status.`
         );
       }
       if (/privy_live_execution_not_ready|privy_wallet_mapping/i.test(code)) {
@@ -14461,25 +14461,36 @@ setGridBusy((s) => ({ ...s, stop: true }));
   const getNexusOrderPriceUsd = useCallback((symbol) => {
     const sym = String(symbol || "").toUpperCase().trim();
     if (!sym) return 0;
+    // Stables are always $1 — never inherit grid/NKR ticker price.
+    if (["USDC", "USDT", "USD", "DAI"].includes(sym) || sym.includes("USDC") || sym.includes("USDT")) return 1;
     try {
       const rows = Array.isArray(watchRows) ? watchRows : [];
       const row = rows.find((r) => String(r?.symbol || r?.coin || r?.id || "").toUpperCase() === sym);
-      const candidates = [
-        row?.price,
-        row?.priceUsd,
-        row?.usd,
-        row?.current_price,
-        row?.currentPrice,
-        row?.market_data?.current_price?.usd,
-      ];
-      for (const v of candidates) {
-        const n = Number(v);
-        if (Number.isFinite(n) && n > 0) return n;
+      if (row) {
+        const candidates = [
+          row?.price,
+          row?.priceUsd,
+          row?.usd,
+          row?.current_price,
+          row?.currentPrice,
+          row?.market_data?.current_price?.usd,
+        ];
+        for (const v of candidates) {
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 0) return n;
+        }
       }
     } catch (_) {}
-    const activePx = Number(activeGridNativeUsd || 0);
-    return Number.isFinite(activePx) && activePx > 0 ? activePx : 0;
-  }, [watchRows, activeGridNativeUsd]);
+    // Only use active native USD when the symbol is that chain's native coin.
+    const nativeSym = String(activeGridChainKey || "").toUpperCase() === "BNB" ? "BNB"
+      : String(activeGridChainKey || "").toUpperCase() === "POL" ? "POL"
+      : "ETH";
+    if (sym === nativeSym || (sym === "MATIC" && nativeSym === "POL") || (sym === "WETH" && nativeSym === "ETH") || (sym === "WBNB" && nativeSym === "BNB")) {
+      const activePx = Number(activeGridNativeUsd || 0);
+      if (Number.isFinite(activePx) && activePx > 0) return activePx;
+    }
+    return 0;
+  }, [watchRows, activeGridNativeUsd, activeGridChainKey]);
 
   const resolveFundingBeforeOrder = useCallback(async ({ source, chain, symbol, side = "BUY", priceUsd, qty, budgetUsd, meta = {}, fundingApproved = false, fundingSourceAsset = "", pendingKind = "CORE" }) => {
     if (fundingApproved) return true;
@@ -21883,23 +21894,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     : Number(account?.allocatedGrid || 0);
                 const systemLabel = modeKey === "rotation" ? "NKR" : modeKey === "trading" ? "Trader" : "Grid";
                 const chainConnected = !!selectedVaultState?.connected;
-                const isStableSymbol = (symbol) => ["USDC", "USDT", "USD", "DAI"].includes(String(symbol || "").toUpperCase());
+                // Any USDC/USDT variant is 1:1 USD — never price USDC_NATIVE via NKR/grid quote (~$0.07).
+                const isStableSymbol = (symbol) => {
+                  const s = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                  if (["USDC", "USDT", "USD", "DAI"].includes(s)) return true;
+                  if (s.includes("USDC") || s.includes("USDT")) return true; // USDC_NATIVE, NATIVE_USDC, …
+                  return false;
+                };
                 const resolveVaultUsdPrice = (symbol) => {
                   const sym = String(symbol || "").toUpperCase();
                   if (isStableSymbol(sym)) return 1;
                   // Map wraps to display symbols for price lookup
                   const lookup = { WETH: "ETH", WBNB: "BNB", WMATIC: "POL", MATIC: "POL", CBBTC: "BTC", WBTC: "BTC", BTCB: "BTC" }[sym] || sym;
+                  const rows = Array.isArray(watchRows) ? watchRows : [];
+                  const row = rows.find((r) => String(r?.symbol || r?.sym || r?.coin || "").toUpperCase() === lookup)
+                    || rows.find((r) => String(r?.symbol || r?.sym || r?.coin || "").toUpperCase() === sym);
+                  if (row) {
+                    const px = Number(row?.price ?? row?.priceUsd ?? row?.usd ?? row?.current_price ?? row?.last ?? 0);
+                    if (px > 0) return px;
+                  }
+                  // Exact lookup only — never fall back to activeGridNativeUsd / NKR price ($0.07).
                   try {
                     if (typeof getNexusOrderPriceUsd === "function") {
-                      const p = Number(getNexusOrderPriceUsd(lookup) || getNexusOrderPriceUsd(sym) || 0);
-                      if (p > 0) return p;
+                      const p = Number(getNexusOrderPriceUsd(lookup) || 0);
+                      // Reject absurd "prices" that match the UI token ticker (~0.07 for NKR)
+                      if (p > 0.5 || lookup === "ETH" || lookup === "BNB" || lookup === "BTC") {
+                        if (p > 0) return p;
+                      }
+                      // POL/MATIC can be <$1 — accept any positive only if row matched lookup above
                     }
                   } catch {}
-                  const rows = Array.isArray(watchRows) ? watchRows : [];
-                  const row = rows.find((r) => String(r?.symbol || r?.sym || "").toUpperCase() === lookup)
-                    || rows.find((r) => String(r?.symbol || r?.sym || "").toUpperCase() === sym);
-                  const px = Number(row?.price ?? row?.priceUsd ?? row?.usd ?? row?.last ?? 0);
-                  return px > 0 ? px : 0;
+                  return 0;
                 };
                 const formatVaultAmount = (value, symbol) => {
                   const n = Number(value || 0);
@@ -21909,10 +21934,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
                 };
                 const formatVaultUsdHint = (value, symbol) => {
-                  if (isStableSymbol(symbol)) return "";
                   const px = resolveVaultUsdPrice(symbol);
                   if (!(px > 0)) return "";
                   const usd = Number(value || 0) * px;
+                  // Stables: show 1:1 value so 19 USDC_NATIVE → ≈ $19.00
                   return `≈ $${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                 };
                 const formatVaultPrimary = (value, symbol) => {

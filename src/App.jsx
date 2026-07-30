@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD328-VAULT-NO-SINGLE-CHIP";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD329-RAIL-FULL-CLICK";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -17510,13 +17510,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
   const el = e?.target;
   if (!el || typeof el.closest !== "function") return;
 
-  // Global UX guard:
-  // Empty clicks inside cards/panels must never close, toggle away, or switch the active workspace.
-  // A desktop panel may only be focused from its header/title area, not from random empty body space.
+  // Buttons/inputs inside the tile still do their own job (mode switch, info, …)
   const interactive = el.closest('button, input, select, textarea, label, a, [role="dialog"], .infoBtn, .iconBtn, .chip, .btn, .btnGhost, .btnDanger, .btnPill, .pill, .pairRow, .pairsScroll, .watchRow, .sessionCard, .rotationSessionCard, .tradingSessionCard, .orderRow, .watchTable, .ordersList');
   if (interactive) return;
 
-  const headerClick = el.closest('.cardHead');
+  const panelEl = el.closest(".dashboardPanel");
+  const inFocusedDashboard = !!el.closest(".dashboardGrid.hasFocus");
+  const isMinimizedRailTile = !!(inFocusedDashboard && panelEl && !panelEl.classList.contains("panelActive"));
+
+  // Minimized right-rail tiles: the whole surface expands the panel (not only the header)
+  if (isMinimizedRailTile) {
+    setActivePanel(name);
+    return;
+  }
+
+  // Overview / already-expanded panels: keep header-only focus (avoids accidental switches)
+  const headerClick = el.closest(".cardHead");
   if (!headerClick) return;
 
   setActivePanel(name);

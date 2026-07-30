@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD315-STRATEGIST-CHAT";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD316-STRATEGIST-CHAT-LAYOUT";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -25360,47 +25360,79 @@ const handlePanelActivate = useCallback((name) => (e) => {
           </div>
 
           <div className="panelScroll"><div className="aiWrap" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
-              <div className="aiChips" style={{ gap: 6 }}>
-                {[
-                  ["research", "Research"],
-                  ["strategy_builder", "Strategy Builder"],
-                  ["backtest_review", "Backtest Review"],
-                  ["pine_tradingview", "Pine Builder"],
-                  ["daily_report", "Daily Report"],
-                  ["diagnostics", "Trade Review"],
-                ].map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={`chip ${aiKind === value ? "active" : ""}`}
-                    onClick={() => {
-                      setAiKind(value);
-                      // Mode change does not wipe chat — only Clear does.
-                    }}
-                    title={`Nexus Strategist mode: ${label}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <button
-                className="btnGhost"
-                type="button"
-                onClick={() => {
-                  setAiOutput("");
-                  setAiQuestion("");
-                  setAiHistory([]);
-                  setErrorMsg("");
-                }}
-              >
-                Clear chat
-              </button>
-            </div>
-
             {!isPro ? (
               <div className="hint" style={{ color: "rgba(255,255,255,0.75)" }}>
                 Nexus Strategist is a separate add-on: <b>$20/7 days</b> or <b>$50/30 days</b>. Demo users can try limited AI usage; Core users need Strategist access for full Strategist mode.
+              </div>
+            ) : null}
+
+            {/* Top context strip — fills empty space with live Nexus context */}
+            {(() => {
+              const watchCount = Array.isArray(watchRows) ? watchRows.length : 0;
+              const nkrLive = Array.isArray(rotationSessions)
+                ? rotationSessions.filter((s) => !["STOPPED", "FINALIZED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED"].includes(String(s?.status || "").toUpperCase())).length
+                : 0;
+              const traderLive = Array.isArray(openTradingSessions) ? openTradingSessions.length : 0;
+              const pulse = Array.isArray(marketBannerItems) && marketBannerItems[0] ? marketBannerItems[0] : null;
+              const pulseValue = String(pulse?.value || "").trim();
+              const ctrl = String(nkrControlState || "WAITING").toUpperCase();
+              return (
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: isCompactMobile ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))",
+                  gap: 8,
+                }}>
+                  {[
+                    { k: "Pulse", v: pulseValue || "Market pulse", s: String(pulse?.detail || "Live banner context").slice(0, 72) },
+                    { k: "Watchlist", v: `${watchCount} assets`, s: "Visible market scope for answers" },
+                    { k: "NKR", v: nkrLive > 0 ? `${nkrLive} live · ${ctrl}` : ctrl || "WAITING", s: nkrLive > 0 ? "Active rotation session" : "No live NKR session" },
+                    { k: "Trading", v: traderLive > 0 ? `${traderLive} open` : "Idle", s: traderLive > 0 ? "Open trader sessions" : "No open trader session" },
+                  ].map((card) => (
+                    <div
+                      key={card.k}
+                      style={{
+                        border: "1px solid rgba(255,255,255,.10)",
+                        background: "linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.18))",
+                        borderRadius: 12,
+                        padding: "8px 10px",
+                        minHeight: 58,
+                      }}
+                    >
+                      <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase" }}>{card.k}</div>
+                      <div style={{ fontWeight: 850, fontSize: 13, marginTop: 2, color: "#dfffee" }}>{card.v}</div>
+                      <div className="muted tiny" style={{ marginTop: 2, lineHeight: 1.25 }}>{card.s}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+
+            {/* Quick prompts — only when chat is empty */}
+            {!(Array.isArray(aiHistory) && aiHistory.length) && !aiOutput ? (
+              <div style={{ display: "grid", gap: 6 }}>
+                <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase" }}>Quick start</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {[
+                    "How is the crypto market today?",
+                    "Which watchlist coins look strongest?",
+                    "Any rotation edge right now?",
+                    "What is the main risk this week?",
+                    "Is NKR or Grid better in this market?",
+                  ].map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      className="chip"
+                      onClick={() => {
+                        setAiQuestion(prompt);
+                      }}
+                      title="Fill chat input"
+                      style={{ fontSize: 12 }}
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
               </div>
             ) : null}
 
@@ -25413,7 +25445,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <span className="muted tiny">crypto · market · Nexus only</span>
                 )}
               </div>
-              <div className="aiPanel" style={{ minHeight: 280, maxHeight: 440, overflowY: "auto", display: "grid", gap: 10, alignContent: "start" }}>
+              <div className="aiPanel" style={{ minHeight: 240, maxHeight: 420, overflowY: "auto", display: "grid", gap: 10, alignContent: "start" }}>
                 {(Array.isArray(aiHistory) && aiHistory.length > 0) || aiOutput ? (
                   <div style={{ display: "grid", gap: 10 }}>
                     {(Array.isArray(aiHistory) && aiHistory.length > 0 ? aiHistory : (
@@ -25504,14 +25536,48 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ) : null}
                   </div>
                 ) : (
-                  <div className="muted" style={{ padding: "12px 4px" }}>
-                    Ask about crypto markets, coins, rotation, NKR, Grid, Trading, risk or Nexus setup.
-                    General non-crypto questions are blocked.
+                  <div className="muted" style={{ padding: "10px 4px", lineHeight: 1.45 }}>
+                    Chat about markets, coins, rotation, risk, NKR, Grid or Trading. Use a quick-start chip or type below.
                   </div>
                 )}
               </div>
 
-              {/* Chat input lives inside the output panel — no separate Strategy Task box. */}
+              {/* Mode chips sit directly above the chat input */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", justifyContent: "space-between" }}>
+                <div className="aiChips" style={{ gap: 6 }}>
+                  {[
+                    ["research", "Research"],
+                    ["strategy_builder", "Strategy Builder"],
+                    ["backtest_review", "Backtest Review"],
+                    ["pine_tradingview", "Pine Builder"],
+                    ["daily_report", "Daily Report"],
+                    ["diagnostics", "Trade Review"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`chip ${aiKind === value ? "active" : ""}`}
+                      onClick={() => setAiKind(value)}
+                      title={`Mode: ${label}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="btnGhost"
+                  type="button"
+                  onClick={() => {
+                    setAiOutput("");
+                    setAiQuestion("");
+                    setAiHistory([]);
+                    setErrorMsg("");
+                  }}
+                >
+                  Clear chat
+                </button>
+              </div>
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
                 <textarea
                   value={aiQuestion}

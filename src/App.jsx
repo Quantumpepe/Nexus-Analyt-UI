@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD309-PAUSE-KEEP-CARD";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD310-AGGRESSIVE-STICKY";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8893,13 +8893,15 @@ useEffect(() => {
       setNkrControlState("UNKNOWN");
     }
     setRotationBackendMsg(`NKR session approved ✓ ${sessionId}. Period ${periodDays} days, max active NKR sessions ${activeLimit}. Paper-only until live permissions are connected.`);
-    // ENGINE-215: Setup always returns to Dynamic for the next NKR run.
-    // The active session keeps its saved mode and the overview reads that session mode separately.
-    setNkrCapitalMode("DYNAMIC");
-    setNkrAggressiveAcceptedForDraft(false);
+    // Keep the confirmed mode (including Aggressive after warning). Do NOT force Dynamic here —
+    // the live Strategist worker reads nkrCapitalMode from app-state; resetting would drop Aggressive.
     setNkrAggressivePendingValue("");
     setNkrAggressiveConsentOpen(false);
-  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrCapitalMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
+    // Keep nkrAggressiveAcceptedForDraft true only if the started mode was Aggressive.
+    if (String(startedNkrCapitalMode || "").toUpperCase() !== "AGGRESSIVE") {
+      setNkrAggressiveAcceptedForDraft(false);
+    }
+  }, [rotationBudgetRelease, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -11381,28 +11383,36 @@ useEffect(() => {
   }, [setNkrCapitalMode, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
 
   const handleNkrBudgetInputChange = useCallback((value) => {
-    resetNkrAggressiveDraftSelection();
+    // Only reset Aggressive when there is no live NKR run. Changing "Add Capital" while
+    // Aggressive is active must not silently drop the consented mode.
+    const hasLiveNkr = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED", "EXPIRED", "CLOSED", "DELETED", "ARCHIVED", "REBALANCED_OUT", "FINALIZED", "COMPLETE", "COMPLETED", "CANCELLED", "RELEASED"].includes(String(s?.status || "").toUpperCase()));
+    if (!hasLiveNkr) {
+      resetNkrAggressiveDraftSelection();
+    }
     setRotationBudgetRelease(value);
     setRotationBudgetReleased(false);
-  }, [resetNkrAggressiveDraftSelection, setRotationBudgetRelease, setRotationBudgetReleased]);
+  }, [resetNkrAggressiveDraftSelection, setRotationBudgetRelease, setRotationBudgetReleased, rotationSessions]);
 
   const applyRunningNkrMode = useCallback(async (nextMode) => {
     const next = String(nextMode || "DYNAMIC").toUpperCase();
-    const hasActiveRun = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "DELETED", "ARCHIVED", "REBALANCED_OUT", "FINALIZED", "STOPPING", "FINALIZING", "COMPLETE", "COMPLETED", "CANCELLED", "RELEASED"].includes(String(s?.status || "").toUpperCase()));
+    // PAUSED still counts as an active run — mode change must reach backend + worker.
+    const hasActiveRun = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED", "EXPIRED", "CLOSED", "DELETED", "ARCHIVED", "REBALANCED_OUT", "FINALIZED", "COMPLETE", "COMPLETED", "CANCELLED", "RELEASED"].includes(String(s?.status || "").toUpperCase()));
+    // Always update local selector immediately so the UI stays on the confirmed mode.
+    setNkrCapitalMode(next);
+    setRotationBudgetReleased(false);
     if (!hasActiveRun) {
-      setNkrCapitalMode(next);
-      setRotationBudgetReleased(false);
       return true;
     }
     try {
       setRotationBackendLoading(true);
       const resp = await api("/api/nkr/mode", { method: "POST", token, wallet, body: { mode: next } });
       if (Array.isArray(resp?.sessions)) setRotationSessions(resp.sessions);
-      setNkrCapitalMode(next);
+      setNkrCapitalMode(next); // re-assert after server response
       setRotationBackendMsg(resp?.message || `NKR mode changed to ${next}.`);
       return true;
     } catch (e) {
       setRotationBackendMsg(`NKR mode change failed: ${e?.message || e}`);
+      // Keep the confirmed local mode even if the API fails; app-state sync still carries it.
       return false;
     } finally {
       setRotationBackendLoading(false);

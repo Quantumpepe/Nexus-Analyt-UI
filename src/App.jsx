@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD316-STRATEGIST-CHAT-LAYOUT";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD317-MULTI-DEVICE-SESSION-SYNC";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -9569,20 +9569,31 @@ useEffect(() => {
 
   const openTradingSessions = useMemo(() => {
     const localSessions = Array.isArray(tradingSessions) ? tradingSessions : [];
-    const onchainFallback = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
-      .filter((sess) => String(sess?.engine || "").toUpperCase() === "TRADER")
-      .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED", "CLOSED"].includes(String(sess?.statusLabel || sess?.status || "").toUpperCase()))
-      .map((sess) => {
-        const oid = String(sess?.sessionId || sess?.onchainSessionId || "");
-        const chain = String(sess?.chain || sess?.chainKey || activeTraderChainKey || activeGridChainKey || "ETH").toUpperCase();
-        const asset = String(sess?.settlementAsset || sess?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH")).toUpperCase();
-        return {
-          id: `TRADER-LIVE-${oid}`, session_id: `TRADER-LIVE-${oid}`, onchainSessionId: oid, coreVaultSessionId: oid,
-          status: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(), chains: [chain], chain, chainId: Number(sess?.chainId || 0),
-          asset, settlementAsset: asset, budgetUsd: Number(sess?.budget || sess?.budgetAmount || 0),
-          createdAt: Number(sess?.createdAt || Date.now()), updatedAt: Date.now(), queue: [], source: "corevault_onchain"
-        };
-      });
+    // Multi-device: do not resurrect closed trader cards from a stale CoreVault preview.
+    // Only enrich IDs that already exist as non-terminal local sessions.
+    const localLiveIds = new Set(
+      localSessions
+        .filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "FINALIZED", "COMPLETED", "COMPLETE"].includes(String(s?.status || "").toUpperCase()))
+        .map((s) => String(s?.onchainSessionId ?? s?.coreVaultSessionId ?? s?.id ?? s?.session_id ?? ""))
+        .filter(Boolean)
+    );
+    const onchainFallback = localLiveIds.size
+      ? (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+          .filter((sess) => String(sess?.engine || "").toUpperCase() === "TRADER")
+          .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED", "CLOSED"].includes(String(sess?.statusLabel || sess?.status || "").toUpperCase()))
+          .filter((sess) => localLiveIds.has(String(sess?.sessionId || sess?.onchainSessionId || "")))
+          .map((sess) => {
+            const oid = String(sess?.sessionId || sess?.onchainSessionId || "");
+            const chain = String(sess?.chain || sess?.chainKey || activeTraderChainKey || activeGridChainKey || "ETH").toUpperCase();
+            const asset = String(sess?.settlementAsset || sess?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH")).toUpperCase();
+            return {
+              id: `TRADER-LIVE-${oid}`, session_id: `TRADER-LIVE-${oid}`, onchainSessionId: oid, coreVaultSessionId: oid,
+              status: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(), chains: [chain], chain, chainId: Number(sess?.chainId || 0),
+              asset, settlementAsset: asset, budgetUsd: Number(sess?.budget || sess?.budgetAmount || 0),
+              createdAt: Number(sess?.createdAt || Date.now()), updatedAt: Date.now(), queue: [], source: "corevault_onchain"
+            };
+          })
+      : [];
     const sessions = [...localSessions, ...onchainFallback];
     const active = sessions.filter((sess) => {
       const st = String(sess?.status || "").toUpperCase();
@@ -12115,38 +12126,52 @@ useEffect(() => {
     rotationBackendSyncBusyRef.current = true;
     rotationBackendApplyingRef.current = true;
     try {
-      const r = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}`, { method: "GET", token, wallet: wa });
+      // Cache-bust so multi-device clients never keep a stale "open session" snapshot.
+      const r = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}&_ts=${Date.now()}`, { method: "GET", token, wallet: wa });
       const deletedIds = rotationDeletedSessionIdsRef.current || new Set();
       const backendRows = Array.isArray(r?.sessions)
         ? r.sessions.filter((x) => x && typeof x === "object" && !deletedIds.has(String(x?.id || x?.session_id || "")))
         : [];
-      // A confirmed on-chain NKR session must be visible before the first position/tick.
-      // Merge the read-only CoreVault preview as a fallback when local presentation
-      // hydration is delayed by another Gunicorn worker.
-      const onchainFallbackRows = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
-        .filter((sess) => String(sess?.engine || "").toUpperCase() === "NKR")
-        .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED", "CLOSED"].includes(String(sess?.statusLabel || sess?.status || "").toUpperCase()))
-        .map((sess) => {
-          const oid = String(sess?.sessionId || sess?.onchainSessionId || "");
-          const budget = Number(sess?.budget || sess?.budgetAmount || 0);
-          const chain = String(sess?.chain || sess?.chainKey || activeNkrChainKey || "ETH").toUpperCase();
-          const asset = String(sess?.settlementAsset || sess?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH")).toUpperCase();
-          return {
-            id: `NKR-LIVE-${chain}-${oid}`, session_id: `NKR-LIVE-${chain}-${oid}`, onchainSessionId: oid, coreVaultSessionId: oid,
-            type: "NKR", engineType: "NKR", status: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(),
-            lifecycleState: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(), positionState: "WAITING",
-            active: true, visibleInActiveSessions: true, chain, chainId: Number(sess?.chainId || 0),
-            settlementAsset: asset, asset, budgetUsd: budget, budgetAmount: budget, reservedUsd: budget,
-            maxActiveAssets: Number(rotationMaxActiveSessions || 0), createdAt: Number(sess?.createdAt || Date.now()), updatedAt: Date.now(),
-            meta: { nkr_session: true, onchain_session_id: oid, chain, chain_id: Number(sess?.chainId || 0), settlement_asset: asset }
-          };
-        });
-      const sessions = canonicalizeNkrSessions([...backendRows, ...onchainFallbackRows]);
+      // Backend is the only multi-device truth.
+      // Never re-hydrate closed sessions from a stale CoreVault preview on another device.
+      // Preview fallback is only allowed when the backend itself still reports live rows
+      // (presentation lag), never when the backend list is empty / WAITING.
+      const backendCtrl = String(r?.controlState || r?.nkrControlState || "").toUpperCase();
+      const backendHasLive = backendRows.some((x) => !["STOPPED", "FINALIZED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED"].includes(String(x?.status || "").toUpperCase()));
+      let onchainFallbackRows = [];
+      if (backendHasLive) {
+        const backendOnchainIds = new Set(
+          backendRows.map((x) => String(x?.onchainSessionId ?? x?.meta?.onchain_session_id ?? x?.coreVaultSessionId ?? "")).filter(Boolean)
+        );
+        onchainFallbackRows = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+          .filter((sess) => String(sess?.engine || "").toUpperCase() === "NKR")
+          .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED", "CLOSED"].includes(String(sess?.statusLabel || sess?.status || "").toUpperCase()))
+          .filter((sess) => backendOnchainIds.has(String(sess?.sessionId || sess?.onchainSessionId || "")))
+          .map((sess) => {
+            const oid = String(sess?.sessionId || sess?.onchainSessionId || "");
+            const budget = Number(sess?.budget || sess?.budgetAmount || 0);
+            const chain = String(sess?.chain || sess?.chainKey || activeNkrChainKey || "ETH").toUpperCase();
+            const asset = String(sess?.settlementAsset || sess?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH")).toUpperCase();
+            return {
+              id: `NKR-LIVE-${chain}-${oid}`, session_id: `NKR-LIVE-${chain}-${oid}`, onchainSessionId: oid, coreVaultSessionId: oid,
+              type: "NKR", engineType: "NKR", status: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(),
+              lifecycleState: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(), positionState: "WAITING",
+              active: true, visibleInActiveSessions: true, chain, chainId: Number(sess?.chainId || 0),
+              settlementAsset: asset, asset, budgetUsd: budget, budgetAmount: budget, reservedUsd: budget,
+              maxActiveAssets: Number(rotationMaxActiveSessions || 0), createdAt: Number(sess?.createdAt || Date.now()), updatedAt: Date.now(),
+              meta: { nkr_session: true, onchain_session_id: oid, chain, chain_id: Number(sess?.chainId || 0), settlement_asset: asset }
+            };
+          });
+      }
+      const sessions = canonicalizeNkrSessions(backendRows.length ? [...backendRows, ...onchainFallbackRows] : []);
       const activeIdRaw = String(r?.activeRotationSessionId || "").trim();
       const activeId = deletedIds.has(activeIdRaw) ? "" : activeIdRaw;
-      // Backend is the only NKR truth. An empty backend list immediately clears the UI.
+      // Empty backend list clears every device. Do not keep a ghost card from local/mobile state.
       setRotationSessions(sessions);
-      setActiveRotationSessionId(activeId || (sessions[0]?.id ? String(sessions[0].id) : ""));
+      setActiveRotationSessionId(sessions.length ? (activeId || String(sessions[0]?.id || "")) : "");
+      if (!sessions.length && (backendCtrl === "WAITING" || backendCtrl === "STOPPED" || backendCtrl === "FINALIZED" || !backendCtrl)) {
+        // Ensure control does not stay RUNNING/PAUSED on a second device after close.
+      }
       // controlState from backend is authoritative. Terminal-only lists must become WAITING
       // so Start NKR is available after FINALIZED (handover restart requirement).
       // STOPPING beats PAUSED (Pause→Stop must not fall back to PAUSED).
@@ -12185,16 +12210,23 @@ useEffect(() => {
   useEffect(() => {
     if (!resolveWalletAddress(wallet)) return undefined;
     const refresh = () => {
+      // Multi-device: always re-read backend truth when the app is used again.
       syncRotationSessionsFromServer();
       syncAppStateFromServer();
+      try { if (typeof refreshNexusBackendState === "function") refreshNexusBackendState(); } catch (_) {}
     };
-    const timer = setInterval(refresh, 10000);
+    const timer = setInterval(refresh, 8000);
     const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    const onPageShow = () => refresh();
     window.addEventListener("focus", refresh);
+    window.addEventListener("pageshow", onPageShow);
     document.addEventListener("visibilitychange", onVisible);
+    // Immediate sync on mount / wallet change so mobile does not keep a stale card.
+    refresh();
     return () => {
       clearInterval(timer);
       window.removeEventListener("focus", refresh);
+      window.removeEventListener("pageshow", onPageShow);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [wallet, syncRotationSessionsFromServer, syncAppStateFromServer]);

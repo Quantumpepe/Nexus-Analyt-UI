@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD310-AGGRESSIVE-STICKY";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD311-MODE-STICKY-NKR-TRADER";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -10858,11 +10858,14 @@ useEffect(() => {
       }
     }
 
-    // Every new budget/session flow must start from Tactical again.
-    setTradingStyle("TACTICAL");
-    setAggressiveRiskAcceptedForDraft(false);
+    // Keep the confirmed performance style (incl. Aggressive after warning).
+    // Do not force Tactical here — open sessions already carry style in meta, and the
+    // setup selector must stay aligned so the user sees what is actually active.
     setAggressiveRiskPendingValue("");
     setAggressiveRiskConsentOpen(false);
+    if (String(sessionStyle || "").toUpperCase() !== "AGGRESSIVE") {
+      setAggressiveRiskAcceptedForDraft(false);
+    }
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
     setErrorMsg(`Trading budget confirmed: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Starting Trader...`);
@@ -11478,14 +11481,22 @@ useEffect(() => {
   }, [setTradingStyle, setAggressiveRiskAcceptedForDraft, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
 
   const handleTradingBudgetInputChange = useCallback((value) => {
-    resetAggressiveDraftSelection();
+    // Only reset performance style when no open Trading session is live.
+    // Editing the next budget must not drop consented Aggressive on a running session.
+    const hasLiveTrader = Array.isArray(openTradingSessions) && openTradingSessions.some((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "FINALIZED", "COMPLETED", "COMPLETE"].includes(String(s?.status || "").toUpperCase()));
+    if (!hasLiveTrader) {
+      resetAggressiveDraftSelection();
+    }
     setTradingBudgetUsd(value);
-  }, [resetAggressiveDraftSelection, setTradingBudgetUsd]);
+  }, [resetAggressiveDraftSelection, setTradingBudgetUsd, openTradingSessions]);
 
   const handleTradingBudgetSplitInputChange = useCallback((value) => {
-    resetAggressiveDraftSelection();
+    const hasLiveTrader = Array.isArray(openTradingSessions) && openTradingSessions.some((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "FINALIZED", "COMPLETED", "COMPLETE"].includes(String(s?.status || "").toUpperCase()));
+    if (!hasLiveTrader) {
+      resetAggressiveDraftSelection();
+    }
     setTradingBudgetSplitInput(value);
-  }, [resetAggressiveDraftSelection, setTradingBudgetSplitInput]);
+  }, [resetAggressiveDraftSelection, setTradingBudgetSplitInput, openTradingSessions]);
 
   const handleTradingRiskModeChange = useCallback((value) => {
     applyTradingRiskPreset(value, tradingConfidenceMin);
@@ -11509,6 +11520,7 @@ useEffect(() => {
 
   const confirmAggressiveRiskConsent = useCallback(async () => {
     const next = String(aggressiveRiskPendingValue || "AGGRESSIVE").toUpperCase();
+    // Sticky: confirmed style stays selected until the user changes it.
     setTradingStyle(next);
     setTradingRiskExpanded(false);
     setAggressiveRiskAcceptedForDraft(true);
@@ -11516,8 +11528,7 @@ useEffect(() => {
     setAggressiveRiskConsentOpen(false);
 
     // Backend audit trail: wallet-bound proof that the user accepted
-    // the Aggressive warning for this current draft/budget flow.
-    // A second session-specific audit record is written when Start NKR creates the session.
+    // the Aggressive warning for this draft and any following session start.
     try {
       if (wallet) {
         await api(`/api/nexus/trading/aggressive-ack`, {
@@ -11528,7 +11539,7 @@ useEffect(() => {
             accepted: true,
             warning_version: AGGRESSIVE_WARNING_VERSION,
             frontend_build: FRONTEND_BUILD_ID,
-            scope: "draft",
+            scope: "active_or_draft",
             budget_usd: Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0,
           },
         });

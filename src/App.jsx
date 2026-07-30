@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD338-STABLE-USD-PRICE";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD339-MULTI-SESSION-OVERVIEW";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -5093,6 +5093,14 @@ useEffect(() => {
         const blockers = Array.isArray(data?.blockers) ? data.blockers.join(", ") : "";
         return new Error(`Privy not ready for ${selectedChain}${blockers ? `: ${blockers}` : ""}.`);
       }
+      if (/session_budget_limit_exceeded/i.test(code)) {
+        const maxA = data?.maxAmount ?? data?.max_amount;
+        const reqA = data?.requestedAmount ?? data?.requested_amount ?? budget;
+        return new Error(
+          `Vault max session budget on ${selectedChain} is ${maxA != null ? maxA : "?"} ${selectedAsset}` +
+          ` (you requested ${reqA}). Lower "New session budget" and try again.`
+        );
+      }
       if (/settlement_asset_not_execution_ready/i.test(code)) {
         return new Error(`${selectedAsset} is not execution-ready on ${selectedChain} vault. Check token config / Owner Admin.`);
       }
@@ -8845,6 +8853,12 @@ useEffect(() => {
       const notConnected = /CoreVault V5 is not connected/i.test(rawMessage);
       let userMessage = `NKR CoreVault (${startChainCheck}): ${rawMessage}`;
       if (routeMissing) userMessage = `Live NKR on ${startChainCheck} needs an enabled verified TRADE route on that chain (Owner Admin).`;
+      else if (/session_budget_limit_exceeded/i.test(rawMessage)) {
+        const maxA = e?.data?.maxAmount;
+        userMessage = maxA != null
+          ? `Vault max session on ${startChainCheck} is $${maxA}. Lower the budget and try again.`
+          : `Session budget exceeds vault limit on ${startChainCheck}. Lower the amount and try again.`;
+      }
       else if (noFree) userMessage = `Not enough free USDC on ${startChainCheck} vault. Deposit USDC on ${startChainCheck}, then start again.`;
       else if (privyBlocked) userMessage = `Privy live execution is not ready for ${startChainCheck}. Check policy / wallet mapping for that chain.`;
       else if (notConnected) userMessage = `${startChainCheck} CoreVault is not connected. Switch chain in Live Core Vault Capital and wait for LIVE CONNECTED.`;
@@ -22743,7 +22757,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div className="label" style={{ marginBottom: 0 }}>Active NKR Sessions</div>
                                 
                               </div>
-                              <span className="pill silver">{activeRotations > 0 ? 1 : 0} session · {nkrActiveAssets.length}/{rotationMaxActive} assets</span>
+                              <span className="pill silver">{activeRotations} session{activeRotations === 1 ? "" : "s"} · all chains · {nkrActiveAssets.length}/{rotationMaxActive} assets</span>
                             </div>
 
                             <div
@@ -22899,7 +22913,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       }}
                                     >
                                       <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                                        <b style={{ fontSize: 16, color: "#eafff5" }}>{routeTitle}</b>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                          <span className="pill" style={{
+                                            fontSize: 10, fontWeight: 900, padding: "2px 8px", borderRadius: 999,
+                                            background: chain === "BNB" ? "rgba(243,186,47,.18)" : chain === "POL" ? "rgba(130,71,229,.22)" : "rgba(64,196,255,.18)",
+                                            border: chain === "BNB" ? "1px solid rgba(243,186,47,.45)" : chain === "POL" ? "1px solid rgba(130,71,229,.45)" : "1px solid rgba(64,196,255,.4)",
+                                            color: chain === "BNB" ? "#f3ba2f" : chain === "POL" ? "#c4b5fd" : "#8de8ff",
+                                          }}>{chain || "—"}</span>
+                                          <b style={{ fontSize: 16, color: "#eafff5" }}>{routeTitle}</b>
+                                        </div>
                                         <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>
                                           {hasOpenPosition ? (
                                             <>

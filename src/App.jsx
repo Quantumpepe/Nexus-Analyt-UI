@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD329-RAIL-FULL-CLICK";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD330-POL-USDC-VAULT-DEPOSIT-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -472,8 +472,11 @@ const TOKEN_WHITELIST = {
     { symbol: "USDT", address: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6 },
   ],
   POL: [
-    // Polygon native USDC (Circle) and USDT
-    { symbol: "USDC", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6 },
+    // The deployed Polygon CoreVault V5 is configured for bridged Polygon USDC
+    // (0x2791...). Keep native Circle USDC visible as a separate exact contract;
+    // symbols are display-only and deposits are matched by contract address.
+    { symbol: "USDC", address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", decimals: 6, name: "USDC (Polygon PoS)" },
+    { symbol: "USDC_NATIVE", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6, name: "USDC (Circle native)" },
     { symbol: "USDT", address: "0xC2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 },
   ],
   BNB: [
@@ -5287,7 +5290,7 @@ useEffect(() => {
             tokenAddress,
             "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(0n),
             `Resetting ${symbol} approval…`,
-            { type: "ERC20 VAULT APPROVAL RESET", chain: "ETH", asset: symbol, amount: "0", spender: vault }
+            { type: "ERC20 VAULT APPROVAL RESET", chain: activeChainKey, asset: symbol, amount: "0", spender: vault }
           );
           if (!resetResult.confirmed) {
             setCoreDepositMsg(`Approval reset was sent and is still pending. Tx: ${resetResult.hash}`);
@@ -5302,7 +5305,7 @@ useEffect(() => {
           tokenAddress,
           "0x095ea7b3" + _encodeAddress(vault) + _encodeUint256(approvalUnits),
           `One-time ${symbol} Vault approval…`,
-          { type: "ERC20 VAULT APPROVAL", chain: "ETH", asset: symbol, amount: String(Number(approvalUnits) / (10 ** decimals)), spender: vault }
+          { type: "ERC20 VAULT APPROVAL", chain: activeChainKey, asset: symbol, amount: String(Number(approvalUnits) / (10 ** decimals)), spender: vault }
         );
         if (!approvalResult.confirmed) {
           setCoreDepositMsg(`Vault approval was sent and is still pending. Tx: ${approvalResult.hash}`);
@@ -5314,7 +5317,7 @@ useEffect(() => {
         vault,
         "0x47e7ef24" + _encodeAddress(tokenAddress) + amountWord,
         `Depositing ${rawAmount} ${symbol} into Core Vault…`,
-        { type: "ERC20 VAULT DEPOSIT", chain: "ETH", asset: symbol, amount: rawAmount, tokenAddress }
+        { type: "ERC20 VAULT DEPOSIT", chain: activeChainKey, asset: symbol, amount: rawAmount, tokenAddress }
       );
 
       if (depositResult.confirmed) {

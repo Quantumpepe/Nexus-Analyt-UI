@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD325-NKR-RAIL-BUTTONS";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD326-VAULT-METRICS-FIT";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -21804,7 +21804,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
                 };
                 return (
-                  <div className="liveCoreVaultBlock" style={{ display: modeKey === "normal" ? "none" : "block", marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)" }}>
+                  <div className="liveCoreVaultBlock" style={{ display: modeKey === "normal" ? "none" : "block", marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)", minWidth: 0, maxWidth: "100%", overflow: "hidden", boxSizing: "border-box" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <div>
                         <div style={{ fontWeight: 950, fontSize: 12 }}>Live Core Vault Capital</div>
@@ -21813,10 +21813,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {coreVaultAllChainsLoading ? "REFRESHING ALL CHAINS" : chainConnected ? "LIVE CONNECTED" : "VAULT NOT AVAILABLE"}
                       </span>
                     </div>
-                    <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "minmax(150px,.7fr) minmax(150px,.7fr) repeat(3,minmax(110px,1fr))", gap: 8, alignItems: "stretch" }}>
-                      <label style={{ display: "grid", gap: 4 }}>
+                    {/* Row 1: Chain + Asset — always 2 cols so metrics never push out of the card */}
+                    <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, alignItems: "stretch" }}>
+                      <label style={{ display: "grid", gap: 4, minWidth: 0 }}>
                         <span className="muted tiny">Chain</span>
-                        <select value={selectedChain} onChange={(e) => setLiveVaultChainByMode((prev) => ({ ...(prev || {}), [modeKey]: String(e.target.value || "ETH").toUpperCase() }))}>
+                        <select value={selectedChain} onChange={(e) => setLiveVaultChainByMode((prev) => ({ ...(prev || {}), [modeKey]: String(e.target.value || "ETH").toUpperCase() }))} style={{ width: "100%", minWidth: 0 }}>
                           <option value="ETH">Ethereum</option>
                           <option value="BNB">BNB Chain</option>
                           <option value="POL">Polygon</option>
@@ -21824,12 +21825,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <option value="ARB">Arbitrum</option>
                         </select>
                       </label>
-                      <label style={{ display: "grid", gap: 4 }}>
+                      <label style={{ display: "grid", gap: 4, minWidth: 0 }}>
                         <span className="muted tiny">Vault asset</span>
                         <select
                           value={selectedSymbol}
                           disabled={!chainConnected || !tokenEntries.length}
                           onChange={(e) => setLiveVaultAssetByMode((prev) => ({ ...(prev || {}), [modeKey]: String(e.target.value || "USDC").toUpperCase() }))}
+                          style={{ width: "100%", minWidth: 0 }}
                         >
                           {tokenEntries.length ? tokenEntries.map(([symbol, state]) => {
                             const a = state?.account || {};
@@ -21838,19 +21840,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           }) : <option value="USDC">No funded asset</option>}
                         </select>
                       </label>
+                    </div>
+                    {/* Row 2: Balance / Free / Reserved — always stay inside the vault card */}
+                    <div className="liveCoreVaultMetrics" style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, alignItems: "stretch" }}>
                       {[
-                        ["Vault balance", total],
-                        ["Free available", free],
+                        ["Balance", total],
+                        ["Free", free],
                         [`${systemLabel} reserved`, reserved],
                       ].map(([label, value]) => (
-                        <div key={label} style={{ padding: "8px 10px", borderRadius: 11, border: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.14)" }}>
-                          <div className="muted tiny">{label}</div>
-                          <div className="mono" style={{ marginTop: 4, fontWeight: 950 }}>{chainConnected ? `${formatVaultAmount(value, selectedSymbol)} ${selectedSymbol}` : "—"}</div>
+                        <div key={label} style={{ padding: "8px 8px", borderRadius: 11, border: "1px solid rgba(255,255,255,.08)", background: "rgba(0,0,0,.14)", minWidth: 0, overflow: "hidden" }}>
+                          <div className="muted tiny" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
+                          <div className="mono" style={{ marginTop: 4, fontWeight: 950, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{chainConnected ? `${formatVaultAmount(value, selectedSymbol)} ${selectedSymbol}` : "—"}</div>
                         </div>
                       ))}
                     </div>
                     {chainConnected && tokenEntries.length > 0 ? (
-                      <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(auto-fit,minmax(210px,1fr))", gap: 8 }}>
+                      <div style={{ marginTop: 9, display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 }}>
                         {tokenEntries.map(([symbol, state]) => {
                           const a = state?.account || {};
                           const assetTotal = Number(a?.baseCapital || 0) + Number(a?.totalSecuredProfit || 0);

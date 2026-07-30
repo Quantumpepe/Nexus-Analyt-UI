@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD314-STRATEGIST-CHAT-HISTORY";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD315-STRATEGIST-CHAT";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -16745,6 +16745,26 @@ function detectNexusUserIntent(text = "") {
   return "general";
 }
 
+/** Only Nexus / crypto / market topics are allowed in the Strategist chat. */
+function isNexusCryptoScopeQuestion(text = "") {
+  const q = String(text || "").trim().toLowerCase();
+  if (!q) return false;
+  // Explicit off-topic patterns
+  if (/(wetter|rezept|kochen|fußball|fussball|politik(?!\s*crypto)|wahlkampf|medizin|arzt|liebe|beziehung|hausaufgaben|matheaufgabe|windows\s*install|iphone\s*reset)/i.test(q)
+    && !/(crypto|bitcoin|eth|token|coin|defi|nft|blockchain|trading|markt)/i.test(q)) {
+    return false;
+  }
+  // Allow if clearly crypto / Nexus / market / trading related
+  if (/(nexus|nkr|grid|vault|watchlist|crypto|krypto|bitcoin|btc|ethereum|eth|bnb|sol|pol|matic|token|coin|defi|dex|cex|blockchain|on-?chain|trading|trader|markt|market|preis|price|volumen|volume|volatilit|spread|rotation|liquidit|whale|futures|perp|spot|usdc|usdt|stable|rvol|momentum|breakout|drawdown|backtest|pine\s*script|tradingview|long|short|leverage|funding|dominance|altcoin|memecoin|gas\s*fee|wallet|privy)/i.test(q)) {
+    return true;
+  }
+  // Short follow-ups in an existing crypto thread are allowed by caller via history
+  if (q.length <= 48 && /^(und|aber|warum|wieso|welche|welcher|wie|was|ok|ja|nein|weiter|nochmal|and|but|why|which|what|how|yes|no|continue|again)\b/i.test(q)) {
+    return true;
+  }
+  return false;
+}
+
 function nexusStrategistResponseProfile(intent = "general") {
   const i = String(intent || "general").toLowerCase();
   if (i === "rotation_spread") return "ROTATION_SPREAD_ANALYSIS";
@@ -16980,10 +17000,24 @@ async function runAi() {
     setErrorMsg("");
     if (!requireStrategistAccess("Nexus Strategist")) return;
     const q = (aiQuestion || "").trim();
-    if (!q) return setErrorMsg("Please describe what the Nexus Strategist should do.");
-    // Capture previous output BEFORE clearing — otherwise follow-up context is lost.
+    if (!q) return setErrorMsg("Type a crypto / market / Nexus question in the chat.");
+    // Capture previous output BEFORE clearing — otherwise chat context is lost.
     const previousOutput = String(aiOutput || "");
     const previousHistory = Array.isArray(aiHistory) ? aiHistory.slice(-10) : [];
+    const hasChatThread = previousHistory.length > 0 || !!previousOutput;
+    // Continuous chat: any message after the first is a follow-up (no checkbox required).
+    const isFollowUpAsk = hasChatThread;
+    // Scope: only Nexus / crypto / market. Allow short follow-ups inside an open thread.
+    if (!isNexusCryptoScopeQuestion(q) && !hasChatThread) {
+      const scopeMsg = detectNexusUserLanguage(q) === "de"
+        ? "Nexus Strategist beantwortet nur Fragen zu Krypto, Markt, Watchlist, NKR, Grid, Trading und Nexus. Allgemeine Themen sind nicht erlaubt."
+        : "Nexus Strategist only answers crypto, market, watchlist, NKR, Grid, Trading and Nexus questions. General topics are not allowed.";
+      setErrorMsg(scopeMsg);
+      setAiHistory((prev) => [...(Array.isArray(prev) ? prev : []), { role: "user", content: q }, { role: "assistant", content: scopeMsg }].slice(-10));
+      setAiOutput(scopeMsg);
+      setAiQuestion("");
+      return;
+    }
     setAiOutput("");
     const userLang = detectNexusUserLanguage(q);
     const isGermanAsk = userLang === "de";
@@ -16994,7 +17028,6 @@ async function runAi() {
     // but coin chips are no longer shown in the AI Analyst UI.
     const syms = aiUsesCompareContext ? (compareSymbols || []) : [];
 
-    const isFollowUpAsk = !!aiFollowUp && !!previousOutput;
     const aiKindPrompts = isGermanAsk ? {
       research: `Arbeite als Nexus Strategist. Verstehe die Nutzerfrage zuerst, erkenne den passenden Marktmodus und antworte direkt. Nutze Rotation, relative Stärke, Spread, Volumen, Marktstruktur und Exchange-Kontext nur wenn relevant. Keine internen Module erwähnen.`,
       strategy_builder: `Arbeite als Nexus Strategist und Strategy Builder. Übersetze die Idee in eine verständliche, nicht-anweisende Strategie-Logik. Wenn der Nutzer nach günstig kaufen / teurer verkaufen / Rotation fragt, behandle es als Rotation-/Spread-Analyse und nicht als allgemeinen Trading-Report.`,
@@ -17232,17 +17265,13 @@ ${aiSignalText}
       text = normalizeAiOutput(text, tf, qFinal, seriesStats);
       setAiOutput(text);
 
-      // Always keep conversation memory so the next follow-up has both turns.
+      // Continuous chat memory — every turn stays in the thread.
       setAiHistory((prev) => {
         const base = Array.isArray(prev) ? prev : [];
         const next = [...base, { role: "user", content: q }, { role: "assistant", content: text }];
         return next.slice(-10);
       });
-      if (isFollowUpAsk) {
-        setAiQuestion("");
-      } else if (!aiFollowUp) {
-        // Fresh non-follow-up thread still stores the current exchange for optional follow-up.
-      }
+      setAiQuestion("");
     } catch (e) {
       const msg = String(e?.message || e || "AI Analyst request failed.");
       setErrorMsg(msg);
@@ -25330,122 +25359,63 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          <div className="panelScroll"><div className="aiWrap">
-            <div className="aiSelect">
-              <div className="label">Strategy Task</div>
-              <textarea
-                value={aiQuestion}
-                onChange={(e) => setAiQuestion(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.nativeEvent?.isComposing) return;
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (!aiLoading) {
-                      void runAi();
-                    }
-                  }
-                }}
-                placeholder={aiTaskPlaceholder(aiKind)}
-                rows={6}
-                style={{
-                  width: "100%",
-                  minHeight: 130,
-                  resize: "vertical",
-                  borderRadius: 14,
-                  padding: "12px 14px",
-                  background: "rgba(0,0,0,0.28)",
-                  color: "inherit",
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  outline: "none",
-                }}
-                disabled={aiLoading}
-              />
-              <div className="muted tiny" style={{ marginTop: 8 }}>
-                Describe what the analyst should do. You can paste coins, strategy ideas, backtest notes, or Pine Script here.
-              </div>
-
-              <div className="divider" />
-
-              <div className="formRow">
-                <label>Mode</label>
-                <div className="aiChips" style={{ gap: 8 }}>
-                  {[
-                    ["research", "Research"],
-                    ["strategy_builder", "Strategy Builder"],
-                    ["backtest_review", "Backtest Review"],
-                    ["pine_tradingview", "Pine Builder"],
-                    ["daily_report", "Daily Report"],
-                    ["diagnostics", "Trade Review"],
-                  ].map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`chip ${aiKind === value ? "active" : ""}`}
-                      onClick={() => {
-                        setAiKind(value);
-                        setAiOutput("");
-                        setAiHistory([]);
-                        setAiQuestion("");
-                      }}
-                      title={`Nexus Strategist mode: ${label}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-<div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <label className="muted" style={{ display: "inline-flex", gap: 8, alignItems: "center", userSelect: "none" }}>
-                  <input
-                    type="checkbox"
-                    checked={aiFollowUp}
-                    onChange={(e) => {
-                      const on = !!e.target.checked;
-                      setAiFollowUp(on);
-                      setAiQuestion("");
-                      // Keep conversation history when toggling Follow-up off/on so the thread stays visible.
-                      // Only Clear / mode change resets the thread.
+          <div className="panelScroll"><div className="aiWrap" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
+              <div className="aiChips" style={{ gap: 6 }}>
+                {[
+                  ["research", "Research"],
+                  ["strategy_builder", "Strategy Builder"],
+                  ["backtest_review", "Backtest Review"],
+                  ["pine_tradingview", "Pine Builder"],
+                  ["daily_report", "Daily Report"],
+                  ["diagnostics", "Trade Review"],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={`chip ${aiKind === value ? "active" : ""}`}
+                    onClick={() => {
+                      setAiKind(value);
+                      // Mode change does not wipe chat — only Clear does.
                     }}
-                  />
-                  Follow-up
-                </label>
-                <button
-                  className="btnGhost"
-                  type="button"
-                  onClick={() => {
-                    setAiOutput("");
-                    setAiQuestion("");
-                    setAiHistory([]);
-                    setErrorMsg("");
-                  }}
-                >
-                  Clear
-                </button>
+                    title={`Nexus Strategist mode: ${label}`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-
-              {!isPro ? (
-                <div className="hint" style={{ marginTop: 10, color: "rgba(255,255,255,0.75)" }}>
-                  Nexus Strategist is a separate add-on: <b>$20/7 days</b> or <b>$50/30 days</b>. Demo users can try limited AI usage; Core users need Strategist access for full Strategist mode.
-                </div>
-              ) : null}
-
-              <button className="btn" type="button" onClick={() => { if (!aiLoading) void runAi(); }} disabled={aiLoading}>
-                {aiLoading ? "Running…" : (aiFollowUp && aiOutput ? "Ask" : "Run")}
+              <button
+                className="btnGhost"
+                type="button"
+                onClick={() => {
+                  setAiOutput("");
+                  setAiQuestion("");
+                  setAiHistory([]);
+                  setErrorMsg("");
+                }}
+              >
+                Clear chat
               </button>
             </div>
 
-            <div className="aiOut">
-              <div className="label" style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                <span>Strategic Output</span>
-                {(Array.isArray(aiHistory) && aiHistory.length > 0) ? (
-                  <span className="muted tiny">{aiHistory.filter((m) => m?.role === "user").length} turn{aiHistory.filter((m) => m?.role === "user").length === 1 ? "" : "s"}</span>
-                ) : null}
+            {!isPro ? (
+              <div className="hint" style={{ color: "rgba(255,255,255,0.75)" }}>
+                Nexus Strategist is a separate add-on: <b>$20/7 days</b> or <b>$50/30 days</b>. Demo users can try limited AI usage; Core users need Strategist access for full Strategist mode.
               </div>
-              <div className="aiPanel" style={{ maxHeight: 520, overflowY: "auto" }}>
+            ) : null}
+
+            <div className="aiOut" style={{ display: "grid", gap: 8 }}>
+              <div className="label" style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+                <span>Strategist Chat</span>
+                {(Array.isArray(aiHistory) && aiHistory.length > 0) ? (
+                  <span className="muted tiny">{aiHistory.filter((m) => m?.role === "user").length} turn{aiHistory.filter((m) => m?.role === "user").length === 1 ? "" : "s"} · crypto / Nexus only</span>
+                ) : (
+                  <span className="muted tiny">crypto · market · Nexus only</span>
+                )}
+              </div>
+              <div className="aiPanel" style={{ minHeight: 280, maxHeight: 440, overflowY: "auto", display: "grid", gap: 10, alignContent: "start" }}>
                 {(Array.isArray(aiHistory) && aiHistory.length > 0) || aiOutput ? (
                   <div style={{ display: "grid", gap: 10 }}>
-                    {/* Conversation thread: every user question + assistant answer stays visible for follow-ups. */}
                     {(Array.isArray(aiHistory) && aiHistory.length > 0 ? aiHistory : (
                       aiOutput ? [{ role: "assistant", content: aiOutput }] : []
                     )).map((msg, mi) => {
@@ -25461,6 +25431,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               background: "rgba(139,220,255,.08)",
                               borderRadius: 12,
                               padding: "8px 10px",
+                              justifySelf: "end",
+                              maxWidth: "92%",
                             }}
                           >
                             <div className="muted tiny" style={{ fontWeight: 800, marginBottom: 4, letterSpacing: ".06em", textTransform: "uppercase" }}>You</div>
@@ -25468,13 +25440,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </div>
                         );
                       }
-                      // Assistant turns: parse sections for the latest answer; older turns stay as compact text.
                       const isLatestAssistant = mi === (aiHistory?.length ? aiHistory.length - 1 : 0) && role === "assistant";
                       const sections = isLatestAssistant && aiOutputSections?.length
                         ? aiOutputSections
                         : parseAiAnalystOutput(content);
                       return (
-                        <div key={`hist-asst-${mi}`} style={{ display: "grid", gap: 8 }}>
+                        <div key={`hist-asst-${mi}`} style={{ display: "grid", gap: 8, maxWidth: "96%" }}>
                           <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase" }}>
                             Nexus Strategist{isLatestAssistant ? " · latest" : ""}
                           </div>
@@ -25514,19 +25485,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         if (section.key === "nexus_rotation" || section.key === "exchange_spread") applyStrategistToRotation(section.body);
                                         if (section.key === "nexus_trading") applyStrategistToTrading(section.body);
                                       }}
-                                      title={
-                                        aiOutputLanguage === "de"
-                                          ? (section.key === "nexus_grid"
-                                            ? "Diese Idee in Nexus Grid vorbereiten. Es wird keine Order erstellt."
-                                            : section.key === "nexus_trading"
-                                              ? "Diese Idee in Nexus Trading vorbereiten. Die Automation wird nicht aktiviert."
-                                              : "Diese NKR-Idee vorbereiten. Es wird kein Swap ausgeführt.")
-                                          : (section.key === "nexus_grid"
-                                            ? "Prepare this idea in Nexus Grid. This does not create an order."
-                                            : section.key === "nexus_trading"
-                                              ? "Prepare this idea in Nexus Trading. This does not activate automation."
-                                              : "Prepare this NKR idea. This does not execute a swap.")
-                                      }
                                       style={{ height: 28, paddingInline: 10, fontSize: 12 }}
                                     >
                                       {aiOutputLanguage === "de"
@@ -25546,8 +25504,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ) : null}
                   </div>
                 ) : (
-                  <div className="muted">{aiOutputLanguage === "de" ? "Noch keine Ausgabe. Follow-up behält den Verlauf hier." : "No output yet. Follow-up keeps the conversation here."}</div>
+                  <div className="muted" style={{ padding: "12px 4px" }}>
+                    Ask about crypto markets, coins, rotation, NKR, Grid, Trading, risk or Nexus setup.
+                    General non-crypto questions are blocked.
+                  </div>
                 )}
+              </div>
+
+              {/* Chat input lives inside the output panel — no separate Strategy Task box. */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end" }}>
+                <textarea
+                  value={aiQuestion}
+                  onChange={(e) => setAiQuestion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.nativeEvent?.isComposing) return;
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (!aiLoading) void runAi();
+                    }
+                  }}
+                  placeholder="Ask about markets, coins, NKR, Grid, risk… (Enter to send)"
+                  rows={2}
+                  style={{
+                    width: "100%",
+                    minHeight: 56,
+                    maxHeight: 120,
+                    resize: "vertical",
+                    borderRadius: 14,
+                    padding: "10px 12px",
+                    background: "rgba(0,0,0,0.28)",
+                    color: "inherit",
+                    border: "1px solid rgba(255,255,255,0.14)",
+                    outline: "none",
+                  }}
+                  disabled={aiLoading}
+                />
+                <button className="btn" type="button" onClick={() => { if (!aiLoading) void runAi(); }} disabled={aiLoading || !(aiQuestion || "").trim()} style={{ height: 44, minWidth: 72 }}>
+                  {aiLoading ? "…" : "Send"}
+                </button>
               </div>
             </div>
           </div></div>

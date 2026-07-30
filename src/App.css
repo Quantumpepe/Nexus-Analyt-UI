@@ -2370,13 +2370,51 @@ body::before {
    to display:block, so the minimized NKR tile still showed Live Vault + forms.
    ========================================================= */
 @media (min-width: 981px){
+  /* Keep the 3 mode buttons visible, but compact for the right rail */
   .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridModeSwitcher{
-    display: none !important;
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 4px !important;
+    flex: 1 1 auto !important;
     min-width: 0 !important;
-    max-width: 0 !important;
-    height: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    margin-top: 6px !important;
+    padding: 3px !important;
+    border-radius: 10px !important;
+    visibility: visible !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .cardHead{
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 6px !important;
+    margin-bottom: 6px !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .cardHead > .cardTitle{
+    order: 0 !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .cardHead > .gridModeSwitcher{
+    order: 1 !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .cardHead > .cardActions{
+    order: 2 !important;
+    justify-content: flex-start !important;
+    transform: none !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridModeSwitcher button{
+    height: 28px !important;
+    min-height: 28px !important;
+    padding: 2px 6px !important;
+    border-radius: 9px !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    line-height: 1.1 !important;
+    white-space: nowrap !important;
     overflow: hidden !important;
-    visibility: hidden !important;
+    text-overflow: ellipsis !important;
   }
 
   .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) > .panelScroll,
@@ -2434,12 +2472,18 @@ body::before {
   .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailSummary{
     display: flex !important;
     flex-direction: column !important;
-    gap: 4px !important;
+    gap: 2px !important;
     margin-top: 4px !important;
-    padding: 8px 8px 6px !important;
-    border-radius: 12px !important;
-    border: 1px solid rgba(255,255,255,.10) !important;
-    background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.18)) !important;
+    padding: 6px 7px !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(255,255,255,.08) !important;
+    background: rgba(0,0,0,.16) !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailMode{
+    display: none !important; /* mode already on the 3 buttons */
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailHint{
+    display: none !important;
   }
   .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailMode{
     font-size: 10px !important;

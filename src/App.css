@@ -2422,13 +2422,52 @@ body::before {
     font-size: 8px !important;
   }
 
+  /* Hide the empty CSS hint — JSX gridRailSummary provides real status */
   .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive)::after{
-    content: "Open to manage Grid · NKR · Trading";
-    display: block !important;
+    content: none !important;
+    display: none !important;
+  }
+
+  .gridRailSummary{
+    display: none !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailSummary{
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+    margin-top: 4px !important;
+    padding: 8px 8px 6px !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(255,255,255,.10) !important;
+    background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.18)) !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailMode{
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    letter-spacing: .04em !important;
+    text-transform: uppercase !important;
+    color: rgba(139,220,255,.92) !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailStatus{
+    font-size: 13px !important;
+    font-weight: 900 !important;
+    line-height: 1.15 !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailLine{
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    color: rgba(235,255,247,.78) !important;
+    line-height: 1.2 !important;
+  }
+  .dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailHint{
     font-size: 9px !important;
-    line-height: 1.25 !important;
-    color: rgba(235,255,247,.62) !important;
-    margin-top: 6px !important;
+    color: rgba(235,255,247,.48) !important;
+    margin-top: 2px !important;
+  }
+  /* When panel is active, never show the compact summary */
+  .dashboardGrid .section-grid.panelActive .gridRailSummary,
+  .dashboardGrid:not(.hasFocus) .gridRailSummary{
+    display: none !important;
   }
 }
 /* === END v98 section-grid minimize === */

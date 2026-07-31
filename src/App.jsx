@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD355-NKR-CHAIN-STATE-SESSION-BUTTON-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD356-ONCHAIN-SESSION-CONTROL-TRUTH-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12555,46 +12555,6 @@ const [aiLoading, setAiLoading] = useState(false);
         return { ...s, status: "STOPPING", lifecycleState: "STOPPING", positionState: "STOPPING", updatedAt: now, meta };
       }));
       if (targetSid) setNkrExitUiState((p) => ({ ...p, [targetSid]: "PENDING" }));
-    } else if (actionU === "PAUSE") {
-      const targetChain = String(opts.chain || "").toUpperCase();
-      const matchSess = (s) => {
-        if (!targetSid) return false; // never pause-all from empty id
-        const sid = String(s?.onchainSessionId ?? s?.meta?.onchain_session_id ?? s?.id ?? s?.session_id ?? "");
-        const id = String(s?.id || s?.session_id || "");
-        const ch = String(s?.chain || s?.meta?.chain || s?.meta?.chain_key || "").toUpperCase();
-        if (targetChain && ch && targetChain !== ch) return false;
-        if (sid === targetSid || id === targetSid) return true;
-        if (id.toUpperCase() === targetSid.toUpperCase()) return true;
-        // NKR-LIVE-BNB-3 exact
-        if (id.toUpperCase().startsWith("NKR-LIVE-") && targetSid.toUpperCase().startsWith("NKR-LIVE-")) return id.toUpperCase() === targetSid.toUpperCase();
-        return false;
-      };
-      setRotationSessions((prev) => {
-        const list = (Array.isArray(prev) ? prev : []).map((s) => {
-          if (!s || typeof s !== "object") return s;
-          if (!matchSess(s)) return s;
-          const meta = { ...(s.meta && typeof s.meta === "object" ? s.meta : {}), lifecycle_state: "PAUSED", position_state: String(s?.positionState || s?.meta?.position_state || "WAITING"), nkr_user_control: "PAUSED_BY_USER" };
-          return { ...s, status: "PAUSED", lifecycleState: "PAUSED", updatedAt: now, meta, pausedAt: now };
-        });
-        const open = list.filter((s) => {
-          const st = String(s?.status || s?.lifecycleState || "").toUpperCase();
-          return s && !["STOPPED", "CLOSED", "FINALIZED", "EXPIRED", "DELETED"].includes(st);
-        });
-        const allPaused = open.length > 0 && open.every((s) => String(s?.status || "").toUpperCase() === "PAUSED");
-        setNkrControlState(allPaused ? "PAUSED" : "RUNNING");
-        return list;
-      });
-    } else if (actionU === "RESUME") {
-      setNkrControlState("RUNNING");
-      setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((s) => {
-        if (!s || typeof s !== "object") return s;
-        const sid = String(s?.onchainSessionId ?? s?.meta?.onchain_session_id ?? s?.id ?? s?.session_id ?? "");
-        const st = String(s?.status || "").toUpperCase();
-        if (st !== "PAUSED") return s;
-        if (targetSid && sid !== targetSid && String(s?.id || "") !== targetSid && String(s?.session_id || "") !== targetSid && !String(s?.id || "").endsWith(`-${targetSid}`) && sid.split("-").pop() !== targetSid) return s;
-        const meta = { ...(s.meta && typeof s.meta === "object" ? s.meta : {}), lifecycle_state: "ACTIVE", nkr_user_control: "RESUMED_BY_USER" };
-        return { ...s, status: "ACTIVE", lifecycleState: "ACTIVE", updatedAt: now, meta, resumedAt: now };
-      }));
     }
     try {
       // Per-card control requires sessionId+chain. Explicit allSessions allows bulk.
@@ -22467,6 +22427,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       };
                       const getRotationDerivedStatus = (sess) => {
                         const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+                        const rawStatusId = Number(
+                          sess?.rawStatusId ?? sess?.statusId ?? sess?.onchainStatusId ??
+                          meta?.raw_status_id ?? meta?.status_id ?? meta?.onchain_status_id
+                        );
+                        if (rawStatusId === 1) return "ACTIVE";
+                        if (rawStatusId === 2) return "PAUSED";
+                        if (rawStatusId === 3) return "CLOSING";
+                        if (rawStatusId === 4) return "FINALIZED";
                         const st = String(
                           sess?.onchainStatus || sess?.statusLabel || sess?.rawStatusLabel ||
                           meta?.onchain_status || meta?.status_label || sess?.status || sess?.lifecycleState || "APPROVED"
@@ -23232,7 +23200,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const lid = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
-                                              applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: lid || oid, chain: ch });
+                                              applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: oid || lid, chain: ch });
                                             }}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
                                             <button className="miniBtn danger" type="button" onClick={async () => {
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
@@ -23567,11 +23535,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   const oid = String(s?.onchainSessionId ?? s?.coreVaultSessionId ?? s?.meta?.onchain_session_id ?? "");
                                   const lid = String(s?.id || s?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
                                   if (!lid) { setRotationBackendMsg("No active session selected for Pause/Resume."); return; }
-                                  applyNkrBackendControl(String(s?.status || nkrControlState || "").toUpperCase() === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: lid, chain: ch });
+                                  const rawId = Number(s?.rawStatusId ?? s?.statusId ?? s?.onchainStatusId ?? s?.meta?.raw_status_id ?? s?.meta?.status_id);
+                                  const actualStatus = rawId === 2 ? "PAUSED" : String(s?.onchainStatus || s?.statusLabel || s?.status || "").toUpperCase();
+                                  applyNkrBackendControl(actualStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: oid || lid, chain: ch });
                                 }}
                                 title={`Pause or resume NKR on ${sessionChainOf(activeNkrSession) || selectedNkrChain}.`}
                               >
-                                {String(nkrControlState || "").toUpperCase() === "PAUSED" ? "Resume" : "Pause"}
+                                {(() => { const s = activeNkrSession; const rid = Number(s?.rawStatusId ?? s?.statusId ?? s?.onchainStatusId ?? s?.meta?.raw_status_id ?? s?.meta?.status_id); const st = rid === 2 ? "PAUSED" : String(s?.onchainStatus || s?.statusLabel || s?.status || "").toUpperCase(); return st === "PAUSED" ? "Resume" : "Pause"; })()}
                               </button>
                               <button
                                 className="miniBtn danger"

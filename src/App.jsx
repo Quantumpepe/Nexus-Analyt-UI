@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD354-SESSION-MODE-ROUTER-MULTICHAIN-SCAN-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD355-NKR-CHAIN-STATE-SESSION-BUTTON-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -4708,7 +4708,17 @@ useEffect(() => {
   // ENGINE-133: one live Core Vault capital selector shared by Grid, NKR and Trading.
   // This is display/selection only. It never mixes Shadow capital with on-chain funds
   // and it does not reserve or move funds by itself.
-  const [liveVaultChainByMode, setLiveVaultChainByMode] = useState({ normal: "ETH", rotation: "ETH", trading: "ETH" });
+  const [liveVaultChainByMode, setLiveVaultChainByMode] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("nexus_live_vault_chain_by_mode") || "{}");
+      return { normal: saved?.normal || DEFAULT_CHAIN || "ETH", rotation: saved?.rotation || DEFAULT_CHAIN || "ETH", trading: saved?.trading || DEFAULT_CHAIN || "ETH" };
+    } catch {
+      return { normal: DEFAULT_CHAIN || "ETH", rotation: DEFAULT_CHAIN || "ETH", trading: DEFAULT_CHAIN || "ETH" };
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("nexus_live_vault_chain_by_mode", JSON.stringify(liveVaultChainByMode || {})); } catch {}
+  }, [liveVaultChainByMode]);
   const [liveVaultAssetByMode, setLiveVaultAssetByMode] = useState({ normal: "USDC", rotation: "USDC", trading: "USDC" });
   const refreshCoreVaultOnchain = useCallback(async (preferredChainKey = "") => {
     if (!wallet) { setCoreVaultOnchain(null); return; }
@@ -22456,7 +22466,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         return `${h}h ${m}m`;
                       };
                       const getRotationDerivedStatus = (sess) => {
-                        const st = String(sess?.status || "APPROVED").toUpperCase();
+                        const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+                        const st = String(
+                          sess?.onchainStatus || sess?.statusLabel || sess?.rawStatusLabel ||
+                          meta?.onchain_status || meta?.status_label || sess?.status || sess?.lifecycleState || "APPROVED"
+                        ).toUpperCase();
                         const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
                         if (!["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "RELEASED", "REBALANCED_OUT"].includes(st) && exp && exp <= rotationNow) return "EXPIRED";
                         return st;
@@ -28182,6 +28196,9 @@ export default function App() {
                             Cycle Started: {e?.worker_cycle_started_ts ? new Date(Number(e.worker_cycle_started_ts) * 1000).toLocaleString() : "not seen"}<br />
                             Cycle Completed: {e?.worker_cycle_completed_ts ? new Date(Number(e.worker_cycle_completed_ts) * 1000).toLocaleString() : "not seen"}<br />
                             Session Updated: {e?.session_state_updated_ts ? new Date(Number(e.session_state_updated_ts) * 1000).toLocaleString() : "not seen"}<br />
+                            Working chain(s): {Array.isArray(e?.working_chains) && e.working_chains.length ? e.working_chains.join(", ") : "—"}<br />
+                            Paused chain(s): {Array.isArray(e?.paused_chains) && e.paused_chains.length ? e.paused_chains.join(", ") : "—"}<br />
+                            Session states: {Array.isArray(e?.session_states) && e.session_states.length ? e.session_states.map((s) => `${s?.chain || "?"} #${s?.sessionId || "?"} ${s?.status || "?"}`).join(" · ") : "—"}<br />
                             <span style={{ opacity: 0.65 }}>────────────</span><br />
                           </>}
                           Last Completed Tick: {lastTickText}<br />

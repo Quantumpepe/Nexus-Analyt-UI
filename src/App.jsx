@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD348-SHOW-EXEC-ERROR";
+const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD351-AGGRESSIVE-WALLET-AUDIT";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8853,6 +8853,13 @@ useEffect(() => {
       return;
     }
     const startedNkrCapitalMode = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
+    // Aggressive always requires a wallet-bound warning acceptance for this draft.
+    if (startedNkrCapitalMode === "AGGRESSIVE" && !nkrAggressiveAcceptedForDraft) {
+      setNkrAggressivePendingValue("AGGRESSIVE");
+      setNkrAggressiveConsentOpen(true);
+      setRotationBackendMsg("Confirm the Aggressive risk warning before starting this NKR session.");
+      return;
+    }
     let coreVaultSession = null;
     try {
       setRotationBackendLoading(true);
@@ -8991,15 +8998,51 @@ useEffect(() => {
     setRotationBackendMsg(
       `NKR session on ${startChainCheck} approved ✓${onchainSid ? ` #${onchainSid}` : ` ${sessionId}`}. Period ${periodDays} days · chain-locked scan.`
     );
-    // Keep the confirmed mode (including Aggressive after warning). Do NOT force Dynamic here —
-    // the live Strategist worker reads nkrCapitalMode from app-state; resetting would drop Aggressive.
+    // After a successful start: lock Aggressive on the running session (backend stamps
+    // mode at ensure_local while UI was still AGGRESSIVE during create/sync above).
+    // Reset the form to DYNAMIC so a second Aggressive start always requires the warning again.
     setNkrAggressivePendingValue("");
     setNkrAggressiveConsentOpen(false);
-    // Keep nkrAggressiveAcceptedForDraft true only if the started mode was Aggressive.
-    if (String(startedNkrCapitalMode || "").toUpperCase() !== "AGGRESSIVE") {
-      setNkrAggressiveAcceptedForDraft(false);
+    setNkrAggressiveAcceptedForDraft(false);
+    if (String(startedNkrCapitalMode || "").toUpperCase() === "AGGRESSIVE") {
+      // Permanent wallet audit: this start is bound to the on-chain session id.
+      try {
+        if (wallet) {
+          await api(`/api/nexus/nkr/aggressive-ack`, {
+            method: "POST",
+            token,
+            wallet,
+            body: {
+              performance_mode: "AGGRESSIVE",
+              accepted: true,
+              warning_version: AGGRESSIVE_WARNING_VERSION,
+              frontend_build: FRONTEND_BUILD_ID,
+              scope: "session_start",
+              session_id: String(onchainSid || sessionId || ""),
+              budget_usd: Number(amount) || 0,
+              chain: startChainCheck,
+            },
+          });
+        }
+      } catch (ackErr) {
+        console.warn("NKR Aggressive session-start audit failed", ackErr);
+      }
+      // Reset selector so next Aggressive start must confirm the warning again.
+      setNkrCapitalMode("DYNAMIC");
+      try {
+        if (wallet && token) {
+          await api("/api/nkr/mode", {
+            method: "POST",
+            token,
+            wallet,
+            body: { mode: "DYNAMIC", nkrCapitalMode: "DYNAMIC" },
+          });
+        }
+      } catch (modeErr) {
+        console.warn("NKR draft mode reset to Dynamic failed", modeErr);
+      }
     }
-  }, [rotationBudgetRelease, rotationCapitalTopup, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
+  }, [rotationBudgetRelease, rotationCapitalTopup, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, setNkrCapitalMode, nkrAggressiveAcceptedForDraft, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -11595,13 +11638,14 @@ useEffect(() => {
       if (wallet) {
         await api(`/api/nexus/nkr/aggressive-ack`, {
           method: "POST",
+          token,
           wallet,
           body: {
             performance_mode: "AGGRESSIVE",
             accepted: true,
             warning_version: AGGRESSIVE_WARNING_VERSION,
             frontend_build: FRONTEND_BUILD_ID,
-            scope: "active_or_draft",
+            scope: "draft_consent",
             budget_usd: Number(String(rotationBudgetRelease || "0").replace(",", ".")) || 0,
           },
         });
@@ -11609,7 +11653,7 @@ useEffect(() => {
     } catch (e) {
       console.warn("NKR Aggressive warning audit failed", e);
     }
-  }, [nkrAggressivePendingValue, applyRunningNkrMode, setRotationBudgetReleased, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, wallet, api, rotationBudgetRelease]);
+  }, [nkrAggressivePendingValue, applyRunningNkrMode, setRotationBudgetReleased, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, wallet, token, api, rotationBudgetRelease]);
 
   const cancelNkrAggressiveConsent = useCallback(() => {
     setNkrAggressiveAcceptedForDraft(false);
@@ -12529,14 +12573,23 @@ const [aiLoading, setAiLoading] = useState(false);
       }));
       if (targetSid) setNkrExitUiState((p) => ({ ...p, [targetSid]: "PENDING" }));
     } else if (actionU === "PAUSE") {
-      setNkrControlState("PAUSED");
-      setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((s) => {
-        if (!s || typeof s !== "object") return s;
-        const sid = String(s?.onchainSessionId ?? s?.meta?.onchain_session_id ?? s?.id ?? s?.session_id ?? "");
-        if (targetSid && sid !== targetSid && String(s?.id || "") !== targetSid && String(s?.session_id || "") !== targetSid && !String(s?.id || "").endsWith(`-${targetSid}`) && sid.split("-").pop() !== targetSid) return s;
-        const meta = { ...(s.meta && typeof s.meta === "object" ? s.meta : {}), lifecycle_state: "PAUSED", position_state: String(s?.positionState || s?.meta?.position_state || "WAITING"), nkr_user_control: "PAUSED_BY_USER" };
-        return { ...s, status: "PAUSED", lifecycleState: "PAUSED", updatedAt: now, meta, pausedAt: now };
-      }));
+      setRotationSessions((prev) => {
+        const list = (Array.isArray(prev) ? prev : []).map((s) => {
+          if (!s || typeof s !== "object") return s;
+          const sid = String(s?.onchainSessionId ?? s?.meta?.onchain_session_id ?? s?.id ?? s?.session_id ?? "");
+          if (targetSid && sid !== targetSid && String(s?.id || "") !== targetSid && String(s?.session_id || "") !== targetSid && !String(s?.id || "").endsWith(`-${targetSid}`) && sid.split("-").pop() !== targetSid) return s;
+          const meta = { ...(s.meta && typeof s.meta === "object" ? s.meta : {}), lifecycle_state: "PAUSED", position_state: String(s?.positionState || s?.meta?.position_state || "WAITING"), nkr_user_control: "PAUSED_BY_USER" };
+          return { ...s, status: "PAUSED", lifecycleState: "PAUSED", updatedAt: now, meta, pausedAt: now };
+        });
+        // Global PAUSED only when every open NKR session is paused.
+        const open = list.filter((s) => {
+          const st = String(s?.status || s?.lifecycleState || "").toUpperCase();
+          return s && !["STOPPED", "CLOSED", "FINALIZED", "EXPIRED", "DELETED"].includes(st);
+        });
+        const allPaused = open.length > 0 && open.every((s) => String(s?.status || "").toUpperCase() === "PAUSED");
+        setNkrControlState(allPaused ? "PAUSED" : "RUNNING");
+        return list;
+      });
     } else if (actionU === "RESUME") {
       setNkrControlState("RUNNING");
       setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((s) => {

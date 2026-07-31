@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD356-ONCHAIN-SESSION-CONTROL-TRUTH-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD357-SESSION-CARD-BUTTON-DIRECT-ONCHAIN-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12544,6 +12544,10 @@ const [aiLoading, setAiLoading] = useState(false);
     const now = Date.now();
     const localStatus = actionU === "PAUSE" ? "PAUSED" : actionU === "RESUME" ? "RUNNING" : actionU === "STOP" || actionU === "STOP_EXIT" || actionU === "PANIC_STOP" ? "STOPPING" : actionU === "DELETE" ? "WAITING" : actionU;
     const targetSid = String(opts.sessionId || "").trim();
+    if (["PAUSE", "RESUME", "STOP", "STOP_EXIT", "PANIC_STOP"].includes(actionU) && !/^\d+$/.test(targetSid)) {
+      setRotationBackendMsg(`NKR ${actionU}: missing exact on-chain session id for this card.`);
+      return;
+    }
     // Optimistic UI: Pause → Stop must show EXITING/STOPPING immediately, never flicker back to PAUSED.
     if (["STOP", "STOP_EXIT", "PANIC_STOP"].includes(actionU)) {
       setNkrControlState("STOPPING");
@@ -23153,7 +23157,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <button
                                           className="miniBtn"
                                           type="button"
-                                          onClick={() => setNkrSessionInfoOpen({
+                                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrSessionInfoOpen({
                                             id: String(sess?.id || sess?.session_id || ""),
                                             route: routeTitle,
                                             status,
@@ -23181,33 +23185,41 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             ends: campaignExpiresTs,
                                             runtimeText,
                                             leftText,
-                                          })}
+                                          }); }}
                                         >Info</button>
                                         {sessionStatus === "STOPPED" ? (
                                           <>
-                                            <button className="miniBtn" type="button" onClick={() => applyNkrBackendControl("RESUME", { sessionId: String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "") })}>Resume</button>
-                                            <button className="miniBtn danger" type="button" onClick={async () => {
+                                            <button className="miniBtn" type="button" onClick={(e) => {
+                                              e.preventDefault(); e.stopPropagation();
+                                              const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
+                                              const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
+                                              applyNkrBackendControl("RESUME", { sessionId: oid, chain: ch });
+                                            }}>Resume</button>
+                                            <button className="miniBtn danger" type="button" onClick={async (e) => {
+                                              e.preventDefault(); e.stopPropagation();
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const k = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
                                               setNkrExitUiState((p)=>({ ...p, [k]: "REQUESTED", [oid]: "REQUESTED" }));
-                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: k, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
+                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: oid, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
                                             }}>Stop &amp; Exit</button>
                                           </>
                                         ) : (
                                           <>
-                                            <button className="miniBtn" type="button" onClick={() => {
+                                            <button className="miniBtn" type="button" onClick={(e) => {
+                                              e.preventDefault(); e.stopPropagation();
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const lid = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
                                               applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: oid || lid, chain: ch });
                                             }}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
-                                            <button className="miniBtn danger" type="button" onClick={async () => {
+                                            <button className="miniBtn danger" type="button" onClick={async (e) => {
+                                              e.preventDefault(); e.stopPropagation();
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const k = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
                                               setNkrExitUiState((p)=>({ ...p, [k]: "REQUESTED", [oid]: "REQUESTED" }));
-                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: k, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
+                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: oid, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
                                             }}>Stop & Exit</button>
                                           </>
                                         )}

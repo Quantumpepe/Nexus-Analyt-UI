@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD365-UNDEFINED-MAX-CAPITAL-REGRESSION-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD366-CLICKABLE-GENERAL-EVM-DIAGNOSTICS";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -27300,6 +27300,9 @@ export default function App() {
   const [buildInfo, setBuildInfo] = useState(null);
   const [shadowHealth, setShadowHealth] = useState(null);
   const [systemInfoStatus, setSystemInfoStatus] = useState(null);
+  const [engineDiagnostics, setEngineDiagnostics] = useState(null);
+  const [engineDiagnosticsBusy, setEngineDiagnosticsBusy] = useState("");
+  const [engineDiagnosticsError, setEngineDiagnosticsError] = useState("");
   const [shadowReadiness, setShadowReadiness] = useState(null);
   const [evmRegistryBusy, setEvmRegistryBusy] = useState("");
   const [evmRegistryMsg, setEvmRegistryMsg] = useState("");
@@ -28035,6 +28038,44 @@ export default function App() {
     finally { setOwnerAdminBusy(""); }
   };
 
+  const _openEngineDiagnostics = async (engineName = "ALL", engineState = {}) => {
+    const engine = String(engineName || "ALL").toUpperCase();
+    setEngineDiagnosticsBusy(engine);
+    setEngineDiagnosticsError("");
+    setEngineDiagnostics({ engine, reports: [], overall: "LOADING" });
+    try {
+      const states = Array.isArray(engineState?.session_states) ? engineState.session_states : [];
+      const selected = states.find((s) => String(s?.status || "").toUpperCase() === "ACTIVE") || states[0] || null;
+      const chainMap = { ETH: 1, BNB: 56, POL: 137, MATIC: 137, BASE: 8453, ARB: 42161, ARBITRUM: 42161, OP: 10, OPTIMISM: 10, AVAX: 43114, AVALANCHE: 43114 };
+      const chainId = Number(selected?.chainId || selected?.chain_id || chainMap[String(selected?.chain || "").toUpperCase()] || 0);
+      const sessionId = selected?.sessionId ?? selected?.session_id ?? "";
+      const params = new URLSearchParams({ engine });
+      const ownerWallet = String(footerWallet || ownerAdminWalletStatus?.selected || "").trim();
+      if (ownerWallet) params.set("wallet", ownerWallet);
+      if (chainId > 0) params.set("chain_id", String(chainId));
+      if (sessionId !== "" && sessionId != null) params.set("session_id", String(sessionId));
+      const res = await fetch(`${API_BASE}/api/nexus/system-info/evm-diagnostics?${params.toString()}`, {
+        cache: "no-store",
+        credentials: "include",
+        headers: _authHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || data?.message || `Diagnostics failed (${res.status})`);
+      setEngineDiagnostics(data);
+    } catch (error) {
+      setEngineDiagnosticsError(String(error?.message || error || "Diagnostics failed"));
+      setEngineDiagnostics((prev) => ({ ...(prev || {}), overall: "ERROR" }));
+    } finally {
+      setEngineDiagnosticsBusy("");
+    }
+  };
+
+  const _diagnosticTone = (ok, status = "") => {
+    if (ok) return { color: "#8dffd0", border: "rgba(68,255,180,.25)", bg: "rgba(0,255,140,.045)", icon: "✅" };
+    if (String(status).toUpperCase() === "ZERO" || String(status).toUpperCase() === "UNKNOWN") return { color: "#ffe08a", border: "rgba(255,224,138,.28)", bg: "rgba(255,224,138,.045)", icon: "⚠️" };
+    return { color: "#ffb4b4", border: "rgba(255,80,80,.34)", bg: "rgba(120,0,0,.12)", icon: "❌" };
+  };
+
   const normalizeStatusRows = (value) => {
     if (!value || typeof value !== "object") return [];
     if (Array.isArray(value)) return value;
@@ -28223,7 +28264,16 @@ export default function App() {
                     {["NKR", "GRID", "TRADER"].map((engineName) => {
                       const e = systemInfoStatus?.engineRuntimeStatus?.engines?.[engineName] || {};
                       const lastTickText = e?.last_tick_ts ? new Date(Number(e.last_tick_ts) * 1000).toLocaleString() : "not seen";
-                      return <div key={engineName} style={{ border: `1px solid ${e?.stalled || e?.status === "error" ? "rgba(255,80,80,.5)" : "rgba(68,255,180,.2)"}`, borderRadius: 8, padding: 9 }}>
+                      return <div
+                        key={engineName}
+                        role="button"
+                        tabIndex={0}
+                        title={`Open ${engineName} / EVM diagnostics`}
+                        onClick={() => _openEngineDiagnostics(engineName, e)}
+                        onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") _openEngineDiagnostics(engineName, e); }}
+                        style={{ border: `1px solid ${e?.stalled || e?.status === "error" ? "rgba(255,80,80,.5)" : "rgba(68,255,180,.2)"}`, borderRadius: 8, padding: 9, cursor: "pointer", position: "relative" }}
+                      >
+                        <div style={{ position: "absolute", top: 7, right: 8, fontSize: 10, opacity: .7 }}>Diagnose ↗</div>
                         <div style={{ fontWeight: 950, marginBottom: 5 }}>{engineName} · {String(e?.status || "idle").toUpperCase()} {e?.status === "running" ? "🟢" : "⚪"}</div>
                         <div style={{ fontSize: 12, lineHeight: 1.55 }}>
                           {engineName === "NKR" && <>
@@ -28264,6 +28314,54 @@ export default function App() {
                     })}
                   </div>
                 </details>
+
+                {engineDiagnostics && (
+                  <details
+                    open
+                    style={{
+                      gridColumn: "span 12",
+                      border: "1px solid rgba(255,224,138,0.30)",
+                      borderRadius: 10,
+                      padding: 10,
+                      background: "rgba(255,224,138,0.035)",
+                    }}
+                  >
+                    <summary style={{ cursor: "pointer", fontWeight: 950 }}>
+                      General EVM Diagnostics · {engineDiagnostics?.engine || "ALL"} · {engineDiagnosticsBusy ? "LOADING…" : (engineDiagnostics?.overall || "UNKNOWN")}
+                    </summary>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, marginBottom: 8 }}>
+                      <button type="button" className="miniBtn" disabled={!!engineDiagnosticsBusy} onClick={(ev) => { ev.stopPropagation(); _openEngineDiagnostics(engineDiagnostics?.engine || "ALL", systemInfoStatus?.engineRuntimeStatus?.engines?.[engineDiagnostics?.engine] || {}); }}>
+                        {engineDiagnosticsBusy ? "Checking…" : "Refresh diagnostics"}
+                      </button>
+                      <button type="button" className="miniBtn" onClick={(ev) => { ev.stopPropagation(); setEngineDiagnostics(null); setEngineDiagnosticsError(""); }}>Close</button>
+                      <span className="muted tiny">Read-only: no transaction and no vault change.</span>
+                    </div>
+                    {engineDiagnosticsError ? <div style={{ color: "#ffb4b4", marginBottom: 8, fontWeight: 800 }}>{engineDiagnosticsError}</div> : null}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(310px, 1fr))", gap: 9 }}>
+                      {(engineDiagnostics?.reports || []).map((report) => (
+                        <div key={`${report?.chainId}-${report?.engine}`} style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 9, padding: 9, background: "rgba(0,0,0,.10)" }}>
+                          <div style={{ fontWeight: 950, marginBottom: 6 }}>
+                            {report?.chain || report?.chainId} · {report?.engine} {report?.sessionId != null ? `· Session #${report.sessionId}` : ""} · {report?.status}
+                          </div>
+                          <div className="muted tiny" style={{ wordBreak: "break-all", marginBottom: 6 }}>
+                            Vault: {report?.vault || "—"}<br />Router: {report?.router || "—"}<br />Quoter: {report?.quoter || "—"}
+                          </div>
+                          <div style={{ display: "grid", gap: 5 }}>
+                            {Object.entries(report?.checks || {}).map(([name, check]) => {
+                              const tone = _diagnosticTone(!!check?.ok, check?.status);
+                              return <details key={name} style={{ border: `1px solid ${tone.border}`, borderRadius: 7, padding: "5px 7px", background: tone.bg }}>
+                                <summary style={{ cursor: "pointer", color: tone.color, fontWeight: 850 }}>{tone.icon} {name}: {check?.status || (check?.ok ? "READY" : "FAILED")}</summary>
+                                <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0", opacity: .82 }}>{JSON.stringify(check?.detail ?? null, null, 2)}</pre>
+                              </details>;
+                            })}
+                          </div>
+                          {Array.isArray(report?.blockers) && report.blockers.length ? <div style={{ marginTop: 7, color: "#ffb4b4", fontSize: 11, fontWeight: 800 }}>Blockers: {report.blockers.join(", ")}</div> : <div style={{ marginTop: 7, color: "#8dffd0", fontSize: 11, fontWeight: 800 }}>No blocking read-check found.</div>}
+                          {report?.diagnosticError ? <div style={{ marginTop: 6, color: "#ffb4b4", fontSize: 10, wordBreak: "break-all" }}>{report.diagnosticError}</div> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
 
                 <details style={{
                   gridColumn: "span 8",

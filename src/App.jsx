@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD353-SESSION-CONTROL-MODE-ALL-CHAIN-SCAN-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD354-SESSION-MODE-ROUTER-MULTICHAIN-SCAN-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -9028,9 +9028,8 @@ useEffect(() => {
       } catch (ackErr) {
         console.warn("NKR Aggressive session-start audit failed", ackErr);
       }
-      // Reset only the NEW-SESSION draft selector. Never call /api/nkr/mode here:
-      // that endpoint changes running sessions and previously converted an existing
-      // Aggressive session to Dynamic when preparing the next draft.
+      // Reset selector so next Aggressive start must confirm the warning again.
+      // Reset only the next-session draft. Never mutate already running sessions.
       setNkrCapitalMode("DYNAMIC");
     }
   }, [rotationBudgetRelease, rotationCapitalTopup, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, setNkrCapitalMode, nkrAggressiveAcceptedForDraft, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
@@ -11578,30 +11577,13 @@ useEffect(() => {
   }, [resetNkrAggressiveDraftSelection, setRotationBudgetRelease, setRotationBudgetReleased, rotationSessions]);
 
   const applyRunningNkrMode = useCallback(async (nextMode) => {
+    // The selector is a draft for the next session only. Running sessions keep
+    // the immutable mode stored at their own start.
     const next = String(nextMode || "DYNAMIC").toUpperCase();
-    // PAUSED still counts as an active run — mode change must reach backend + worker.
-    const hasActiveRun = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED", "EXPIRED", "CLOSED", "DELETED", "ARCHIVED", "REBALANCED_OUT", "FINALIZED", "COMPLETE", "COMPLETED", "CANCELLED", "RELEASED"].includes(String(s?.status || "").toUpperCase()));
-    // Always update local selector immediately so the UI stays on the confirmed mode.
     setNkrCapitalMode(next);
     setRotationBudgetReleased(false);
-    if (!hasActiveRun) {
-      return true;
-    }
-    try {
-      setRotationBackendLoading(true);
-      const resp = await api("/api/nkr/mode", { method: "POST", token, wallet, body: { mode: next } });
-      if (Array.isArray(resp?.sessions)) setRotationSessions(resp.sessions);
-      setNkrCapitalMode(next); // re-assert after server response
-      setRotationBackendMsg(resp?.message || `NKR mode changed to ${next}.`);
-      return true;
-    } catch (e) {
-      setRotationBackendMsg(`NKR mode change failed: ${e?.message || e}`);
-      // Keep the confirmed local mode even if the API fails; app-state sync still carries it.
-      return false;
-    } finally {
-      setRotationBackendLoading(false);
-    }
-  }, [rotationSessions, token, wallet, api, setRotationSessions, setNkrCapitalMode, setRotationBudgetReleased]);
+    return true;
+  }, [setNkrCapitalMode, setRotationBudgetReleased]);
 
   const handleNkrCapitalModeChange = useCallback(async (value) => {
     const next = String(value || "DYNAMIC").toUpperCase();
@@ -23227,7 +23209,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const k = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
                                               setNkrExitUiState((p)=>({ ...p, [k]: "REQUESTED", [oid]: "REQUESTED" }));
-                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: oid || k, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
+                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: k, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
                                             }}>Stop &amp; Exit</button>
                                           </>
                                         ) : (
@@ -23236,14 +23218,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const lid = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
-                                              applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: oid || lid, chain: ch });
+                                              applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: lid || oid, chain: ch });
                                             }}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
                                             <button className="miniBtn danger" type="button" onClick={async () => {
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const k = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
                                               setNkrExitUiState((p)=>({ ...p, [k]: "REQUESTED", [oid]: "REQUESTED" }));
-                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: oid || k, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
+                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: k, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
                                             }}>Stop & Exit</button>
                                           </>
                                         )}
@@ -27574,80 +27556,62 @@ export default function App() {
     try { coreVaultScanAbortRef.current?.abort?.(); } catch {}
     const controller = new AbortController();
     coreVaultScanAbortRef.current = controller;
-    const timeoutId = window.setTimeout(() => controller.abort(), 25000);
+    const timeoutId = window.setTimeout(() => controller.abort(), 45000);
     setOwnerAdminBusy("CoreVault session scan");
-    setOwnerAdminMsg("Reading Grid, NKR and Trader CoreVault sessions on-chain...");
+    setOwnerAdminMsg("Reading Grid, NKR and Trader sessions on ETH, BNB and POL...");
+    const chains = [
+      { chain: "ETH", chainId: 1, vault: CORE_VAULT_ETH_ADDRESS },
+      { chain: "BNB", chainId: 56, vault: CORE_VAULT_BNB_ADDRESS },
+      { chain: "POL", chainId: 137, vault: CORE_VAULT_POL_ADDRESS },
+    ].filter((x) => /^0x[a-fA-F0-9]{40}$/.test(String(x.vault || "")));
     try {
-      const CORE_VAULT_SCAN_CHAINS = [
-        { chain: "ETH", chainId: 1, vault: CORE_VAULT_ETH_ADDRESS },
-        { chain: "BNB", chainId: 56, vault: CORE_VAULT_BNB_ADDRESS },
-        { chain: "POL", chainId: 137, vault: CORE_VAULT_POL_ADDRESS },
-      ].filter((x) => x.vault);
-      const scanJobs = CORE_VAULT_SCAN_CHAINS.flatMap((chainCfg) =>
-        CORE_VAULT_SESSION_ENGINES.map((engine) => ({ ...chainCfg, engine }))
-      );
-      const results = await Promise.all(scanJobs.map(async ({ engine, chain, chainId, vault }) => {
+      const jobs = [];
+      for (const c of chains) for (const engine of CORE_VAULT_SESSION_ENGINES) jobs.push({ ...c, engine });
+      const settled = await Promise.allSettled(jobs.map(async (job) => {
         const q = new URLSearchParams({
-          wallet: footerWallet,
-          wallet_address: footerWallet,
-          engine,
-          chainId: String(chainId),
-          vault,
+          wallet: footerWallet, wallet_address: footerWallet, engine: job.engine,
+          chainId: String(job.chainId), vault: job.vault,
         });
         const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, {
-          cache: "no-store",
-          credentials: "include",
-          headers: _authHeaders(),
-          signal: controller.signal,
+          cache: "no-store", credentials: "include", headers: _authHeaders(), signal: controller.signal,
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(`${chain}/${engine}: ${data?.error || `session scan failed (${res.status})`}`);
-        return { engine, chain, chainId, vault, data };
+        if (!res.ok) throw new Error(`${job.chain}/${job.engine}: ${data?.error || `HTTP ${res.status}`}`);
+        return { ...job, data };
       }));
-
-      const sessionMap = new Map();
-      const candidateMap = new Map();
-      let nextSessionId = 0;
-
-      for (const { engine, chain, chainId, vault, data } of results) {
-        nextSessionId = Math.max(nextSessionId, Number(data?.nextSessionId || 0));
+      const results = settled.filter((x) => x.status === "fulfilled").map((x) => x.value);
+      const failures = settled.filter((x) => x.status === "rejected").map((x) => String(x.reason?.message || x.reason));
+      const sessionMap = new Map(); const candidateMap = new Map(); const nextByChain = {};
+      for (const { chain, chainId, vault, engine, data } of results) {
+        nextByChain[chain] = Math.max(Number(nextByChain[chain] || 0), Number(data?.nextSessionId || 0));
         for (const raw of (Array.isArray(data?.sessions) ? data.sessions : [])) {
-          const session = { ...raw, engine: String(raw?.engine || engine).toUpperCase(), chain, chainId, vault: raw?.vault || vault };
-          const key = `${chain}:${session.engine}:${String(session?.sessionId ?? sessionMap.size)}`;
+          const session = { ...raw, chain, chainId, vault, engine: String(raw?.engine || engine).toUpperCase() };
+          const key = `${chainId}:${String(session.engine)}:${String(session?.sessionId ?? "")}`;
           sessionMap.set(key, session);
         }
         for (const raw of (Array.isArray(data?.candidates) ? data.candidates : [])) {
-          const candidate = { ...raw, engine: String(raw?.engine || engine).toUpperCase(), chain, chainId, vault: raw?.vault || vault };
-          const key = `${chain}:${candidate.engine}:${String(candidate?.sessionId ?? candidateMap.size)}`;
+          const candidate = { ...raw, chain, chainId, vault, engine: String(raw?.engine || engine).toUpperCase() };
+          const key = `${chainId}:${String(candidate.engine)}:${String(candidate?.sessionId ?? "")}`;
           candidateMap.set(key, candidate);
         }
       }
-
-      const sessions = Array.from(sessionMap.values()).sort((a, b) => Number(a?.sessionId || 0) - Number(b?.sessionId || 0));
+      const sessions = Array.from(sessionMap.values()).sort((a,b) => Number(a.chainId)-Number(b.chainId) || Number(a.sessionId)-Number(b.sessionId));
       const candidates = Array.from(candidateMap.values());
-      const counts = CORE_VAULT_SESSION_ENGINES.reduce((acc, engine) => {
-        acc[engine] = sessions.filter((s) => String(s?.engine || "").toUpperCase() === engine).length;
-        return acc;
-      }, {});
-
-      setCoreVaultSessionPreview({ nextSessionId, sessions, candidates, counts, engines: CORE_VAULT_SESSION_ENGINES });
-      setOwnerAdminMsg(
-        `CoreVault scan complete: ${sessions.length} session(s) ` +
-        `(Grid ${counts.GRID || 0}, NKR ${counts.NKR || 0}, Trader ${counts.TRADER || 0}); ` +
-        `${candidates.length} recoverable.`
-      );
+      const counts = { GRID:0, NKR:0, TRADER:0 };
+      sessions.forEach((s) => { const e=String(s.engine||"").toUpperCase(); if (e in counts) counts[e] += 1; });
+      setCoreVaultSessionPreview({ nextSessionId: nextByChain, nextSessionIdByChain: nextByChain, sessions, candidates, counts, engines: CORE_VAULT_SESSION_ENGINES, chains: chains.map(c=>c.chain), failures });
+      setOwnerAdminMsg(`CoreVault scan: ${sessions.length} session(s) across ${chains.map(c=>c.chain).join(", ")}; ${candidates.length} recoverable${failures.length ? `; ${failures.length} scan error(s)` : ""}.`);
     } catch (err) {
       const aborted = err?.name === "AbortError";
-      setOwnerAdminMsg(aborted ? "CoreVault session scan timed out. No runtime state was changed." : `CoreVault session scan failed: ${err?.message || err}`);
+      setOwnerAdminMsg(aborted ? "CoreVault multi-chain scan timed out." : `CoreVault session scan failed: ${err?.message || err}`);
     } finally {
       window.clearTimeout(timeoutId);
       if (coreVaultScanAbortRef.current === controller) coreVaultScanAbortRef.current = null;
-      coreVaultScanFlightRef.current = false;
-      setOwnerAdminBusy("");
+      coreVaultScanFlightRef.current = false; setOwnerAdminBusy("");
     }
   };
 
-  const _recoverStaleCoreVaultReservation = async (sessionId, engine) => {
+  const _recoverStaleCoreVaultReservation = async (sessionId, engine, chainId = 1, vault = CORE_VAULT_ETH_ADDRESS, chain = "ETH") => {
     const normalizedEngine = String(engine || "").toUpperCase();
     if (!canOpenSystemInfo || ownerAdminBusy || !sessionId || !CORE_VAULT_SESSION_ENGINES.includes(normalizedEngine)) return;
     setOwnerAdminBusy(`Stale ${normalizedEngine} recovery ${sessionId}`);
@@ -27655,7 +27619,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover`, {
         method: "POST", cache: "no-store", credentials: "include", headers: _authHeaders(),
-        body: JSON.stringify({ engine: normalizedEngine, chainId: 1, vault: CORE_VAULT_ETH_ADDRESS, execute: true, sessionId: Number(sessionId) }),
+        body: JSON.stringify({ engine: normalizedEngine, chainId: Number(chainId), vault, chain, execute: true, sessionId: Number(sessionId) }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.status !== 202 || !data?.jobId) throw new Error(data?.error || `Recovery start failed (${res.status})`);
@@ -28462,10 +28426,10 @@ export default function App() {
                     </div>
                     {coreVaultSessionPreview ? (
                       <div style={{ marginTop: 9, display: "grid", gap: 6 }}>
-                        <div className="muted" style={{ fontSize: 9 }}>Next session ID: {coreVaultSessionPreview?.nextSessionId ?? "—"} · Found: {(coreVaultSessionPreview?.sessions || []).length} (Grid {coreVaultSessionPreview?.counts?.GRID || 0}, NKR {coreVaultSessionPreview?.counts?.NKR || 0}, Trader {coreVaultSessionPreview?.counts?.TRADER || 0}) · Recoverable: {(coreVaultSessionPreview?.candidates || []).length}</div>
+                        <div className="muted" style={{ fontSize: 9 }}>Next IDs: ETH {coreVaultSessionPreview?.nextSessionIdByChain?.ETH ?? "—"} · BNB {coreVaultSessionPreview?.nextSessionIdByChain?.BNB ?? "—"} · POL {coreVaultSessionPreview?.nextSessionIdByChain?.POL ?? "—"} · Found: {(coreVaultSessionPreview?.sessions || []).length} (Grid {coreVaultSessionPreview?.counts?.GRID || 0}, NKR {coreVaultSessionPreview?.counts?.NKR || 0}, Trader {coreVaultSessionPreview?.counts?.TRADER || 0}) · Recoverable: {(coreVaultSessionPreview?.candidates || []).length}</div>
                         {(coreVaultSessionPreview?.sessions || []).length ? (coreVaultSessionPreview.sessions || []).slice().reverse().map((s) => (
-                          <div key={`core-session-${s.sessionId}`} style={{ border: `1px solid ${s.recoverable ? "rgba(255,193,7,0.42)" : "rgba(255,255,255,0.10)"}`, borderRadius: 8, padding: 8, background: s.recoverable ? "rgba(255,193,7,0.06)" : "rgba(255,255,255,0.02)", fontSize: 9 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}><b>Session #{s.sessionId}</b><b style={{ color: s.recoverable ? "#ffe08a" : "#b9d8ce" }}>{s.statusLabel || `Status ${s.statusId}`}</b></div>
+                          <div key={`core-session-${s.chainId || 0}-${s.engine || "UNKNOWN"}-${s.sessionId}`} style={{ border: `1px solid ${s.recoverable ? "rgba(255,193,7,0.42)" : "rgba(255,255,255,0.10)"}`, borderRadius: 8, padding: 8, background: s.recoverable ? "rgba(255,193,7,0.06)" : "rgba(255,255,255,0.02)", fontSize: 9 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}><b>{s.chain || "ETH"} · Session #{s.sessionId}</b><b style={{ color: s.recoverable ? "#ffe08a" : "#b9d8ce" }}>{s.statusLabel || `Status ${s.statusId}`}</b></div>
                             <div style={{ marginTop: 4, display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 8px", wordBreak: "break-all" }}>
                               <span className="muted">System</span><span style={{ fontWeight: 900, color: "#9fe8ff" }}>{String(s.engine || "UNKNOWN").toUpperCase()}</span>
                               <span className="muted">Owner</span><span>{s.owner}</span>
@@ -28482,7 +28446,7 @@ export default function App() {
                               </div>
                             ) : null}
                             {s.recoverable ? <div style={{ marginTop: 7 }}>
-                              <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={() => _recoverStaleCoreVaultReservation(s.sessionId, s.engine)}>
+                              <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={() => _recoverStaleCoreVaultReservation(s.sessionId, s.engine, s.chainId, s.vault, s.chain)}>
                                 {ownerAdminBusy === `Stale ${String(s.engine || "").toUpperCase()} recovery ${s.sessionId}` ? `Processing ${String(s.engine || "").toUpperCase()} session #${s.sessionId}...` : `Recover / Finalize ${String(s.engine || "").toUpperCase()} session #${s.sessionId}`}
                               </button>
                             </div> : null}

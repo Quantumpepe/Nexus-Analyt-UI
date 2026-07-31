@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.30-BUILD352-PAUSE-CHAIN-SCOPED";
+const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD353-SESSION-CONTROL-MODE-ALL-CHAIN-SCAN-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -9028,20 +9028,10 @@ useEffect(() => {
       } catch (ackErr) {
         console.warn("NKR Aggressive session-start audit failed", ackErr);
       }
-      // Reset selector so next Aggressive start must confirm the warning again.
+      // Reset only the NEW-SESSION draft selector. Never call /api/nkr/mode here:
+      // that endpoint changes running sessions and previously converted an existing
+      // Aggressive session to Dynamic when preparing the next draft.
       setNkrCapitalMode("DYNAMIC");
-      try {
-        if (wallet && token) {
-          await api("/api/nkr/mode", {
-            method: "POST",
-            token,
-            wallet,
-            body: { mode: "DYNAMIC", nkrCapitalMode: "DYNAMIC" },
-          });
-        }
-      } catch (modeErr) {
-        console.warn("NKR draft mode reset to Dynamic failed", modeErr);
-      }
     }
   }, [rotationBudgetRelease, rotationCapitalTopup, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, setNkrCapitalMode, nkrAggressiveAcceptedForDraft, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
 
@@ -23237,7 +23227,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const k = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
                                               setNkrExitUiState((p)=>({ ...p, [k]: "REQUESTED", [oid]: "REQUESTED" }));
-                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: k, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
+                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: oid || k, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
                                             }}>Stop &amp; Exit</button>
                                           </>
                                         ) : (
@@ -23246,14 +23236,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const lid = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
-                                              applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: lid || oid, chain: ch });
+                                              applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: oid || lid, chain: ch });
                                             }}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
                                             <button className="miniBtn danger" type="button" onClick={async () => {
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const k = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
                                               setNkrExitUiState((p)=>({ ...p, [k]: "REQUESTED", [oid]: "REQUESTED" }));
-                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: k, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
+                                              try { await applyNkrBackendControl("STOP_EXIT", { sessionId: oid || k, chain: ch }); setNkrExitUiState((p)=>({ ...p, [k]: "PENDING", [oid]: "PENDING" })); } catch (e) { setNkrExitUiState((p)=>({ ...p, [k]: "FAILED", [oid]: "FAILED" })); }
                                             }}>Stop & Exit</button>
                                           </>
                                         )}
@@ -27588,13 +27578,21 @@ export default function App() {
     setOwnerAdminBusy("CoreVault session scan");
     setOwnerAdminMsg("Reading Grid, NKR and Trader CoreVault sessions on-chain...");
     try {
-      const results = await Promise.all(CORE_VAULT_SESSION_ENGINES.map(async (engine) => {
+      const CORE_VAULT_SCAN_CHAINS = [
+        { chain: "ETH", chainId: 1, vault: CORE_VAULT_ETH_ADDRESS },
+        { chain: "BNB", chainId: 56, vault: CORE_VAULT_BNB_ADDRESS },
+        { chain: "POL", chainId: 137, vault: CORE_VAULT_POL_ADDRESS },
+      ].filter((x) => x.vault);
+      const scanJobs = CORE_VAULT_SCAN_CHAINS.flatMap((chainCfg) =>
+        CORE_VAULT_SESSION_ENGINES.map((engine) => ({ ...chainCfg, engine }))
+      );
+      const results = await Promise.all(scanJobs.map(async ({ engine, chain, chainId, vault }) => {
         const q = new URLSearchParams({
           wallet: footerWallet,
           wallet_address: footerWallet,
           engine,
-          chainId: "1",
-          vault: CORE_VAULT_ETH_ADDRESS,
+          chainId: String(chainId),
+          vault,
         });
         const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, {
           cache: "no-store",
@@ -27603,24 +27601,24 @@ export default function App() {
           signal: controller.signal,
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(`${engine}: ${data?.error || `session scan failed (${res.status})`}`);
-        return { engine, data };
+        if (!res.ok) throw new Error(`${chain}/${engine}: ${data?.error || `session scan failed (${res.status})`}`);
+        return { engine, chain, chainId, vault, data };
       }));
 
       const sessionMap = new Map();
       const candidateMap = new Map();
       let nextSessionId = 0;
 
-      for (const { engine, data } of results) {
+      for (const { engine, chain, chainId, vault, data } of results) {
         nextSessionId = Math.max(nextSessionId, Number(data?.nextSessionId || 0));
         for (const raw of (Array.isArray(data?.sessions) ? data.sessions : [])) {
-          const session = { ...raw, engine: String(raw?.engine || engine).toUpperCase() };
-          const key = String(session?.sessionId ?? `${session.engine}-${sessionMap.size}`);
+          const session = { ...raw, engine: String(raw?.engine || engine).toUpperCase(), chain, chainId, vault: raw?.vault || vault };
+          const key = `${chain}:${session.engine}:${String(session?.sessionId ?? sessionMap.size)}`;
           sessionMap.set(key, session);
         }
         for (const raw of (Array.isArray(data?.candidates) ? data.candidates : [])) {
-          const candidate = { ...raw, engine: String(raw?.engine || engine).toUpperCase() };
-          const key = String(candidate?.sessionId ?? `${candidate.engine}-${candidateMap.size}`);
+          const candidate = { ...raw, engine: String(raw?.engine || engine).toUpperCase(), chain, chainId, vault: raw?.vault || vault };
+          const key = `${chain}:${candidate.engine}:${String(candidate?.sessionId ?? candidateMap.size)}`;
           candidateMap.set(key, candidate);
         }
       }
@@ -28460,7 +28458,7 @@ export default function App() {
                       <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_inspectCoreVaultSessions}>
                         {ownerAdminBusy === "CoreVault session scan" ? "Scanning..." : "Refresh on-chain sessions"}
                       </button>
-                      <span className="muted" style={{ fontSize: 9 }}>Ethereum · Grid · NKR · Trader · CoreVault</span>
+                      <span className="muted" style={{ fontSize: 9 }}>ETH · BNB · POL · Grid · NKR · Trader · CoreVault</span>
                     </div>
                     {coreVaultSessionPreview ? (
                       <div style={{ marginTop: 9, display: "grid", gap: 6 }}>

@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD361-MAX-ASSETS-EDIT-LOCK-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD362-NKR-SESSION-MODE-SNAPSHOT-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -5066,7 +5066,7 @@ useEffect(() => {
 
   // ENGINE-175: create CoreVault sessions through the server-side Privy wallet API.
   // NKR, Trader and Grid must never trigger a browser approval popup.
-  const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500, settlementAsset, chain }) => {
+  const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500, settlementAsset, chain, sessionConfig = null }) => {
     if (!wallet) throw new Error("Wallet not connected.");
     const budget = Number(String(budgetUsd ?? "").replace(",", "."));
     if (!Number.isFinite(budget) || budget <= 0) throw new Error("A positive CoreVault budget is required.");
@@ -5097,6 +5097,13 @@ useEffect(() => {
       maxLossBps: Math.max(1, Math.round(Number(maxLossBps) || 1500)),
       settlementAsset: selectedAsset,
       chain: selectedChain,
+      ...(systemU === "NKR" ? {
+        nkrCapitalMode: String(sessionConfig?.nkrCapitalMode || nkrCapitalMode || "DYNAMIC").toUpperCase(),
+        nkrObservationWindow: String(sessionConfig?.nkrObservationWindow || nkrObservationWindow || "1h"),
+        nkrProfitMode: String(sessionConfig?.nkrProfitMode || nkrProfitMode || "REINVEST").toUpperCase(),
+        nkrPeriodDays: Math.max(1, Number(sessionConfig?.nkrPeriodDays || nkrPeriodDays || 1)),
+        maxActiveAssets: Math.max(0, Math.floor(Number(sessionConfig?.maxActiveAssets ?? rotationMaxActiveSessions ?? 0) || 0)),
+      } : {}),
     };
     const enrichCreateError = (error) => {
       const data = error?.data || {};
@@ -8896,6 +8903,13 @@ useEffect(() => {
         maxLossBps: Math.round((Number(rotationRiskLimit) || 15) * 100),
         chain: startChainCheck,
         settlementAsset: String(liveVaultAssetByMode?.rotation || "USDC").toUpperCase(),
+        sessionConfig: {
+          nkrCapitalMode: startedNkrCapitalMode,
+          nkrObservationWindow,
+          nkrProfitMode,
+          nkrPeriodDays,
+          maxActiveAssets: rotationMaxActiveSessions,
+        },
       });
       setRotationBackendMsg(`NKR started on ${startChainCheck}. Capital reserved · scanning ${startChainCheck}-tradable assets.`);
       setRotationCapitalTopup("");
@@ -11618,7 +11632,7 @@ useEffect(() => {
     }
     setNkrAggressiveAcceptedForDraft(false);
     setRotationBudgetReleased(false);
-    // Apply immediately to local state AND to the running NKR session / Strategist rules.
+    // This changes only the next-session draft. Running sessions keep their immutable start snapshot.
     await applyRunningNkrMode(next);
   }, [applyRunningNkrMode, setRotationBudgetReleased, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen]);
 

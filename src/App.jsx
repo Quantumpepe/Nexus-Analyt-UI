@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD359-COMPOSITE-SESSION-CARD-CONTROL-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD360-LIVE-MERGED-MAX-ASSETS-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8535,6 +8535,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationMaxSlippage, setRotationMaxSlippage] = useState("1");
   const [rotationRuntimeHours, setRotationRuntimeHours] = useState("24");
   const [rotationMaxActiveSessions, setRotationMaxActiveSessions] = useState("0");
+  // Draft input only: server hydration must not overwrite this while the user is typing.
+  const [nkrMaxAssetsEditing, setNkrMaxAssetsEditing] = useState(false);
   const [rotationAllowDexSpread, setRotationAllowDexSpread] = useState(true);
   const [rotationAllowCexDexSpread, setRotationAllowCexDexSpread] = useState(false);
   const [rotationRouters, setRotationRouters] = useState({ QuickSwap: true, Uniswap: true, PancakeSwap: true, "1inch": true, "0x": false, SushiSwap: false });
@@ -12126,7 +12128,7 @@ useEffect(() => {
         if (serverUi.tradingBudgetSplitInput != null) setTradingBudgetSplitInput(String(serverUi.tradingBudgetSplitInput));
         const rotationSettingsSource = serverUi;
         if (rotationSettingsSource.rotationRuntimeHours != null) setRotationRuntimeHours(String(rotationSettingsSource.rotationRuntimeHours));
-        if (rotationSettingsSource.rotationMaxActiveSessions != null) setRotationMaxActiveSessions(String(rotationSettingsSource.rotationMaxActiveSessions));
+        if (!nkrMaxAssetsEditing && rotationSettingsSource.rotationMaxActiveSessions != null) setRotationMaxActiveSessions(String(rotationSettingsSource.rotationMaxActiveSessions));
         if (rotationSettingsSource.rotationRiskLimit != null) setRotationRiskLimit(String(rotationSettingsSource.rotationRiskLimit));
         if (rotationSettingsSource.rotationMaxSlippage != null) setRotationMaxSlippage(String(rotationSettingsSource.rotationMaxSlippage));
         if (rotationSettingsSource.rotationMinNetAdvantage != null) setRotationMinNetAdvantage(String(rotationSettingsSource.rotationMinNetAdvantage));
@@ -23444,8 +23446,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div className="formRow">
                         <label>Max Active NKR Assets (soft · 0 = unlimited)</label>
                         <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputMode="numeric"
                           value={rotationMaxActiveSessions}
-                          onChange={(e) => { setRotationMaxActiveSessions(e.target.value); setRotationBudgetReleased(false); }}
+                          onFocus={() => setNkrMaxAssetsEditing(true)}
+                          onBlur={() => {
+                            const n = Math.max(0, Math.floor(Number(rotationMaxActiveSessions || 0)));
+                            setRotationMaxActiveSessions(String(Number.isFinite(n) ? n : 0));
+                            setNkrMaxAssetsEditing(false);
+                          }}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === "" || /^\d+$/.test(raw)) {
+                              setRotationMaxActiveSessions(raw);
+                              setRotationBudgetReleased(false);
+                            }
+                          }}
                           placeholder="0 = unlimited sessions/assets"
                         />
                       </div>

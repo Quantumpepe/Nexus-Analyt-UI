@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD357-SESSION-CARD-BUTTON-DIRECT-ONCHAIN-FIX";
+const FRONTEND_BUILD_ID = "F-2026.07.31-BUILD358-EXACT-SESSION-CONTROL-REFRESH-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12638,7 +12638,11 @@ const [aiLoading, setAiLoading] = useState(false);
         mode: "shadow",
         text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" || actionU === "STOP_EXIT" || actionU === "PANIC_STOP" ? "Stop & Exit in progress — session stays visible until finalized. Not paused." : "NKR deleted forever from backend.",
       }, ...(Array.isArray(prev) ? prev : [])]);
-      setRotationBackendMsg(resp?.message || (actionU === "DELETE" ? "NKR deleted forever." : `NKR ${actionU.toLowerCase()} stored in backend.`));
+      setRotationBackendMsg(resp?.message || (actionU === "DELETE" ? "NKR deleted forever." : `NKR ${actionU.toLowerCase()} confirmed on-chain.`));
+      // Re-read the exact wallet-bound sessions immediately. Button labels must be
+      // derived from confirmed chain state, not from the previous card snapshot.
+      try { await syncRotationSessionsFromServer(); } catch (_) {}
+      return true;
     } catch (e) {
       console.error("NKR BACKEND CONTROL FAILED", e);
       const msg = String(e?.message || e || "");
@@ -12657,8 +12661,9 @@ const [aiLoading, setAiLoading] = useState(false);
       } catch {
         setNkrControlState(localStatus);
       }
+      return false;
     }
-  }, [token, wallet, setRotationSessions, setNkrControlState, canonicalizeNkrSessions, setNkrExitUiState, setNkrStrategistStatus]);
+  }, [token, wallet, setRotationSessions, setNkrControlState, canonicalizeNkrSessions, setNkrExitUiState, setNkrStrategistStatus, syncRotationSessionsFromServer]);
 
   const runRotationShadowSimulation = useCallback(async ({ silent = false } = {}) => {
     if (rotationShadowBusy) return;
@@ -23189,11 +23194,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         >Info</button>
                                         {sessionStatus === "STOPPED" ? (
                                           <>
-                                            <button className="miniBtn" type="button" onClick={(e) => {
+                                            <button className="miniBtn" type="button" onClick={async (e) => {
                                               e.preventDefault(); e.stopPropagation();
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
-                                              applyNkrBackendControl("RESUME", { sessionId: oid, chain: ch });
+                                              if (!/^\d+$/.test(oid) || !ch) { setRotationBackendMsg("Exact chain/session id missing for this card."); return; }
+                                              await applyNkrBackendControl("RESUME", { sessionId: oid, chain: ch });
                                             }}>Resume</button>
                                             <button className="miniBtn danger" type="button" onClick={async (e) => {
                                               e.preventDefault(); e.stopPropagation();
@@ -23206,12 +23212,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           </>
                                         ) : (
                                           <>
-                                            <button className="miniBtn" type="button" onClick={(e) => {
+                                            <button className="miniBtn" type="button" onClick={async (e) => {
                                               e.preventDefault(); e.stopPropagation();
                                               const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
-                                              const lid = String(sess?.id || sess?.session_id || (ch && oid ? `NKR-LIVE-${ch}-${oid}` : oid) || "");
-                                              applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: oid || lid, chain: ch });
+                                              if (!/^\d+$/.test(oid) || !ch) { setRotationBackendMsg("Exact chain/session id missing for this card."); return; }
+                                              await applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: oid, chain: ch });
                                             }}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
                                             <button className="miniBtn danger" type="button" onClick={async (e) => {
                                               e.preventDefault(); e.stopPropagation();

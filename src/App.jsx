@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD367-CLICKABLE-GENERAL-EVM-DIAGNOSTICS";
+const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD368-COMPLETE-DEVELOPER-DIAGNOSTIC-CENTER";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -28353,6 +28353,39 @@ export default function App() {
                             <div style={{ border: "1px solid rgba(255,255,255,.10)", borderRadius: 7, padding: 6 }}><div className="muted tiny">Warnungen</div><b>{Number(report?.summary?.warningCount || 0)}</b></div>
                             <div style={{ border: "1px solid rgba(255,255,255,.10)", borderRadius: 7, padding: 6 }}><div className="muted tiny">Target</div><b>{report?.summary?.targetSymbol || "—"}</b></div>
                           </div>
+                          {report?.rootCause ? <div style={{ border: `1px solid ${report?.rootCause?.status === "READY" ? "rgba(80,255,180,.30)" : "rgba(255,100,100,.38)"}`, borderRadius: 8, padding: 8, marginBottom: 7, background: report?.rootCause?.status === "READY" ? "rgba(0,255,150,.045)" : "rgba(255,70,70,.055)" }}>
+                            <div style={{ fontWeight: 950, color: report?.rootCause?.status === "READY" ? "#8dffd0" : "#ffb4b4" }}>Hauptursache · {report?.rootCause?.stage || "—"}</div>
+                            <div style={{ fontWeight: 850, marginTop: 3 }}>{report?.rootCause?.title || "—"}</div>
+                            <div className="muted tiny" style={{ marginTop: 3, wordBreak: "break-all" }}>
+                              Contract: {report?.rootCause?.contract || "—"}<br />Funktion: {report?.rootCause?.function || "—"}
+                            </div>
+                            {report?.rootCause?.error ? <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0" }}>{JSON.stringify(report.rootCause.error, null, 2)}</pre> : null}
+                            {report?.rootCause?.remediation ? <div style={{ marginTop: 5, color: "#ffe08a", fontWeight: 800, fontSize: 11 }}>Korrektur: {report.rootCause.remediation}</div> : null}
+                          </div> : null}
+                          {Array.isArray(report?.executionTrace) && report.executionTrace.length ? <details open style={{ border: "1px solid rgba(100,220,255,.25)", borderRadius: 8, padding: "6px 8px", marginBottom: 7 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 950, color: "#9de7ff" }}>Vollständiger Ausführungspfad ({report.executionTrace.filter((x) => x?.ok).length}/{report.executionTrace.length})</summary>
+                            <div style={{ display: "grid", gap: 5, marginTop: 7 }}>
+                              {report.executionTrace.map((step, idx) => <details key={`${step?.stage || "step"}-${idx}`} style={{ border: `1px solid ${step?.ok ? "rgba(80,255,180,.22)" : "rgba(255,90,90,.32)"}`, borderRadius: 7, padding: "5px 7px", background: step?.ok ? "rgba(0,255,150,.025)" : "rgba(255,60,60,.045)" }}>
+                                <summary style={{ cursor: "pointer", fontWeight: 850, color: step?.ok ? "#8dffd0" : "#ffb4b4" }}>{step?.ok ? "✅" : "❌"} {idx + 1}. {step?.name} · {step?.stage}</summary>
+                                <div className="muted tiny" style={{ marginTop: 4, wordBreak: "break-all" }}>Contract: {step?.contract || "—"}<br />Funktion: {step?.function || "—"}</div>
+                                {step?.error ? <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0" }}>{JSON.stringify(step.error, null, 2)}</pre> : null}
+                                {step?.detail != null ? <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0", opacity: .82 }}>{JSON.stringify(step.detail, null, 2)}</pre> : null}
+                                {step?.remediation ? <div style={{ marginTop: 5, color: "#ffe08a", fontSize: 11, fontWeight: 800 }}>Korrektur: {step.remediation}</div> : null}
+                              </details>)}
+                            </div>
+                          </details> : null}
+                          {report?.session ? <details style={{ border: "1px solid rgba(255,255,255,.13)", borderRadius: 7, padding: "5px 7px", marginBottom: 6 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 850 }}>Session · On-chain Wahrheit</summary>
+                            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0" }}>{JSON.stringify(report.session, null, 2)}</pre>
+                          </details> : null}
+                          {report?.tradePlan ? <details style={{ border: "1px solid rgba(255,190,90,.22)", borderRadius: 7, padding: "5px 7px", marginBottom: 6 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 850, color: "#ffd28a" }}>Exakter Trade-Plan und alle Preflight-Versuche</summary>
+                            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0" }}>{JSON.stringify(report.tradePlan, null, 2)}</pre>
+                          </details> : null}
+                          {report?.contractMap ? <details style={{ border: "1px solid rgba(180,180,255,.20)", borderRadius: 7, padding: "5px 7px", marginBottom: 6 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 850, color: "#c9c9ff" }}>Contract-Map</summary>
+                            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0" }}>{JSON.stringify(report.contractMap, null, 2)}</pre>
+                          </details> : null}
                           {(report?.settlementToken || report?.targetToken) ? <details style={{ border: "1px solid rgba(141,232,255,.22)", borderRadius: 7, padding: "5px 7px", marginBottom: 6 }}>
                             <summary style={{ cursor: "pointer", fontWeight: 850, color: "#8de8ff" }}>Token- und Allowance-Details</summary>
                             <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0" }}>{JSON.stringify({ settlementToken: report?.settlementToken, targetToken: report?.targetToken }, null, 2)}</pre>

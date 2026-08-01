@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD369-NKR-CLOSING-UI-STATE-SYNC-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD370-REQUEST-STORM-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12397,12 +12397,13 @@ useEffect(() => {
   useEffect(() => {
     if (!resolveWalletAddress(wallet)) return undefined;
     const refresh = () => {
-      // Multi-device: always re-read backend truth when the app is used again.
+      if (document.visibilityState === "hidden") return;
+      // Rotation sessions are the authoritative lifecycle source. Do not launch
+      // three overlapping backend refresh trees every eight seconds. App state
+      // and full backend state already have their own dedicated refresh paths.
       syncRotationSessionsFromServer();
-      syncAppStateFromServer();
-      try { if (typeof refreshNexusBackendState === "function") refreshNexusBackendState(); } catch (_) {}
     };
-    const timer = setInterval(refresh, 8000);
+    const timer = setInterval(refresh, 20000);
     const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
     const onPageShow = () => refresh();
     window.addEventListener("focus", refresh);
@@ -27499,7 +27500,10 @@ export default function App() {
   const canOpenSystemInfo = String(footerWallet || "").toLowerCase() === DEV_SYSTEM_INFO_WALLET;
 
   useEffect(() => {
-    if (!canOpenSystemInfo) return;
+    // Heavy owner diagnostics read several chains and must run only while the
+    // System Info modal is actually open. Running them permanently in the
+    // footer caused background RPC storms and pending/cancelled preflights.
+    if (!canOpenSystemInfo || !showSystemInfo) return;
     let alive = true;
 
     const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";
@@ -27561,7 +27565,7 @@ export default function App() {
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [canOpenSystemInfo, footerWallet]);
+  }, [canOpenSystemInfo, showSystemInfo, footerWallet]);
 
 
   const _loadPrivyPolicyPreview = async () => {

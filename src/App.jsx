@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD376-NKR-OVERVIEW-ALL-ACTIVE-VAULTS-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD377-NKR-OVERVIEW-TOTALS-ACTIVE-PAUSED-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -22629,8 +22629,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const v = candidates.map(Number).find((n) => Number.isFinite(n));
                         return sum + (Number.isFinite(v) ? v : 0);
                       }, 0);
-                      const activeRotations = rotationVisibleActiveRows.length;
-                      const pausedRotations = rotationRows.filter((s) => ["PAUSED"].includes(getRotationDerivedStatus(s))).length;
+                      // ENGINE-377: A paused session stays visible and its vault still belongs
+                      // to the NKR overview totals, but it is not an active/running session.
+                      // Keep the two counts separate so one paused chain cannot make the whole
+                      // multi-chain overview say PAUSED while another chain is still running.
+                      const pausedRotations = rotationVisibleActiveRows.filter((s) => getRotationDerivedStatus(s) === "PAUSED").length;
+                      const activeRotations = rotationVisibleActiveRows.filter((s) => {
+                        const st = String(getRotationDerivedStatus(s) || "").toUpperCase();
+                        return !["PAUSED", "STOPPED", "CLOSING", "STOPPING", "FINALIZING", "EXITING"].includes(st);
+                      }).length;
+                      const visibleNkrSessions = rotationVisibleActiveRows.length;
                       const controllableRotations = rotationRows.filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED"].includes(getRotationDerivedStatus(s))).length;
                       const firstRotation = rotationRows.find((s) => String(s?.id || "") === String(activeRotationSessionId || "")) || rotationRows[0] || null;
                       const typedNkrBudgetUsd = Number(String(rotationBudgetRelease || "").replace(",", "."));
@@ -22776,11 +22784,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         let tokenRow = tokenRows?.[asset] || null;
                         if (!tokenRow) {
                           const targetAddr = String(settlementAddress || "").toLowerCase();
-                          tokenRow = Object.values(tokenRows).find((row) => {
-                            const symbol = canonicalNkrSettlementAsset(row?.symbol || row?.asset || row?.name || "", row?.address || row?.token || "");
+                          // Token payloads are not identical on every chain. Polygon may expose
+                          // the account under the object key USDC_NATIVE without repeating a
+                          // symbol/address inside the row. Match the entry key as well as row data.
+                          const matchedEntry = Object.entries(tokenRows).find(([rowKey, row]) => {
+                            const symbol = canonicalNkrSettlementAsset(
+                              row?.symbol || row?.asset || row?.name || rowKey || "",
+                              row?.address || row?.token || row?.tokenAddress || ""
+                            );
                             const address = String(row?.address || row?.token || row?.tokenAddress || "").toLowerCase();
                             return symbol === asset || (targetAddr && address === targetAddr);
-                          }) || null;
+                          });
+                          tokenRow = matchedEntry?.[1] || null;
                         }
                         const account = tokenRow?.account || {};
                         const accountReadable = Boolean(tokenRow && account && typeof account === "object");
@@ -22862,13 +22877,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       // not only from the persisted setup control flag. A confirmed CoreVault position
                       // must never appear as WAITING or "not running" in the overview.
                       const nkrOverviewRunning = Boolean(nkrHasLiveSession || activeRotations > 0 || nkrOpenPositionRows.length > 0);
-                      const nkrOverviewStatus = nkrCtrl === "PAUSED" || pausedRotations > 0
-                        ? "PAUSED"
-                        : nkrOpenPositionRows.length > 0
-                          ? "POSITION ACTIVE"
-                          : nkrOverviewRunning
-                            ? "RUNNING"
-                            : "WAITING";
+                      const nkrOverviewStatus = nkrOpenPositionRows.length > 0
+                        ? "POSITION ACTIVE"
+                        : activeRotations > 0
+                          ? "ACTIVE"
+                          : pausedRotations > 0
+                            ? "PAUSED"
+                            : nkrOverviewRunning
+                              ? "ACTIVE"
+                              : "WAITING";
                       const nkrOverviewAvailableUsd = (() => {
                         // Sum authoritative free capital for every active session account.
                         // Fall back only when no involved vault account is connected/readable.
@@ -22931,8 +22948,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Open Position:</b> {fmtUsd(nkrOpenPositionValueUsd)}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               
-                              <div><b>Active Sessions:</b> {activeRotations}</div>
-                              <div><b>Status:</b> <span style={{ color: nkrOverviewRunning ? "#22c55e" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewStatus}</span></div>
+                              <div>
+                                <b>Active Sessions:</b> {activeRotations}
+                                {pausedRotations > 0 ? (
+                                  <span style={{ marginLeft: 7, fontSize: 11, color: "#ffc107", fontWeight: 700 }}>
+                                    · {pausedRotations} Paused
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div><b>Status:</b> <span style={{ color: activeRotations > 0 || nkrOpenPositionRows.length > 0 ? "#22c55e" : pausedRotations > 0 ? "#ffc107" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewStatus}</span></div>
                               <div><b>Runtime:</b> {nkrOverviewRunning ? (nkrOverviewElapsedMs > 0 ? fmtRotationDuration(nkrOverviewElapsedMs) : "RUNNING") : "not running"}</div>
                               <div><b>Time Left:</b> <span style={{ color: nkrOverviewRunning && nkrOverviewRemainingMs > 0 ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewRunning ? (nkrOverviewEndTs > 0 ? (nkrOverviewRemainingMs > 0 ? fmtRotationDuration(nkrOverviewRemainingMs) : "expired") : "—") : "—"}</span></div>
                             </div>
@@ -23014,7 +23038,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div className="label" style={{ marginBottom: 0 }}>Active NKR Sessions</div>
                                 
                               </div>
-                              <span className="pill silver">{activeRotations} session{activeRotations === 1 ? "" : "s"} · all chains · {nkrActiveAssets.length}/{rotationMaxActive} assets</span>
+                              <span className="pill silver">{visibleNkrSessions} session{visibleNkrSessions === 1 ? "" : "s"} · all chains · {nkrActiveAssets.length}/{rotationMaxActive} assets</span>
                             </div>
 
                             <div

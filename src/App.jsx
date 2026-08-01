@@ -28344,8 +28344,34 @@ export default function App() {
                             {report?.chain || report?.chainId} · {report?.engine} {report?.sessionId != null ? `· Session #${report.sessionId}` : ""} · {report?.status}
                           </div>
                           <div className="muted tiny" style={{ wordBreak: "break-all", marginBottom: 6 }}>
-                            Vault: {report?.vault || "—"}<br />Router: {report?.router || "—"}<br />Quoter: {report?.quoter || "—"}
+                            Vault: {report?.vault || "—"}<br />Router: {report?.router || "—"}<br />Quoter: {report?.quoter || "—"}<br />
+                            Settlement: {report?.tokenIn || "—"}<br />Target: {report?.tokenOut || "—"}<br />
+                            Session source: {report?.sessionSource || "—"}
                           </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5, marginBottom: 7 }}>
+                            <div style={{ border: "1px solid rgba(255,255,255,.10)", borderRadius: 7, padding: 6 }}><div className="muted tiny">Blocker</div><b>{Number(report?.summary?.blockerCount || 0)}</b></div>
+                            <div style={{ border: "1px solid rgba(255,255,255,.10)", borderRadius: 7, padding: 6 }}><div className="muted tiny">Warnungen</div><b>{Number(report?.summary?.warningCount || 0)}</b></div>
+                            <div style={{ border: "1px solid rgba(255,255,255,.10)", borderRadius: 7, padding: 6 }}><div className="muted tiny">Target</div><b>{report?.summary?.targetSymbol || "—"}</b></div>
+                          </div>
+                          {(report?.settlementToken || report?.targetToken) ? <details style={{ border: "1px solid rgba(141,232,255,.22)", borderRadius: 7, padding: "5px 7px", marginBottom: 6 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 850, color: "#8de8ff" }}>Token- und Allowance-Details</summary>
+                            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0" }}>{JSON.stringify({ settlementToken: report?.settlementToken, targetToken: report?.targetToken }, null, 2)}</pre>
+                          </details> : null}
+                          {Array.isArray(report?.selectors) && report.selectors.length ? <details style={{ border: "1px solid rgba(187,134,252,.22)", borderRadius: 7, padding: "5px 7px", marginBottom: 6 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 850, color: "#c9a7ff" }}>Router-Selectoren ({report.selectors.length})</summary>
+                            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0" }}>{JSON.stringify(report.selectors, null, 2)}</pre>
+                          </details> : null}
+                          {Array.isArray(report?.feeTiers) && report.feeTiers.length ? <details style={{ border: "1px solid rgba(255,224,138,.22)", borderRadius: 7, padding: "5px 7px", marginBottom: 6 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 850, color: "#ffe08a" }}>Quoter Fee-Tiers ({report.feeTiers.filter((x) => x?.ok).length} gültig)</summary>
+                            <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "5px 0 0" }}>{JSON.stringify(report.feeTiers, null, 2)}</pre>
+                          </details> : null}
+                          {Array.isArray(report?.actionPlan) && report.actionPlan.length ? <div style={{ border: "1px solid rgba(255,107,107,.26)", borderRadius: 8, padding: 7, background: "rgba(255,80,80,.045)", marginBottom: 7 }}>
+                            <div style={{ fontWeight: 950, color: "#ffb4b4", marginBottom: 5 }}>Konkreter Aktionsplan</div>
+                            {report.actionPlan.slice().sort((a,b) => Number(a?.priority || 99)-Number(b?.priority || 99)).map((step, idx) => <details key={`${step?.code || idx}-${idx}`} style={{ marginTop: 4 }}>
+                              <summary style={{ cursor: "pointer", fontWeight: 850 }}>P{step?.priority || "?"} · {step?.title || step?.code}</summary>
+                              <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "4px 0 0" }}>{JSON.stringify(step?.detail ?? null, null, 2)}</pre>
+                            </details>)}
+                          </div> : null}
                           <div style={{ display: "grid", gap: 5 }}>
                             {Object.entries(report?.checks || {}).map(([name, check]) => {
                               const tone = _diagnosticTone(!!check?.ok, check?.status);

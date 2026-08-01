@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD368-COMPLETE-DEVELOPER-DIAGNOSTIC-CENTER";
+const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD369-NKR-CLOSING-UI-STATE-SYNC-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -432,14 +432,24 @@ const CORE_VAULT_OWNER_ADDRESS = "0x3318b6A608b3873962B17DAe069Fc7317D88d68f";
 const NKR_MAX_ACTIVE_SESSIONS_LIMIT = null; // user-defined, no enforced hard cap
 const AGGRESSIVE_WARNING_VERSION = "AGGRESSIVE_WARNING_V1";
 
+function normalizeNkrChainKey(value) {
+  const raw = String(value ?? "").trim().toUpperCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  if (["1", "ETH", "ETHEREUM", "ETHEREUM MAINNET"].includes(raw)) return "ETH";
+  if (["56", "BNB", "BSC", "BNB CHAIN", "BINANCE SMART CHAIN"].includes(raw)) return "BNB";
+  if (["137", "POL", "POLYGON", "MATIC", "POLYGON POS"].includes(raw)) return "POL";
+  if (["8453", "BASE"].includes(raw)) return "BASE";
+  if (["42161", "ARB", "ARBITRUM", "ARBITRUM ONE"].includes(raw)) return "ARB";
+  return raw;
+}
+
 function nkrSessionControlKey(sessionOrChain, maybeOnchainId = "") {
   if (sessionOrChain && typeof sessionOrChain === "object") {
     const meta = sessionOrChain?.meta && typeof sessionOrChain.meta === "object" ? sessionOrChain.meta : {};
-    const chain = String(sessionOrChain?.chain || sessionOrChain?.chainKey || meta?.chain || meta?.chain_key || sessionOrChain?.chainId || sessionOrChain?.chain_id || meta?.chain_id || "").toUpperCase();
-    const oid = String(sessionOrChain?.onchainSessionId ?? sessionOrChain?.onchain_session_id ?? sessionOrChain?.coreVaultSessionId ?? meta?.onchain_session_id ?? meta?.core_vault_session_id ?? "");
+    const chain = normalizeNkrChainKey(sessionOrChain?.chain || sessionOrChain?.chainKey || meta?.chain || meta?.chain_key || sessionOrChain?.chainId || sessionOrChain?.chain_id || meta?.chain_id || "");
+    const oid = String(sessionOrChain?.onchainSessionId ?? sessionOrChain?.onchain_session_id ?? sessionOrChain?.coreVaultSessionId ?? meta?.onchain_session_id ?? meta?.core_vault_session_id ?? "").trim();
     return `${chain}:${oid}`;
   }
-  return `${String(sessionOrChain || "").toUpperCase()}:${String(maybeOnchainId || "")}`;
+  return `${normalizeNkrChainKey(sessionOrChain)}:${String(maybeOnchainId || "").trim()}`;
 }
 
 const API_BASE = ((import.meta.env.VITE_API_BASE ?? "").trim()) || (() => {
@@ -12285,7 +12295,7 @@ useEffect(() => {
       const oid = getOnchainId(s);
       if (hasLive && !oid && !terminal.has(status)) continue;
       const sid = String(s?.id || s?.session_id || "").trim();
-      const chainKey = String(s?.chain || s?.chainKey || s?.meta?.chain || s?.chainId || s?.meta?.chain_id || "").toUpperCase();
+      const chainKey = normalizeNkrChainKey(s?.chain || s?.chainKey || s?.meta?.chain || s?.chainId || s?.meta?.chain_id || "");
       const key = oid ? `ONCHAIN:${chainKey}:${oid}` : `LOCAL:${sid}`;
       const current = map.get(key);
       if (!current || isRicher(s, current)) map.set(key, s);
@@ -12649,6 +12659,18 @@ const [aiLoading, setAiLoading] = useState(false);
               return s;
             });
             setRotationSessions(patched);
+            setNkrExitUiState((prev) => {
+              const next = { ...(prev || {}) };
+              for (const row of patched) {
+                const key = nkrSessionControlKey(row);
+                const st = String(row?.status || row?.statusLabel || "").toUpperCase();
+                const err = String(row?.lastError || row?.last_error || row?.meta?.last_error || "").trim();
+                if (["FINALIZED", "STOPPED", "CLOSED", "COMPLETE", "COMPLETED", "RELEASED"].includes(st)) delete next[key];
+                else if (["EXIT_FAILED", "FAILED", "ERROR"].includes(st) || err) next[key] = "FAILED";
+                else if (["STOPPING", "CLOSING", "FINALIZING", "EXITING", "EXIT_PENDING"].includes(st)) next[key] = "PENDING";
+              }
+              return next;
+            });
             if (ctrl === "STOPPING" || patched.some((s) => ["STOPPING", "CLOSING", "FINALIZING"].includes(String(s?.status || "").toUpperCase()))) {
               setNkrControlState("STOPPING");
             } else if (ctrl && !["PAUSED"].includes(ctrl)) {
@@ -12657,9 +12679,10 @@ const [aiLoading, setAiLoading] = useState(false);
             if (live?.strategist && typeof live.strategist === "object") setNkrStrategistStatus(live.strategist);
           } catch (_) {}
         };
-        setTimeout(pollOnce, 2500);
-        setTimeout(pollOnce, 8000);
-        setTimeout(pollOnce, 15000);
+        // CLOSING can legitimately take longer than 15 seconds on public RPCs.
+        // Keep the card synchronized long enough to observe EXIT -> FINALIZED instead
+        // of leaving a permanent stale PENDING label in the browser.
+        [2500, 8000, 15000, 30000, 60000, 120000].forEach((delay) => setTimeout(pollOnce, delay));
       }
       setRotationShadowEvents((prev) => [{
         id: `NKR-CTRL-${now}`,
@@ -22487,10 +22510,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       };
                       const getRotationDisplayStatus = (sess) => {
                         const derived = getRotationDerivedStatus(sess);
-                        const exitKey = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.id ?? sess?.session_id ?? "");
+                        const exitKey = nkrSessionControlKey(sess);
                         const exitUi = String(nkrExitUiState?.[exitKey] || "").toUpperCase();
-                        // While Stop & Exit is pending, never show PAUSED (even if row briefly still says PAUSED).
-                        if (["REQUESTED", "PENDING"].includes(exitUi) || String(nkrControlState || "").toUpperCase() === "STOPPING") {
+                        // Per-session state is authoritative. A global STOPPING flag must not
+                        // force unrelated cards into EXITING and must not hide the exact chain/session.
+                        if (["REQUESTED", "PENDING", "EXITING"].includes(exitUi)) {
                           if (["PAUSED", "STOPPING", "CLOSING", "FINALIZING", "EXITING", "RUNNING", "ACTIVE", "WAITING", "EXECUTOR"].includes(derived) || exitUi) {
                             return "EXITING";
                           }

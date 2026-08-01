@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD377-NKR-OVERVIEW-TOTALS-ACTIVE-PAUSED-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD380-SESSION-RECOVERY-AND-BUDGET-DISPLAY-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -22778,42 +22778,61 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             session: null,
                           }];
                       const nkrOverviewAccounts = nkrOverviewVaultRefs.map((ref) => {
-                        const { chain, asset, settlementAddress, session } = ref;
+                        const { chain, asset, settlementAddress } = ref;
                         const vaultState = coreVaultOnchainByChain?.[chain] || null;
                         const tokenRows = vaultState?.tokens && typeof vaultState.tokens === "object" ? vaultState.tokens : {};
-                        let tokenRow = tokenRows?.[asset] || null;
-                        if (!tokenRow) {
-                          const targetAddr = String(settlementAddress || "").toLowerCase();
-                          // Token payloads are not identical on every chain. Polygon may expose
-                          // the account under the object key USDC_NATIVE without repeating a
-                          // symbol/address inside the row. Match the entry key as well as row data.
-                          const matchedEntry = Object.entries(tokenRows).find(([rowKey, row]) => {
-                            const symbol = canonicalNkrSettlementAsset(
-                              row?.symbol || row?.asset || row?.name || rowKey || "",
-                              row?.address || row?.token || row?.tokenAddress || ""
-                            );
-                            const address = String(row?.address || row?.token || row?.tokenAddress || "").toLowerCase();
-                            return symbol === asset || (targetAddr && address === targetAddr);
+                        const targetAddr = String(settlementAddress || "").toLowerCase();
+                        const candidates = Object.entries(tokenRows).map(([rowKey, row]) => {
+                          const rowAddress = String(row?.address || row?.token || row?.tokenAddress || "").toLowerCase();
+                          const rowAsset = canonicalNkrSettlementAsset(
+                            row?.symbol || row?.asset || row?.name || rowKey || "",
+                            rowAddress
+                          );
+                          const account = row?.account && typeof row.account === "object" ? row.account : null;
+                          const total = account ? Math.max(0,
+                            Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0)
+                          ) : 0;
+                          const allocated = account ? Math.max(0, Number(account?.totalAllocated || 0)) : 0;
+                          const exactAddress = Boolean(targetAddr && rowAddress === targetAddr);
+                          const exactKey = String(rowKey || "").toUpperCase() === String(asset || "").toUpperCase();
+                          const sameAsset = rowAsset === asset;
+                          const settlementConfigured = Boolean(row?.config?.settlementToken ?? row?.settlementToken);
+                          return { rowKey, row, account, total, allocated, rowAsset, exactAddress, exactKey, sameAsset, settlementConfigured };
+                        });
+
+                        // ENGINE-379: Every chain must contribute its real wallet-bound settlement
+                        // account. Do not fall back to the session budget: that produced totals such
+                        // as $40.02 while ETH + BNB + POL actually held about $55.86. Prefer the exact
+                        // token address, then the exact row key/symbol, then the configured settlement
+                        // account with the highest wallet balance (important for POL USDC vs USDC_NATIVE).
+                        const ranked = candidates
+                          .filter((c) => c.account)
+                          .sort((a, b) => {
+                            const score = (c) =>
+                              (c.exactAddress ? 1000000 : 0) +
+                              (c.exactKey ? 100000 : 0) +
+                              (c.sameAsset ? 10000 : 0) +
+                              (c.settlementConfigured ? 1000 : 0) +
+                              Math.min(999, Number(c.total || 0));
+                            return score(b) - score(a);
                           });
-                          tokenRow = matchedEntry?.[1] || null;
-                        }
-                        const account = tokenRow?.account || {};
-                        const accountReadable = Boolean(tokenRow && account && typeof account === "object");
-                        const total = accountReadable ? Math.max(0,
-                          Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0)
-                        ) : Math.max(0, getNkrSessionWorkingCapitalUsd(session));
-                        const allocated = accountReadable
-                          ? Math.max(0, Number(account?.totalAllocated || 0))
-                          : Math.max(0, getNkrSessionWorkingCapitalUsd(session));
+                        const selected = ranked[0] || null;
+                        const total = Math.max(0, Number(selected?.total || 0));
+                        const allocated = Math.max(0, Number(selected?.allocated || 0));
                         return {
-                          chain, asset, total, allocated,
+                          chain,
+                          asset: selected?.rowAsset || asset,
+                          total,
+                          allocated,
                           free: Math.max(0, total - allocated),
                           connected: Boolean(vaultState?.connected),
-                          accountReadable,
-                          source: accountReadable ? "ONCHAIN_ACCOUNT" : "SESSION_FALLBACK",
+                          accountReadable: Boolean(selected?.account),
+                          source: selected?.account ? `ONCHAIN_ACCOUNT:${selected.rowKey}` : "ONCHAIN_ACCOUNT_MISSING",
                         };
                       });
-                      const nkrVaultTotalLive = nkrOverviewAccounts.reduce((sum, row) => sum + Number(row?.total || 0), 0);
+                      const nkrVaultTotalLive = nkrOverviewAccounts
+                        .filter((row) => row?.accountReadable)
+                        .reduce((sum, row) => sum + Number(row?.total || 0), 0);
                       const usagePct = nkrBudgetUsd > 0 ? Math.min(100, Math.max(0, (rotationAllocatedUsd / nkrBudgetUsd) * 100)) : vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
                       const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
                       const rotationShadowRuntimeStatus = rotationShadowBusy ? "READING LIVE DATA" : nkrCtrl === "STOPPED" ? "STOPPED" : nkrCtrl === "PAUSED" || pausedRotations > 0 ? "PAUSED" : activeRotations > 0 || nkrCtrl === "RUNNING" ? "RUNNING" : "READY";
@@ -22889,9 +22908,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const nkrOverviewAvailableUsd = (() => {
                         // Sum authoritative free capital for every active session account.
                         // Fall back only when no involved vault account is connected/readable.
-                        const connectedRows = nkrOverviewAccounts.filter((row) => row?.connected);
-                        if (connectedRows.length > 0) {
-                          return connectedRows.reduce((sum, row) => sum + Number(row?.free || 0), 0);
+                        const readableRows = nkrOverviewAccounts.filter((row) => row?.accountReadable);
+                        if (readableRows.length > 0) {
+                          return readableRows.reduce((sum, row) => sum + Number(row?.free || 0), 0);
                         }
                         return Math.max(0, availableUsd || 0);
                       })();
@@ -28774,11 +28793,17 @@ export default function App() {
                   {(() => {
                     const c = systemInfoStatus?.liveExecutionReadiness?.checks || {};
                     const ok = (value) => value ? "READY 🟢" : "NOT READY 🟡";
+                    const solvencyRows = Object.entries(c?.solvency || {});
+                    const solvencyState = c.solvencyReadOk !== true
+                      ? { value: null, display: "UNKNOWN ⚪" }
+                      : c.solvent === true
+                        ? { value: true, display: "READY 🟢" }
+                        : { value: false, display: "NOT SOLVENT 🔴" };
                     const rows = [
                       ["Privy execution service", c.privyAppConfigured && c.tradingSignerConfigured && c.tradingPolicyConfigured],
                       ["CoreVault V5 connected", c.vaultConnected],
                       ["Vault paused", c.vaultPaused === false, c.vaultPaused ? "YES 🔴" : "NO 🟢"],
-                      ["Vault solvent", c.solvent],
+                      ["Vault solvent", solvencyState.value, solvencyState.display],
                       ["USDC settlement/execution", c.usdcConfigured && c.usdcExecutionEnabled && c.usdcSettlementToken && c.usdcDecimalsCorrect],
                       ["Uniswap router", c.routerHasCode],
                       ["Uniswap quoter", c.quoterHasCode && c.quotePathWorks],
@@ -28786,12 +28811,39 @@ export default function App() {
                     ];
                     return (
                       <div style={{ display: "grid", gap: 4, marginTop: 8, fontSize: 11 }}>
-                        {rows.map(([label, value, display]) => (
-                          <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                            <span>{label}</span>
-                            <b style={{ color: value ? "#8dffd0" : "#ffe08a", textAlign: "right" }}>{display || ok(value)}</b>
-                          </div>
-                        ))}
+                        {rows.map(([label, value, display]) => {
+                          const tone = value === true ? "#8dffd0" : value === false ? "#ff9b9b" : "#d7dde8";
+                          return (
+                            <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                              <span>{label}</span>
+                              <b style={{ color: tone, textAlign: "right" }}>{display || ok(value)}</b>
+                            </div>
+                          );
+                        })}
+                        {solvencyRows.length ? (
+                          <details style={{ marginTop: 4 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 800, color: "#8de8ff" }}>Solvency details ({solvencyRows.length})</summary>
+                            <div style={{ display: "grid", gap: 5, marginTop: 6 }}>
+                              {solvencyRows.map(([symbol, row]) => (
+                                <div key={symbol} style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 7, padding: "6px 7px" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                                    <b>{symbol}</b>
+                                    <b style={{ color: row?.readOk !== true ? "#d7dde8" : row?.solvent ? "#8dffd0" : "#ff9b9b" }}>
+                                      {row?.readOk !== true ? "READ FAILED" : row?.solvent ? "SOLVENT" : "NOT SOLVENT"}
+                                    </b>
+                                  </div>
+                                  {row?.readOk === true ? (
+                                    <div className="muted" style={{ marginTop: 3 }}>
+                                      Assets {Number(row?.assets || 0).toLocaleString(undefined, { maximumFractionDigits: 8 })} · Obligations {Number(row?.obligations || 0).toLocaleString(undefined, { maximumFractionDigits: 8 })} · Surplus {Number(row?.surplus || 0).toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                                    </div>
+                                  ) : (
+                                    <div className="muted" style={{ marginTop: 3, wordBreak: "break-word" }}>{row?.error || "No valid solvency response"}</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        ) : null}
                       </div>
                     );
                   })()}
@@ -28871,7 +28923,7 @@ export default function App() {
                   <details open style={{ marginTop: 9, border: "1px solid rgba(255,193,7,0.28)", borderRadius: 9, padding: 9, background: "rgba(255,193,7,0.045)" }}>
                     <summary style={{ cursor: "pointer", fontWeight: 800, color: "#ffe08a" }}>CoreVault sessions & stale reservation recovery</summary>
                     <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>
-                      Reads all real on-chain CoreVault sessions for this wallet across Grid, NKR and Trader. Sessions with no open assets can be recovered through the matching engine.
+                      Reads all real on-chain CoreVault sessions for this wallet across Grid, NKR and Trader. Recovery is shown only for empty CLOSING sessions or expired empty sessions; healthy ACTIVE and PAUSED sessions are never offered for finalization.
                     </div>
                     <div style={{ marginTop: 8, display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
                       <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_inspectCoreVaultSessions}>
@@ -28894,11 +28946,13 @@ export default function App() {
                               <span className="muted">System</span><span style={{ fontWeight: 900, color: "#9fe8ff" }}>{String(s.engine || "UNKNOWN").toUpperCase()}</span>
                               <span className="muted">Owner</span><span>{s.owner}</span>
                               <span className="muted">Settlement token</span><span>{s.settlementToken}</span>
-                              <span className="muted">Budget units</span><span>{s.budgetUnits}</span>
-                              <span className="muted">Settlement cash</span><span>{s.settlementCashUnits}</span>
+                              <span className="muted">Budget</span><span><b>{s.budget ?? s.budgetUnits}</b> <span className="muted">(decimals {s.settlementDecimals ?? "—"})</span></span>
+                              <span className="muted">Settlement cash</span><span><b>{s.settlementCash ?? s.settlementCashUnits}</b></span>
+                              <span className="muted">Raw budget units</span><span className="muted">{s.budgetUnits}</span>
+                              <span className="muted">Raw cash units</span><span className="muted">{s.settlementCashUnits}</span>
                               <span className="muted">Open assets</span><span>{s.openAssetCount}</span>
                               <span className="muted">Raw contract status</span><span>{s.rawStatusId ?? s.statusId} ({s.statusLabel || "UNKNOWN"})</span>
-                              <span className="muted">Recovery</span><span>{s.recoverable ? "READY" : "NOT REQUIRED / BLOCKED"}</span>
+                              <span className="muted">Recovery</span><span>{s.recoverable ? `READY · ${s.recoveryReason || "EMPTY SESSION"}` : Number(s.openAssetCount || 0) > 0 ? "BLOCKED · OPEN POSITION" : ["ACTIVE", "PAUSED"].includes(String(s.statusLabel || "").toUpperCase()) ? "NOT REQUIRED · LIVE SESSION" : "NOT REQUIRED"}</span>
                             </div>
                             {["ACTIVE", "PAUSED", "CLOSING"].includes(String(s.statusLabel || "").toUpperCase()) && Number(s.openAssetCount || 0) > 0 ? (
                               <div style={{ marginTop: 7, color: "#ffd978", fontSize: 9 }}>

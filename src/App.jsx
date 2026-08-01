@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD373-AUTHENTICATED-NKR-SESSION-AUDIT";
+const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD374-NKR-OVERVIEW-ALL-SESSIONS-AGGREGATION-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -22677,16 +22677,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const nkrProtectedReserveUsd = 0;
                       const nkrAvailableUsd = nkrBudgetUsd > 0 ? Math.max(0, nkrBudgetUsd - rotationAllocatedUsd) : 0;
                       const availableUsd = nkrBudgetUsd > 0 ? nkrAvailableUsd : Math.max(0, vaultTotalUsd - gridAllocatedUsd - rotationAllocatedUsd);
-                      // Use the exact selected NKR chain/asset account. Reserved capital is
-                      // already part of the account total and must never be added a second time.
+                      // ENGINE-374: The overview is an all-session summary. Never bind it to
+                      // the most recently selected/created chain. Aggregate each distinct live
+                      // chain + settlement asset account exactly once, so ETH + BNB + POL sessions
+                      // are shown together without double-counting a shared account.
                       const nkrSelectedChain = String(liveVaultChainByMode?.rotation || activeNkrChainKey || "ETH").toUpperCase();
                       const nkrSelectedAsset = String(liveVaultAssetByMode?.rotation || firstRotation?.settlementAsset || firstRotation?.asset || "USDC").toUpperCase();
-                      const nkrSelectedVaultState = coreVaultOnchainByChain?.[nkrSelectedChain] || null;
-                      const nkrSelectedAccount = nkrSelectedVaultState?.tokens?.[nkrSelectedAsset]?.account || {};
-                      const nkrVaultTotalLive = Math.max(0,
-                        Number(nkrSelectedAccount?.baseCapital || 0) +
-                        Number(nkrSelectedAccount?.totalSecuredProfit || 0)
-                      );
+                      const nkrSessionVaultKeys = Array.from(new Set(
+                        (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : []).map((sess) => {
+                          const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+                          const chain = String(sess?.chain || sess?.chainKey || meta?.chain || meta?.chain_key || ({ 1: "ETH", 56: "BNB", 137: "POL", 8453: "BASE", 42161: "ARB" }[Number(sess?.chainId || sess?.chain_id || meta?.chain_id || 0)]) || "").toUpperCase();
+                          const asset = String(sess?.settlementAsset || sess?.settlementTokenSymbol || sess?.baseAsset || meta?.settlement_asset || meta?.settlement_symbol || "USDC").toUpperCase();
+                          return chain ? `${chain}|${asset}` : "";
+                        }).filter(Boolean)
+                      ));
+                      // When there is no active session, keep the selected account as a useful
+                      // single-vault preview. With active sessions, only their exact accounts count.
+                      const nkrOverviewVaultKeys = nkrSessionVaultKeys.length
+                        ? nkrSessionVaultKeys
+                        : [`${nkrSelectedChain}|${nkrSelectedAsset}`];
+                      const nkrOverviewAccounts = nkrOverviewVaultKeys.map((key) => {
+                        const [chain, asset] = String(key).split("|");
+                        const vaultState = coreVaultOnchainByChain?.[chain] || null;
+                        const account = vaultState?.tokens?.[asset]?.account || {};
+                        const total = Math.max(0,
+                          Number(account?.baseCapital || 0) +
+                          Number(account?.totalSecuredProfit || 0)
+                        );
+                        const allocated = Math.max(0, Number(account?.totalAllocated || 0));
+                        return { chain, asset, total, allocated, free: Math.max(0, total - allocated), connected: Boolean(vaultState?.connected) };
+                      });
+                      const nkrVaultTotalLive = nkrOverviewAccounts.reduce((sum, row) => sum + Number(row?.total || 0), 0);
                       const usagePct = nkrBudgetUsd > 0 ? Math.min(100, Math.max(0, (rotationAllocatedUsd / nkrBudgetUsd) * 100)) : vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
                       const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
                       const rotationShadowRuntimeStatus = rotationShadowBusy ? "READING LIVE DATA" : nkrCtrl === "STOPPED" ? "STOPPED" : nkrCtrl === "PAUSED" || pausedRotations > 0 ? "PAUSED" : activeRotations > 0 || nkrCtrl === "RUNNING" ? "RUNNING" : "READY";
@@ -22758,11 +22779,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             ? "RUNNING"
                             : "WAITING";
                       const nkrOverviewAvailableUsd = (() => {
-                        // Prefer the same authoritative on-chain free capital used by Live Core Vault Capital.
-                        const total = Number(nkrSelectedAccount?.baseCapital || 0) + Number(nkrSelectedAccount?.totalSecuredProfit || 0);
-                        const allocated = Number(nkrSelectedAccount?.totalAllocated || 0);
-                        const onchainFree = Math.max(0, total - allocated);
-                        if (nkrSelectedVaultState?.connected) return onchainFree;
+                        // Sum authoritative free capital for every active session account.
+                        // Fall back only when no involved vault account is connected/readable.
+                        const connectedRows = nkrOverviewAccounts.filter((row) => row?.connected);
+                        if (connectedRows.length > 0) {
+                          return connectedRows.reduce((sum, row) => sum + Number(row?.free || 0), 0);
+                        }
                         return Math.max(0, availableUsd || 0);
                       })();
                       const nkrTopProfitAsset = topProfitRotation && Number(topProfitRotation.profit || 0) > 0
@@ -22818,7 +22840,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div><b>Open Position:</b> {fmtUsd(nkrOpenPositionValueUsd)}</div>
                               <div><b>Collected Profit:</b> <span style={{ color: rotationProfitUsd >= 0 ? "#86efac" : "#ff8a8a", fontWeight: 900 }}>{rotationProfitUsd >= 0 ? "+" : ""}{fmtUsd(rotationProfitUsd)}</span></div>
                               
-                              <div><b>Active Session:</b> {activeRotations > 0 ? 1 : 0}</div>
+                              <div><b>Active Sessions:</b> {activeRotations}</div>
                               <div><b>Status:</b> <span style={{ color: nkrOverviewRunning ? "#22c55e" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewStatus}</span></div>
                               <div><b>Runtime:</b> {nkrOverviewRunning ? (nkrOverviewElapsedMs > 0 ? fmtRotationDuration(nkrOverviewElapsedMs) : "RUNNING") : "not running"}</div>
                               <div><b>Time Left:</b> <span style={{ color: nkrOverviewRunning && nkrOverviewRemainingMs > 0 ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewRunning ? (nkrOverviewEndTs > 0 ? (nkrOverviewRemainingMs > 0 ? fmtRotationDuration(nkrOverviewRemainingMs) : "expired") : "—") : "—"}</span></div>

@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD374-NKR-OVERVIEW-ALL-SESSIONS-AGGREGATION-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD376-NKR-OVERVIEW-ALL-ACTIVE-VAULTS-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12590,6 +12590,28 @@ const [aiLoading, setAiLoading] = useState(false);
       setRotationBackendMsg(`NKR ${actionU}: missing exact on-chain session id for this card.`);
       return;
     }
+    // Immediate per-card state for PAUSE/RESUME. Do not wait for System Info or a
+    // full page reset before changing the button and status label. Raw on-chain
+    // status fields are patched too because several card selectors prefer them.
+    if (["PAUSE", "RESUME"].includes(actionU)) {
+      const paused = actionU === "PAUSE";
+      setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((row) => {
+        if (!row || typeof row !== "object") return row;
+        const meta0 = row?.meta && typeof row.meta === "object" ? row.meta : {};
+        const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? meta0?.onchain_session_id ?? meta0?.core_vault_session_id ?? "");
+        const schain = String(row?.chain || row?.chainKey || meta0?.chain || meta0?.chain_key || row?.chainId || row?.chain_id || meta0?.chain_id || "").toUpperCase();
+        if (!opts.allSessions && (sid !== targetSid || schain !== targetChain)) return row;
+        const nextStatus = paused ? "PAUSED" : "ACTIVE";
+        const nextRaw = paused ? 2 : 1;
+        return {
+          ...row, status: nextStatus, statusLabel: nextStatus, onchainStatus: nextStatus,
+          lifecycleState: nextStatus, rawStatusId: nextRaw, statusId: nextRaw, onchainStatusId: nextRaw,
+          updatedAt: now,
+          meta: { ...meta0, lifecycle_state: nextStatus, session_status: nextStatus, raw_status_id: nextRaw, status_id: nextRaw, nkr_user_control: paused ? "PAUSED_BY_USER" : "RESUMED_BY_USER" },
+        };
+      }));
+    }
+
     // Optimistic UI: Pause → Stop must show EXITING/STOPPING immediately, never flicker back to PAUSED.
     if (["STOP", "STOP_EXIT", "PANIC_STOP"].includes(actionU)) {
       if (opts.allSessions) setNkrControlState("STOPPING");
@@ -12624,8 +12646,17 @@ const [aiLoading, setAiLoading] = useState(false);
       if (Array.isArray(resp?.sessions)) {
         // Never let a server PAUSED row overwrite an in-flight STOPPING exit.
         const merged = canonicalizeNkrSessions(resp.sessions).map((s) => {
-          const st = String(s?.status || "").toUpperCase();
+          let st = String(s?.status || "").toUpperCase();
           const ctrl = String(resp?.controlState || localStatus || "").toUpperCase();
+          const meta0 = s?.meta && typeof s.meta === "object" ? s.meta : {};
+          const sid = String(s?.onchainSessionId ?? s?.onchain_session_id ?? s?.coreVaultSessionId ?? meta0?.onchain_session_id ?? meta0?.core_vault_session_id ?? "");
+          const schain = String(s?.chain || s?.chainKey || meta0?.chain || meta0?.chain_key || s?.chainId || s?.chain_id || meta0?.chain_id || "").toUpperCase();
+          if (["PAUSE", "RESUME"].includes(actionU) && (opts.allSessions || (sid === targetSid && schain === targetChain))) {
+            const paused = actionU === "PAUSE";
+            const nextStatus = paused ? "PAUSED" : "ACTIVE";
+            const nextRaw = paused ? 2 : 1;
+            return { ...s, status: nextStatus, statusLabel: nextStatus, onchainStatus: nextStatus, lifecycleState: nextStatus, rawStatusId: nextRaw, statusId: nextRaw, onchainStatusId: nextRaw, meta: { ...meta0, lifecycle_state: nextStatus, raw_status_id: nextRaw, status_id: nextRaw } };
+          }
           if (["STOP", "STOP_EXIT", "PANIC_STOP"].includes(actionU) && st === "PAUSED") {
             return { ...s, status: "STOPPING", lifecycleState: "STOPPING", positionState: "STOPPING" };
           }
@@ -12684,6 +12715,12 @@ const [aiLoading, setAiLoading] = useState(false);
         // Keep the card synchronized long enough to observe EXIT -> FINALIZED instead
         // of leaving a permanent stale PENDING label in the browser.
         [2500, 8000, 15000, 30000, 60000, 120000].forEach((delay) => setTimeout(pollOnce, delay));
+      }
+      if (["PAUSE", "RESUME"].includes(actionU)) {
+        const refreshPauseState = async () => {
+          try { await syncRotationSessionsFromServer(); } catch (_) {}
+        };
+        [1200, 3500].forEach((delay) => setTimeout(refreshPauseState, delay));
       }
       setRotationShadowEvents((prev) => [{
         id: `NKR-CTRL-${now}`,
@@ -22683,29 +22720,83 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       // are shown together without double-counting a shared account.
                       const nkrSelectedChain = String(liveVaultChainByMode?.rotation || activeNkrChainKey || "ETH").toUpperCase();
                       const nkrSelectedAsset = String(liveVaultAssetByMode?.rotation || firstRotation?.settlementAsset || firstRotation?.asset || "USDC").toUpperCase();
-                      const nkrSessionVaultKeys = Array.from(new Set(
-                        (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : []).map((sess) => {
+                      // ENGINE-376: Aggregate every active session vault, independent of the
+                      // currently selected chain. Session payloads use several aliases (BNB Chain,
+                      // BSC, Polygon, chain ids), so normalize them before looking up the shared
+                      // all-chain CoreVault snapshot. Otherwise one active chain can silently drop
+                      // out of Vault Total / Available even while its session card is visible.
+                      const canonicalNkrSettlementAsset = (value, tokenAddress = "") => {
+                        const raw = String(value || "").trim().toUpperCase().replace(/[^A-Z0-9_]/g, "");
+                        const addr = String(tokenAddress || "").trim().toLowerCase();
+                        if (addr === "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48") return "USDC";
+                        if (addr === "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d") return "USDC";
+                        if (["0x2791bca1f2de4661ed88a30c99a7a9449aa84174", "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359"].includes(addr)) return "USDC";
+                        if (raw.includes("USDT")) return "USDT";
+                        if (raw.includes("USDC")) return "USDC";
+                        return raw || "USDC";
+                      };
+                      const nkrSessionVaultRefs = (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : [])
+                        .map((sess) => {
                           const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
-                          const chain = String(sess?.chain || sess?.chainKey || meta?.chain || meta?.chain_key || ({ 1: "ETH", 56: "BNB", 137: "POL", 8453: "BASE", 42161: "ARB" }[Number(sess?.chainId || sess?.chain_id || meta?.chain_id || 0)]) || "").toUpperCase();
-                          const asset = String(sess?.settlementAsset || sess?.settlementTokenSymbol || sess?.baseAsset || meta?.settlement_asset || meta?.settlement_symbol || "USDC").toUpperCase();
-                          return chain ? `${chain}|${asset}` : "";
-                        }).filter(Boolean)
-                      ));
+                          const chain = normalizeNkrChainKey(
+                            sess?.chain || sess?.chainKey || meta?.chain || meta?.chain_key ||
+                            sess?.chainId || sess?.chain_id || meta?.chain_id || ""
+                          );
+                          const settlementAddress = String(
+                            sess?.settlementToken || sess?.settlementTokenAddress || sess?.settlement_address ||
+                            meta?.settlement_token || meta?.settlement_token_address || meta?.settlement_address || ""
+                          );
+                          const asset = canonicalNkrSettlementAsset(
+                            sess?.settlementAsset || sess?.settlementTokenSymbol || sess?.baseAsset ||
+                            sess?.payoutAsset || meta?.settlement_asset || meta?.settlement_symbol || meta?.base_asset || "USDC",
+                            settlementAddress
+                          );
+                          return chain ? { key: `${chain}|${asset}`, chain, asset, settlementAddress, session: sess } : null;
+                        })
+                        .filter(Boolean);
+                      const nkrSessionVaultRefByKey = new Map();
+                      for (const ref of nkrSessionVaultRefs) {
+                        if (!nkrSessionVaultRefByKey.has(ref.key)) nkrSessionVaultRefByKey.set(ref.key, ref);
+                      }
                       // When there is no active session, keep the selected account as a useful
-                      // single-vault preview. With active sessions, only their exact accounts count.
-                      const nkrOverviewVaultKeys = nkrSessionVaultKeys.length
-                        ? nkrSessionVaultKeys
-                        : [`${nkrSelectedChain}|${nkrSelectedAsset}`];
-                      const nkrOverviewAccounts = nkrOverviewVaultKeys.map((key) => {
-                        const [chain, asset] = String(key).split("|");
+                      // single-vault preview. With active sessions, every distinct session vault counts.
+                      const nkrOverviewVaultRefs = nkrSessionVaultRefByKey.size
+                        ? Array.from(nkrSessionVaultRefByKey.values())
+                        : [{
+                            key: `${normalizeNkrChainKey(nkrSelectedChain)}|${canonicalNkrSettlementAsset(nkrSelectedAsset)}`,
+                            chain: normalizeNkrChainKey(nkrSelectedChain),
+                            asset: canonicalNkrSettlementAsset(nkrSelectedAsset),
+                            settlementAddress: "",
+                            session: null,
+                          }];
+                      const nkrOverviewAccounts = nkrOverviewVaultRefs.map((ref) => {
+                        const { chain, asset, settlementAddress, session } = ref;
                         const vaultState = coreVaultOnchainByChain?.[chain] || null;
-                        const account = vaultState?.tokens?.[asset]?.account || {};
-                        const total = Math.max(0,
-                          Number(account?.baseCapital || 0) +
-                          Number(account?.totalSecuredProfit || 0)
-                        );
-                        const allocated = Math.max(0, Number(account?.totalAllocated || 0));
-                        return { chain, asset, total, allocated, free: Math.max(0, total - allocated), connected: Boolean(vaultState?.connected) };
+                        const tokenRows = vaultState?.tokens && typeof vaultState.tokens === "object" ? vaultState.tokens : {};
+                        let tokenRow = tokenRows?.[asset] || null;
+                        if (!tokenRow) {
+                          const targetAddr = String(settlementAddress || "").toLowerCase();
+                          tokenRow = Object.values(tokenRows).find((row) => {
+                            const symbol = canonicalNkrSettlementAsset(row?.symbol || row?.asset || row?.name || "", row?.address || row?.token || "");
+                            const address = String(row?.address || row?.token || row?.tokenAddress || "").toLowerCase();
+                            return symbol === asset || (targetAddr && address === targetAddr);
+                          }) || null;
+                        }
+                        const account = tokenRow?.account || {};
+                        const accountReadable = Boolean(tokenRow && account && typeof account === "object");
+                        const total = accountReadable ? Math.max(0,
+                          Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0)
+                        ) : Math.max(0, getNkrSessionWorkingCapitalUsd(session));
+                        const allocated = accountReadable
+                          ? Math.max(0, Number(account?.totalAllocated || 0))
+                          : Math.max(0, getNkrSessionWorkingCapitalUsd(session));
+                        return {
+                          chain, asset, total, allocated,
+                          free: Math.max(0, total - allocated),
+                          connected: Boolean(vaultState?.connected),
+                          accountReadable,
+                          source: accountReadable ? "ONCHAIN_ACCOUNT" : "SESSION_FALLBACK",
+                        };
                       });
                       const nkrVaultTotalLive = nkrOverviewAccounts.reduce((sum, row) => sum + Number(row?.total || 0), 0);
                       const usagePct = nkrBudgetUsd > 0 ? Math.min(100, Math.max(0, (rotationAllocatedUsd / nkrBudgetUsd) * 100)) : vaultTotalUsd > 0 ? Math.min(100, Math.max(0, ((gridAllocatedUsd + rotationAllocatedUsd) / vaultTotalUsd) * 100)) : 0;
@@ -28767,7 +28858,12 @@ export default function App() {
                     {coreVaultSessionPreview ? (
                       <div style={{ marginTop: 9, display: "grid", gap: 6 }}>
                         <div className="muted" style={{ fontSize: 9 }}>Next IDs: ETH {coreVaultSessionPreview?.nextSessionIdByChain?.ETH ?? "—"} · BNB {coreVaultSessionPreview?.nextSessionIdByChain?.BNB ?? "—"} · POL {coreVaultSessionPreview?.nextSessionIdByChain?.POL ?? "—"} · Found: {(coreVaultSessionPreview?.sessions || []).length} (Grid {coreVaultSessionPreview?.counts?.GRID || 0}, NKR {coreVaultSessionPreview?.counts?.NKR || 0}, Trader {coreVaultSessionPreview?.counts?.TRADER || 0}) · Recoverable: {(coreVaultSessionPreview?.candidates || []).length}</div>
-                        {(coreVaultSessionPreview?.sessions || []).length ? (coreVaultSessionPreview.sessions || []).slice().reverse().map((s) => (
+                        {(coreVaultSessionPreview?.sessions || []).length ? (coreVaultSessionPreview.sessions || []).slice().sort((a, b) => {
+                          const rank = (x) => ({ ACTIVE: 0, PAUSED: 1, CLOSING: 2, ERROR: 3, FINALIZED: 9 }[String(x?.statusLabel || "").toUpperCase()] ?? 5);
+                          const ra = rank(a), rb = rank(b);
+                          if (ra !== rb) return ra - rb;
+                          return Number(b?.sessionId || 0) - Number(a?.sessionId || 0);
+                        }).map((s) => (
                           <div key={`core-session-${s.chainId || 0}-${s.engine || "UNKNOWN"}-${s.sessionId}`} style={{ border: `1px solid ${s.recoverable ? "rgba(255,193,7,0.42)" : "rgba(255,255,255,0.10)"}`, borderRadius: 8, padding: 8, background: s.recoverable ? "rgba(255,193,7,0.06)" : "rgba(255,255,255,0.02)", fontSize: 9 }}>
                             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}><b>{s.chain || "ETH"} · Session #{s.sessionId}</b><b style={{ color: s.recoverable ? "#ffe08a" : "#b9d8ce" }}>{s.statusLabel || `Status ${s.statusId}`}</b></div>
                             <div style={{ marginTop: 4, display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 8px", wordBreak: "break-all" }}>

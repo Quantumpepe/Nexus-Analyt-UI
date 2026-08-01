@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD370-REQUEST-STORM-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.01-BUILD373-AUTHENTICATED-NKR-SESSION-AUDIT";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -27328,6 +27328,9 @@ export default function App() {
   const [engineDiagnostics, setEngineDiagnostics] = useState(null);
   const [engineDiagnosticsBusy, setEngineDiagnosticsBusy] = useState("");
   const [engineDiagnosticsError, setEngineDiagnosticsError] = useState("");
+  const [nkrSessionAudit, setNkrSessionAudit] = useState(null);
+  const [nkrSessionAuditBusy, setNkrSessionAuditBusy] = useState(false);
+  const [nkrSessionAuditError, setNkrSessionAuditError] = useState("");
   const [shadowReadiness, setShadowReadiness] = useState(null);
   const [evmRegistryBusy, setEvmRegistryBusy] = useState("");
   const [evmRegistryMsg, setEvmRegistryMsg] = useState("");
@@ -27623,10 +27626,41 @@ export default function App() {
   };
 
   const _authHeaders = (explicitToken = "") => {
-    const bearer = String(explicitToken || localStorage.getItem("nexus_token") || "").trim();
+    const bearer = String(explicitToken || localStorage.getItem("nexus_token") || localStorage.getItem("nexus_privy_jwt") || "").trim();
     const headers = { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet || "") };
     if (bearer) headers.Authorization = `Bearer ${bearer}`;
     return headers;
+  };
+
+  const _loadNkrSessionAudit = async () => {
+    if (!canOpenSystemInfo || nkrSessionAuditBusy || !footerWallet) return;
+    setNkrSessionAuditBusy(true);
+    setNkrSessionAuditError("");
+    try {
+      const q = new URLSearchParams({ wallet: footerWallet, wallet_address: footerWallet });
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 20000);
+      let res;
+      try {
+        res = await fetch(`${API_BASE}/api/nexus/system-info/nkr-session-audit?${q.toString()}`, {
+          method: "GET",
+          cache: "no-store",
+          credentials: "include",
+          headers: _authHeaders(),
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `NKR session audit failed (HTTP ${res.status})`);
+      setNkrSessionAudit(data);
+    } catch (err) {
+      setNkrSessionAudit(null);
+      setNkrSessionAuditError(err?.name === "AbortError" ? "NKR session audit timed out after 20 seconds." : String(err?.message || err));
+    } finally {
+      setNkrSessionAuditBusy(false);
+    }
   };
 
   // Privy signer provisioning is intentionally not run during page load.
@@ -28449,6 +28483,49 @@ export default function App() {
                     </div>
                   </details>
                 )}
+
+                <details style={{
+                  gridColumn: "span 12",
+                  border: "1px solid rgba(64,196,255,0.28)",
+                  borderRadius: 10,
+                  padding: 10,
+                  background: "rgba(64,196,255,0.045)",
+                }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 950 }}>NKR Session & Strategist Audit · {nkrSessionAudit?.status ? String(nkrSessionAudit.status).toUpperCase() : "NOT RUN"}</summary>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, marginBottom: 8 }}>
+                    <button type="button" className="miniBtn" disabled={nkrSessionAuditBusy} onClick={(ev) => { ev.stopPropagation(); _loadNkrSessionAudit(); }}>
+                      {nkrSessionAuditBusy ? "Checking…" : "Run authenticated audit"}
+                    </button>
+                    <span className="muted tiny">Read-only. Uses the same authenticated Nexus session as System Info.</span>
+                  </div>
+                  {nkrSessionAuditError ? <div style={{ color: "#ffb4b4", fontWeight: 850, marginBottom: 8 }}>{nkrSessionAuditError}</div> : null}
+                  {nkrSessionAudit ? <div style={{ display: "grid", gap: 8 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 7 }}>
+                      <div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: 8 }}><b>Sessions</b><br />{nkrSessionAudit.sessionCount ?? 0}</div>
+                      <div style={{ border: `1px solid ${nkrSessionAudit?.modeIsolation?.ok ? "rgba(80,255,180,.30)" : "rgba(255,90,90,.40)"}`, borderRadius: 8, padding: 8 }}><b>Mode isolation</b><br />{nkrSessionAudit?.modeIsolation?.ok ? "READY" : "BLOCKED"}</div>
+                      <div style={{ border: `1px solid ${nkrSessionAudit?.strategistSignals?.complete ? "rgba(80,255,180,.30)" : "rgba(255,190,90,.40)"}`, borderRadius: 8, padding: 8 }}><b>Strategist signals</b><br />{nkrSessionAudit?.strategistSignals?.complete ? "COMPLETE" : "INCOMPLETE"}</div>
+                      <div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: 8 }}><b>Transactions sent</b><br />{nkrSessionAudit.transactionsSent ?? 0}</div>
+                    </div>
+                    {(nkrSessionAudit.sessions || []).map((row, idx) => <details key={`${row?.chainId || "?"}:${row?.sessionId || idx}`} open style={{ border: `1px solid ${row?.locked ? "rgba(80,255,180,.24)" : "rgba(255,90,90,.35)"}`, borderRadius: 8, padding: "6px 8px" }}>
+                      <summary style={{ cursor: "pointer", fontWeight: 900 }}>{row?.chain || row?.chainId} · Session #{row?.sessionId} · {row?.mode || "?"} · {row?.locked ? "LOCKED" : "NOT LOCKED"}</summary>
+                      <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.55 }}>
+                        Status: {row?.status || "—"}<br />
+                        Config key: {row?.sessionConfigKey || "—"}<br />
+                        Observation: {row?.observationWindow ?? "—"}<br />
+                        Profit mode: {row?.profitMode || "—"}<br />
+                        Period: {row?.periodDays ?? "—"} days<br />
+                        Max assets: {row?.maxActiveAssets ?? "—"}<br />
+                        Max capital/asset: {row?.maxCapitalPerAssetPct ?? "—"}%<br />
+                        Budget: {row?.budgetUsd ?? "—"}<br />
+                        Entry threshold: {row?.modeThreshold ?? "—"}
+                      </div>
+                    </details>)}
+                    <details style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: "6px 8px" }}>
+                      <summary style={{ cursor: "pointer", fontWeight: 900 }}>Signal coverage and entry pipeline</summary>
+                      <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "6px 0 0" }}>{JSON.stringify({ modeIsolation: nkrSessionAudit.modeIsolation, strategistSignals: nkrSessionAudit.strategistSignals, entryPipeline: nkrSessionAudit.entryPipeline }, null, 2)}</pre>
+                    </details>
+                  </div> : <div className="muted tiny">Run the audit to verify that every running session keeps its own mode and receives the full Strategist signal set.</div>}
+                </details>
 
                 <details style={{
                   gridColumn: "span 8",

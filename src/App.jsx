@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD380-SESSION-RECOVERY-AND-BUDGET-DISPLAY-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD381-ONCHAIN-SESSION-STATE-AUTHORITY-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12287,7 +12287,19 @@ useEffect(() => {
       }
       return false;
     };
-    const input = Array.isArray(rows) ? rows.filter((x) => x && typeof x === "object") : [];
+    const normalizeAuthoritativeStatus = (row = {}) => {
+      const meta = row?.meta && typeof row.meta === "object" ? row.meta : {};
+      const rawId = Number(row?.onchainStatusId ?? row?.rawStatusId ?? row?.statusId ?? meta?.raw_status_id ?? meta?.status_id ?? 0);
+      const byId = rawId === 1 ? "ACTIVE" : rawId === 2 ? "PAUSED" : rawId === 3 ? "CLOSING" : rawId === 4 ? "FINALIZED" : "";
+      const explicit = String(row?.onchainStatus || row?.statusLabel || row?.status || row?.lifecycleState || meta?.session_status || meta?.lifecycle_state || "").toUpperCase();
+      const status = byId || explicit || "ACTIVE";
+      return {
+        ...row, status, statusLabel: status, onchainStatus: status, lifecycleState: status,
+        rawStatusId: rawId || row?.rawStatusId, statusId: rawId || row?.statusId, onchainStatusId: rawId || row?.onchainStatusId,
+        meta: { ...meta, lifecycle_state: status, session_status: status, ...(rawId ? { raw_status_id: rawId, status_id: rawId } : {}) },
+      };
+    };
+    const input = Array.isArray(rows) ? rows.filter((x) => x && typeof x === "object").map(normalizeAuthoritativeStatus) : [];
     const hasLive = input.some((s) => getOnchainId(s));
     const map = new Map();
     for (const s of input) {
@@ -12354,7 +12366,22 @@ useEffect(() => {
       const activeIdRaw = String(r?.activeRotationSessionId || "").trim();
       const activeId = deletedIds.has(activeIdRaw) ? "" : activeIdRaw;
       // Empty backend list clears every device. Do not keep a ghost card from local/mobile state.
-      setRotationSessions(sessions);
+      setRotationSessions((prev) => {
+        const previous = Array.isArray(prev) ? prev : [];
+        const prevByKey = new Map(previous.map((row) => [nkrSessionControlKey(row), row]));
+        return sessions.map((row) => {
+          const key = nkrSessionControlKey(row);
+          const old = prevByKey.get(key);
+          const meta = row?.meta && typeof row.meta === "object" ? row.meta : {};
+          const rawId = Number(row?.onchainStatusId ?? row?.rawStatusId ?? row?.statusId ?? meta?.raw_status_id ?? meta?.status_id ?? 0);
+          const incoming = String(row?.onchainStatus || row?.statusLabel || row?.status || "").toUpperCase();
+          const oldStatus = String(old?.onchainStatus || old?.statusLabel || old?.status || "").toUpperCase();
+          // A server row without an authoritative status id may be a transient registry
+          // projection. Never use it to flip a confirmed PAUSED card back to ACTIVE.
+          if (oldStatus === "PAUSED" && incoming === "ACTIVE" && rawId !== 1) return old;
+          return row;
+        });
+      });
       setActiveRotationSessionId(sessions.length ? (activeId || String(sessions[0]?.id || "")) : "");
       if (!sessions.length && (backendCtrl === "WAITING" || backendCtrl === "STOPPED" || backendCtrl === "FINALIZED" || !backendCtrl)) {
         // Ensure control does not stay RUNNING/PAUSED on a second device after close.

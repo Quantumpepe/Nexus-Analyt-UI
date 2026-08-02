@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD385-ETH-ASYNC-SESSION-LIFECYCLE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD386-ONCHAIN-SESSIONS-NKR-TRADER";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -27931,7 +27931,14 @@ export default function App() {
   // Privy signer provisioning is intentionally not run during page load.
   // It is triggered explicitly by the first live Start action and must verify
   // the signer attachment before any CoreVault session can be created.
-  const CORE_VAULT_SESSION_ENGINES = Object.freeze(["GRID", "NKR", "TRADER"]);
+  // BUILD386: On-chain session refresh = NKR + Trader only. Grid excluded
+  // (target price / max-loss). Runtime Diagnose still shows NKR / Grid / Trader.
+  const CORE_VAULT_SESSION_ENGINES = Object.freeze(["NKR", "TRADER"]);
+  const CORE_VAULT_ENGINE_LABEL = Object.freeze({ NKR: "NKR", TRADER: "Trader", GRID: "Grid" });
+  const _coreVaultEngineLabel = (engine) => {
+    const e = String(engine || "").toUpperCase();
+    return CORE_VAULT_ENGINE_LABEL[e] || e || "Unknown";
+  };
 
   const _inspectCoreVaultSessions = async () => {
     if (!canOpenSystemInfo || ownerAdminBusy || coreVaultScanFlightRef.current) return;
@@ -27941,52 +27948,109 @@ export default function App() {
     coreVaultScanAbortRef.current = controller;
     const timeoutId = window.setTimeout(() => controller.abort(), 45000);
     setOwnerAdminBusy("CoreVault session scan");
-    setOwnerAdminMsg("Reading Grid, NKR and Trader sessions on ETH, BNB and POL...");
+    setOwnerAdminMsg("Reading NKR and Trader on-chain sessions on ETH, BNB and POL (Grid excluded)...");
     const chains = [
       { chain: "ETH", chainId: 1, vault: CORE_VAULT_ETH_ADDRESS },
       { chain: "BNB", chainId: 56, vault: CORE_VAULT_BNB_ADDRESS },
       { chain: "POL", chainId: 137, vault: CORE_VAULT_POL_ADDRESS },
     ].filter((x) => /^0x[a-fA-F0-9]{40}$/.test(String(x.vault || "")));
     try {
-      const jobs = [];
-      for (const c of chains) for (const engine of CORE_VAULT_SESSION_ENGINES) jobs.push({ ...c, engine });
-      const settled = await Promise.allSettled(jobs.map(async (job) => {
-        const q = new URLSearchParams({
-          wallet: footerWallet, wallet_address: footerWallet, engine: job.engine,
-          chainId: String(job.chainId), vault: job.vault,
-        });
-        const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, {
+      let sessions = [];
+      let candidates = [];
+      let nextByChain = {};
+      let failures = [];
+      let usedEndpoint = "recover-preview";
+      // Prefer BUILD365 endpoint (NKR + Trader, Grid excluded by policy).
+      try {
+        const q = new URLSearchParams({ wallet: footerWallet, wallet_address: footerWallet });
+        const res = await fetch(`${API_BASE}/api/nexus/system-info/onchain-sessions?${q.toString()}`, {
           cache: "no-store", credentials: "include", headers: _authHeaders(), signal: controller.signal,
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(`${job.chain}/${job.engine}: ${data?.error || `HTTP ${res.status}`}`);
-        return { ...job, data };
-      }));
-      const results = settled.filter((x) => x.status === "fulfilled").map((x) => x.value);
-      const failures = settled.filter((x) => x.status === "rejected").map((x) => String(x.reason?.message || x.reason));
-      const sessionMap = new Map(); const candidateMap = new Map(); const nextByChain = {};
-      for (const { chain, chainId, vault, engine, data } of results) {
-        nextByChain[chain] = Math.max(Number(nextByChain[chain] || 0), Number(data?.nextSessionId || 0));
-        for (const raw of (Array.isArray(data?.sessions) ? data.sessions : [])) {
-          const session = { ...raw, chain, chainId, vault, engine: String(raw?.engine || engine).toUpperCase() };
-          const key = `${chainId}:${String(session.engine)}:${String(session?.sessionId ?? "")}`;
-          sessionMap.set(key, session);
+        if (res.ok && (Array.isArray(data?.sessions) || Array.isArray(data?.sections))) {
+          usedEndpoint = "onchain-sessions";
+          for (const raw of (Array.isArray(data.sessions) ? data.sessions : [])) {
+            const engine = String(raw?.engine || "").toUpperCase();
+            if (engine === "GRID" || !CORE_VAULT_SESSION_ENGINES.includes(engine)) continue;
+            const chainId = Number(raw?.chainId || 0);
+            const chain = String(raw?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[chainId] || "")).toUpperCase();
+            const session = {
+              ...raw, chain, chainId,
+              vault: raw?.vault || CORE_VAULT_ADDRESS_BY_CHAIN[chain] || "",
+              engine,
+              engineLabel: raw?.engineLabel || _coreVaultEngineLabel(engine),
+              displayName: raw?.displayName || `${_coreVaultEngineLabel(engine)} Session #${raw?.sessionId}`,
+            };
+            sessions.push(session);
+            if (session.recoverable) candidates.push(session);
+            if (chain) nextByChain[chain] = Math.max(Number(nextByChain[chain] || 0), Number(raw?.sessionId || 0) + 1);
+          }
+          for (const err of (Array.isArray(data?.errors) ? data.errors : [])) {
+            failures.push(`${err?.engineLabel || err?.engine || "?"} chain ${err?.chainId || "?"}: ${err?.error || "error"}`);
+          }
+        } else if (!res.ok) {
+          throw new Error(data?.error || `HTTP ${res.status}`);
         }
-        for (const raw of (Array.isArray(data?.candidates) ? data.candidates : [])) {
-          const candidate = { ...raw, chain, chainId, vault, engine: String(raw?.engine || engine).toUpperCase() };
-          const key = `${chainId}:${String(candidate.engine)}:${String(candidate?.sessionId ?? "")}`;
-          candidateMap.set(key, candidate);
+      } catch (primaryErr) {
+        const jobs = [];
+        for (const c of chains) for (const engine of CORE_VAULT_SESSION_ENGINES) jobs.push({ ...c, engine });
+        const settled = await Promise.allSettled(jobs.map(async (job) => {
+          const q = new URLSearchParams({
+            wallet: footerWallet, wallet_address: footerWallet, engine: job.engine,
+            chainId: String(job.chainId), vault: job.vault,
+          });
+          const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, {
+            cache: "no-store", credentials: "include", headers: _authHeaders(), signal: controller.signal,
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(`${job.chain}/${_coreVaultEngineLabel(job.engine)}: ${data?.error || `HTTP ${res.status}`}`);
+          return { ...job, data };
+        }));
+        const results = settled.filter((x) => x.status === "fulfilled").map((x) => x.value);
+        failures = settled.filter((x) => x.status === "rejected").map((x) => String(x.reason?.message || x.reason));
+        const sessionMap = new Map(); const candidateMap = new Map();
+        for (const { chain, chainId, vault, engine, data } of results) {
+          nextByChain[chain] = Math.max(Number(nextByChain[chain] || 0), Number(data?.nextSessionId || 0));
+          for (const raw of (Array.isArray(data?.sessions) ? data.sessions : [])) {
+            const eng = String(raw?.engine || engine).toUpperCase();
+            if (eng === "GRID" || !CORE_VAULT_SESSION_ENGINES.includes(eng)) continue;
+            const session = {
+              ...raw, chain, chainId, vault, engine: eng,
+              engineLabel: raw?.engineLabel || _coreVaultEngineLabel(eng),
+              displayName: raw?.displayName || `${_coreVaultEngineLabel(eng)} Session #${raw?.sessionId}`,
+            };
+            sessionMap.set(`${chainId}:${eng}:${String(session?.sessionId ?? "")}`, session);
+          }
+          for (const raw of (Array.isArray(data?.candidates) ? data.candidates : [])) {
+            const eng = String(raw?.engine || engine).toUpperCase();
+            if (eng === "GRID" || !CORE_VAULT_SESSION_ENGINES.includes(eng)) continue;
+            const candidate = {
+              ...raw, chain, chainId, vault, engine: eng,
+              engineLabel: raw?.engineLabel || _coreVaultEngineLabel(eng),
+              displayName: raw?.displayName || `${_coreVaultEngineLabel(eng)} Session #${raw?.sessionId}`,
+            };
+            candidateMap.set(`${chainId}:${eng}:${String(candidate?.sessionId ?? "")}`, candidate);
+          }
         }
+        sessions = Array.from(sessionMap.values()).sort((a, b) => Number(a.chainId) - Number(b.chainId) || Number(a.sessionId) - Number(b.sessionId));
+        candidates = Array.from(candidateMap.values());
+        if (!sessions.length && primaryErr) failures.push(`onchain-sessions: ${primaryErr?.message || primaryErr}`);
       }
-      const sessions = Array.from(sessionMap.values()).sort((a,b) => Number(a.chainId)-Number(b.chainId) || Number(a.sessionId)-Number(b.sessionId));
-      const candidates = Array.from(candidateMap.values());
-      const counts = { GRID:0, NKR:0, TRADER:0 };
-      sessions.forEach((s) => { const e=String(s.engine||"").toUpperCase(); if (e in counts) counts[e] += 1; });
-      setCoreVaultSessionPreview({ nextSessionId: nextByChain, nextSessionIdByChain: nextByChain, sessions, candidates, counts, engines: CORE_VAULT_SESSION_ENGINES, chains: chains.map(c=>c.chain), failures });
-      setOwnerAdminMsg(`CoreVault scan: ${sessions.length} session(s) across ${chains.map(c=>c.chain).join(", ")}; ${candidates.length} recoverable${failures.length ? `; ${failures.length} scan error(s)` : ""}.`);
+      const counts = { NKR: 0, TRADER: 0 };
+      sessions.forEach((s) => { const e = String(s.engine || "").toUpperCase(); if (e in counts) counts[e] += 1; });
+      setCoreVaultSessionPreview({
+        nextSessionId: nextByChain, nextSessionIdByChain: nextByChain,
+        sessions, candidates, counts, engines: CORE_VAULT_SESSION_ENGINES,
+        chains: chains.map((c) => c.chain), failures, usedEndpoint, gridExcluded: true,
+      });
+      setOwnerAdminMsg(
+        `On-chain scan (NKR + Trader): ${sessions.length} session(s) · NKR ${counts.NKR} · Trader ${counts.TRADER} · recoverable ${candidates.length}`
+        + (failures.length ? ` · ${failures.length} scan error(s)` : "")
+        + " · Grid excluded"
+      );
     } catch (err) {
       const aborted = err?.name === "AbortError";
-      setOwnerAdminMsg(aborted ? "CoreVault multi-chain scan timed out." : `CoreVault session scan failed: ${err?.message || err}`);
+      setOwnerAdminMsg(aborted ? "CoreVault multi-chain scan timed out." : `On-chain session scan failed: ${err?.message || err}`);
     } finally {
       window.clearTimeout(timeoutId);
       if (coreVaultScanAbortRef.current === controller) coreVaultScanAbortRef.current = null;
@@ -27996,9 +28060,14 @@ export default function App() {
 
   const _recoverStaleCoreVaultReservation = async (sessionId, engine, chainId = 1, vault = CORE_VAULT_ETH_ADDRESS, chain = "ETH") => {
     const normalizedEngine = String(engine || "").toUpperCase();
+    if (normalizedEngine === "GRID") {
+      setOwnerAdminMsg("Grid has no CoreVault session recovery here (price target / max-loss only).");
+      return;
+    }
     if (!canOpenSystemInfo || ownerAdminBusy || !sessionId || !CORE_VAULT_SESSION_ENGINES.includes(normalizedEngine)) return;
+    const engineLabel = _coreVaultEngineLabel(normalizedEngine);
     setOwnerAdminBusy(`Stale ${normalizedEngine} recovery ${sessionId}`);
-    setOwnerAdminMsg(`Starting ${normalizedEngine} recovery for CoreVault session #${sessionId}...`);
+    setOwnerAdminMsg(`Starting ${engineLabel} recovery for CoreVault session #${sessionId}...`);
     try {
       const res = await fetch(`${API_BASE}/api/nexus/live-reservation/recover`, {
         method: "POST", cache: "no-store", credentials: "include", headers: _authHeaders(),
@@ -28019,9 +28088,9 @@ export default function App() {
         const job = pd.job;
         setCoreVaultRecoveryJobs((prev) => ({ ...prev, [jobKey]: { ...job, engine: normalizedEngine } }));
         const st = String(job?.job_status || "").toUpperCase();
-        setOwnerAdminMsg(`${normalizedEngine} session #${sessionId}: ${job?.step_label || st} · receipt ${job?.receipt_status || "—"}`);
+        setOwnerAdminMsg(`${engineLabel} session #${sessionId}: ${job?.step_label || st} · receipt ${job?.receipt_status || "—"}`);
         if (st === "SUCCESS") {
-          setOwnerAdminMsg(`${normalizedEngine} session #${sessionId} finalized and confirmed on-chain.`);
+          setOwnerAdminMsg(`${engineLabel} session #${sessionId} finalized and confirmed on-chain.`);
           await _refreshOwnerSystemInfoNow();
           await _inspectCoreVaultSessions();
           break;
@@ -28029,7 +28098,7 @@ export default function App() {
         if (st === "FAILED") throw new Error(job?.last_error || "Recovery failed");
       }
     } catch (err) {
-      setOwnerAdminMsg(`${normalizedEngine} session #${sessionId} recovery failed: ${err?.message || err}`);
+      setOwnerAdminMsg(`${_coreVaultEngineLabel(normalizedEngine)} session #${sessionId} recovery failed: ${err?.message || err}`);
     } finally { setOwnerAdminBusy(""); }
   };
 
@@ -29030,29 +29099,47 @@ export default function App() {
                   </div>
 
                   <details open style={{ marginTop: 9, border: "1px solid rgba(255,193,7,0.28)", borderRadius: 9, padding: 9, background: "rgba(255,193,7,0.045)" }}>
-                    <summary style={{ cursor: "pointer", fontWeight: 800, color: "#ffe08a" }}>CoreVault sessions & stale reservation recovery</summary>
+                    <summary style={{ cursor: "pointer", fontWeight: 800, color: "#ffe08a" }}>On-chain sessions & recovery · NKR / Trader</summary>
                     <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>
-                      Reads all real on-chain CoreVault sessions for this wallet across Grid, NKR and Trader. Recovery is shown only for empty CLOSING sessions or expired empty sessions; healthy ACTIVE and PAUSED sessions are never offered for finalization.
+                      Reads real CoreVault sessions for this wallet on <b>NKR</b> and <b>Trader</b> only.
+                      Grid is not listed here — Grid sells on target price or max-loss, not via session finalize.
+                      Recovery appears only for empty CLOSING or expired empty sessions; healthy ACTIVE/PAUSED sessions are never offered for finalization.
+                      Runtime <b>Diagnose</b> for NKR / Grid / Trader stays separate above.
                     </div>
                     <div style={{ marginTop: 8, display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
                       <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={_inspectCoreVaultSessions}>
                         {ownerAdminBusy === "CoreVault session scan" ? "Scanning..." : "Refresh on-chain sessions"}
                       </button>
-                      <span className="muted" style={{ fontSize: 9 }}>ETH · BNB · POL · Grid · NKR · Trader · CoreVault</span>
+                      <span className="muted" style={{ fontSize: 9 }}>ETH · BNB · POL · NKR · Trader · Grid excluded</span>
                     </div>
                     {coreVaultSessionPreview ? (
                       <div style={{ marginTop: 9, display: "grid", gap: 6 }}>
-                        <div className="muted" style={{ fontSize: 9 }}>Next IDs: ETH {coreVaultSessionPreview?.nextSessionIdByChain?.ETH ?? "—"} · BNB {coreVaultSessionPreview?.nextSessionIdByChain?.BNB ?? "—"} · POL {coreVaultSessionPreview?.nextSessionIdByChain?.POL ?? "—"} · Found: {(coreVaultSessionPreview?.sessions || []).length} (Grid {coreVaultSessionPreview?.counts?.GRID || 0}, NKR {coreVaultSessionPreview?.counts?.NKR || 0}, Trader {coreVaultSessionPreview?.counts?.TRADER || 0}) · Recoverable: {(coreVaultSessionPreview?.candidates || []).length}</div>
+                        <div className="muted" style={{ fontSize: 9 }}>
+                          Next IDs: ETH {coreVaultSessionPreview?.nextSessionIdByChain?.ETH ?? "—"} · BNB {coreVaultSessionPreview?.nextSessionIdByChain?.BNB ?? "—"} · POL {coreVaultSessionPreview?.nextSessionIdByChain?.POL ?? "—"}
+                          {" · "}Found: {(coreVaultSessionPreview?.sessions || []).length}
+                          {" "}(NKR {coreVaultSessionPreview?.counts?.NKR || 0}, Trader {coreVaultSessionPreview?.counts?.TRADER || 0})
+                          {" · "}Recoverable: {(coreVaultSessionPreview?.candidates || []).length}
+                          {" · "}Grid excluded
+                        </div>
                         {(coreVaultSessionPreview?.sessions || []).length ? (coreVaultSessionPreview.sessions || []).slice().sort((a, b) => {
+                          const engRank = (x) => (String(x?.engine || "").toUpperCase() === "NKR" ? 0 : 1);
                           const rank = (x) => ({ ACTIVE: 0, PAUSED: 1, CLOSING: 2, ERROR: 3, FINALIZED: 9 }[String(x?.statusLabel || "").toUpperCase()] ?? 5);
+                          const ea = engRank(a), eb = engRank(b);
+                          if (ea !== eb) return ea - eb;
                           const ra = rank(a), rb = rank(b);
                           if (ra !== rb) return ra - rb;
                           return Number(b?.sessionId || 0) - Number(a?.sessionId || 0);
-                        }).map((s) => (
+                        }).map((s) => {
+                          const engLabel = s.engineLabel || _coreVaultEngineLabel(s.engine);
+                          const engColor = String(s.engine || "").toUpperCase() === "TRADER" ? "#c4b5fd" : "#9fe8ff";
+                          return (
                           <div key={`core-session-${s.chainId || 0}-${s.engine || "UNKNOWN"}-${s.sessionId}`} style={{ border: `1px solid ${s.recoverable ? "rgba(255,193,7,0.42)" : "rgba(255,255,255,0.10)"}`, borderRadius: 8, padding: 8, background: s.recoverable ? "rgba(255,193,7,0.06)" : "rgba(255,255,255,0.02)", fontSize: 9 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}><b>{s.chain || "ETH"} · Session #{s.sessionId}</b><b style={{ color: s.recoverable ? "#ffe08a" : "#b9d8ce" }}>{s.statusLabel || `Status ${s.statusId}`}</b></div>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                              <b>{engLabel} · {s.chain || "ETH"} · Session #{s.sessionId}</b>
+                              <b style={{ color: s.recoverable ? "#ffe08a" : "#b9d8ce" }}>{s.statusLabel || `Status ${s.statusId}`}</b>
+                            </div>
                             <div style={{ marginTop: 4, display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 8px", wordBreak: "break-all" }}>
-                              <span className="muted">System</span><span style={{ fontWeight: 900, color: "#9fe8ff" }}>{String(s.engine || "UNKNOWN").toUpperCase()}</span>
+                              <span className="muted">System</span><span style={{ fontWeight: 900, color: engColor }}>{engLabel}</span>
                               <span className="muted">Owner</span><span>{s.owner}</span>
                               <span className="muted">Settlement token</span><span>{s.settlementToken}</span>
                               <span className="muted">Budget</span><span><b>{s.budget ?? s.budgetUnits}</b> <span className="muted">(decimals {s.settlementDecimals ?? "—"})</span></span>
@@ -29065,12 +29152,12 @@ export default function App() {
                             </div>
                             {["ACTIVE", "PAUSED", "CLOSING"].includes(String(s.statusLabel || "").toUpperCase()) && Number(s.openAssetCount || 0) > 0 ? (
                               <div style={{ marginTop: 7, color: "#ffd978", fontSize: 9 }}>
-                                Open assets detected. Exit must be completed by the {String(s.engine || "selected").toUpperCase()} engine before finalization.
+                                Open assets detected. Exit must be completed by the {engLabel} engine before finalization.
                               </div>
                             ) : null}
                             {s.recoverable ? <div style={{ marginTop: 7 }}>
                               <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={() => _recoverStaleCoreVaultReservation(s.sessionId, s.engine, s.chainId, s.vault, s.chain)}>
-                                {ownerAdminBusy === `Stale ${String(s.engine || "").toUpperCase()} recovery ${s.sessionId}` ? `Processing ${String(s.engine || "").toUpperCase()} session #${s.sessionId}...` : `Recover / Finalize ${String(s.engine || "").toUpperCase()} session #${s.sessionId}`}
+                                {ownerAdminBusy === `Stale ${String(s.engine || "").toUpperCase()} recovery ${s.sessionId}` ? `Processing ${engLabel} session #${s.sessionId}...` : `Recover / Finalize ${engLabel} session #${s.sessionId}`}
                               </button>
                             </div> : null}
                             {coreVaultRecoveryJobs?.[`${String(s.engine || "").toUpperCase()}:${s.sessionId}`] ? (() => { const j = coreVaultRecoveryJobs[`${String(s.engine || "").toUpperCase()}:${s.sessionId}`]; return <div style={{ marginTop: 7, padding: 7, borderRadius: 7, background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.10)", display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 8px", wordBreak: "break-all" }}>
@@ -29082,7 +29169,8 @@ export default function App() {
                               <span className="muted">Last contract error</span><span style={{ color: j.last_error ? "#ffb4b4" : "inherit" }}>{j.last_error || "—"}</span>
                             </div>; })() : null}
                           </div>
-                        )) : <div className="muted" style={{ fontSize: 9 }}>No CoreVault sessions found for this wallet.</div>}
+                          );
+                        }) : <div className="muted" style={{ fontSize: 9 }}>No NKR or Trader CoreVault sessions found for this wallet.</div>}
                       </div>
                     ) : null}
                   </details>

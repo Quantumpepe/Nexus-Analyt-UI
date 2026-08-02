@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD394-FIX-VISIBLE-ROWS-CRASH";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD395-TRADER-UI-WATCHLIST";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9272,21 +9272,30 @@ useEffect(() => {
       .filter(Boolean);
   }, []);
   const traderAssetOptions = useMemo(() => {
+    // BUILD395: Allowed assets = Watchlist only (no hardcoded extra tokens).
+    // Market-mode items have no chain → eligible on every live vault chain.
+    // DEX items only on their contract chain.
     const chain = String(activeGridChainKey || "ETH").toUpperCase();
-    const baseByChain = {
-      ETH: ["ETH", "BTC", "SOL", "LINK", "UNI", "AAVE", "PEPE", "SHIB"],
-      BNB: ["BNB", "BTC", "ETH", "XRP", "CAKE", "LINK"],
-      POL: ["POL", "ETH", "BTC", "LINK", "AAVE", "UNI"],
-    };
-    const out = new Set(baseByChain[chain] || []);
-    for (const row of Array.isArray(watchRows) ? watchRows : []) {
+    const out = new Set();
+    const src = Array.isArray(watchItems) && watchItems.length
+      ? watchItems
+      : (Array.isArray(watchRows) ? watchRows : []);
+    for (const row of src) {
       const sym = String(row?.symbol || row?.sym || row?.asset || "").trim().toUpperCase();
+      if (!sym) continue;
+      const mode = String(row?.mode || "market").toLowerCase();
       const rowChain = String(row?.chain || row?.chain_key || row?.network || "").trim().toUpperCase();
-      const routeOk = row?.routeOk ?? row?.route_ok ?? row?.executable ?? row?.tradeable ?? true;
-      if (sym && routeOk !== false && (!rowChain || rowChain === chain || (chain === "ETH" && rowChain === "ERC20"))) out.add(sym);
+      if (mode === "dex") {
+        const rc = rowChain === "ETHEREUM" || rowChain === "1" ? "ETH"
+          : rowChain === "BSC" || rowChain === "56" ? "BNB"
+          : rowChain === "POLYGON" || rowChain === "MATIC" || rowChain === "137" ? "POL"
+          : rowChain;
+        if (rc && rc !== chain) continue;
+      }
+      out.add(sym);
     }
     return Array.from(out).filter(Boolean).sort();
-  }, [activeGridChainKey, watchRows]);
+  }, [activeGridChainKey, watchItems, watchRows]);
   const selectedTraderAssets = useMemo(() => normalizeTradingCsv(tradingAllowedAssets), [tradingAllowedAssets]);
   const toggleTraderAsset = useCallback((symbol) => {
     const sym = String(symbol || "").toUpperCase();
@@ -24273,52 +24282,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   On-chain Trader session #{sess.sessionId}: {String(sess.statusLabel || "ACTIVE").toUpperCase()} · Budget {fmtUsd(Number(sess.budget || 0))} · Open assets {Number(sess.openAssetCount || 0)}
                                 </div>
                               ))}
-                              {(traderSt || displayedActiveCount > 0 || traderRuntimeStatus !== "IDLE") ? (
-                                <div
-                                  style={{
-                                    gridColumn: isCompactMobile ? "1" : "1 / -1",
-                                    marginTop: 2,
-                                    padding: "8px 10px",
-                                    borderRadius: 10,
-                                    border: "1px solid rgba(139,220,255,.28)",
-                                    background: "rgba(139,220,255,.06)",
-                                    display: "grid",
-                                    gap: 6,
-                                  }}
-                                >
-                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                                    <b style={{ color: "#8bdcff", fontSize: 12 }}>Trader / Strategist</b>
-                                    <span className="muted tiny" style={{ fontWeight: 850 }}>
-                                      Gate: <b style={{ color: "#eafff5" }}>{String(traderSt?.gate || "—")}</b>
-                                      {" · "}
-                                      Decision: <b style={{ color: "#eafff5" }}>{String(traderSt?.decision || traderRuntimeStatus || "—")}</b>
-                                    </span>
-                                  </div>
-                                  <div className="muted tiny" style={{ lineHeight: 1.45, color: "rgba(232,242,240,.92)" }}>
-                                    {String(
-                                      traderSt?.summary
-                                      || (traderRuntimeStatus === "IDLE"
-                                        ? "Trader is idle. Approve a budget and start a session to begin execution."
-                                        : "Trader is running. Waiting for the next decision tick…")
-                                    )}
-                                  </div>
-                                  <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                                    <span>
-                                      <b>Best candidate:</b>{" "}
-                                      {String(traderSt?.bestCandidate || "—").toUpperCase() || "—"}
-                                      {Number(traderSt?.candidateScore) > 0
-                                        ? ` (${Number(traderSt.candidateScore).toFixed(1)})`
-                                        : ""}
-                                    </span>
-                                    {Number(traderSt?.assetsScanned) > 0 ? (
-                                      <span><b>Scanned:</b> {Number(traderSt.assetsScanned)}</span>
-                                    ) : null}
-                                    {traderSt?.detail && traderSt.detail !== traderSt.summary ? (
-                                      <span style={{ opacity: 0.85 }}>{String(traderSt.detail)}</span>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              ) : null}
+
                             </>
                           );
                         })()}
@@ -24730,7 +24694,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div className="formRow">
                       <label>Allowed assets</label>
                       <div style={{ border: "1px solid rgba(139,220,255,.18)", borderRadius: 11, padding: 9, background: "rgba(0,0,0,.14)", display: "grid", gap: 8 }}>
-                        <div className="muted tiny">Executable assets on <b>{String(activeGridChainKey || "ETH").toUpperCase()}</b>, including compatible Watchlist assets.</div>
+                        <div className="muted tiny">Watchlist assets for <b>{String(activeGridChainKey || "ETH").toUpperCase()}</b>. Leave selection empty → Strategist picks the best from the full Watchlist. Selection = optional filter only.</div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                           {traderAssetOptions.map((sym) => {
                             const selected = selectedTraderAssets.includes(sym);

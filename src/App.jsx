@@ -416,7 +416,15 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD386-ONCHAIN-SESSIONS-NKR-TRADER";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD387-GRID-VAULT-USDC-SESSION";
+/** Settlement / Grid payout: only USDC or USDT (token payout removed). */
+const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
+const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
+  let a = String(value || fallback || "USDC").toUpperCase().trim();
+  if (a === "USDT.E" || a === "USDTE") a = "USDT";
+  if (a === "USDC.E" || a === "USDCE") a = "USDC";
+  return NEXUS_STABLE_PAYOUT_ASSETS.includes(a) ? a : (String(fallback || "USDC").toUpperCase() === "USDT" ? "USDT" : "USDC");
+};
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -5083,11 +5091,14 @@ useEffect(() => {
     const systemU = String(system || "").toUpperCase();
     const modeKey = systemU === "NKR" ? "rotation" : systemU === "TRADER" ? "trading" : "normal";
     const selectedChain = String(chain || liveVaultChainByMode?.[modeKey] || activeGridChainKey || "ETH").toUpperCase();
-    // NKR + Trader always settle in stables on every live chain (ETH/BNB/POL).
-    // Never fall back to native BNB/ETH/POL for these systems — that caused 409s on parallel starts.
-    let selectedAsset = String(settlementAsset || liveVaultAssetByMode?.[modeKey] || "USDC").toUpperCase();
-    if (systemU === "NKR" || systemU === "TRADER") {
-      if (!["USDC", "USDT"].includes(selectedAsset)) selectedAsset = "USDC";
+    // NKR + Trader + Grid always settle in USDC/USDT (token payout removed, BUILD387).
+    // Never fall back to native BNB/ETH/POL — that caused 409s and wrong Grid sessions.
+    let selectedAsset = normalizeStablePayoutAsset(
+      settlementAsset || liveVaultAssetByMode?.[modeKey] || "USDC",
+      "USDC"
+    );
+    if (systemU === "NKR" || systemU === "TRADER" || systemU === "GRID") {
+      selectedAsset = normalizeStablePayoutAsset(selectedAsset, "USDC");
     }
     const selectedVaultState = coreVaultOnchainByChain?.[selectedChain] || null;
     if (!selectedVaultState?.connected) {
@@ -11986,28 +11997,18 @@ useEffect(() => {
     return Array.isArray(arr) ? arr : [0.5, 1, 2];
   }, [GRID_PRICE_PRESETS, manualPricePreset]);
   const [manualQty, setManualQty] = useState("");
-  const currentPayoutAssets = useMemo(() => {
-    const ck = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-    const base = ["USDC", "USDT", ck];
-    const uniq = [];
-    for (const a of base) {
-      const v = String(a || "").toUpperCase().trim();
-      if (!v || uniq.includes(v)) continue;
-      uniq.push(v);
-    }
-    return uniq;
-  }, [activeGridChainKey]);
-  const visiblePayoutAssets = useMemo(() => currentPayoutAssets.slice(0, 2), [currentPayoutAssets]);
-  const extraPayoutAssets = useMemo(() => currentPayoutAssets.slice(2), [currentPayoutAssets]);
+  // BUILD387: payout only USDC or USDT (native/token payout removed).
+  const currentPayoutAssets = useMemo(() => [...NEXUS_STABLE_PAYOUT_ASSETS], []);
+  const visiblePayoutAssets = useMemo(() => currentPayoutAssets, [currentPayoutAssets]);
+  const extraPayoutAssets = useMemo(() => [], []);
   const [payoutMenuOpen, setPayoutMenuOpen] = useState(false);
   const payoutMenuRef = useRef(null);
   useEffect(() => {
-    if (!currentPayoutAssets.length) return;
-    const cur = String(manualPayoutAsset || "").toUpperCase();
-    if (!currentPayoutAssets.includes(cur)) {
-      setManualPayoutAsset(currentPayoutAssets[0]);
+    const cur = normalizeStablePayoutAsset(manualPayoutAsset, "USDC");
+    if (cur !== String(manualPayoutAsset || "").toUpperCase()) {
+      setManualPayoutAsset(cur);
     }
-  }, [currentPayoutAssets, manualPayoutAsset]);
+  }, [manualPayoutAsset]);
   useEffect(() => {
     if (!payoutMenuOpen) return;
     const onDown = (e) => {
@@ -14632,14 +14633,16 @@ setGridBusy((s) => ({ ...s, start: true }));
         chain: chainKey,
         auto_path: !!gridAutoPath,
       };
+      // BUILD387: Grid CoreVault session settles to USDC/USDT only (not the traded token).
+      const gridPayout = normalizeStablePayoutAsset(manualPayoutAsset || "USDC", "USDC");
       await createCoreVaultSystemSession({
         system: "GRID",
-        budgetUsd: investQty,
+        budgetUsd: Math.max(investUsd, investQty, 1),
         durationHours: 24,
         maxSlippageBps: Math.round((Number(manualSlippagePct) || 1) * 100),
-        maxLossBps: 1500,
+        maxLossBps: Math.max(1, Math.round((Number(manualMaxLossPct) || 15) * 100)),
         chain: String(chainKey || "ETH").toUpperCase(),
-        settlementAsset: String(gridItem || ({ ETH: "ETH", BNB: "BNB", POL: "POL" }[String(chainKey || "ETH").toUpperCase()]) || "USDC").toUpperCase(),
+        settlementAsset: gridPayout,
       });
       const r = await api("/api/grid/cycle/start", { method: "POST", token, body: { ...body, core_vault_session_reserved: true } });
       applyGridMetaResponse(r, itemId);
@@ -14892,9 +14895,10 @@ setGridBusy((s) => ({ ...s, stop: true }));
         source: src,
         origin_module: src === "ROTATION" ? "nexus_rotation" : src === "TRADING" ? "nexus_trading" : "nexus_grid",
         client_order_id: clientOrderId,
-        payout_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
-        payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+        payout_asset: normalizeStablePayoutAsset(manualPayoutAsset || "USDC", "USDC"),
+        payoutAsset: normalizeStablePayoutAsset(manualPayoutAsset || "USDC", "USDC"),
         settlement_mode: "sell_existing_asset_on_rule",
+        vault_exit_policy: "EXIT_TO_USDC_OR_USDT_ONLY",
         max_loss_pct: Math.max(0, Math.min(100, Number(manualMaxLossPct) || 0)),
         original_asset: String(gridItem || "").toUpperCase(),
         slippage_bps: Math.round(Math.max(0.1, Math.min(20, Number.isFinite(slippagePct) ? slippagePct : 1)) * 100),
@@ -15185,16 +15189,46 @@ try {
       const slp = Math.min(20, Math.max(0.1, Number(manualSlippagePct) || 5));
       const dlm = Math.min(120, Math.max(5, Number(manualDeadlineMin) || 20));
       const deadlineSec = Math.floor(dlm * 60);
+      const gridPayout = normalizeStablePayoutAsset(manualPayoutAsset || "USDC", "USDC");
+      const chainKey = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+      // BUILD387: ensure GRID CoreVault session exists with USDC/USDT settlement before the order.
+      // Order alone is not enough for on-chain sell — session must be bound correctly from the start.
+      let gridSessionId = "";
+      try {
+        const qtyEst = Number(manualQty || 0);
+        const budgetUsd = Math.max(1, (Number.isFinite(price) && Number.isFinite(qtyEst) && qtyEst > 0) ? price * qtyEst : qtyEst || 1);
+        const created = await createCoreVaultSystemSession({
+          system: "GRID",
+          budgetUsd,
+          durationHours: 24,
+          maxSlippageBps: Math.round(slp * 100),
+          maxLossBps: Math.max(1, Math.round((Number(manualMaxLossPct) || 15) * 100)),
+          chain: chainKey,
+          settlementAsset: gridPayout,
+        });
+        gridSessionId = String(created?.sessionId || created?.onchainSessionId || created?.onchain_session_id || "");
+      } catch (sessErr) {
+        // If a GRID session already exists, backend may reject duplicate — still allow order with warning.
+        const msg = String(sessErr?.message || sessErr || "");
+        if (!/already|exists|active session|limit/i.test(msg)) {
+          throw new Error(`Grid Vault session required: ${msg}`);
+        }
+      }
       const body = {
         item: gridItemId,
         addr: walletAddress || undefined,
         wallet: walletAddress || undefined,
         side: "SELL",
         price,
-        chain: String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase(),
-        payout_asset: String(manualPayoutAsset || "USDC").toUpperCase(),
-        payoutAsset: String(manualPayoutAsset || "USDC").toUpperCase(),
+        chain: chainKey,
+        payout_asset: gridPayout,
+        payoutAsset: gridPayout,
         settlement_mode: "swap_on_fill_hold_until_withdraw",
+        vault_exit_policy: "EXIT_TO_USDC_OR_USDT_ONLY",
+        max_loss_pct: Math.max(0, Math.min(100, Number(manualMaxLossPct) || 0)),
+        original_asset: String(gridItem || "").toUpperCase(),
+        session_id: gridSessionId || undefined,
+        core_vault_session_id: gridSessionId || undefined,
         slippage_bps: Math.round(slp * 100),
         deadline_sec: deadlineSec,
         source: "GRID",
@@ -16611,8 +16645,8 @@ useInterval(fetchGridOrders, 30000, false);
   }, [manualOpenExposureUsd, manualOrderNotionalUsd]);
 
   const manualSettlementPreview = useMemo(() => {
-    const payout = String(manualPayoutAsset || "USDC").toUpperCase();
-    return `On target hit -> swap immediately into ${payout} -> hold in vault until withdraw.`;
+    const payout = normalizeStablePayoutAsset(manualPayoutAsset || "USDC", "USDC");
+    return `On target or max-loss -> Vault sell into ${payout} only (no token payout) -> hold until withdraw.`;
   }, [manualPayoutAsset]);
 
 
@@ -25581,11 +25615,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <input value={manualMaxLossPct} onChange={(e) => setManualMaxLossPct(e.target.value)} placeholder="e.g. 15" />
                   </div>
                   <div className="formRow">
-                    <label>Payout Asset</label>
-                    <select value={manualPayoutAsset} onChange={(e) => setManualPayoutAsset(e.target.value)}>
+                    <label>Payout Asset (Vault settlement)</label>
+                    <select
+                      value={normalizeStablePayoutAsset(manualPayoutAsset, "USDC")}
+                      onChange={(e) => setManualPayoutAsset(normalizeStablePayoutAsset(e.target.value, "USDC"))}
+                    >
                       <option value="USDC">USDC</option>
                       <option value="USDT">USDT</option>
-                      <option value={String(gridItem || "TOKEN").toUpperCase()}>{String(gridItem || "Original Token").toUpperCase()}</option>
                     </select>
                   </div>
                   <button className="btn" type="button" onClick={() => addManualOrder()} disabled={!isGridReady || gridBusy.add} style={{ minHeight: 40 }}>

@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD391-GRID-RAIL-REMOVE";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD393-REMOVE-ADD-CAPITAL-BTN";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9213,29 +9213,55 @@ useEffect(() => {
 
 
   const topUpActiveNkrCapital = useCallback(async () => {
-    // ENGINE-101: the top-up draft is independent from the running total budget.
+    // BUILD392 / ENGINE-371: top-up is bound to the exact selected session card (chain + sessionId).
     const amount = Number(String(rotationCapitalTopup || "").replace(",", "."));
     if (!Number.isFinite(amount) || amount <= 0) return;
     try {
       setRotationBackendLoading(true);
+      const rows = Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : (Array.isArray(rotationSessions) ? rotationSessions : []);
+      const selectedChain = String(liveVaultChainByMode?.rotation || activeGridChainKey || "ETH").toUpperCase();
+      const norm = (k) => {
+        const u = String(k || "").toUpperCase();
+        if (u === "ETHEREUM" || u === "1") return "ETH";
+        if (u === "BSC" || u === "56") return "BNB";
+        if (u === "POLYGON" || u === "MATIC" || u === "137") return "POL";
+        return u;
+      };
+      const chainOf = (s) => norm(s?.chain || s?.meta?.chain || s?.meta?.chain_key || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(s?.chainId || s?.chain_id || s?.meta?.chain_id || 0)] || ""));
+      const target = rows.find((s) => chainOf(s) === norm(selectedChain) && !["STOPPED", "FINALIZED", "CLOSED", "CANCELLED"].includes(String(s?.status || "").toUpperCase()))
+        || rows.find((s) => !["STOPPED", "FINALIZED", "CLOSED", "CANCELLED"].includes(String(s?.status || "").toUpperCase()))
+        || null;
+      if (!target) {
+        setRotationBackendMsg("No open NKR session selected for Add Capital.");
+        return;
+      }
+      const sessionId = String(target?.id || target?.session_id || "");
+      const onchainSessionId = String(target?.onchainSessionId ?? target?.coreVaultSessionId ?? target?.meta?.onchain_session_id ?? "");
+      const chain = chainOf(target) || norm(selectedChain);
       const res = await api("/api/nkr/capital-topup", {
-        method: "POST", token, wallet, body: { amountUsd: amount },
+        method: "POST", token, wallet,
+        body: {
+          amountUsd: amount,
+          engine: "NKR",
+          sessionId: sessionId || onchainSessionId,
+          onchainSessionId,
+          chain,
+        },
       });
       if (Array.isArray(res?.sessions)) setRotationSessions(res.sessions);
       if (Number.isFinite(Number(res?.newBudgetUsd))) {
-        // Only the confirmed backend total may update the authoritative NKR budget.
         setRotationBudgetRelease(String(Number(res.newBudgetUsd)));
       }
       setRotationCapitalTopup("");
       setRotationBudgetReleased(true);
       setNkrControlState("RUNNING");
-      setRotationBackendMsg(res?.message || `Capital added: ${fmtUsd(amount)}.`);
+      setRotationBackendMsg(res?.message || `Capital added to ${chain} session ${sessionId || onchainSessionId}: ${fmtUsd(amount)}.`);
     } catch (e) {
       setRotationBackendMsg(`Capital top-up failed: ${e?.message || e}`);
     } finally {
       setRotationBackendLoading(false);
     }
-  }, [rotationCapitalTopup, token, wallet]);
+  }, [rotationCapitalTopup, token, wallet, rotationVisibleActiveRows, rotationSessions, liveVaultChainByMode, activeGridChainKey]);
 
 
   const resetRotationBudgetRelease = useCallback(() => {
@@ -23698,27 +23724,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           // Parallel start on a free chain uses the same amount field as top-up,
                           // so the user can type 20 and press Start NKR · BNB without a hidden field.
                           const startingParallel = hasActiveNkrRun && !hasSessionOnSelectedChain;
+                          // BUILD393: no on-chain addBudget — field is only for starting a session budget.
                           const label = startingParallel
                             ? `New session budget on ${selectedNkrChain} ($)`
-                            : hasActiveNkrRun
-                              ? "Add Capital ($)"
+                            : hasActiveNkrRun && hasSessionOnSelectedChain
+                              ? `Session budget on ${selectedNkrChain} (fixed on-chain)`
                               : "NKR Budget ($)";
-                          const useTopupField = hasActiveNkrRun; // write amount into topup; Start also reads it
                           return (
                             <>
                               <label>{label}</label>
                               <input
-                                value={useTopupField ? rotationCapitalTopup : rotationBudgetRelease}
-                                onChange={(e) => {
-                                  if (useTopupField) {
-                                    setRotationCapitalTopup(e.target.value);
-                                    // Keep release in sync so Start amount checks and backend budget stay consistent
-                                    if (startingParallel) handleNkrBudgetInputChange(e.target.value);
-                                  } else {
-                                    handleNkrBudgetInputChange(e.target.value);
-                                  }
-                                }}
-                                placeholder={startingParallel ? `e.g. 20 for ${selectedNkrChain}` : hasActiveNkrRun ? "e.g. add 3000" : "e.g. 12000"}
+                                value={rotationBudgetRelease}
+                                onChange={(e) => handleNkrBudgetInputChange(e.target.value)}
+                                disabled={hasActiveNkrRun && hasSessionOnSelectedChain}
+                                placeholder={startingParallel ? `e.g. 20 for ${selectedNkrChain}` : "e.g. 12000"}
+                                title={hasActiveNkrRun && hasSessionOnSelectedChain ? "CoreVault session budget is fixed at createSession. Start another chain to allocate a new budget." : undefined}
                               />
                             </>
                           );
@@ -23848,18 +23868,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </button>
                           {hasActiveNkrRun && activeNkrSession && (
                             <>
-                              <button
-                                className="miniBtn"
-                                type="button"
-                                disabled={(() => {
-                                  const amount = Number(String(rotationCapitalTopup || "").replace(",", "."));
-                                  return !Number.isFinite(amount) || amount <= 0;
-                                })()}
-                                onClick={topUpActiveNkrCapital}
-                                title={`Add capital to the NKR session on ${sessionChainOf(activeNkrSession) || selectedNkrChain}.`}
-                              >
-                                Add Capital
-                              </button>
                               <button
                                 className="miniBtn"
                                 type="button"

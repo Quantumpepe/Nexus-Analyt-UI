@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD401-ONCHAIN-SCAN-CHAINS";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD402-POSITION-CARD-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -23299,7 +23299,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const positionQtyEarly = Number(sess?.positionQty ?? sess?.positionAmount ?? sess?.openRotation?.positionQty ?? sess?.openRotation?.quantity ?? sess?.meta?.nkr_position_qty ?? 0) || 0;
                                 const positionValueEarly = Number(sess?.positionValueUsd ?? sess?.openRotation?.currentValueUsd ?? sess?.meta?.nkr_position_value_usd ?? 0) || 0;
                                 const openAssetCountEarly = Number(sess?.openAssetCount ?? sess?.meta?.open_asset_count ?? 0) || 0;
-                                const hasOpenPosition = positionQtyEarly > 0 || positionValueEarly > 0 || openAssetCountEarly > 0;
+                                const positionStateEarly = String(sess?.positionState ?? sess?.meta?.position_state ?? "").toUpperCase();
+                                const investedEarly = Number(sess?.investedUsd ?? sess?.workingCapitalUsd ?? sess?.meta?.nkr_position_value_usd ?? 0) || 0;
+                                // BUILD402: on-chain buy may lag in qty/value fields — also trust OPEN state + invested
+                                const hasOpenPosition = positionQtyEarly > 0 || positionValueEarly > 0 || openAssetCountEarly > 0
+                                  || positionStateEarly === "OPEN" || investedEarly > 0.25;
                                 const rawPosSym = String(
                                   sess?.positionAsset || sess?.openRotation?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || sess?.meta?.nkr_active_asset || ""
                                 ).toUpperCase();
@@ -23453,7 +23457,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const positionQty = Number(sess?.positionQty ?? sess?.positionAmount ?? sess?.openRotation?.positionQty ?? sess?.openRotation?.quantity ?? sess?.meta?.nkr_position_qty ?? 0) || 0;
                                 const entryPrice = Number(sess?.entryPriceUsd ?? sess?.openRotation?.entryPriceUsd ?? sess?.meta?.nkr_entry_price_usd ?? 0) || 0;
                                 const currentPositionPrice = Number(sess?.currentPriceUsd ?? sess?.openRotation?.currentPriceUsd ?? sess?.meta?.nkr_current_price_usd ?? livePrice ?? 0) || 0;
-                                const positionValue = Number(sess?.positionValueUsd ?? sess?.openRotation?.currentValueUsd ?? sess?.meta?.nkr_position_value_usd ?? (positionQty * currentPositionPrice) ?? 0) || 0;
+                                const positionValue = Math.max(
+                                  Number(sess?.positionValueUsd ?? sess?.openRotation?.currentValueUsd ?? sess?.meta?.nkr_position_value_usd ?? (positionQty * currentPositionPrice) ?? 0) || 0,
+                                  Number(sess?.investedUsd ?? sess?.workingCapitalUsd ?? 0) || 0,
+                                  hasOpenPosition && openAssetCountEarly > 0 ? Math.max(0.01, Number(sess?.budgetUsd ?? sess?.reservedUsd ?? 0) * 0.9) : 0,
+                                );
                                 const unrealizedPnl = Number(sess?.unrealizedPnlUsd ?? sess?.openRotation?.pnlUsd ?? sess?.meta?.nkr_unrealized_pnl_usd ?? 0) || 0;
                                 const unrealizedPnlPct = Number(sess?.unrealizedPnlPct ?? sess?.openRotation?.pnlPct ?? sess?.meta?.nkr_unrealized_pnl_pct ?? 0) || 0;
                                 const liveTxHash = String(sess?.lastTxHash || sess?.openRotation?.txHash || sess?.meta?.nkr_live_buy_tx_hash || "");
@@ -23509,11 +23517,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       </div>
 
                                       <div className="muted tiny" style={{ display: "grid", gap: 6, minWidth: 0 }}>
-                                        <div><b style={{ color: "#d8fff1" }}>Open:</b> {Number(positionValue) > 0 ? positionRuntimeText : "— (no position yet)"}</div>
+                                        <div><b style={{ color: "#d8fff1" }}>Open:</b> {hasOpenPosition ? (Number(positionValue) > 0 ? positionRuntimeText : `${sym} on-chain`) : "— (no position yet)"}</div>
                                         <div>
                                           <b style={{ color: "#8bdcff" }}>Invest:</b>{" "}
-                                          {Number(positionValue) > 0
-                                            ? fmtUsd(positionValue)
+                                          {hasOpenPosition
+                                            ? fmtUsd(Number(positionValue) > 0 ? positionValue : (Number(sess?.budgetUsd || sess?.reservedUsd || 0) || 0))
                                             : <span style={{ color: "rgba(232,242,240,.72)" }}>$0 · reserved only, no buy yet</span>}
                                         </div>
                                         {(() => {
@@ -23530,7 +23538,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             && !(sessChain && detailCand === sessChain));
                                           const detail = detailIsForeign ? "" : detailRaw;
                                           let whyNoBuy = "";
-                                          if (Number(positionValue) <= 0) {
+                                          if (!hasOpenPosition && Number(positionValue) <= 0) {
                                             if (gate === "WAITING_ENTRY" || decision === "WAIT" || decision === "STARTED" || decision === "HOLD") {
                                               if (strategistSym) {
                                                 whyNoBuy = `Why no buy: watching ${strategistSym} on ${sessChain || "this chain"} — entry not filled yet.`;

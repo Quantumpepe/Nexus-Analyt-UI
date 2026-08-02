@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD400-WITHDRAW-ALL-NATIVE";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD401-ONCHAIN-SCAN-CHAINS";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -28087,8 +28087,15 @@ export default function App() {
             if (session.recoverable) candidates.push(session);
             if (chain) nextByChain[chain] = Math.max(Number(nextByChain[chain] || 0), Number(raw?.sessionId || 0) + 1);
           }
+          // Prefer authoritative nextSessionId from backend multi-chain scan
+          const apiNext = data?.nextSessionIdByChain || {};
+          for (const ck of ["ETH", "BNB", "POL"]) {
+            const n = Number(apiNext[ck] || 0);
+            if (n > 0) nextByChain[ck] = Math.max(Number(nextByChain[ck] || 0), n);
+          }
           for (const err of (Array.isArray(data?.errors) ? data.errors : [])) {
-            failures.push(`${err?.engineLabel || err?.engine || "?"} chain ${err?.chainId || "?"}: ${err?.error || "error"}`);
+            const cLabel = err?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(err?.chainId)] || err?.chainId || "?");
+            failures.push(`${err?.engineLabel || err?.engine || "?"} ${cLabel}: ${err?.error || "error"}`);
           }
         } else if (!res.ok) {
           throw new Error(data?.error || `HTTP ${res.status}`);

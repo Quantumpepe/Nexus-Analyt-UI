@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD381-ONCHAIN-SESSION-STATE-AUTHORITY-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD382-LIVE-POSITION-CARD-AND-CONTROL-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12346,6 +12346,11 @@ useEffect(() => {
           .filter((sess) => String(sess?.engine || "").toUpperCase() === "NKR")
           .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED", "CLOSED"].includes(String(sess?.statusLabel || sess?.status || "").toUpperCase()))
           .filter((sess) => backendOnchainIds.has(String(sess?.sessionId || sess?.onchainSessionId || "")))
+          .filter((sess) => {
+            const oid = String(sess?.sessionId || sess?.onchainSessionId || "");
+            const ch = normalizeNkrChainKey(sess?.chain || sess?.chainKey || sess?.chainId || "");
+            return !backendRows.some((row) => nkrSessionControlKey(row) === nkrSessionControlKey(ch, oid));
+          })
           .map((sess) => {
             const oid = String(sess?.sessionId || sess?.onchainSessionId || "");
             const budget = Number(sess?.budget || sess?.budgetAmount || 0);
@@ -12611,7 +12616,7 @@ const [aiLoading, setAiLoading] = useState(false);
     const now = Date.now();
     const localStatus = actionU === "PAUSE" ? "PAUSED" : actionU === "RESUME" ? "RUNNING" : actionU === "STOP" || actionU === "STOP_EXIT" || actionU === "PANIC_STOP" ? "STOPPING" : actionU === "DELETE" ? "WAITING" : actionU;
     const targetSid = String(opts.sessionId || "").trim();
-    const targetChain = String(opts.chain || "").trim().toUpperCase();
+    const targetChain = normalizeNkrChainKey(opts.chain || "");
     const targetControlKey = nkrSessionControlKey(targetChain, targetSid);
     if (["PAUSE", "RESUME", "STOP", "STOP_EXIT", "PANIC_STOP"].includes(actionU) && (!/^\d+$/.test(targetSid) || !targetChain)) {
       setRotationBackendMsg(`NKR ${actionU}: missing exact on-chain session id for this card.`);
@@ -12626,7 +12631,7 @@ const [aiLoading, setAiLoading] = useState(false);
         if (!row || typeof row !== "object") return row;
         const meta0 = row?.meta && typeof row.meta === "object" ? row.meta : {};
         const sid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? meta0?.onchain_session_id ?? meta0?.core_vault_session_id ?? "");
-        const schain = String(row?.chain || row?.chainKey || meta0?.chain || meta0?.chain_key || row?.chainId || row?.chain_id || meta0?.chain_id || "").toUpperCase();
+        const schain = normalizeNkrChainKey(row?.chain || row?.chainKey || meta0?.chain || meta0?.chain_key || row?.chainId || row?.chain_id || meta0?.chain_id || "");
         if (!opts.allSessions && (sid !== targetSid || schain !== targetChain)) return row;
         const nextStatus = paused ? "PAUSED" : "ACTIVE";
         const nextRaw = paused ? 2 : 1;
@@ -12646,7 +12651,7 @@ const [aiLoading, setAiLoading] = useState(false);
         if (!s || typeof s !== "object") return s;
         const meta0 = s?.meta && typeof s.meta === "object" ? s.meta : {};
         const sid = String(s?.onchainSessionId ?? s?.onchain_session_id ?? s?.coreVaultSessionId ?? meta0?.onchain_session_id ?? meta0?.core_vault_session_id ?? "");
-        const schain = String(s?.chain || s?.chainKey || meta0?.chain || meta0?.chain_key || s?.chainId || s?.chain_id || meta0?.chain_id || "").toUpperCase();
+        const schain = normalizeNkrChainKey(s?.chain || s?.chainKey || meta0?.chain || meta0?.chain_key || s?.chainId || s?.chain_id || meta0?.chain_id || "");
         if (!opts.allSessions && (sid !== targetSid || schain !== targetChain)) return s;
         const meta = { ...meta0, lifecycle_state: "STOPPING", position_state: "STOPPING", stop_message: "Stop & Exit in progress" };
         return { ...s, status: "STOPPING", lifecycleState: "STOPPING", positionState: "STOPPING", updatedAt: now, meta };
@@ -12677,7 +12682,7 @@ const [aiLoading, setAiLoading] = useState(false);
           const ctrl = String(resp?.controlState || localStatus || "").toUpperCase();
           const meta0 = s?.meta && typeof s.meta === "object" ? s.meta : {};
           const sid = String(s?.onchainSessionId ?? s?.onchain_session_id ?? s?.coreVaultSessionId ?? meta0?.onchain_session_id ?? meta0?.core_vault_session_id ?? "");
-          const schain = String(s?.chain || s?.chainKey || meta0?.chain || meta0?.chain_key || s?.chainId || s?.chain_id || meta0?.chain_id || "").toUpperCase();
+          const schain = normalizeNkrChainKey(s?.chain || s?.chainKey || meta0?.chain || meta0?.chain_key || s?.chainId || s?.chain_id || meta0?.chain_id || "");
           if (["PAUSE", "RESUME"].includes(actionU) && (opts.allSessions || (sid === targetSid && schain === targetChain))) {
             const paused = actionU === "PAUSE";
             const nextStatus = paused ? "PAUSED" : "ACTIVE";
@@ -12760,9 +12765,8 @@ const [aiLoading, setAiLoading] = useState(false);
         text: actionU === "PAUSE" ? "NKR paused by user and stored in backend." : actionU === "RESUME" ? "NKR resumed by explicit user action." : actionU === "STOP" || actionU === "STOP_EXIT" || actionU === "PANIC_STOP" ? "Stop & Exit in progress — session stays visible until finalized. Not paused." : "NKR deleted forever from backend.",
       }, ...(Array.isArray(prev) ? prev : [])]);
       setRotationBackendMsg(resp?.message || (actionU === "DELETE" ? "NKR deleted forever." : `NKR ${actionU.toLowerCase()} confirmed on-chain.`));
-      // Re-read the exact wallet-bound sessions immediately. Button labels must be
-      // derived from confirmed chain state, not from the previous card snapshot.
-      try { await syncRotationSessionsFromServer(); } catch (_) {}
+      // The card already changed optimistically. Do not immediately overwrite it with
+      // a stale registry read; the scheduled refreshes below confirm the on-chain state.
       return true;
     } catch (e) {
       console.error("NKR BACKEND CONTROL FAILED", e);
@@ -22532,17 +22536,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }] : [];
                       // Dedupe by chain + on-chain session id. Session ids restart per vault/chain
                       // (ETH #1 and BNB #1 are different sessions) — never collapse them into one card.
-                      const rotationRows = Array.from(new Map(
-                        [...localRotationRows, ...controlFallbackRows, ...onChainRotationRows].map((row) => {
-                          const oid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
-                          const ch = String(
-                            row?.chain || row?.chainKey || row?.chain_key || row?.meta?.chain || row?.meta?.chain_key || row?.chainId || row?.chain_id || row?.meta?.chain_id || ""
-                          ).toUpperCase();
-                          const id = String(row?.id || row?.session_id || "");
-                          const key = oid ? `${ch || "UNK"}:${oid}` : (id || `local-${Math.random()}`);
-                          return [key, row];
-                        })
-                      ).values());
+                      const rotationRowMap = new Map();
+                      for (const row of [...localRotationRows, ...controlFallbackRows, ...onChainRotationRows]) {
+                        const oid = String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.meta?.onchain_session_id ?? row?.meta?.core_vault_session_id ?? "");
+                        const ch = normalizeNkrChainKey(row?.chain || row?.chainKey || row?.chain_key || row?.meta?.chain || row?.meta?.chain_key || row?.chainId || row?.chain_id || row?.meta?.chain_id || "");
+                        const id = String(row?.id || row?.session_id || "");
+                        const key = oid ? `${ch || "UNK"}:${oid}` : (id || `local-${Math.random()}`);
+                        const old = rotationRowMap.get(key);
+                        const score = (x) => Number(x?.positionQty || x?.positionAmount || x?.meta?.nkr_position_qty || 0) > 0 ? 100 : Number(x?.positionValueUsd || x?.investedUsd || 0) > 0 ? 80 : Number(x?.openAssetCount || x?.meta?.open_asset_count || 0) > 0 ? 60 : x?.meta?.reconstructed_from_onchain ? 10 : 20;
+                        if (!old || score(row) >= score(old)) rotationRowMap.set(key, row);
+                      }
+                      const rotationRows = Array.from(rotationRowMap.values());
                       const rotationNow = Number(tradingRuntimeNowMs || Date.now());
                       const fmtRotationDuration = (ms) => {
                         const totalMin = Math.max(0, Math.floor(Number(ms || 0) / 60000));

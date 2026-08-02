@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD384-SESSION-MODE-STICKY-AND-LOCKED-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD385-ETH-ASYNC-SESSION-LIFECYCLE-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -5177,6 +5177,55 @@ useEffect(() => {
         throw enrichCreateError(error);
       }
     }
+    if (result?.status === "starting" && result?.jobId && selectedChain === "ETH") {
+      const jobId = String(result.jobId);
+      const tempId = `NKR-STARTING-ETH-${jobId}`;
+      if (systemU === "NKR") {
+        const now = Date.now();
+        setRotationSessions((prev) => canonicalizeNkrSessions([
+          ...(Array.isArray(prev) ? prev : []),
+          {
+            id: tempId, sessionId: tempId, chain: "ETH", chainId: 1,
+            status: "STARTING", statusLabel: "STARTING", lifecycleState: "STARTING",
+            active: true, visibleInActiveSessions: true, createdAt: now, updatedAt: now,
+            budgetUsd: budget, settlementAsset: selectedAsset,
+            nkrCapitalMode: bodyPayload.nkrCapitalMode, nkrObservationWindow: bodyPayload.nkrObservationWindow,
+            nkrProfitMode: bodyPayload.nkrProfitMode, nkrPeriodDays: bodyPayload.nkrPeriodDays,
+            meta: { async_job_id: jobId, chain: "ETH", chain_id: 1, lifecycle_state: "STARTING", nkr_session: true },
+          },
+        ]));
+        setNkrControlState("STARTING");
+      }
+      const pollEthJob = async () => {
+        try {
+          const job = await api(`/api/nexus/core-vault/session/create-status/${encodeURIComponent(jobId)}`, { method: "GET", token: backendToken, wallet });
+          const js = String(job?.status || "").toLowerCase();
+          const step = String(job?.step || "").toUpperCase();
+          setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((s) => String(s?.id || s?.sessionId || "") === tempId
+            ? { ...s, status: step === "CONFIRMATION_PENDING" ? "CONFIRMATION PENDING" : (js === "error" ? "ERROR" : "STARTING"), statusLabel: step, updatedAt: Date.now(), txHash: job?.txHash || s?.txHash || "", meta: { ...(s?.meta || {}), async_step: step, last_error: job?.error || "" } }
+            : s));
+          if (js === "success") {
+            const live = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(String(wallet || ""))}&wallet_address=${encodeURIComponent(String(wallet || ""))}`, { method: "GET", token: backendToken, wallet });
+            setRotationSessions(canonicalizeNkrSessions(Array.isArray(live?.sessions) ? live.sessions : []));
+            setActiveRotationSessionId(String(live?.activeRotationSessionId || ""));
+            setNkrControlState(String(live?.controlState || "RUNNING").toUpperCase());
+            setRotationBackendMsg(`ETH NKR session #${job?.sessionId || ""} confirmed and active.`);
+            await Promise.allSettled([refreshCoreVaultOnchain(), refreshCoreVaultAccounting()]);
+            return;
+          }
+          if (js === "error") {
+            setRotationBackendMsg(`ETH session start failed: ${job?.error || "unknown error"}`);
+            setNkrControlState("WAITING");
+            return;
+          }
+          setTimeout(pollEthJob, 2500);
+        } catch (_) {
+          setTimeout(pollEthJob, 4000);
+        }
+      };
+      setTimeout(pollEthJob, 800);
+      return { pending: true, jobId, result, chain: selectedChain, settlementAsset: selectedAsset };
+    }
     if (result?.status !== "ok" || !result?.txHash) {
       const details = Array.isArray(result?.blockers) && result.blockers.length ? `: ${result.blockers.join(", ")}` : "";
       throw new Error(`${result?.message || result?.error || "Automatic CoreVault session creation failed"}${details}`);
@@ -8928,6 +8977,12 @@ useEffect(() => {
           maxCapitalPerAssetPct: 80,
         },
       });
+      if (coreVaultSession?.pending) {
+        setRotationBudgetReleased(true);
+        setRotationBackendMsg(`ETH NKR session starting · confirmation pending. Other chains and engines continue normally.`);
+        setRotationCapitalTopup("");
+        return;
+      }
       setRotationBackendMsg(`NKR started on ${startChainCheck}. Capital reserved · scanning ${startChainCheck}-tradable assets.`);
       setRotationCapitalTopup("");
     } catch (e) {

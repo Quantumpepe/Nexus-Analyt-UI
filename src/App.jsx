@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD388-GRID-PAUSE-STOP-PNL";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD389-EVM-ALLOWLIST-GROUP";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -28948,6 +28948,23 @@ export default function App() {
                     const pending = Array.isArray(reg?.pending) ? reg.pending : [];
                     const blocked = Array.isArray(reg?.blocked) ? reg.blocked : [];
                     const approved = Array.isArray(reg?.approved) ? reg.approved : [];
+                    // BUILD389: group by symbol → chains (LINK → ETH, BNB, POL)
+                    const approvedGrouped = Array.isArray(reg?.approvedGrouped) && reg.approvedGrouped.length
+                      ? reg.approvedGrouped
+                      : (() => {
+                          const map = {};
+                          for (const x of approved) {
+                            const sym = String(x?.symbol || "?").toUpperCase();
+                            if (!map[sym]) map[sym] = { symbol: sym, chains: [] };
+                            const ck = String(x?.chain_key || x?.chain_id || "");
+                            if (ck && !map[sym].chains.includes(ck)) map[sym].chains.push(ck);
+                          }
+                          return Object.values(map).map((g) => ({
+                            ...g,
+                            label: g.chains.length ? `${g.symbol} → ${g.chains.join(", ")}` : g.symbol,
+                          }));
+                        })();
+                    const liveChains = Array.isArray(reg?.chains) ? reg.chains.join(", ") : "ETH, BNB, POL";
                     const Row = ({ token, blockedRow = false }) => {
                       const risk = token?.risk || {}; const route = token?.route || {};
                       const keyBase = `${token?.chain_id}-${token?.token_address}`;
@@ -28966,7 +28983,12 @@ export default function App() {
                     };
                     return (
                       <div style={{ marginTop: 9, display: "grid", gap: 8 }}>
-                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 10 }}><b>Zu prüfen: {pending.length}</b><b>Blockiert: {blocked.length}</b><b>Freigegeben: {approved.length}</b></div>
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 10 }}>
+                          <b>Zu prüfen: {pending.length}</b>
+                          <b>Blockiert: {blocked.length}</b>
+                          <b>Freigegeben: {approvedGrouped.length} Symbole ({approved.length} Contracts)</b>
+                          <span className="muted">Live-Chains: {liveChains}</span>
+                        </div>
                         {pending.length ? (
                           <details>
                             <summary style={{ cursor: "pointer", color: "#ffe08a", fontWeight: 900, padding: "5px 0" }}>
@@ -28978,7 +29000,21 @@ export default function App() {
                           </details>
                         ) : <div className="muted" style={{ fontSize: 10 }}>Keine Token warten auf deine Prüfung.</div>}
                         {blocked.length ? <details><summary style={{ cursor: "pointer", color: "#ffb4b4", fontWeight: 900 }}>Blockiert / auffällig ({blocked.length})</summary><div style={{ display: "grid", gap: 6, marginTop: 7, maxHeight: blocked.length > 5 ? 390 : "none", overflowY: blocked.length > 5 ? "auto" : "visible", paddingRight: blocked.length > 5 ? 5 : 0 }}>{blocked.map((token) => <Row key={`b-${token.chain_id}-${token.token_address}`} token={token} blockedRow />)}</div></details> : null}
-                        {approved.length ? <details><summary style={{ cursor: "pointer", color: "#8dffd0", fontWeight: 900 }}>Automatisch oder manuell freigegeben ({approved.length})</summary><div style={{ marginTop: 7, fontSize: 10, maxHeight: 180, overflowY: "auto" }}>{approved.map((x) => `${x.symbol} · ${x.chain_key}`).join(" · ")}</div></details> : null}
+                        {approvedGrouped.length ? (
+                          <details>
+                            <summary style={{ cursor: "pointer", color: "#8dffd0", fontWeight: 900 }}>
+                              Automatisch oder manuell freigegeben ({approvedGrouped.length})
+                            </summary>
+                            <div style={{ marginTop: 7, fontSize: 10, maxHeight: 220, overflowY: "auto", display: "grid", gap: 4 }}>
+                              {approvedGrouped.map((g) => (
+                                <div key={`ag-${g.symbol}`} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
+                                  <b style={{ color: "#eafff5", minWidth: 56 }}>{g.symbol}</b>
+                                  <span className="muted">→ {(g.chainKeys || g.chains || []).join(", ") || "—"}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        ) : null}
                       </div>
                     );
                   })()}

@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD389-EVM-ALLOWLIST-GROUP";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD390-MOBILE-RAIL-HIDE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -22077,8 +22077,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          {/* Compact rail summary — only visible when this panel is minimized */}
-          {(() => {
+          {/* Compact rail summary — desktop only, only when panel minimized */}
+          {!isCompactMobile && (() => {
             const modeLabel = String(gridMode || "normal") === "rotation" ? "NKR" : String(gridMode || "normal") === "trading" ? "Trading" : "Grid";
             const nkrLive = (Array.isArray(rotationSessions) ? rotationSessions : []).filter(
               (s) => !["STOPPED", "FINALIZED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED"].includes(String(s?.status || "").toUpperCase())
@@ -27495,6 +27495,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
     max-height: 66px !important;
   }
 }
+
+/* Always hide rail on mobile / default; desktop minimize rules below */
+.gridRailSummary{ display: none !important; }
 
 /* =========================================================
    Nexus desktop layout v95 — section-grid minimize (final)

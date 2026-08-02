@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD383-CONTROL-LOCK-STABLE-SESSION-SELECTION-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD384-SESSION-MODE-STICKY-AND-LOCKED-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -8531,6 +8531,11 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationNetworkScope, setRotationNetworkScope] = useState("ALL");
   const [rotationMode, setRotationMode] = useState("RECOMMENDATION");
   const [nkrCapitalMode, setNkrCapitalMode] = useState("DYNAMIC");
+  // BUILD384: synchronous source of truth for the next session create request.
+  // React state can still contain the previous mode in the same click cycle after
+  // Aggressive consent; this ref prevents a consented AGGRESSIVE start becoming DYNAMIC.
+  const nkrCapitalModeRef = useRef("DYNAMIC");
+  useEffect(() => { nkrCapitalModeRef.current = String(nkrCapitalMode || "DYNAMIC").toUpperCase(); }, [nkrCapitalMode]);
   const [nkrObservationWindow, setNkrObservationWindow] = useState("1h");
   const [nkrSessionInfoOpen, setNkrSessionInfoOpen] = useState(null);
   const [nkrProfitMode, setNkrProfitMode] = useState("REINVEST");
@@ -8894,7 +8899,7 @@ useEffect(() => {
       setRotationBackendMsg(`Enter a budget amount to start NKR on ${startChainCheck}.`);
       return;
     }
-    const startedNkrCapitalMode = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
+    const startedNkrCapitalMode = String(nkrCapitalModeRef.current || nkrCapitalMode || "DYNAMIC").toUpperCase();
     // Aggressive always requires a wallet-bound warning acceptance for this draft.
     if (startedNkrCapitalMode === "AGGRESSIVE" && !nkrAggressiveAcceptedForDraft) {
       setNkrAggressivePendingValue("AGGRESSIVE");
@@ -9077,9 +9082,11 @@ useEffect(() => {
       } catch (ackErr) {
         console.warn("NKR Aggressive session-start audit failed", ackErr);
       }
-      // Reset selector so next Aggressive start must confirm the warning again.
-      // Reset only the next-session draft. Never mutate already running sessions.
-      setNkrCapitalMode("DYNAMIC");
+      // Keep the selected mode visible after start. The running session is already
+      // locked by chain + on-chain session id; changing a later draft cannot alter it.
+      // A different mode for another session must be chosen explicitly by the user.
+      nkrCapitalModeRef.current = startedNkrCapitalMode;
+      setNkrCapitalMode(startedNkrCapitalMode);
     }
   }, [rotationBudgetRelease, rotationCapitalTopup, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, setNkrCapitalMode, nkrAggressiveAcceptedForDraft, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
 
@@ -11629,6 +11636,7 @@ useEffect(() => {
     // The selector is a draft for the next session only. Running sessions keep
     // the immutable mode stored at their own start.
     const next = String(nextMode || "DYNAMIC").toUpperCase();
+    nkrCapitalModeRef.current = next;
     setNkrCapitalMode(next);
     setRotationBudgetReleased(false);
     return true;

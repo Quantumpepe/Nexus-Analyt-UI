@@ -358,6 +358,8 @@ function toUserFacingMessage(raw, fallback = "") {
   if (/insufficient.?free|insufficient_free_vault/i.test(s)) return "Not enough free balance in the vault. Deposit and try again.";
   if (/session_budget_limit|budget.*exceed/i.test(s)) return "Budget exceeds the vault session limit. Lower the amount.";
   if (/privy_live_execution_not_ready|privy_not_ready|privy_wallet/i.test(s)) return "Live execution is not ready yet. Check wallet connection.";
+  if (/gas required exceeds allowance|privy_gas_policy_too_low|transaction_broadcast_failure/i.test(s)) return "Could not start: network gas limit is too low. Raise the Privy policy max gas (to at least 500000) and try again.";
+  if (/privy_rpc_\d+/i.test(s) && /gas/i.test(s)) return "Could not start: network gas limit is too low. Raise the Privy policy max gas and try again.";
   if (/verified_trade_route|trade route/i.test(s)) return "A verified trade route is required on this network.";
   if (/corevault is not connected|not connected/i.test(s)) return "Vault is not connected on this network yet.";
   if (/rpc_|session_decode|trade_route_error|live_execution_disabled|settlement_low/i.test(s)) return "Temporary network issue — will retry automatically.";
@@ -480,7 +482,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD396-USER-FACING-MESSAGES";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD397-GAS-ERROR-MSG";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9067,7 +9069,9 @@ useEffect(() => {
       const privyBlocked = /privy_live_execution_not_ready|privy_not_ready|privy_wallet_mapping/i.test(rawMessage);
       const notConnected = /CoreVault V5 is not connected/i.test(rawMessage);
       let userMessage = toUserFacingMessage(rawMessage, `Could not start NKR on ${startChainCheck}.`);
-      if (userMessage === rawMessage || /corevault|0x|sessionof|rpc_/i.test(userMessage)) {
+      if (/gas required exceeds allowance|privy_gas_policy|transaction_broadcast_failure/i.test(rawMessage)) {
+        userMessage = `Could not start NKR on ${startChainCheck}: gas limit too low. Raise Privy policy max gas to at least 500000, then try again.`;
+      } else if (userMessage === rawMessage || /corevault|0x|sessionof|privy_rpc_/i.test(userMessage)) {
         userMessage = `Could not start NKR on ${startChainCheck}. Please try again.`;
       }
       if (routeMissing) userMessage = `Live NKR on ${startChainCheck} needs an enabled verified TRADE route on that chain (Owner Admin).`;

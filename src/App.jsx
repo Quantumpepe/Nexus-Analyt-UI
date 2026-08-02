@@ -332,7 +332,71 @@ function buildCompactAiInsight({ backendText = "", trendStructure = "", momentum
 }
 
 
+
 const LS_WATCH_REMOVED = "nexus_watch_removed";
+
+/** BUILD396: map internal/backend text to short user-facing copy. System Info stays raw. */
+function toUserFacingMessage(raw, fallback = "") {
+  const s = String(raw ?? "").trim();
+  if (!s) return String(fallback || "");
+  const lower = s.toLowerCase();
+  // Already friendly short phrases
+  if (/^(paused|waiting|watching|position active|scanning|running|stopped|closed)\b/i.test(s) && s.length < 80 && !/corevault|0x[a-f0-9]{8}|sessionof|rpc_|worker|privy_|gunicorn|ops_/i.test(s)) {
+    return s;
+  }
+  // Known technical → friendly maps
+  if (/no recoverable .+ corevault session|no_registered_session|no_active_session/i.test(s)) return "No open session.";
+  if (/observation|earliestentry|observe.?window/i.test(s)) return "Observation window — entry not open yet.";
+  if (/score_blocked|below entry/i.test(s)) return "Best candidate score is still below entry.";
+  if (/chain_no_candidate|no tradable/i.test(s)) return "No tradable asset on this network yet.";
+  if (/waiting_entry|\bwait\b|watching/i.test(s) && /entry|buy|candidate/i.test(s)) return "Watching market — no buy yet.";
+  if (/submitting|execution|pending.?confirm/i.test(s)) return "Trade submitting — waiting for confirmation.";
+  if (/position_active|\bhold\b/i.test(s) && /position|open/i.test(s)) return "Position active.";
+  if (/user.?stop|stop.?exit|start.?closing|closing mode|finaliz/i.test(s)) return "Closing session…";
+  if (/session_finalized|allocation released|stale_reservation/i.test(s)) return "Session finished.";
+  if (/paused.?by.?user|setSessionPaused|user_paused/i.test(s)) return "Paused.";
+  if (/insufficient.?free|insufficient_free_vault/i.test(s)) return "Not enough free balance in the vault. Deposit and try again.";
+  if (/session_budget_limit|budget.*exceed/i.test(s)) return "Budget exceeds the vault session limit. Lower the amount.";
+  if (/privy_live_execution_not_ready|privy_not_ready|privy_wallet/i.test(s)) return "Live execution is not ready yet. Check wallet connection.";
+  if (/verified_trade_route|trade route/i.test(s)) return "A verified trade route is required on this network.";
+  if (/corevault is not connected|not connected/i.test(s)) return "Vault is not connected on this network yet.";
+  if (/rpc_|session_decode|trade_route_error|live_execution_disabled|settlement_low/i.test(s)) return "Temporary network issue — will retry automatically.";
+  if (/worker tick|backend worker|reconcile|ops_|idempotenc|gunicorn|payload|request_body/i.test(s)) return "Working in the background.";
+  if (/corevault|sessionof|onchain_session|tx_hash|pending_tx|0x[a-f0-9]{10,}/i.test(s)) return "Working in the background.";
+  if (/tick_failed|worker_failed|start_failed|stop_failed/i.test(s)) return "Action could not be completed. Try again in a moment.";
+  if (/aborted|aborterror|timeout/i.test(s)) return "Request timed out. Please try again.";
+  // Strip long stack-ish or code-ish
+  if (s.length > 160 || /traceback|exception|stack|typeerror|referenceerror/i.test(s)) {
+    return String(fallback || "Something went wrong. Please try again.");
+  }
+  // Soft cleanup of underscores from enum-like tokens
+  if (/^[A-Z0-9_]{3,}$/.test(s)) {
+    const mapped = {
+      IDLE: "Idle",
+      WAIT: "Waiting",
+      HOLD: "Position active",
+      PAUSED: "Paused",
+      RUNNING: "Running",
+      STOPPING: "Stopping…",
+      FINALIZED: "Finished",
+      NO_REGISTERED_SESSION: "No open session",
+      NO_ACTIVE_SESSION: "No open session",
+      SESSION_FINALIZED: "Session finished",
+      POSITION_ACTIVE: "Position active",
+      WAITING_ENTRY: "Watching — no buy yet",
+      SCORE_BLOCKED: "Score below entry",
+    };
+    if (mapped[s]) return mapped[s];
+    return s.replaceAll("_", " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+  }
+  return s;
+}
+
+function toUserFacingReason(raw) {
+  return toUserFacingMessage(raw, "Watching market for entry.");
+}
+
+
 
 function _watchKeyFromItem(it) {
   const mode = String(it?.mode || "market").toLowerCase();
@@ -416,7 +480,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD395-TRADER-UI-WATCHLIST";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD396-USER-FACING-MESSAGES";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9002,7 +9066,10 @@ useEffect(() => {
       const noFree = /insufficient_free_vault_budget|insufficient free/i.test(rawMessage);
       const privyBlocked = /privy_live_execution_not_ready|privy_not_ready|privy_wallet_mapping/i.test(rawMessage);
       const notConnected = /CoreVault V5 is not connected/i.test(rawMessage);
-      let userMessage = `NKR CoreVault (${startChainCheck}): ${rawMessage}`;
+      let userMessage = toUserFacingMessage(rawMessage, `Could not start NKR on ${startChainCheck}.`);
+      if (userMessage === rawMessage || /corevault|0x|sessionof|rpc_/i.test(userMessage)) {
+        userMessage = `Could not start NKR on ${startChainCheck}. Please try again.`;
+      }
       if (routeMissing) userMessage = `Live NKR on ${startChainCheck} needs an enabled verified TRADE route on that chain (Owner Admin).`;
       else if (/session_budget_limit_exceeded/i.test(rawMessage)) {
         const maxA = e?.data?.maxAmount;
@@ -12826,9 +12893,9 @@ const [aiLoading, setAiLoading] = useState(false);
       console.error("NKR BACKEND CONTROL FAILED", e);
       const msg = String(e?.message || e || "");
       const friendly = /aborted|AbortError/i.test(msg)
-        ? "NKR control timed out or was interrupted. Check System Info and try again on the same session card."
-        : `NKR control failed: ${msg}`;
-      setRotationBackendMsg(friendly);
+        ? "NKR control timed out or was interrupted. Please try again on the same session card."
+        : toUserFacingMessage(msg, "NKR control failed. Please try again.");
+      setRotationBackendMsg(friendly.startsWith("NKR") || friendly.length < 12 ? (friendly.startsWith("NKR") ? friendly : `NKR: ${friendly}`) : `NKR: ${friendly}`);
       // Do not force global control to a single-session optimistic state after failure.
       try {
         const open = (Array.isArray(rotationSessions) ? rotationSessions : []).filter((s) => {
@@ -12922,7 +12989,7 @@ const [aiLoading, setAiLoading] = useState(false);
           }
         } catch (e) {
           console.warn("NKR backend executor tick unavailable; falling back to UI preview", e);
-          if (!silent) setRotationBackendMsg(`NKR backend tick unavailable, using preview fallback: ${e?.message || e}`);
+          if (!silent) setRotationBackendMsg(toUserFacingMessage(e?.message || e, "Live update briefly unavailable — using preview."));
         }
       }
       if (!sessions.length && !silent && Number.isFinite(typedBudgetStart) && typedBudgetStart > 0) {
@@ -23072,7 +23139,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   else if (gate === "SCORE_BLOCKED") statusPhrase = "Score below entry";
                                   else if (gate === "CHAIN_NO_CANDIDATE" || gate === "CHAIN_NOT_LIVE") statusPhrase = "No tradable asset on this chain";
                                   else if (gate === "WAITING_ENTRY" || decision === "WAIT" || decision === "STARTED") statusPhrase = "Watching · no buy yet";
-                                  else if (decision && decision !== "—") statusPhrase = decision.replaceAll("_", " ");
+                                  else if (decision && decision !== "—") statusPhrase = toUserFacingMessage(decision, "Waiting for entry");
                                   return (
                                     <>
                                       <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -23083,8 +23150,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         {best ? (
                                           <><b>{best}</b>{score > 0 ? ` ${score.toFixed(0)}` : ""}{chain ? ` · ${chain}` : ""}</>
                                         ) : "—"}
-                                        {multiTip ? (
-                                          <span style={{ color: "#ffd166", marginLeft: 8 }}>· tip: {multiTip.length > 72 ? multiTip.slice(0, 72) + "…" : multiTip}</span>
+                                        {multiTip && !/corevault|0x[a-f0-9]{8}|worker|rpc_|sessionof|ops_/i.test(multiTip) ? (
+                                          <span style={{ color: "#ffd166", marginLeft: 8 }}>· tip: {toUserFacingMessage(multiTip.length > 72 ? multiTip.slice(0, 72) + "…" : multiTip, "")}</span>
                                         ) : crossChain ? (
                                           <span style={{ color: "#ffd166", marginLeft: 8 }}>
                                             · tip: {overall}{overallScore > 0 ? ` ${overallScore.toFixed(0)}` : ""} on {overallChain}
@@ -23092,7 +23159,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         ) : null}
                                       </span>
                                       <span className="muted tiny" style={{ opacity: 0.75, marginLeft: "auto" }}>
-                                        {gate !== "—" ? gate.replaceAll("_", " ") : ""}
+                                        {/* BUILD396: raw gate codes stay in System Info only */}
                                       </span>
                                     </>
                                   );
@@ -23395,27 +23462,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             } else if (decision === "SUBMITTING" || gate === "EXECUTION") {
                                               whyNoBuy = "Why no buy: trade is submitting — waiting for on-chain confirmation.";
                                             } else if (gate.includes("ERROR") || gate === "TRADE_ROUTE_ERROR" || gate === "RPC_SESSION_READ" || gate === "SESSION_DECODE_FAILED" || gate === "SETTLEMENT_LOW" || gate === "LIVE_EXECUTION_DISABLED") {
-                                              const err = String(nkrStrategistStatus?.lastError || nkrStrategistStatus?.detail || detailRaw || gate).slice(0, 180);
+                                              const err = toUserFacingMessage(String(nkrStrategistStatus?.lastError || nkrStrategistStatus?.detail || detailRaw || gate).slice(0, 180), "Temporary issue — retrying.");
                                               whyNoBuy = `Why no buy: ${err}`;
                                             } else {
                                               whyNoBuy = `Why no buy: no open position on ${sessChain || "this chain"} yet.`;
                                             }
                                           }
-                                          const reasonText = String(
+                                          const rawReason = String(
                                             sess?.exitReason
                                             || sess?.meta?.nkr_exit_reason
                                             || (Number(positionValue) <= 0
                                               ? (whyNoBuy || nkrStrategistStatus?.summary || "No open position yet — strategist is waiting for entry conditions.")
                                               : "Tracking live position.")
                                           );
+                                          const reasonText = toUserFacingReason(rawReason);
+                                          const whyClean = whyNoBuy ? toUserFacingMessage(whyNoBuy.replace(/^Why no buy:\s*/i, ""), "") : "";
                                           return (
                                             <>
                                               <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                                                 <b style={{ color: "#8bdcff" }}>Reason:</b> {reasonText}
                                               </div>
-                                              {Number(positionValue) <= 0 && whyNoBuy && !String(reasonText).includes("Why no buy") ? (
+                                              {Number(positionValue) <= 0 && whyClean && !String(reasonText).toLowerCase().includes("why no buy") && whyClean !== reasonText ? (
                                                 <div style={{ minWidth: 0, overflowWrap: "anywhere", color: "#ffd166" }}>
-                                                  <b>Why no buy:</b> {whyNoBuy.replace(/^Why no buy:\s*/i, "")}
+                                                  <b>Why no buy:</b> {whyClean}
                                                 </div>
                                               ) : null}
                                             </>

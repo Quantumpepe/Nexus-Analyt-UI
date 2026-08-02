@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD382-LIVE-POSITION-CARD-AND-CONTROL-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD383-CONTROL-LOCK-STABLE-SESSION-SELECTION-FIX";
 const CORE_VAULT_ETH_ADDRESS = "0xBFf20fe9c109C3E533C2549C50F617c4fA9e5Fb6";
 const CORE_VAULT_BNB_ADDRESS = "0x5155214eeC9971F984dec1b01916967b2821f6fb";
 const CORE_VAULT_POL_ADDRESS = "0x97aA0d7C3508620B5ad841d20eDFAd637Fc8DE9A";
@@ -12387,7 +12387,13 @@ useEffect(() => {
           return row;
         });
       });
-      setActiveRotationSessionId(sessions.length ? (activeId || String(sessions[0]?.id || "")) : "");
+      setActiveRotationSessionId((prev) => {
+        if (!sessions.length) return "";
+        const prevExists = sessions.some((s) => String(s?.id || s?.session_id || "") === String(prev || ""));
+        if (prevExists) return prev;
+        const backendExists = activeId && sessions.some((s) => String(s?.id || s?.session_id || "") === activeId);
+        return backendExists ? activeId : String(sessions[0]?.id || sessions[0]?.session_id || "");
+      });
       if (!sessions.length && (backendCtrl === "WAITING" || backendCtrl === "STOPPED" || backendCtrl === "FINALIZED" || !backendCtrl)) {
         // Ensure control does not stay RUNNING/PAUSED on a second device after close.
       }
@@ -23457,22 +23463,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           </>
                                         ) : (
                                           <>
-                                            <button className="miniBtn" type="button" onClick={async (e) => {
+                                            <button className="miniBtn" type="button"
+                                              disabled={["PAUSE_PENDING","RESUME_PENDING","REQUESTED","PENDING","EXITING"].includes(String(nkrExitUiState[nkrSessionControlKey(sess)] || "").toUpperCase())}
+                                              onClick={async (e) => {
                                               e.preventDefault(); e.stopPropagation();
-                                              const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
+                                              const ch = normalizeNkrChainKey(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || sess?.chainId || sess?.meta?.chain_id || "");
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               if (!/^\d+$/.test(oid) || !ch) { setRotationBackendMsg("Exact chain/session id missing for this card."); return; }
-                                              await applyNkrBackendControl(sessionStatus === "PAUSED" ? "RESUME" : "PAUSE", { sessionId: oid, chain: ch });
-                                            }}>{sessionStatus === "PAUSED" ? "Resume" : "Pause"}</button>
-                                            <button className="miniBtn danger" type="button" onClick={async (e) => {
+                                              const k = nkrSessionControlKey(ch, oid);
+                                              const action = sessionStatus === "PAUSED" ? "RESUME" : "PAUSE";
+                                              setNkrExitUiState((p) => ({ ...p, [k]: action === "PAUSE" ? "PAUSE_PENDING" : "RESUME_PENDING" }));
+                                              const ok = await applyNkrBackendControl(action, { sessionId: oid, chain: ch });
+                                              setNkrExitUiState((p) => { const n = { ...p }; if (ok) delete n[k]; else n[k] = "FAILED"; return n; });
+                                            }}>{(() => { const ui=String(nkrExitUiState[nkrSessionControlKey(sess)] || "").toUpperCase(); if (ui === "PAUSE_PENDING") return "Pausing…"; if (ui === "RESUME_PENDING") return "Resuming…"; return sessionStatus === "PAUSED" ? "Resume" : "Pause"; })()}</button>
+                                            <button className="miniBtn danger" type="button"
+                                              disabled={["REQUESTED","PENDING","EXITING","PAUSE_PENDING","RESUME_PENDING"].includes(String(nkrExitUiState[nkrSessionControlKey(sess)] || "").toUpperCase())}
+                                              onClick={async (e) => {
                                               e.preventDefault(); e.stopPropagation();
-                                              const ch = String(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || "").toUpperCase();
+                                              const ch = normalizeNkrChainKey(sess?.chain || sess?.meta?.chain || sess?.meta?.chain_key || sess?.chainId || sess?.meta?.chain_id || "");
                                               const oid = String(sess?.onchainSessionId ?? sess?.meta?.onchain_session_id ?? sess?.coreVaultSessionId ?? "");
                                               const k = nkrSessionControlKey(ch, oid);
+                                              if (!/^\d+$/.test(oid) || !ch) { setRotationBackendMsg("Exact chain/session id missing for this card."); return; }
                                               setNkrExitUiState((p)=>({ ...p, [k]: "REQUESTED" }));
                                               const ok = await applyNkrBackendControl("STOP_EXIT", { sessionId: oid, chain: ch });
                                               setNkrExitUiState((p)=>({ ...p, [k]: ok ? "PENDING" : "FAILED" }));
-                                            }}>Stop & Exit</button>
+                                            }}>{["REQUESTED","PENDING","EXITING"].includes(String(nkrExitUiState[nkrSessionControlKey(sess)] || "").toUpperCase()) ? "Stopping…" : "Stop & Exit"}</button>
                                           </>
                                         )}
                                       </div>

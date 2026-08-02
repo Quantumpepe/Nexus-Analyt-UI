@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD390-MOBILE-RAIL-HIDE";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD391-GRID-RAIL-REMOVE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -22077,41 +22077,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-          {/* Compact rail summary — desktop only, only when panel minimized */}
-          {!isCompactMobile && (() => {
-            const modeLabel = String(gridMode || "normal") === "rotation" ? "NKR" : String(gridMode || "normal") === "trading" ? "Trading" : "Grid";
-            const nkrLive = (Array.isArray(rotationSessions) ? rotationSessions : []).filter(
-              (s) => !["STOPPED", "FINALIZED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED"].includes(String(s?.status || "").toUpperCase())
-            );
-            const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
-            const nkrUser =
-              ["ERROR", "FAILED"].includes(nkrCtrl) ? "Busy"
-                : ["STOPPING", "FINALIZING", "CLOSING"].includes(nkrCtrl) ? "Stopping"
-                  : nkrCtrl === "PAUSED" ? "Paused"
-                    : ["RUNNING", "ACTIVE"].includes(nkrCtrl) ? "Running"
-                      : nkrLive.length ? "Live" : "Waiting";
-            const reserved = nkrLive.reduce((a, s) => a + (Number(s?.budgetUsd || s?.budgetAmount || s?.reservedUsd) || 0), 0);
-            const traderN = Array.isArray(openTradingSessions) ? openTradingSessions.length : 0;
-            const statusColor = nkrUser === "Running" || nkrUser === "Live" ? "#86efac" : nkrUser === "Paused" || nkrUser === "Stopping" || nkrUser === "Busy" ? "#ffd166" : "rgba(235,255,247,.78)";
-            return (
-              <div className="gridRailSummary">
-                <div className="gridRailMode">{modeLabel}</div>
-                <div className="gridRailStatus" style={{ color: statusColor }}>{nkrUser}</div>
-                {modeLabel === "NKR" ? (
-                  <>
-                    <div className="gridRailLine">{nkrLive.length ? `${nkrLive.length} session${nkrLive.length > 1 ? "s" : ""}` : "No live session"}</div>
-                    {reserved > 0 ? <div className="gridRailLine">Reserved ${Math.round(reserved)}</div> : null}
-                  </>
-                ) : modeLabel === "Trading" ? (
-                  <div className="gridRailLine">{traderN ? `${traderN} open` : "No open session"}</div>
-                ) : (
-                  <div className="gridRailLine">Exit rules · Vault tokens</div>
-                )}
-                <div className="gridRailHint">Click to open</div>
-              </div>
-            );
-          })()}
-
           <div className="panelScroll"><div className={`gridLayout ${String(gridMode || "normal") === "trading" ? "tradingDesktopLayout" : String(gridMode || "normal") === "rotation" ? "rotationDesktopLayout" : "gridDesktopLayout"}`}>
             <div className="gridLeft">
               {isCompactMobile && (
@@ -27494,6 +27459,35 @@ const handlePanelActivate = useCallback((name) => (e) => {
   .dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) svg{
     max-height: 66px !important;
   }
+}
+
+
+
+/* BUILD391-HARD-HIDE-RAIL: gridRailSummary removed from JSX; keep CSS kill-switch */
+.gridRailSummary, .gridRailMode, .gridRailStatus, .gridRailLine, .gridRailHint {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  max-height: 0 !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* BUILD391: never show rail summary inside an open Grid panel */
+.section-grid.panelActive .gridRailSummary,
+.section-grid .panelScroll ~ .gridRailSummary,
+.gridRailSummary { display: none !important; }
+.dashboardGrid.hasFocus .section-grid.dashboardPanel:not(.panelActive) .gridRailSummary {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  margin-top: 4px !important;
+  padding: 8px !important;
+  border-radius: 12px !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.18)) !important;
 }
 
 /* Always hide rail on mobile / default; desktop minimize rules below */

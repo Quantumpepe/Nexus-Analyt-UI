@@ -416,7 +416,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD393-REMOVE-ADD-CAPITAL-BTN";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD394-FIX-VISIBLE-ROWS-CRASH";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9211,57 +9211,6 @@ useEffect(() => {
     }
   }, [rotationSelectedPick, activeGridChainKey, gridItem, rotationBudgetRelease, rotationMaxSlippage, rotationRiskLimit, rotationMinNetAdvantage, rotationSessions, activeRotationSessionId, token, wallet]);
 
-
-  const topUpActiveNkrCapital = useCallback(async () => {
-    // BUILD392 / ENGINE-371: top-up is bound to the exact selected session card (chain + sessionId).
-    const amount = Number(String(rotationCapitalTopup || "").replace(",", "."));
-    if (!Number.isFinite(amount) || amount <= 0) return;
-    try {
-      setRotationBackendLoading(true);
-      const rows = Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : (Array.isArray(rotationSessions) ? rotationSessions : []);
-      const selectedChain = String(liveVaultChainByMode?.rotation || activeGridChainKey || "ETH").toUpperCase();
-      const norm = (k) => {
-        const u = String(k || "").toUpperCase();
-        if (u === "ETHEREUM" || u === "1") return "ETH";
-        if (u === "BSC" || u === "56") return "BNB";
-        if (u === "POLYGON" || u === "MATIC" || u === "137") return "POL";
-        return u;
-      };
-      const chainOf = (s) => norm(s?.chain || s?.meta?.chain || s?.meta?.chain_key || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(s?.chainId || s?.chain_id || s?.meta?.chain_id || 0)] || ""));
-      const target = rows.find((s) => chainOf(s) === norm(selectedChain) && !["STOPPED", "FINALIZED", "CLOSED", "CANCELLED"].includes(String(s?.status || "").toUpperCase()))
-        || rows.find((s) => !["STOPPED", "FINALIZED", "CLOSED", "CANCELLED"].includes(String(s?.status || "").toUpperCase()))
-        || null;
-      if (!target) {
-        setRotationBackendMsg("No open NKR session selected for Add Capital.");
-        return;
-      }
-      const sessionId = String(target?.id || target?.session_id || "");
-      const onchainSessionId = String(target?.onchainSessionId ?? target?.coreVaultSessionId ?? target?.meta?.onchain_session_id ?? "");
-      const chain = chainOf(target) || norm(selectedChain);
-      const res = await api("/api/nkr/capital-topup", {
-        method: "POST", token, wallet,
-        body: {
-          amountUsd: amount,
-          engine: "NKR",
-          sessionId: sessionId || onchainSessionId,
-          onchainSessionId,
-          chain,
-        },
-      });
-      if (Array.isArray(res?.sessions)) setRotationSessions(res.sessions);
-      if (Number.isFinite(Number(res?.newBudgetUsd))) {
-        setRotationBudgetRelease(String(Number(res.newBudgetUsd)));
-      }
-      setRotationCapitalTopup("");
-      setRotationBudgetReleased(true);
-      setNkrControlState("RUNNING");
-      setRotationBackendMsg(res?.message || `Capital added to ${chain} session ${sessionId || onchainSessionId}: ${fmtUsd(amount)}.`);
-    } catch (e) {
-      setRotationBackendMsg(`Capital top-up failed: ${e?.message || e}`);
-    } finally {
-      setRotationBackendLoading(false);
-    }
-  }, [rotationCapitalTopup, token, wallet, rotationVisibleActiveRows, rotationSessions, liveVaultChainByMode, activeGridChainKey]);
 
 
   const resetRotationBudgetRelease = useCallback(() => {

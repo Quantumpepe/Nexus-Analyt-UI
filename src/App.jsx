@@ -123,6 +123,24 @@ const ENABLE_VAULT_SUBSCRIBE = false; // Set true when vault subscription is rea
 
 const LIVE_ENABLED_CHAINS = ["ETH", "BNB", "POL", "BASE", "ARB"];
 const PRIMARY_EVM_CHAINS = ["ETH", "BNB", "POL", "BASE", "ARB"];
+/** Native gas symbol per chain key — used by Withdraw for every live/future EVM vault. */
+const NATIVE_SYMBOL_BY_CHAIN = {
+  ETH: "ETH", ETHEREUM: "ETH",
+  BNB: "BNB", BSC: "BNB",
+  POL: "POL", POLYGON: "POL", MATIC: "POL",
+  BASE: "ETH", ARB: "ETH", ARBITRUM: "ETH", OP: "ETH", OPTIMISM: "ETH",
+  AVAX: "AVAX", AVALANCHE: "AVAX",
+  FTM: "FTM", FANTOM: "FTM",
+  LINEA: "ETH", SCROLL: "ETH", ZKSYNC: "ETH",
+};
+function nativeSymbolForChain(chainKey) {
+  const k = String(chainKey || "").toUpperCase().trim();
+  if (!k) return "";
+  if (NATIVE_SYMBOL_BY_CHAIN[k]) return NATIVE_SYMBOL_BY_CHAIN[k];
+  // Fallback: treat the chain key itself as the native ticker when unknown
+  return k;
+}
+
 
 const DEMO_MODE_NOTICE =
   "Demo Mode: All EVM networks can be simulated with real market data. Live execution is currently limited to ETH, BNB and POL.";
@@ -358,8 +376,10 @@ function toUserFacingMessage(raw, fallback = "") {
   if (/insufficient.?free|insufficient_free_vault/i.test(s)) return "Not enough free balance in the vault. Deposit and try again.";
   if (/session_budget_limit|budget.*exceed/i.test(s)) return "Budget exceeds the vault session limit. Lower the amount.";
   if (/privy_live_execution_not_ready|privy_not_ready|privy_wallet/i.test(s)) return "Live execution is not ready yet. Check wallet connection.";
-  if (/gas required exceeds allowance|privy_gas_policy_too_low|transaction_broadcast_failure/i.test(s)) return "Could not start: network gas limit is too low. Raise the Privy policy max gas (to at least 500000) and try again.";
-  if (/privy_rpc_\d+/i.test(s) && /gas/i.test(s)) return "Could not start: network gas limit is too low. Raise the Privy policy max gas and try again.";
+  if (/privy_insufficient_native_gas/i.test(s)) return "Not enough native token for gas on this network. Add a little BNB/ETH/POL and try again.";
+  if (/privy_policy_denied/i.test(s)) return "Transaction blocked by wallet policy. Check Privy allow-list for the vault contract.";
+  if (/privy_gas_allowance|gas required exceeds allowance/i.test(s)) return "Network rejected the transaction gas estimate. Retry in a moment; if it persists, check BNB balance and Privy wallet policy.";
+  if (/privy_broadcast_failure|transaction_broadcast_failure/i.test(s)) return "Transaction could not be broadcast. Check network gas balance and try again.";
   if (/verified_trade_route|trade route/i.test(s)) return "A verified trade route is required on this network.";
   if (/corevault is not connected|not connected/i.test(s)) return "Vault is not connected on this network yet.";
   if (/rpc_|session_decode|trade_route_error|live_execution_disabled|settlement_low/i.test(s)) return "Temporary network issue — will retry automatically.";
@@ -482,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD397-GAS-ERROR-MSG";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD400-WITHDRAW-ALL-NATIVE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -4277,7 +4297,11 @@ const refreshProfitPayoutSettings = async () => {
       const amount = Number(String(coreWithdrawAmount || "").replace(",", "."));
       if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid withdraw amount.");
       if (!_isAddr(coreWithdrawAddress)) throw new Error("Enter a valid destination address.");
-      if (!selected.tokenState?.config?.withdrawEnabled) throw new Error(`${selected.symbol} withdrawals are not enabled in CoreVault.`);
+      const chainNativeNow = nativeSymbolForChain(coreVaultOnchain?.chain || balActiveChain || "");
+      const isNativeAsset = !!selected.tokenState?.native || (!!chainNativeNow && selected.symbol === chainNativeNow);
+      if (!selected.tokenState?.config?.withdrawEnabled && !(isNativeAsset && selected.available > 0)) {
+        throw new Error(`${selected.symbol} withdrawals are not enabled in CoreVault.`);
+      }
       if (amount > selected.available + 1e-12) throw new Error("Amount exceeds the available balance for the selected asset and source.");
       setCoreWithdrawQuoteBusy(true);
       setCoreWithdrawQuote({
@@ -5564,12 +5588,54 @@ useEffect(() => {
   useInterval(refreshCoreVaultAccounting, 5000, !!wallet);
 
   const coreWithdrawAssetRows = useMemo(() => {
+    // BUILD400: native withdraw for every EVM chain (live + future).
+    // Prefer backend `row.native` / onchain.nativeSymbol; fall back to NATIVE_SYMBOL_BY_CHAIN.
     const tokens = coreVaultOnchain?.tokens || {};
-    return Object.values(tokens).filter((row) => row && row?.config?.configured && row?.config?.withdrawEnabled).map((row) => ({
-      symbol: String(row.symbol || "").toUpperCase(), native: !!row.native, decimals: Number(row.decimals ?? (row.native ? 18 : 6)),
-      account: row.account || {},
-    })).filter((row) => row.symbol);
-  }, [coreVaultOnchain]);
+    const chainKey = String(coreVaultOnchain?.chain || coreVaultOnchain?.chainKey || balActiveChain || "").toUpperCase();
+    const chainNative = String(
+      coreVaultOnchain?.nativeSymbol
+      || coreVaultOnchain?.native
+      || nativeSymbolForChain(chainKey)
+      || ""
+    ).toUpperCase();
+    const rows = Object.values(tokens).filter((row) => {
+      if (!row) return false;
+      const sym = String(row.symbol || "").toUpperCase();
+      if (!sym) return false;
+      const configured = !!row?.config?.configured;
+      const withdrawOk = !!row?.config?.withdrawEnabled;
+      const free = Number(row?.account?.freeBase || 0);
+      const isNative = !!row.native || (!!chainNative && sym === chainNative);
+      if (isNative) {
+        if (chainNative && sym !== chainNative) return false;
+        return configured || withdrawOk || free > 0;
+      }
+      return configured && withdrawOk;
+    }).map((row) => {
+      const sym = String(row.symbol || "").toUpperCase();
+      const isNative = !!row.native || (!!chainNative && sym === chainNative);
+      return {
+        symbol: sym,
+        native: isNative,
+        decimals: Number(row.decimals ?? (isNative ? 18 : 6)),
+        account: row.account || {},
+        withdrawEnabled: !!row?.config?.withdrawEnabled,
+        configured: !!row?.config?.configured,
+      };
+    });
+    if (chainNative && !rows.some((r) => r.symbol === chainNative)) {
+      const tok = tokens[chainNative] || {};
+      rows.unshift({
+        symbol: chainNative,
+        native: true,
+        decimals: Number(tok?.decimals ?? 18),
+        account: tok?.account || {},
+        withdrawEnabled: !!tok?.config?.withdrawEnabled,
+        configured: !!tok?.config?.configured,
+      });
+    }
+    return rows;
+  }, [coreVaultOnchain, balActiveChain]);
 
   useEffect(() => {
     if (!coreWithdrawAssetRows.length) return;
@@ -9069,10 +9135,18 @@ useEffect(() => {
       const privyBlocked = /privy_live_execution_not_ready|privy_not_ready|privy_wallet_mapping/i.test(rawMessage);
       const notConnected = /CoreVault V5 is not connected/i.test(rawMessage);
       let userMessage = toUserFacingMessage(rawMessage, `Could not start NKR on ${startChainCheck}.`);
-      if (/gas required exceeds allowance|privy_gas_policy|transaction_broadcast_failure/i.test(rawMessage)) {
-        userMessage = `Could not start NKR on ${startChainCheck}: gas limit too low. Raise Privy policy max gas to at least 500000, then try again.`;
+      if (/privy_insufficient_native_gas/i.test(rawMessage)) {
+        userMessage = `Could not start NKR on ${startChainCheck}: not enough native token for gas. Add a small amount of BNB and try again.`;
+      } else if (/privy_policy_denied/i.test(rawMessage)) {
+        userMessage = `Could not start NKR on ${startChainCheck}: wallet policy blocked the vault transaction.`;
+      } else if (/privy_gas_allowance|gas required exceeds allowance/i.test(rawMessage)) {
+        userMessage = `Could not start NKR on ${startChainCheck}: gas estimate rejected by the network. Check BNB balance and retry.`;
+      } else if (/privy_broadcast_failure|transaction_broadcast_failure/i.test(rawMessage)) {
+        userMessage = `Could not start NKR on ${startChainCheck}: broadcast failed. Check BNB for gas and retry.`;
       } else if (userMessage === rawMessage || /corevault|0x|sessionof|privy_rpc_/i.test(userMessage)) {
-        userMessage = `Could not start NKR on ${startChainCheck}. Please try again.`;
+        // Keep a short technical tail so we can diagnose without opening DevTools
+        const tail = rawMessage.replace(/\s+/g, " ").slice(0, 120);
+        userMessage = `Could not start NKR on ${startChainCheck}: ${tail}`;
       }
       if (routeMissing) userMessage = `Live NKR on ${startChainCheck} needs an enabled verified TRADE route on that chain (Owner Admin).`;
       else if (/session_budget_limit_exceeded/i.test(rawMessage)) {
@@ -20479,7 +20553,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div>
                         <div className="muted" style={{ fontSize: 12, marginBottom: 5 }}>Asset</div>
                         <select className="input" value={coreWithdrawAsset} onChange={(e) => { setCoreWithdrawAsset(e.target.value); setCoreWithdrawQuote(null); }} style={{ width: "100%", height: 42 }}>
-                          {coreWithdrawAssetRows.map((row) => <option key={row.symbol} value={row.symbol}>{row.symbol}</option>)}
+                          {coreWithdrawAssetRows.map((row) => (
+                            <option key={row.symbol} value={row.symbol}>
+                              {row.symbol}{row.native ? " (native · for gas)" : ""}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     </div>

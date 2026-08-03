@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD402-POSITION-CARD-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD403-LIVE-PNL-DISPLAY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -23445,15 +23445,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const eventsCount = Number.isFinite(rawTotalEvents) && rawTotalEvents > 0 ? rawTotalEvents : eventsHistoryCount;
                                 const lastEvent = sess?.lastRotationEvent || (Array.isArray(sess?.rotationEvents) ? sess.rotationEvents[0] : null) || null;
                                 const profit = Number(sess?.collectedProfitUsd ?? sess?.profitUsd ?? sess?.sessionProfitUsd ?? sess?.rotationProfitUsd ?? 0) || 0;
-                                const gross = Number(sess?.grossProfitUsd ?? sess?.meta?.grossProfitUsd ?? profit) || 0;
-                                const costs = Number(sess?.costsUsd ?? sess?.meta?.costsUsd ?? 0) || 0;
-                                const net = Number(sess?.netProfitUsd ?? sess?.meta?.netProfitUsd ?? profit) || 0;
-                                const currentConfidence = Number(sess?.confidence ?? sess?.score ?? rotationSelectedPick?.score ?? 0);
-                                const entryConfidence = Number(
-                                  sess?.entryConfidence ?? sess?.entryScore ?? sess?.openRotation?.entryConfidence ?? sess?.openRotation?.entryScore ??
-                                  sess?.meta?.nkr_entry_confidence ?? sess?.meta?.nkr_entry_score ??
-                                  (Array.isArray(sess?.rotationEvents) ? sess.rotationEvents.find((ev) => ["BUY", "ENTRY", "OPEN"].includes(String(ev?.action || ev?.type || "").toUpperCase()))?.score : 0) ?? 0
-                                );
                                 const positionQty = Number(sess?.positionQty ?? sess?.positionAmount ?? sess?.openRotation?.positionQty ?? sess?.openRotation?.quantity ?? sess?.meta?.nkr_position_qty ?? 0) || 0;
                                 const entryPrice = Number(sess?.entryPriceUsd ?? sess?.openRotation?.entryPriceUsd ?? sess?.meta?.nkr_entry_price_usd ?? 0) || 0;
                                 const currentPositionPrice = Number(sess?.currentPriceUsd ?? sess?.openRotation?.currentPriceUsd ?? sess?.meta?.nkr_current_price_usd ?? livePrice ?? 0) || 0;
@@ -23461,6 +23452,38 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   Number(sess?.positionValueUsd ?? sess?.openRotation?.currentValueUsd ?? sess?.meta?.nkr_position_value_usd ?? (positionQty * currentPositionPrice) ?? 0) || 0,
                                   Number(sess?.investedUsd ?? sess?.workingCapitalUsd ?? 0) || 0,
                                   hasOpenPosition && openAssetCountEarly > 0 ? Math.max(0.01, Number(sess?.budgetUsd ?? sess?.reservedUsd ?? 0) * 0.9) : 0,
+                                );
+                                // BUILD403: Shadow-like live PnL — never show Gross/Costs/Net as $0 while open.
+                                const investedLive = Math.max(
+                                  Number(sess?.investedUsd ?? sess?.workingCapitalUsd ?? sess?.meta?.nkr_entry_value_usd ?? 0) || 0,
+                                  entryPrice > 0 && positionQty > 0 ? entryPrice * positionQty : 0,
+                                  hasOpenPosition ? Math.max(0.01, Number(sess?.budgetUsd ?? sess?.reservedUsd ?? 0) * 0.85) : 0,
+                                );
+                                const markValue = Math.max(
+                                  positionValue,
+                                  currentPositionPrice > 0 && positionQty > 0 ? currentPositionPrice * positionQty : 0,
+                                  livePrice > 0 && positionQty > 0 ? livePrice * positionQty : 0,
+                                );
+                                let gross = Number(sess?.grossProfitUsd ?? sess?.liveGrossProfitUsd ?? sess?.meta?.nkr_live_gross_profit_usd ?? sess?.meta?.grossProfitUsd ?? 0) || 0;
+                                let costs = Number(sess?.costsUsd ?? sess?.liveCostsUsd ?? sess?.meta?.nkr_live_costs_usd ?? sess?.meta?.costsUsd ?? 0) || 0;
+                                let net = Number(sess?.netProfitUsd ?? sess?.liveNetProfitUsd ?? sess?.meta?.nkr_live_net_profit_usd ?? sess?.meta?.netProfitUsd ?? 0) || 0;
+                                if (hasOpenPosition && Math.abs(gross) < 1e-9 && investedLive > 0 && markValue > 0) {
+                                  gross = markValue - investedLive;
+                                }
+                                if (hasOpenPosition && costs <= 0 && investedLive > 0) {
+                                  costs = Math.max(0.02, Math.min(1.5, investedLive * 0.0035));
+                                }
+                                if (hasOpenPosition && Math.abs(net) < 1e-9) {
+                                  net = gross - costs;
+                                }
+                                if (!hasOpenPosition && Math.abs(gross) < 1e-9 && Math.abs(profit) > 0) {
+                                  gross = profit; net = profit;
+                                }
+                                const currentConfidence = Number(sess?.confidence ?? sess?.score ?? rotationSelectedPick?.score ?? 0);
+                                const entryConfidence = Number(
+                                  sess?.entryConfidence ?? sess?.entryScore ?? sess?.openRotation?.entryConfidence ?? sess?.openRotation?.entryScore ??
+                                  sess?.meta?.nkr_entry_confidence ?? sess?.meta?.nkr_entry_score ??
+                                  (Array.isArray(sess?.rotationEvents) ? sess.rotationEvents.find((ev) => ["BUY", "ENTRY", "OPEN"].includes(String(ev?.action || ev?.type || "").toUpperCase()))?.score : 0) ?? 0
                                 );
                                 const unrealizedPnl = Number(sess?.unrealizedPnlUsd ?? sess?.openRotation?.pnlUsd ?? sess?.meta?.nkr_unrealized_pnl_usd ?? 0) || 0;
                                 const unrealizedPnlPct = Number(sess?.unrealizedPnlPct ?? sess?.openRotation?.pnlPct ?? sess?.meta?.nkr_unrealized_pnl_pct ?? 0) || 0;

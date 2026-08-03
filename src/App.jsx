@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.02-BUILD403-LIVE-PNL-DISPLAY";
+const FRONTEND_BUILD_ID = "F-2026.08.03-BUILD404-LIVE-PNL-SOURCE-PRIORITY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -23464,9 +23464,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   currentPositionPrice > 0 && positionQty > 0 ? currentPositionPrice * positionQty : 0,
                                   livePrice > 0 && positionQty > 0 ? livePrice * positionQty : 0,
                                 );
-                                let gross = Number(sess?.grossProfitUsd ?? sess?.liveGrossProfitUsd ?? sess?.meta?.nkr_live_gross_profit_usd ?? sess?.meta?.grossProfitUsd ?? 0) || 0;
-                                let costs = Number(sess?.costsUsd ?? sess?.liveCostsUsd ?? sess?.meta?.nkr_live_costs_usd ?? sess?.meta?.costsUsd ?? 0) || 0;
-                                let net = Number(sess?.netProfitUsd ?? sess?.liveNetProfitUsd ?? sess?.meta?.nkr_live_net_profit_usd ?? sess?.meta?.netProfitUsd ?? 0) || 0;
+                                let gross = Number(sess?.liveGrossProfitUsd ?? sess?.meta?.nkr_live_gross_profit_usd ?? sess?.grossProfitUsd ?? sess?.meta?.grossProfitUsd ?? 0) || 0;
+                                let costs = Number(sess?.liveCostsUsd ?? sess?.meta?.nkr_live_costs_usd ?? sess?.costsUsd ?? sess?.meta?.costsUsd ?? 0) || 0;
+                                let net = Number(sess?.liveNetProfitUsd ?? sess?.meta?.nkr_live_net_profit_usd ?? sess?.netProfitUsd ?? sess?.meta?.netProfitUsd ?? 0) || 0;
                                 if (hasOpenPosition && Math.abs(gross) < 1e-9 && investedLive > 0 && markValue > 0) {
                                   gross = markValue - investedLive;
                                 }

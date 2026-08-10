@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.10-BUILD405-NKR-PERIOD-HOURS-DAYS";
+const FRONTEND_BUILD_ID = "F-2026.08.10-BUILD406-NKR-PERIOD-VALUE-HYDRATION-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -8735,7 +8735,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [nkrObservationWindow, setNkrObservationWindow] = useState("1h");
   const [nkrSessionInfoOpen, setNkrSessionInfoOpen] = useState(null);
   const [nkrProfitMode, setNkrProfitMode] = useState("REINVEST");
-  // BUILD405: NKR period can be entered in hours or days. The numeric draft stays
+  // BUILD406: NKR period can be entered in hours or days. The numeric draft stays
   // separate from the unit so 2 hours is never rounded up to 1 day.
   const [nkrPeriodDays, setNkrPeriodDays] = useState("10");
   const [nkrPeriodUnit, setNkrPeriodUnit] = useState("days");
@@ -12375,9 +12375,28 @@ useEffect(() => {
         if (rotationSettingsSource.nkrCapitalMode != null) setNkrCapitalMode(String(rotationSettingsSource.nkrCapitalMode));
         if (rotationSettingsSource.nkrObservationWindow != null) setNkrObservationWindow(String(rotationSettingsSource.nkrObservationWindow));
         if (rotationSettingsSource.nkrProfitMode != null) setNkrProfitMode(String(rotationSettingsSource.nkrProfitMode));
-        if (rotationSettingsSource.nkrPeriodUnit != null) setNkrPeriodUnit(String(rotationSettingsSource.nkrPeriodUnit || "days").toLowerCase());
-        if (rotationSettingsSource.nkrPeriodValue != null) setNkrPeriodDays(String(rotationSettingsSource.nkrPeriodValue));
-        else if (rotationSettingsSource.nkrPeriodDays != null) setNkrPeriodDays(String(rotationSettingsSource.nkrPeriodDays));
+        if (rotationSettingsSource.nkrPeriodUnit != null || rotationSettingsSource.nkrPeriodHours != null || rotationSettingsSource.nkrPeriodDays != null) {
+          const restoredUnit = String(rotationSettingsSource.nkrPeriodUnit || (Number(rotationSettingsSource.nkrPeriodHours || 0) < 24 ? "hours" : "days")).toLowerCase();
+          const restoredHours = Number(rotationSettingsSource.nkrPeriodHours);
+          const restoredDays = Number(rotationSettingsSource.nkrPeriodDays);
+          const restoredValue = Number(rotationSettingsSource.nkrPeriodValue);
+          // BUILD406 migration: BUILD405 could persist a day-fraction (2h => 0.083333d)
+          // while the unit was already "hours". Prefer the canonical hours field in that case.
+          let draftValue;
+          if (restoredUnit === "hours") {
+            const valueLooksLikeDayFraction = Number.isFinite(restoredValue) && restoredValue > 0 && restoredValue < 1 && Number.isFinite(restoredHours) && restoredHours >= 1;
+            draftValue = valueLooksLikeDayFraction ? restoredHours
+              : (Number.isFinite(restoredValue) && restoredValue > 0 ? restoredValue
+              : (Number.isFinite(restoredHours) && restoredHours > 0 ? restoredHours
+              : (Number.isFinite(restoredDays) && restoredDays > 0 ? restoredDays * 24 : 1)));
+          } else {
+            draftValue = Number.isFinite(restoredValue) && restoredValue > 0 ? restoredValue
+              : (Number.isFinite(restoredDays) && restoredDays > 0 ? restoredDays
+              : (Number.isFinite(restoredHours) && restoredHours > 0 ? restoredHours / 24 : 1));
+          }
+          setNkrPeriodUnit(restoredUnit);
+          setNkrPeriodDays(String(Math.round(draftValue * 1000000) / 1000000));
+        }
         if (rotationSettingsSource.rotationBudgetRelease != null) setRotationBudgetRelease(String(rotationSettingsSource.rotationBudgetRelease));
         if (rotationSettingsSource.rotationShadowSnapshot && typeof rotationSettingsSource.rotationShadowSnapshot === "object") setRotationShadowSnapshot(rotationSettingsSource.rotationShadowSnapshot);
         if (Array.isArray(rotationSettingsSource.rotationShadowEvents)) setRotationShadowEvents(rotationSettingsSource.rotationShadowEvents);
@@ -23885,7 +23904,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           />
                           <select
                             value={nkrPeriodUnit}
-                            onChange={(e) => { setNkrPeriodUnit(e.target.value); setRotationBudgetReleased(false); }}
+                            onChange={(e) => {
+                              const nextUnit = String(e.target.value || "days").toLowerCase();
+                              const currentUnit = String(nkrPeriodUnit || "days").toLowerCase();
+                              const currentValue = Number(String(nkrPeriodDays || "").replace(",", "."));
+                              if (Number.isFinite(currentValue) && currentValue > 0 && nextUnit !== currentUnit) {
+                                const converted = currentUnit === "days" && nextUnit === "hours"
+                                  ? currentValue * 24
+                                  : currentUnit === "hours" && nextUnit === "days"
+                                    ? currentValue / 24
+                                    : currentValue;
+                                setNkrPeriodDays(String(Math.round(converted * 1000000) / 1000000));
+                              }
+                              setNkrPeriodUnit(nextUnit);
+                              setRotationBudgetReleased(false);
+                            }}
                             title="NKR period unit"
                           >
                             <option value="hours">Hours</option>

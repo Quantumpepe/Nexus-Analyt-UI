@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.10-BUILD406-NKR-PERIOD-VALUE-HYDRATION-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.10-BUILD407-NKR-PENDING-MODE-LOCK-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -5314,11 +5314,23 @@ useEffect(() => {
             setRotationSessions(canonicalizeNkrSessions(Array.isArray(live?.sessions) ? live.sessions : []));
             setActiveRotationSessionId(String(live?.activeRotationSessionId || ""));
             setNkrControlState(String(live?.controlState || "RUNNING").toUpperCase());
+            if (systemU === "NKR") {
+              const exactLive = (Array.isArray(live?.sessions) ? live.sessions : []).find((x) => String(x?.onchainSessionId || x?.onchain_session_id || x?.coreVaultSessionId || "") === String(job?.sessionId || ""));
+              const confirmedMode = String(exactLive?.nkrCapitalMode || exactLive?.capitalMode || exactLive?.meta?.nkr_capital_mode || nkrStartModeRef.current || bodyPayload.nkrCapitalMode || "DYNAMIC").toUpperCase();
+              nkrCapitalModeRef.current = confirmedMode;
+              setNkrCapitalMode(confirmedMode);
+              nkrStartPendingRef.current = false;
+              nkrStartModeRef.current = "";
+            }
             setRotationBackendMsg(`ETH NKR session #${job?.sessionId || ""} confirmed and active.`);
             await Promise.allSettled([refreshCoreVaultOnchain(), refreshCoreVaultAccounting()]);
             return;
           }
           if (js === "error") {
+            if (systemU === "NKR") {
+              nkrStartPendingRef.current = false;
+              nkrStartModeRef.current = "";
+            }
             setRotationBackendMsg(`ETH session start failed: ${job?.error || "unknown error"}`);
             setNkrControlState("WAITING");
             return;
@@ -8731,6 +8743,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // React state can still contain the previous mode in the same click cycle after
   // Aggressive consent; this ref prevents a consented AGGRESSIVE start becoming DYNAMIC.
   const nkrCapitalModeRef = useRef("DYNAMIC");
+  // BUILD407: keep the exact selected NKR mode locked while an async CoreVault create is pending.
+  // Delayed app-state hydration must never overwrite AGGRESSIVE with an older DYNAMIC draft.
+  const nkrStartPendingRef = useRef(false);
+  const nkrStartModeRef = useRef("");
   useEffect(() => { nkrCapitalModeRef.current = String(nkrCapitalMode || "DYNAMIC").toUpperCase(); }, [nkrCapitalMode]);
   const [nkrObservationWindow, setNkrObservationWindow] = useState("1h");
   const [nkrSessionInfoOpen, setNkrSessionInfoOpen] = useState(null);
@@ -9115,6 +9131,9 @@ useEffect(() => {
       setRotationBackendMsg("Confirm the Aggressive risk warning before starting this NKR session.");
       return;
     }
+    nkrStartPendingRef.current = true;
+    nkrStartModeRef.current = startedNkrCapitalMode;
+    nkrCapitalModeRef.current = startedNkrCapitalMode;
     let coreVaultSession = null;
     try {
       setRotationBackendLoading(true);
@@ -9145,6 +9164,8 @@ useEffect(() => {
         setRotationCapitalTopup("");
         return;
       }
+      nkrStartPendingRef.current = false;
+      nkrStartModeRef.current = "";
       setRotationBackendMsg(`NKR started on ${startChainCheck}. Capital reserved · scanning ${startChainCheck}-tradable assets.`);
       setRotationCapitalTopup("");
     } catch (e) {
@@ -9177,6 +9198,8 @@ useEffect(() => {
       else if (noFree) userMessage = `Not enough free USDC on ${startChainCheck} vault. Deposit USDC on ${startChainCheck}, then start again.`;
       else if (privyBlocked) userMessage = `Privy live execution is not ready for ${startChainCheck}. Check policy / wallet mapping for that chain.`;
       else if (notConnected) userMessage = `${startChainCheck} CoreVault is not connected. Switch chain in Live Core Vault Capital and wait for LIVE CONNECTED.`;
+      nkrStartPendingRef.current = false;
+      nkrStartModeRef.current = "";
       setRotationBackendMsg(userMessage);
       setErrorMsg(userMessage);
       setRotationBackendLoading(false);
@@ -11839,7 +11862,7 @@ useEffect(() => {
     // Only reset Aggressive when there is no live NKR run. Changing "Add Capital" while
     // Aggressive is active must not silently drop the consented mode.
     const hasLiveNkr = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED", "EXPIRED", "CLOSED", "DELETED", "ARCHIVED", "REBALANCED_OUT", "FINALIZED", "COMPLETE", "COMPLETED", "CANCELLED", "RELEASED"].includes(String(s?.status || "").toUpperCase()));
-    if (!hasLiveNkr) {
+    if (!hasLiveNkr && !nkrStartPendingRef.current) {
       resetNkrAggressiveDraftSelection();
     }
     setRotationBudgetRelease(value);
@@ -12372,7 +12395,7 @@ useEffect(() => {
         if (rotationSettingsSource.rotationMaxSlippage != null) setRotationMaxSlippage(String(rotationSettingsSource.rotationMaxSlippage));
         if (rotationSettingsSource.rotationMinNetAdvantage != null) setRotationMinNetAdvantage(String(rotationSettingsSource.rotationMinNetAdvantage));
         if (rotationSettingsSource.rotationMode != null) setRotationMode(String(rotationSettingsSource.rotationMode));
-        if (rotationSettingsSource.nkrCapitalMode != null) setNkrCapitalMode(String(rotationSettingsSource.nkrCapitalMode));
+        if (rotationSettingsSource.nkrCapitalMode != null && !nkrStartPendingRef.current) setNkrCapitalMode(String(rotationSettingsSource.nkrCapitalMode));
         if (rotationSettingsSource.nkrObservationWindow != null) setNkrObservationWindow(String(rotationSettingsSource.nkrObservationWindow));
         if (rotationSettingsSource.nkrProfitMode != null) setNkrProfitMode(String(rotationSettingsSource.nkrProfitMode));
         if (rotationSettingsSource.nkrPeriodUnit != null || rotationSettingsSource.nkrPeriodHours != null || rotationSettingsSource.nkrPeriodDays != null) {

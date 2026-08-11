@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.10-BUILD407-NKR-PENDING-MODE-LOCK-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.11-BUILD408-WATCHLIST-CG-7D-SPARKLINE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -2620,64 +2620,37 @@ function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym
   );
 }
 
-function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, idx = 0 }) {
-  const fullSeries = Array.isArray(seriesMap?.[sym]) ? (seriesMap[sym] || []) : [];
+function InlineWatchSpark({ sym, row, colorForSym, lineClassForSym, idx = 0 }) {
+  // BUILD408: Watchlist 7D chart uses only the dedicated CoinGecko 7D sparkline
+  // returned with the watchlist snapshot. It no longer borrows /api/compare data.
+  const baseSeries = Array.isArray(row?.sparkline7d) ? row.sparkline7d : [];
 
   const values = (() => {
-    const normalize = (pts) => (pts || [])
-      .map((pt) => {
-        if (Array.isArray(pt)) {
-          const t = Number(pt[0]);
-          const v = Number(pt[1]);
-          return Number.isFinite(t) && Number.isFinite(v) && v > 0 ? { t, v } : null;
-        }
-        if (pt && typeof pt === "object") {
-          const t = Number(pt.t ?? pt.time ?? pt.ts ?? pt.x ?? 0);
-          const v = Number(pt.v ?? pt.price ?? pt.value ?? pt.close ?? pt.y);
-          return Number.isFinite(t) && Number.isFinite(v) && v > 0 ? { t, v } : null;
-        }
-        return null;
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.t - b.t);
+    const clean = baseSeries
+      .map((v) => Number(Array.isArray(v) ? v?.[1] : (v?.price ?? v?.value ?? v)))
+      .filter((v) => Number.isFinite(v) && v > 0);
 
-    const pts = normalize(fullSeries);
+    if (clean.length < 8) return [];
 
-    if (pts.length) {
-      const maxT = Number(pts[pts.length - 1]?.t || 0);
-      const sevenDayMs = 7 * 24 * 60 * 60 * 1000;
-
-      // CoinGecko-style: use the real 7D line with many points.
-      // Old version sampled down to ~36 points, which made the line look rough/simple.
-      const chosen = maxT > 0 ? pts.filter((p) => p.t >= (maxT - sevenDayMs)) : pts;
-      const src = chosen.length >= 12 ? chosen : pts;
-
-      const maxPoints = 120;
-      const step = Math.max(1, Math.ceil(src.length / maxPoints));
-      const sampled = src
-        .filter((_, i) => i % step === 0)
-        .map((p) => p.v)
-        .filter((v) => Number.isFinite(v) && v > 0);
-
-      const last = src[src.length - 1]?.v;
-      if (Number.isFinite(last) && last > 0 && sampled[sampled.length - 1] !== last) sampled.push(last);
-
-      if (sampled.length >= 8) return sampled;
+    // Keep the historical CoinGecko line cached, but make the visible endpoint live:
+    // every normal 30s watchlist snapshot supplies a fresh row.price, which replaces
+    // the rendered endpoint without another historical CoinGecko request.
+    const livePrice = Number(row?.price);
+    const live = clean.slice();
+    if (Number.isFinite(livePrice) && livePrice > 0) {
+      if (live.length) live[live.length - 1] = livePrice;
+      else live.push(livePrice);
     }
 
-    // Fallback only if no history is available. Keep it subtle, not zig-zaggy.
-    const price = Number(row?.price);
-    const chg = Number(row?.change24h);
-    if (!Number.isFinite(price) || price <= 0) return [];
-    const start = Number.isFinite(chg) ? price / (1 + chg / 100) : price * 0.985;
-    return Array.from({ length: 42 }, (_, i) => {
-      const t = i / 41;
-      const drift = start + (price - start) * t;
-      const wave = Math.sin(i * 0.55) * Math.abs(price) * 0.0018;
-      return drift + wave;
-    }).filter((v) => Number.isFinite(v) && v > 0);
+    const maxPoints = 120;
+    const step = Math.max(1, Math.ceil(live.length / maxPoints));
+    const sampled = live.filter((_, i) => i % step === 0);
+    const last = live[live.length - 1];
+    if (Number.isFinite(last) && sampled[sampled.length - 1] !== last) sampled.push(last);
+    return sampled;
   })();
 
+  // No fake/synthetic curve: if real CoinGecko history is unavailable, show no chart.
   if (values.length < 2) {
     return <div className="watchMiniSpark empty" aria-hidden="true">—</div>;
   }
@@ -2721,7 +2694,7 @@ function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, i
   const stroke = trendUp ? "var(--green)" : "var(--red)";
 
   return (
-    <div className="watchMiniSpark watchMiniSparkCg" title={`${sym} 7D chart`}>
+    <div className="watchMiniSpark watchMiniSparkCg" title={`${sym} 7D CoinGecko chart`}>
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
         <path
           d={d}
@@ -25999,7 +25972,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             sym={sym}
                             row={r}
                             idx={idx}
-                            seriesMap={compareSeries}
                             colorForSym={colorForSym}
                             lineClassForSym={lineClassForSym}
                           />

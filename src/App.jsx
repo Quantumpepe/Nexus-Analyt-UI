@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD421-AUTO-ONCHAIN-SESSION-REFRESH";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD422-FIX-WALLET-NOT-DEFINED";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -28596,7 +28596,7 @@ export default function App() {
 
   // BUILD421: silent on-chain session refresh for Trader/NKR controls — no System Info click needed.
   const _refreshOnchainSessionsSilent = useCallback(async () => {
-    const wa = String(footerWallet || wallet || "").trim();
+    const wa = String(footerWallet || "").trim();
     if (!wa || !/^0x[a-fA-F0-9]{40}$/i.test(wa)) return;
     if (coreVaultScanFlightRef.current) return;
     coreVaultScanFlightRef.current = true;
@@ -28675,16 +28675,16 @@ export default function App() {
       window.clearTimeout(timeoutId);
       coreVaultScanFlightRef.current = false;
     }
-  }, [footerWallet, wallet]);
+  }, [footerWallet]);
 
   // Auto-refresh on-chain sessions while wallet is connected (Trader/NKR need this for Pause/Stop).
   useEffect(() => {
-    const wa = String(footerWallet || wallet || "").trim();
+    const wa = String(footerWallet || "").trim();
     if (!wa || !/^0x[a-fA-F0-9]{40}$/i.test(wa)) return undefined;
     _refreshOnchainSessionsSilent();
     const id = window.setInterval(() => { _refreshOnchainSessionsSilent(); }, 45000);
     return () => window.clearInterval(id);
-  }, [footerWallet, wallet, _refreshOnchainSessionsSilent]);
+  }, [footerWallet, _refreshOnchainSessionsSilent]);
 
   const _recoverExactCoreVaultSession = async (sessionId, engine, chain = "ETH", chainId = 0) => {
     const normalizedEngine = String(engine || "").toUpperCase().replace("TRADING", "TRADER");

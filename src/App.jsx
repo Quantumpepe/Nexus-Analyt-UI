@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD425-TRADER-CONTROLS-CARD-ONLY";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD427-STOP-BUTTON-RED-FADE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9965,7 +9965,45 @@ useEffect(() => {
         return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "FINALIZED", "COMPLETED", "COMPLETE", "ARCHIVED"].includes(st);
       });
       if (restoredOpenSessions.length) {
-        setTradingSessions(() => restoredOpenSessions);
+        setTradingSessions((prev) => {
+          const prevList = Array.isArray(prev) ? prev : [];
+          return restoredOpenSessions.map((sess) => {
+            const sid = String(sess?.id || sess?.session_id || "");
+            const oid = String(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || "");
+            const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || "").toUpperCase();
+            const match = prevList.find((p) => {
+              const ps = String(p?.id || p?.session_id || "");
+              const po = String(p?.onchainSessionId || p?.onchain_session_id || p?.coreVaultSessionId || "");
+              const pc = String(p?.chain || p?.chainKey || (Array.isArray(p?.chains) ? p.chains[0] : "") || "").toUpperCase();
+              if (oid && po && oid === po) return true;
+              if (sid && ps && sid === ps) return true;
+              if (chain && pc && chain === pc && !po) return true;
+              return false;
+            }) || {};
+            const style = sess?.style || sess?.trading_style || match?.style || match?.trading_style || match?.strategy;
+            const risk = sess?.riskMode || sess?.risk_mode || match?.riskMode || match?.risk_mode;
+            return {
+              ...match,
+              ...sess,
+              style: style || undefined,
+              trading_style: style || undefined,
+              strategy: style || undefined,
+              riskMode: risk || undefined,
+              risk_mode: risk || undefined,
+              trading_risk_mode: risk || undefined,
+              maxTrades: sess?.maxTrades ?? sess?.max_trades ?? match?.maxTrades ?? match?.max_trades,
+              max_trades: sess?.max_trades ?? sess?.maxTrades ?? match?.max_trades ?? match?.maxTrades,
+              hardStopPct: sess?.hardStopPct ?? sess?.hard_stop_pct ?? match?.hardStopPct ?? match?.hard_stop_pct,
+              hard_stop_pct: sess?.hard_stop_pct ?? sess?.hardStopPct ?? match?.hard_stop_pct ?? match?.hardStopPct,
+              profitLockPct: sess?.profitLockPct ?? sess?.profit_lock_pct ?? match?.profitLockPct ?? match?.profit_lock_pct,
+              profit_lock_pct: sess?.profit_lock_pct ?? sess?.profitLockPct ?? match?.profit_lock_pct ?? match?.profitLockPct,
+              maxSlippagePct: sess?.maxSlippagePct ?? sess?.max_slippage_pct ?? match?.maxSlippagePct ?? match?.max_slippage_pct,
+              max_slippage_pct: sess?.max_slippage_pct ?? sess?.maxSlippagePct ?? match?.max_slippage_pct ?? match?.maxSlippagePct,
+              reuseProfitPct: sess?.reuseProfitPct ?? sess?.reuse_profit_pct ?? match?.reuseProfitPct ?? match?.reuse_profit_pct ?? 0,
+              meta: { ...(match?.meta || {}), ...(sess?.meta || {}), style, trading_style: style, risk_mode: risk },
+            };
+          });
+        });
         setActiveTradingSessionId((prev) => {
           const current = String(prev || "").trim();
           if (current && restoredOpenSessions.some((sess) => String(sess.id) === current)) return current;
@@ -10030,22 +10068,43 @@ useEffect(() => {
       const oid = onchainId(row);
       const chain = chainName(row) || String(activeTraderChainKey || activeGridChainKey || "ETH").toUpperCase();
       const settlementAsset = String(row?.settlementAsset || row?.asset || local?.settlementAsset || local?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH")).toUpperCase();
+      // Prefer exact onchain key match; else same-chain local session (settings often live there).
+      const localFallback = localSessions.find((s) => chainName(s) === chain && !terminal.has(String(s?.status || "").toUpperCase())) || {};
+      const src = (local && Object.keys(local).length) ? local : localFallback;
       merged.push({
-        ...local,
-        id: String(local?.id || local?.session_id || `TRADER-LIVE-${chain}-${oid}`),
-        session_id: String(local?.session_id || local?.id || `TRADER-LIVE-${chain}-${oid}`),
+        ...src,
+        id: String(src?.id || local?.id || local?.session_id || `TRADER-LIVE-${chain}-${oid}`),
+        session_id: String(src?.session_id || src?.id || local?.session_id || local?.id || `TRADER-LIVE-${chain}-${oid}`),
         onchainSessionId: oid,
         coreVaultSessionId: oid,
         chain,
         chains: [chain],
-        chainId: Number(row?.chainId || local?.chainId || 0),
+        chainId: Number(row?.chainId || src?.chainId || local?.chainId || 0),
         settlementAsset,
-        budgetUsd: Number(row?.budget || row?.budgetAmount || local?.budgetUsd || 0),
-        status: String(row?.statusLabel || row?.status || local?.status || "ACTIVE").toUpperCase(),
-        createdAt: Number(local?.createdAt || row?.createdAt || Date.now()),
-        updatedAt: Math.max(Number(local?.updatedAt || 0), Date.now()),
+        budgetUsd: Number(row?.budget || row?.budgetAmount || src?.budgetUsd || src?.approvedBudgetUsd || local?.budgetUsd || 0),
+        approvedBudgetUsd: Number(src?.approvedBudgetUsd || src?.budgetUsd || row?.budget || local?.approvedBudgetUsd || 0),
+        status: String(row?.statusLabel || row?.status || src?.status || local?.status || "ACTIVE").toUpperCase(),
+        style: src?.style || src?.trading_style || src?.strategy || local?.style || undefined,
+        trading_style: src?.trading_style || src?.style || src?.strategy || local?.trading_style || undefined,
+        strategy: src?.strategy || src?.style || src?.trading_style || local?.strategy || undefined,
+        riskMode: src?.riskMode || src?.risk_mode || local?.riskMode || undefined,
+        risk_mode: src?.risk_mode || src?.riskMode || local?.risk_mode || undefined,
+        trading_risk_mode: src?.trading_risk_mode || src?.risk_mode || local?.trading_risk_mode || undefined,
+        maxTrades: src?.maxTrades ?? src?.max_trades ?? local?.maxTrades,
+        max_trades: src?.max_trades ?? src?.maxTrades ?? local?.max_trades,
+        hardStopPct: src?.hardStopPct ?? src?.hard_stop_pct ?? local?.hardStopPct,
+        hard_stop_pct: src?.hard_stop_pct ?? src?.hardStopPct ?? local?.hard_stop_pct,
+        profitLockPct: src?.profitLockPct ?? src?.profit_lock_pct ?? local?.profitLockPct,
+        profit_lock_pct: src?.profit_lock_pct ?? src?.profitLockPct ?? local?.profit_lock_pct,
+        maxSlippagePct: src?.maxSlippagePct ?? src?.max_slippage_pct ?? local?.maxSlippagePct,
+        max_slippage_pct: src?.max_slippage_pct ?? src?.maxSlippagePct ?? local?.max_slippage_pct,
+        reuseProfitPct: src?.reuseProfitPct ?? src?.reuse_profit_pct ?? local?.reuseProfitPct ?? 0,
+        reuse_profit_pct: src?.reuse_profit_pct ?? src?.reuseProfitPct ?? local?.reuse_profit_pct ?? 0,
+        meta: { ...(src?.meta || local?.meta || {}), ...(row?.meta || {}), style: src?.style || src?.trading_style, trading_style: src?.trading_style || src?.style, risk_mode: src?.risk_mode || src?.riskMode },
+        createdAt: Number(src?.createdAt || local?.createdAt || row?.createdAt || Date.now()),
+        updatedAt: Math.max(Number(src?.updatedAt || 0), Number(local?.updatedAt || 0), Date.now()),
         source: "corevault_onchain",
-        runtimeBacked: !!(local && Object.keys(local).length),
+        runtimeBacked: !!(src && Object.keys(src).length),
         exactOnchainControl: true,
       });
     });
@@ -11458,14 +11517,13 @@ useEffect(() => {
       }
     }
 
-    // Keep the confirmed performance style (incl. Aggressive after warning).
-    // Do not force Tactical here — open sessions already carry style in meta, and the
-    // setup selector must stay aligned so the user sees what is actually active.
+    // BUILD426: after a session is created, always reset Performance to DYNAMIC.
+    // Aggressive must be chosen and confirmed again for every new session — never sticky.
+    setTradingStyle("DYNAMIC");
+    aggressiveRiskAcceptedRef.current = false;
+    setAggressiveRiskAcceptedForDraft(false);
     setAggressiveRiskPendingValue("");
     setAggressiveRiskConsentOpen(false);
-    if (String(sessionStyle || "").toUpperCase() !== "AGGRESSIVE") {
-      setAggressiveRiskAcceptedForDraft(false);
-    }
     setTradingBudgetUsd("");
     setTradingBudgetSplitInput("");
     setErrorMsg(`Trading budget confirmed: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Starting Trader...`);
@@ -11526,13 +11584,19 @@ useEffect(() => {
       setTradingSessionUpdatedTs(now);
       updateTradingPreparedSession({ status: "ACTIVE", startedAt: now, userAction: { started: true }, chain: selectedTraderChain });
       await refreshNexusBackendState();
+      // BUILD426: draft Performance always back to DYNAMIC after a successful start.
+      setTradingStyle("DYNAMIC");
+      aggressiveRiskAcceptedRef.current = false;
+      setAggressiveRiskAcceptedForDraft(false);
+      setAggressiveRiskPendingValue("");
+      setAggressiveRiskConsentOpen(false);
       setErrorMsg(`Trading started on ${selectedTraderChain}: ${sid}`);
     } catch (e) {
       setErrorMsg(`Start Trading failed: ${e?.message || e}`);
     } finally {
       setTradingStartBusy(false);
     }
-  }, [tradingStartBusy, wallet, tradingSessions, liveVaultChainByMode, tradingPreflight, handleTradingApproveBudget, activeGridChainKey, selectedTraderAssets, manualPayoutAsset, api, refreshNexusBackendState, setErrorMsg, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
+  }, [tradingStartBusy, wallet, tradingSessions, liveVaultChainByMode, tradingPreflight, handleTradingApproveBudget, activeGridChainKey, selectedTraderAssets, manualPayoutAsset, api, refreshNexusBackendState, setErrorMsg, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setTradingStyle, setAggressiveRiskAcceptedForDraft, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
 
   const resolveTraderOnchainControl = useCallback((sessionOverride = null) => {
     const sess = sessionOverride && typeof sessionOverride === "object" && !sessionOverride?.nativeEvent ? sessionOverride : (selectedTradingSession || {});
@@ -24974,8 +25038,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             const sessionMeta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
                             const pickSessionValue = (...vals) => vals.find((v) => v !== undefined && v !== null && String(v).trim() !== "");
                             const sessionChain = String(pickSessionValue((Array.isArray(sess?.chains) && sess.chains[0]), sess?.chain, sess?.chain_key, sessionMeta.chain, firstSessionSlot?.chain, firstSessionSlot?.chain_key, firstSessionMeta.chain, activeGridChainKey, DEFAULT_CHAIN, "")).toUpperCase();
-                            const sessionStyle = String(pickSessionValue(sess?.style, sess?.trading_style, sess?.strategy, sessionMeta.style, sessionMeta.trading_style, sessionMeta.strategy, firstSessionSlot?.style, firstSessionSlot?.trading_style, firstSessionSlot?.strategy, firstSessionMeta.style, firstSessionMeta.trading_style, firstSessionMeta.strategy, "")).toUpperCase();
-                            const sessionRiskMode = String(pickSessionValue(sess?.riskMode, sess?.risk_mode, sess?.trading_risk_mode, sessionMeta.riskMode, sessionMeta.risk_mode, sessionMeta.trading_risk_mode, firstSessionSlot?.riskMode, firstSessionSlot?.risk_mode, firstSessionSlot?.trading_risk_mode, firstSessionMeta.riskMode, firstSessionMeta.risk_mode, firstSessionMeta.trading_risk_mode, "")).toUpperCase();
+                            const sessionStyleRaw = String(pickSessionValue(sess?.style, sess?.trading_style, sess?.strategy, sessionMeta.style, sessionMeta.trading_style, sessionMeta.strategy, firstSessionSlot?.style, firstSessionSlot?.trading_style, firstSessionSlot?.strategy, firstSessionMeta.style, firstSessionMeta.trading_style, firstSessionMeta.strategy, "") || "").toUpperCase();
+                            const sessionStyle = (sessionStyleRaw && sessionStyleRaw !== "UNDEFINED" && sessionStyleRaw !== "NULL") ? sessionStyleRaw : "";
+                            const sessionRiskModeRaw = String(pickSessionValue(sess?.riskMode, sess?.risk_mode, sess?.trading_risk_mode, sessionMeta.riskMode, sessionMeta.risk_mode, sessionMeta.trading_risk_mode, firstSessionSlot?.riskMode, firstSessionSlot?.risk_mode, firstSessionSlot?.trading_risk_mode, firstSessionMeta.riskMode, firstSessionMeta.risk_mode, firstSessionMeta.trading_risk_mode, "") || "").toUpperCase();
+                            const sessionRiskMode = (sessionRiskModeRaw && sessionRiskModeRaw !== "UNDEFINED" && sessionRiskModeRaw !== "NULL") ? sessionRiskModeRaw : "";
                             const sessionMaxTrades = Number(pickSessionValue(sess?.maxTrades, sess?.max_trades, sessionMeta.maxTrades, sessionMeta.max_trades, firstSessionSlot?.maxTrades, firstSessionSlot?.max_trades, firstSessionMeta.maxTrades, firstSessionMeta.max_trades, NaN));
                             const sessionHardStop = Number(pickSessionValue(sess?.hardStopPct, sess?.hard_stop_pct, sessionMeta.hardStopPct, sessionMeta.hard_stop_pct, firstSessionSlot?.hardStopPct, firstSessionSlot?.hard_stop_pct, firstSessionMeta.hardStopPct, firstSessionMeta.hard_stop_pct, NaN));
                             const sessionProfitLock = Number(pickSessionValue(sess?.profitLockPct, sess?.profit_lock_pct, sessionMeta.profitLockPct, sessionMeta.profit_lock_pct, firstSessionSlot?.profitLockPct, firstSessionSlot?.profit_lock_pct, firstSessionMeta.profitLockPct, firstSessionMeta.profit_lock_pct, NaN));
@@ -25084,13 +25150,30 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        if (!sid || stateLabel === "STOPPING" || stateLabel === "STOPPED") return;
-                                        // Same stable path as global Trader stop: STOPPING first, then close.
+                                        if (!sid || stateLabel === "STOPPING" || stateLabel === "STOPPED" || tradingStopBusy) return;
                                         setActiveTradingSessionId(sid);
+                                        // Immediate visual feedback: status STOPPING + busy before await returns.
+                                        setTradingSessionStatus("STOPPING");
+                                        updateTradingSessionMeta(sid, { status: "STOPPING", stoppingAt: Date.now() });
                                         handleTradingStopSession(sid, sess);
                                       }}
                                       disabled={!sid || stateLabel === "STOPPED" || stateLabel === "STOPPING" || tradingStopBusy}
-                                      style={{ color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)", opacity: (stateLabel === "STOPPING" || tradingStopBusy) ? 0.55 : 1 }}
+                                      style={{
+                                        color: "#fff",
+                                        background: (stateLabel === "STOPPING" || tradingStopBusy)
+                                          ? "rgba(180, 40, 40, 0.35)"
+                                          : "linear-gradient(180deg, #e53935 0%, #b71c1c 100%)",
+                                        borderColor: (stateLabel === "STOPPING" || tradingStopBusy)
+                                          ? "rgba(255, 100, 100, 0.25)"
+                                          : "rgba(255, 80, 80, 0.65)",
+                                        opacity: (stateLabel === "STOPPING" || tradingStopBusy) ? 0.45 : 1,
+                                        fontWeight: 900,
+                                        boxShadow: (stateLabel === "STOPPING" || tradingStopBusy)
+                                          ? "none"
+                                          : "0 0 0 1px rgba(255,120,120,.2), 0 2px 8px rgba(180,0,0,.25)",
+                                        transition: "opacity 0.2s ease, background 0.2s ease, box-shadow 0.2s ease",
+                                        cursor: (stateLabel === "STOPPING" || tradingStopBusy) ? "not-allowed" : "pointer",
+                                      }}
                                       title="Stop this Trading session (stays visible as stopping until closed)"
                                     >
                                       {(stateLabel === "STOPPING" || tradingStopBusy) ? "Stopping…" : "Protect / Stop"}

@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.11-BUILD408-WATCHLIST-CG-7D-SPARKLINE";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD409-RECOVERY-JOBS-SCOPE-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -2620,37 +2620,64 @@ function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym
   );
 }
 
-function InlineWatchSpark({ sym, row, colorForSym, lineClassForSym, idx = 0 }) {
-  // BUILD408: Watchlist 7D chart uses only the dedicated CoinGecko 7D sparkline
-  // returned with the watchlist snapshot. It no longer borrows /api/compare data.
-  const baseSeries = Array.isArray(row?.sparkline7d) ? row.sparkline7d : [];
+function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, idx = 0 }) {
+  const fullSeries = Array.isArray(seriesMap?.[sym]) ? (seriesMap[sym] || []) : [];
 
   const values = (() => {
-    const clean = baseSeries
-      .map((v) => Number(Array.isArray(v) ? v?.[1] : (v?.price ?? v?.value ?? v)))
-      .filter((v) => Number.isFinite(v) && v > 0);
+    const normalize = (pts) => (pts || [])
+      .map((pt) => {
+        if (Array.isArray(pt)) {
+          const t = Number(pt[0]);
+          const v = Number(pt[1]);
+          return Number.isFinite(t) && Number.isFinite(v) && v > 0 ? { t, v } : null;
+        }
+        if (pt && typeof pt === "object") {
+          const t = Number(pt.t ?? pt.time ?? pt.ts ?? pt.x ?? 0);
+          const v = Number(pt.v ?? pt.price ?? pt.value ?? pt.close ?? pt.y);
+          return Number.isFinite(t) && Number.isFinite(v) && v > 0 ? { t, v } : null;
+        }
+        return null;
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.t - b.t);
 
-    if (clean.length < 8) return [];
+    const pts = normalize(fullSeries);
 
-    // Keep the historical CoinGecko line cached, but make the visible endpoint live:
-    // every normal 30s watchlist snapshot supplies a fresh row.price, which replaces
-    // the rendered endpoint without another historical CoinGecko request.
-    const livePrice = Number(row?.price);
-    const live = clean.slice();
-    if (Number.isFinite(livePrice) && livePrice > 0) {
-      if (live.length) live[live.length - 1] = livePrice;
-      else live.push(livePrice);
+    if (pts.length) {
+      const maxT = Number(pts[pts.length - 1]?.t || 0);
+      const sevenDayMs = 7 * 24 * 60 * 60 * 1000;
+
+      // CoinGecko-style: use the real 7D line with many points.
+      // Old version sampled down to ~36 points, which made the line look rough/simple.
+      const chosen = maxT > 0 ? pts.filter((p) => p.t >= (maxT - sevenDayMs)) : pts;
+      const src = chosen.length >= 12 ? chosen : pts;
+
+      const maxPoints = 120;
+      const step = Math.max(1, Math.ceil(src.length / maxPoints));
+      const sampled = src
+        .filter((_, i) => i % step === 0)
+        .map((p) => p.v)
+        .filter((v) => Number.isFinite(v) && v > 0);
+
+      const last = src[src.length - 1]?.v;
+      if (Number.isFinite(last) && last > 0 && sampled[sampled.length - 1] !== last) sampled.push(last);
+
+      if (sampled.length >= 8) return sampled;
     }
 
-    const maxPoints = 120;
-    const step = Math.max(1, Math.ceil(live.length / maxPoints));
-    const sampled = live.filter((_, i) => i % step === 0);
-    const last = live[live.length - 1];
-    if (Number.isFinite(last) && sampled[sampled.length - 1] !== last) sampled.push(last);
-    return sampled;
+    // Fallback only if no history is available. Keep it subtle, not zig-zaggy.
+    const price = Number(row?.price);
+    const chg = Number(row?.change24h);
+    if (!Number.isFinite(price) || price <= 0) return [];
+    const start = Number.isFinite(chg) ? price / (1 + chg / 100) : price * 0.985;
+    return Array.from({ length: 42 }, (_, i) => {
+      const t = i / 41;
+      const drift = start + (price - start) * t;
+      const wave = Math.sin(i * 0.55) * Math.abs(price) * 0.0018;
+      return drift + wave;
+    }).filter((v) => Number.isFinite(v) && v > 0);
   })();
 
-  // No fake/synthetic curve: if real CoinGecko history is unavailable, show no chart.
   if (values.length < 2) {
     return <div className="watchMiniSpark empty" aria-hidden="true">—</div>;
   }
@@ -2694,7 +2721,7 @@ function InlineWatchSpark({ sym, row, colorForSym, lineClassForSym, idx = 0 }) {
   const stroke = trendUp ? "var(--green)" : "var(--red)";
 
   return (
-    <div className="watchMiniSpark watchMiniSparkCg" title={`${sym} 7D CoinGecko chart`}>
+    <div className="watchMiniSpark watchMiniSparkCg" title={`${sym} 7D chart`}>
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
         <path
           d={d}
@@ -3139,7 +3166,8 @@ function EngineEventHistory({ engine, events = [] }) {
   );
 }
 
-function AppInner({ coreVaultSessionPreview = null }) {
+function AppInner({ coreVaultSessionPreview = null, coreVaultRecoveryJobs: coreVaultRecoveryJobsProp = null }) {
+  const coreVaultRecoveryJobs = (coreVaultRecoveryJobsProp && typeof coreVaultRecoveryJobsProp === 'object') ? coreVaultRecoveryJobsProp : {};
 
   // Multi-chain config: five primary EVM networks are always visible; configured V5 Vaults activate automatically.
   const CHAIN_ID = { ETH: 1, POL: 137, BNB: 56, ARB: 42161, OP: 10, BASE: 8453, AVAX: 43114, FTM: 250 };
@@ -5185,10 +5213,7 @@ useEffect(() => {
         nkrCapitalMode: String(sessionConfig?.nkrCapitalMode || nkrCapitalMode || "DYNAMIC").toUpperCase(),
         nkrObservationWindow: String(sessionConfig?.nkrObservationWindow || nkrObservationWindow || "1h"),
         nkrProfitMode: String(sessionConfig?.nkrProfitMode || nkrProfitMode || "REINVEST").toUpperCase(),
-        nkrPeriodValue: Math.max(1, Number(sessionConfig?.nkrPeriodValue ?? nkrPeriodDays ?? 1) || 1),
-        nkrPeriodUnit: String(sessionConfig?.nkrPeriodUnit || nkrPeriodUnit || "days").toLowerCase(),
-        nkrPeriodHours: Math.max(1, Number(sessionConfig?.nkrPeriodHours ?? normalizeNkrPeriodHours(sessionConfig?.nkrPeriodValue ?? nkrPeriodDays, sessionConfig?.nkrPeriodUnit ?? nkrPeriodUnit)) || 1),
-        nkrPeriodDays: Math.max(1 / 24, Number(sessionConfig?.nkrPeriodHours ?? normalizeNkrPeriodHours(sessionConfig?.nkrPeriodValue ?? nkrPeriodDays, sessionConfig?.nkrPeriodUnit ?? nkrPeriodUnit)) / 24),
+        nkrPeriodDays: Math.max(1, Number(sessionConfig?.nkrPeriodDays || nkrPeriodDays || 1)),
         maxActiveAssets: Math.max(0, Math.floor(Number(sessionConfig?.maxActiveAssets ?? rotationMaxActiveSessions ?? 0) || 0)),
         maxCapitalPerAssetPct: Math.max(0, Number(sessionConfig?.maxCapitalPerAssetPct ?? 80) || 80),
       } : {}),
@@ -5268,7 +5293,6 @@ useEffect(() => {
             budgetUsd: budget, settlementAsset: selectedAsset,
             nkrCapitalMode: bodyPayload.nkrCapitalMode, nkrObservationWindow: bodyPayload.nkrObservationWindow,
             nkrProfitMode: bodyPayload.nkrProfitMode, nkrPeriodDays: bodyPayload.nkrPeriodDays,
-            nkrPeriodHours: bodyPayload.nkrPeriodHours, nkrPeriodUnit: bodyPayload.nkrPeriodUnit, nkrPeriodValue: bodyPayload.nkrPeriodValue,
             meta: { async_job_id: jobId, chain: "ETH", chain_id: 1, lifecycle_state: "STARTING", nkr_session: true },
           },
         ]));
@@ -5287,23 +5311,11 @@ useEffect(() => {
             setRotationSessions(canonicalizeNkrSessions(Array.isArray(live?.sessions) ? live.sessions : []));
             setActiveRotationSessionId(String(live?.activeRotationSessionId || ""));
             setNkrControlState(String(live?.controlState || "RUNNING").toUpperCase());
-            if (systemU === "NKR") {
-              const exactLive = (Array.isArray(live?.sessions) ? live.sessions : []).find((x) => String(x?.onchainSessionId || x?.onchain_session_id || x?.coreVaultSessionId || "") === String(job?.sessionId || ""));
-              const confirmedMode = String(exactLive?.nkrCapitalMode || exactLive?.capitalMode || exactLive?.meta?.nkr_capital_mode || nkrStartModeRef.current || bodyPayload.nkrCapitalMode || "DYNAMIC").toUpperCase();
-              nkrCapitalModeRef.current = confirmedMode;
-              setNkrCapitalMode(confirmedMode);
-              nkrStartPendingRef.current = false;
-              nkrStartModeRef.current = "";
-            }
             setRotationBackendMsg(`ETH NKR session #${job?.sessionId || ""} confirmed and active.`);
             await Promise.allSettled([refreshCoreVaultOnchain(), refreshCoreVaultAccounting()]);
             return;
           }
           if (js === "error") {
-            if (systemU === "NKR") {
-              nkrStartPendingRef.current = false;
-              nkrStartModeRef.current = "";
-            }
             setRotationBackendMsg(`ETH session start failed: ${job?.error || "unknown error"}`);
             setNkrControlState("WAITING");
             return;
@@ -8716,25 +8728,11 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // React state can still contain the previous mode in the same click cycle after
   // Aggressive consent; this ref prevents a consented AGGRESSIVE start becoming DYNAMIC.
   const nkrCapitalModeRef = useRef("DYNAMIC");
-  // BUILD407: keep the exact selected NKR mode locked while an async CoreVault create is pending.
-  // Delayed app-state hydration must never overwrite AGGRESSIVE with an older DYNAMIC draft.
-  const nkrStartPendingRef = useRef(false);
-  const nkrStartModeRef = useRef("");
   useEffect(() => { nkrCapitalModeRef.current = String(nkrCapitalMode || "DYNAMIC").toUpperCase(); }, [nkrCapitalMode]);
   const [nkrObservationWindow, setNkrObservationWindow] = useState("1h");
   const [nkrSessionInfoOpen, setNkrSessionInfoOpen] = useState(null);
   const [nkrProfitMode, setNkrProfitMode] = useState("REINVEST");
-  // BUILD406: NKR period can be entered in hours or days. The numeric draft stays
-  // separate from the unit so 2 hours is never rounded up to 1 day.
   const [nkrPeriodDays, setNkrPeriodDays] = useState("10");
-  const [nkrPeriodUnit, setNkrPeriodUnit] = useState("days");
-  const normalizeNkrPeriodHours = useCallback((value = nkrPeriodDays, unit = nkrPeriodUnit) => {
-    const n = Number(String(value ?? "").replace(",", "."));
-    const safe = Number.isFinite(n) && n > 0 ? n : 1;
-    const u = String(unit || "days").toLowerCase();
-    const hours = u.startsWith("day") || u === "tage" ? safe * 24 : safe;
-    return Math.max(1, Math.round(hours * 100) / 100);
-  }, [nkrPeriodDays, nkrPeriodUnit]);
   const [nkrControlState, setNkrControlState] = useState("WAITING");
   // Soft clock so Strategist "Crypto Moves" rotates every ~10s without a full reload
   const [strategistMovesTick, setStrategistMovesTick] = useState(0);
@@ -8785,14 +8783,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     const st = String(sess?.status || "APPROVED").toUpperCase();
     // FINALIZED / STOPPING must never count as runnable (restart after on-chain finalize).
     if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL", "FINALIZED", "STOPPING", "FINALIZING", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED", "CANCELLED"].includes(st)) return false;
-    const explicitHours = Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || sess?.meta?.runtime_hours || 0);
-    const fallbackDays = Number(sess?.periodDays || sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || 0);
-    const periodHours = explicitHours > 0 ? explicitHours : (fallbackDays > 0 ? fallbackDays * 24 : normalizeNkrPeriodHours());
+    const periodDays = Math.max(1, Number(sess?.periodDays || sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || nkrPeriodDays || 10));
     const start = Number(sess?.campaignStartedAt || sess?.meta?.campaign_started_at || sess?.startedAt || sess?.createdAt || 0);
-    const periodExpiry = start > 0 ? start + periodHours * 60 * 60 * 1000 : 0;
+    const periodExpiry = start > 0 ? start + periodDays * 24 * 60 * 60 * 1000 : 0;
     const exp = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || periodExpiry || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
     return !exp || exp > now;
-  }, [nkrPeriodDays, nkrPeriodUnit, normalizeNkrPeriodHours]);
+  }, [nkrPeriodDays]);
 
   // Multi-session support: each later budget approval becomes an independent user-bounded session.
   // Existing sessions are preserved; new Trading/NKR sessions get their own session_id.
@@ -9104,9 +9100,6 @@ useEffect(() => {
       setRotationBackendMsg("Confirm the Aggressive risk warning before starting this NKR session.");
       return;
     }
-    nkrStartPendingRef.current = true;
-    nkrStartModeRef.current = startedNkrCapitalMode;
-    nkrCapitalModeRef.current = startedNkrCapitalMode;
     let coreVaultSession = null;
     try {
       setRotationBackendLoading(true);
@@ -9114,7 +9107,7 @@ useEffect(() => {
       coreVaultSession = await createCoreVaultSystemSession({
         system: "NKR",
         budgetUsd: amount,
-        durationHours: normalizeNkrPeriodHours(),
+        durationHours: Math.max(24, Math.round((Number(nkrPeriodDays) || 10) * 24)),
         maxSlippageBps: Math.round((Number(rotationMaxSlippage) || 1) * 100),
         maxLossBps: Math.round((Number(rotationRiskLimit) || 15) * 100),
         chain: startChainCheck,
@@ -9123,10 +9116,7 @@ useEffect(() => {
           nkrCapitalMode: startedNkrCapitalMode,
           nkrObservationWindow,
           nkrProfitMode,
-          nkrPeriodValue: nkrPeriodDays,
-          nkrPeriodUnit,
-          nkrPeriodHours: normalizeNkrPeriodHours(),
-          nkrPeriodDays: normalizeNkrPeriodHours() / 24,
+          nkrPeriodDays,
           maxActiveAssets: rotationMaxActiveSessions,
           maxCapitalPerAssetPct: 80,
         },
@@ -9137,8 +9127,6 @@ useEffect(() => {
         setRotationCapitalTopup("");
         return;
       }
-      nkrStartPendingRef.current = false;
-      nkrStartModeRef.current = "";
       setRotationBackendMsg(`NKR started on ${startChainCheck}. Capital reserved · scanning ${startChainCheck}-tradable assets.`);
       setRotationCapitalTopup("");
     } catch (e) {
@@ -9171,8 +9159,6 @@ useEffect(() => {
       else if (noFree) userMessage = `Not enough free USDC on ${startChainCheck} vault. Deposit USDC on ${startChainCheck}, then start again.`;
       else if (privyBlocked) userMessage = `Privy live execution is not ready for ${startChainCheck}. Check policy / wallet mapping for that chain.`;
       else if (notConnected) userMessage = `${startChainCheck} CoreVault is not connected. Switch chain in Live Core Vault Capital and wait for LIVE CONNECTED.`;
-      nkrStartPendingRef.current = false;
-      nkrStartModeRef.current = "";
       setRotationBackendMsg(userMessage);
       setErrorMsg(userMessage);
       setRotationBackendLoading(false);
@@ -9181,8 +9167,8 @@ useEffect(() => {
       setRotationBackendLoading(false);
     }
 
-    const runtimeHours = normalizeNkrPeriodHours();
-    const periodDays = runtimeHours / 24;
+    const periodDays = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
+    const runtimeHours = periodDays * 24;
     const now = Date.now();
 
     // Pick the next NKR target from the same pipeline that the Strategist uses.
@@ -9314,7 +9300,7 @@ useEffect(() => {
       nkrCapitalModeRef.current = startedNkrCapitalMode;
       setNkrCapitalMode(startedNkrCapitalMode);
     }
-  }, [rotationBudgetRelease, rotationCapitalTopup, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, nkrPeriodUnit, normalizeNkrPeriodHours, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, setNkrCapitalMode, nkrAggressiveAcceptedForDraft, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
+  }, [rotationBudgetRelease, rotationCapitalTopup, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, setNkrCapitalMode, nkrAggressiveAcceptedForDraft, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
 
   const startRotationSafeMode = useCallback(async () => {
     // SAFE MODE only: preview + backend safety check. No swap, no Vault transaction.
@@ -11835,7 +11821,7 @@ useEffect(() => {
     // Only reset Aggressive when there is no live NKR run. Changing "Add Capital" while
     // Aggressive is active must not silently drop the consented mode.
     const hasLiveNkr = Array.isArray(rotationSessions) && rotationSessions.some((s) => !["STOPPED", "EXPIRED", "CLOSED", "DELETED", "ARCHIVED", "REBALANCED_OUT", "FINALIZED", "COMPLETE", "COMPLETED", "CANCELLED", "RELEASED"].includes(String(s?.status || "").toUpperCase()));
-    if (!hasLiveNkr && !nkrStartPendingRef.current) {
+    if (!hasLiveNkr) {
       resetNkrAggressiveDraftSelection();
     }
     setRotationBudgetRelease(value);
@@ -12368,31 +12354,10 @@ useEffect(() => {
         if (rotationSettingsSource.rotationMaxSlippage != null) setRotationMaxSlippage(String(rotationSettingsSource.rotationMaxSlippage));
         if (rotationSettingsSource.rotationMinNetAdvantage != null) setRotationMinNetAdvantage(String(rotationSettingsSource.rotationMinNetAdvantage));
         if (rotationSettingsSource.rotationMode != null) setRotationMode(String(rotationSettingsSource.rotationMode));
-        if (rotationSettingsSource.nkrCapitalMode != null && !nkrStartPendingRef.current) setNkrCapitalMode(String(rotationSettingsSource.nkrCapitalMode));
+        if (rotationSettingsSource.nkrCapitalMode != null) setNkrCapitalMode(String(rotationSettingsSource.nkrCapitalMode));
         if (rotationSettingsSource.nkrObservationWindow != null) setNkrObservationWindow(String(rotationSettingsSource.nkrObservationWindow));
         if (rotationSettingsSource.nkrProfitMode != null) setNkrProfitMode(String(rotationSettingsSource.nkrProfitMode));
-        if (rotationSettingsSource.nkrPeriodUnit != null || rotationSettingsSource.nkrPeriodHours != null || rotationSettingsSource.nkrPeriodDays != null) {
-          const restoredUnit = String(rotationSettingsSource.nkrPeriodUnit || (Number(rotationSettingsSource.nkrPeriodHours || 0) < 24 ? "hours" : "days")).toLowerCase();
-          const restoredHours = Number(rotationSettingsSource.nkrPeriodHours);
-          const restoredDays = Number(rotationSettingsSource.nkrPeriodDays);
-          const restoredValue = Number(rotationSettingsSource.nkrPeriodValue);
-          // BUILD406 migration: BUILD405 could persist a day-fraction (2h => 0.083333d)
-          // while the unit was already "hours". Prefer the canonical hours field in that case.
-          let draftValue;
-          if (restoredUnit === "hours") {
-            const valueLooksLikeDayFraction = Number.isFinite(restoredValue) && restoredValue > 0 && restoredValue < 1 && Number.isFinite(restoredHours) && restoredHours >= 1;
-            draftValue = valueLooksLikeDayFraction ? restoredHours
-              : (Number.isFinite(restoredValue) && restoredValue > 0 ? restoredValue
-              : (Number.isFinite(restoredHours) && restoredHours > 0 ? restoredHours
-              : (Number.isFinite(restoredDays) && restoredDays > 0 ? restoredDays * 24 : 1)));
-          } else {
-            draftValue = Number.isFinite(restoredValue) && restoredValue > 0 ? restoredValue
-              : (Number.isFinite(restoredDays) && restoredDays > 0 ? restoredDays
-              : (Number.isFinite(restoredHours) && restoredHours > 0 ? restoredHours / 24 : 1));
-          }
-          setNkrPeriodUnit(restoredUnit);
-          setNkrPeriodDays(String(Math.round(draftValue * 1000000) / 1000000));
-        }
+        if (rotationSettingsSource.nkrPeriodDays != null) setNkrPeriodDays(String(rotationSettingsSource.nkrPeriodDays));
         if (rotationSettingsSource.rotationBudgetRelease != null) setRotationBudgetRelease(String(rotationSettingsSource.rotationBudgetRelease));
         if (rotationSettingsSource.rotationShadowSnapshot && typeof rotationSettingsSource.rotationShadowSnapshot === "object") setRotationShadowSnapshot(rotationSettingsSource.rotationShadowSnapshot);
         if (Array.isArray(rotationSettingsSource.rotationShadowEvents)) setRotationShadowEvents(rotationSettingsSource.rotationShadowEvents);
@@ -12463,10 +12428,7 @@ useEffect(() => {
         nkrCapitalMode,
         nkrObservationWindow,
         nkrProfitMode,
-        nkrPeriodValue: nkrPeriodDays,
-        nkrPeriodUnit,
-        nkrPeriodHours: normalizeNkrPeriodHours(),
-        nkrPeriodDays: normalizeNkrPeriodHours() / 24,
+        nkrPeriodDays,
         rotationBudgetRelease,
         rotationShadowSnapshot,
         rotationShadowEvents: (Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []),
@@ -12487,7 +12449,7 @@ useEffect(() => {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, nkrPeriodUnit, normalizeNkrPeriodHours, rotationBudgetRelease, rotationShadowSnapshot, rotationShadowEvents, rotationNetworkScope, setAppStateSyncedWallet, storeAppStateServerTs]);
+  }, [wallet, token, compareSet, timeframe, indexMode, aiSelected, watchSortMode, gridMode, activeGridChainKey, gridChain, gridItem, tradingRuntimeHours, tradingRuntimeUnit, tradingHoldHours, tradingAllowedAssets, tradingAllowedChains, tradingRiskMode, tradingCautionDrawdownPct, tradingHardStopPct, tradingProfitLockPct, tradingReuseProfitPct, tradingMaxCombinedSlots, tradingMaxSlippagePct, tradingMaxTrades, tradingConfidenceMin, tradingStyle, tradingBudgetUsd, tradingBudgetSplitInput, tradingSessions, activeTradingSessionId, rotationRuntimeHours, rotationMaxActiveSessions, rotationRiskLimit, rotationMaxSlippage, rotationMinNetAdvantage, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationBudgetRelease, rotationShadowSnapshot, rotationShadowEvents, rotationNetworkScope, setAppStateSyncedWallet, storeAppStateServerTs]);
 
   // Rotation runtime persistence: backend-first, wallet-bound, Trading-style.
   // The Rotation lifecycle is stored through /api/rotation-sessions. /api/app-state only keeps settings/display state.
@@ -13078,10 +13040,7 @@ const [aiLoading, setAiLoading] = useState(false);
                 nkrCapitalMode,
                 nkrProfitMode,
                 nkrObservationWindow,
-                nkrPeriodValue: nkrPeriodDays,
-                nkrPeriodUnit,
-                nkrPeriodHours: normalizeNkrPeriodHours(),
-                nkrPeriodDays: normalizeNkrPeriodHours() / 24,
+                nkrPeriodDays,
                 nkrBudgetUsd: Number.isFinite(typedBudgetStart) ? typedBudgetStart : 0,
                 totalNkrBudgetUsd: Number.isFinite(typedBudgetStart) ? typedBudgetStart : 0,
               },
@@ -13113,7 +13072,7 @@ const [aiLoading, setAiLoading] = useState(false);
         }
       }
       if (!sessions.length && !silent && Number.isFinite(typedBudgetStart) && typedBudgetStart > 0) {
-        const periodDays = normalizeNkrPeriodHours() / 24;
+        const periodDays = Math.max(1, Math.floor(Number(String(nkrPeriodDays || "10").replace(",", ".")) || 10));
         const activeLimitRaw = Number(String(rotationMaxActiveSessions || "3").replace(",", "."));
         const activeLimit = Math.max(1, Number.isFinite(activeLimitRaw) ? Math.floor(activeLimitRaw) : 3);
         const modeU = String(nkrCapitalMode || "DYNAMIC").toUpperCase();
@@ -13233,11 +13192,7 @@ const [aiLoading, setAiLoading] = useState(false);
               nkrCapitalMode,
               nkrObservationWindow,
               nkrProfitMode,
-              nkrPeriodDays: normalizeNkrPeriodHours() / 24,
-              nkrPeriodHours: normalizeNkrPeriodHours(),
-              nkrPeriodUnit,
-              nkrPeriodValue: nkrPeriodDays,
-              runtimeHours: normalizeNkrPeriodHours(),
+              nkrPeriodDays,
               chain: candidateChain,
               symbol: candidateSymbol,
               sourceSymbol,
@@ -13257,11 +13212,7 @@ const [aiLoading, setAiLoading] = useState(false);
                 nkr_capital_mode: nkrCapitalMode,
                 nkr_observation_window: nkrObservationWindow,
                 nkr_profit_mode: nkrProfitMode,
-                nkr_period_days: normalizeNkrPeriodHours() / 24,
-                nkr_period_hours: normalizeNkrPeriodHours(),
-                nkr_period_unit: nkrPeriodUnit,
-                nkr_period_value: nkrPeriodDays,
-                runtime_hours: normalizeNkrPeriodHours(),
+                nkr_period_days: nkrPeriodDays,
                 nkr_portfolio_allocation: true,
                 nkr_allocation_rank: idx + 1,
                 nkr_allocation_pct: typedBudgetStart > 0 ? Number(((amount / typedBudgetStart) * 100).toFixed(2)) : 0,
@@ -13288,9 +13239,9 @@ const [aiLoading, setAiLoading] = useState(false);
         || null;
       if (sessions.length && !firstActive) {
         setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
-          const pHours = Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || sess?.meta?.runtime_hours || 0) || (Number(sess?.periodDays || sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || 0) * 24) || normalizeNkrPeriodHours();
+          const pDays = Math.max(1, Number(sess?.periodDays || sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || nkrPeriodDays || 10));
           const pStart = Number(sess?.campaignStartedAt || sess?.meta?.campaign_started_at || sess?.startedAt || sess?.createdAt || 0);
-          const exp = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || (pStart > 0 ? pStart + pHours * 60 * 60 * 1000 : 0) || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
+          const exp = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || (pStart > 0 ? pStart + pDays * 24 * 60 * 60 * 1000 : 0) || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
           const st = String(sess?.status || "APPROVED").toUpperCase();
           if (exp && exp <= nowStart && !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st)) {
             return { ...sess, status: "EXPIRED", expiredAt: nowStart, updatedAt: nowStart };
@@ -13625,11 +13576,7 @@ const [aiLoading, setAiLoading] = useState(false);
             nkrCapitalMode,
             nkrObservationWindow,
             nkrProfitMode,
-            nkrPeriodDays: normalizeNkrPeriodHours() / 24,
-            nkrPeriodHours: normalizeNkrPeriodHours(),
-            nkrPeriodUnit,
-            nkrPeriodValue: nkrPeriodDays,
-            runtimeHours: normalizeNkrPeriodHours(),
+            nkrPeriodDays,
             chain: String(promotionCandidate?.chain || chain || activeGridChainKey || "ALL").toUpperCase(),
             symbol: promotionCandidate.symbol,
             sourceSymbol: promotionCandidate.symbol,
@@ -13908,7 +13855,7 @@ const [aiLoading, setAiLoading] = useState(false);
     } finally {
       setRotationShadowBusy(false);
     }
-  }, [rotationShadowBusy, rotationSessions, activeRotationSessionId, rotationBudgetRelease, rotationSelectedPick, activeGridChainKey, gridItem, rotationMaxSlippage, buildRotationShadowAssets, wallet, token, rotationMinNetAdvantage, rotationRiskLimit, isRotationSessionRunnable, manualPayoutAsset, nkrControlState, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, nkrPeriodUnit, normalizeNkrPeriodHours, rotationNetworkScope, makeNexusSessionId]);
+  }, [rotationShadowBusy, rotationSessions, activeRotationSessionId, rotationBudgetRelease, rotationSelectedPick, activeGridChainKey, gridItem, rotationMaxSlippage, buildRotationShadowAssets, wallet, token, rotationMinNetAdvantage, rotationRiskLimit, isRotationSessionRunnable, manualPayoutAsset, nkrControlState, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, rotationNetworkScope, makeNexusSessionId]);
 
   useInterval(() => {
     const now = Date.now();
@@ -23147,7 +23094,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       );
                       const nkrOverviewStartTs = nkrStartCandidates.length ? Math.min(...nkrStartCandidates) : fallbackNkrStartTs;
                       const configuredNkrEndTs = nkrOverviewStartTs > 0
-                        ? nkrOverviewStartTs + normalizeNkrPeriodHours() * 60 * 60 * 1000
+                        ? nkrOverviewStartTs + Math.max(1, Number(nkrPeriodDays || 1)) * 24 * 60 * 60 * 1000
                         : 0;
                       const nkrOverviewEndTs = nkrExplicitEndCandidates.length
                         ? Math.max(...nkrExplicitEndCandidates)
@@ -23518,9 +23465,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   currentPositionPrice > 0 && positionQty > 0 ? currentPositionPrice * positionQty : 0,
                                   livePrice > 0 && positionQty > 0 ? livePrice * positionQty : 0,
                                 );
-                                let gross = Number(sess?.liveGrossProfitUsd ?? sess?.meta?.nkr_live_gross_profit_usd ?? sess?.grossProfitUsd ?? sess?.meta?.grossProfitUsd ?? 0) || 0;
-                                let costs = Number(sess?.liveCostsUsd ?? sess?.meta?.nkr_live_costs_usd ?? sess?.costsUsd ?? sess?.meta?.costsUsd ?? 0) || 0;
-                                let net = Number(sess?.liveNetProfitUsd ?? sess?.meta?.nkr_live_net_profit_usd ?? sess?.netProfitUsd ?? sess?.meta?.netProfitUsd ?? 0) || 0;
+                                let gross = Number(sess?.grossProfitUsd ?? sess?.liveGrossProfitUsd ?? sess?.meta?.nkr_live_gross_profit_usd ?? sess?.meta?.grossProfitUsd ?? 0) || 0;
+                                let costs = Number(sess?.costsUsd ?? sess?.liveCostsUsd ?? sess?.meta?.nkr_live_costs_usd ?? sess?.meta?.costsUsd ?? 0) || 0;
+                                let net = Number(sess?.netProfitUsd ?? sess?.liveNetProfitUsd ?? sess?.meta?.nkr_live_net_profit_usd ?? sess?.meta?.netProfitUsd ?? 0) || 0;
                                 if (hasOpenPosition && Math.abs(gross) < 1e-9 && investedLive > 0 && markValue > 0) {
                                   gross = markValue - investedLive;
                                 }
@@ -23680,9 +23627,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             mode: sessionCapitalMode,
                                             observation: String(sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || immutableSessionSnapshot?.observationWindow || nkrObservationWindow || "1h"),
                                             profitMode: String(sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || immutableSessionSnapshot?.profitMode || nkrProfitMode || "REINVEST").toUpperCase(),
-                                            periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || immutableSessionSnapshot?.periodDays || (normalizeNkrPeriodHours() / 24)),
-                                            periodHours: Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || sess?.meta?.runtime_hours || immutableSessionSnapshot?.periodHours || normalizeNkrPeriodHours()),
-                                            periodUnit: String(sess?.nkrPeriodUnit || sess?.meta?.nkr_period_unit || nkrPeriodUnit || "days"),
+                                            periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || immutableSessionSnapshot?.periodDays || nkrPeriodDays || 10),
                                             maxAssets: Number(sess?.maxActiveAssets ?? sess?.nkrMaxActiveAssets ?? sess?.meta?.nkr_max_active_assets ?? immutableSessionSnapshot?.maxActiveAssets ?? 0),
                                             payoutAsset: String(sess?.payoutAsset || sess?.meta?.payout_asset || immutableSessionSnapshot?.payoutAsset || manualPayoutAsset || baseAsset || "USDC").toUpperCase(),
                                             networkScope: String(sess?.networkScope || sess?.meta?.network_scope || immutableSessionSnapshot?.networkScope || rotationNetworkScope || chain),
@@ -23799,7 +23744,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <div><b>Capital Mode:</b> {String(nkrSessionInfoOpen.mode || "—").replaceAll("_", " ")}</div>
                                   <div><b>Observation Window:</b> {nkrSessionInfoOpen.observation}</div>
                                   <div><b>Profit Mode:</b> {String(nkrSessionInfoOpen.profitMode || "—").replaceAll("_", " ")}</div>
-                                  <div><b>Period:</b> {Number(nkrSessionInfoOpen.periodHours || 0) > 0 ? (String(nkrSessionInfoOpen.periodUnit || "days").toLowerCase() === "hours" ? `${nkrSessionInfoOpen.periodHours} hours` : `${nkrSessionInfoOpen.periodDays} days`) : "—"}</div>
+                                  <div><b>Period:</b> {nkrSessionInfoOpen.periodDays > 0 ? `${nkrSessionInfoOpen.periodDays} days` : "—"}</div>
                                   <div><b>Max Active Assets:</b> {nkrSessionInfoOpen.maxAssets || "—"}</div>
                                   <div><b>Payout Asset:</b> {nkrSessionInfoOpen.payoutAsset || "—"}</div>
                                   <div><b>Network Scope:</b> {nkrSessionInfoOpen.networkScope || "—"}</div>
@@ -23888,39 +23833,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </select>
                       </div>
                       <div className="formRow">
-                        <label>NKR Period</label>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 8 }}>
-                          <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={nkrPeriodDays}
-                            onChange={(e) => { setNkrPeriodDays(e.target.value); setRotationBudgetReleased(false); }}
-                            placeholder={String(nkrPeriodUnit).toLowerCase() === "hours" ? "e.g. 2, 6, 12" : "e.g. 1, 7, 14"}
-                          />
-                          <select
-                            value={nkrPeriodUnit}
-                            onChange={(e) => {
-                              const nextUnit = String(e.target.value || "days").toLowerCase();
-                              const currentUnit = String(nkrPeriodUnit || "days").toLowerCase();
-                              const currentValue = Number(String(nkrPeriodDays || "").replace(",", "."));
-                              if (Number.isFinite(currentValue) && currentValue > 0 && nextUnit !== currentUnit) {
-                                const converted = currentUnit === "days" && nextUnit === "hours"
-                                  ? currentValue * 24
-                                  : currentUnit === "hours" && nextUnit === "days"
-                                    ? currentValue / 24
-                                    : currentValue;
-                                setNkrPeriodDays(String(Math.round(converted * 1000000) / 1000000));
-                              }
-                              setNkrPeriodUnit(nextUnit);
-                              setRotationBudgetReleased(false);
-                            }}
-                            title="NKR period unit"
-                          >
-                            <option value="hours">Hours</option>
-                            <option value="days">Days</option>
-                          </select>
-                        </div>
+                        <label>NKR Period (days)</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="3650"
+                          step="1"
+                          value={nkrPeriodDays}
+                          onChange={(e) => { setNkrPeriodDays(e.target.value); setRotationBudgetReleased(false); }}
+                          placeholder="e.g. 7, 14, 45"
+                        />
                       </div>
                       <div className="formRow">
                         {(() => {
@@ -25972,6 +25894,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             sym={sym}
                             row={r}
                             idx={idx}
+                            seriesMap={compareSeries}
                             colorForSym={colorForSym}
                             lineClassForSym={lineClassForSym}
                           />
@@ -28745,7 +28668,7 @@ export default function App() {
 
   return (
     <>
-      <AppInner coreVaultSessionPreview={coreVaultSessionPreview} />
+      <AppInner coreVaultSessionPreview={coreVaultSessionPreview} coreVaultRecoveryJobs={coreVaultRecoveryJobs} />
 
       <div className="nexus-footer-left">
         {canOpenSystemInfo && (

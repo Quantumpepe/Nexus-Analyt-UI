@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD409-RECOVERY-JOBS-SCOPE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD410-EXACT-ORPHAN-RECOVERY-UI";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3166,7 +3166,7 @@ function EngineEventHistory({ engine, events = [] }) {
   );
 }
 
-function AppInner({ coreVaultSessionPreview = null, coreVaultRecoveryJobs: coreVaultRecoveryJobsProp = null }) {
+function AppInner({ coreVaultSessionPreview = null, coreVaultRecoveryJobs: coreVaultRecoveryJobsProp = null, onRecoverExactCoreVaultSession = null, exactOrphanRecoveryBusyKey = "" }) {
   const coreVaultRecoveryJobs = (coreVaultRecoveryJobsProp && typeof coreVaultRecoveryJobsProp === 'object') ? coreVaultRecoveryJobsProp : {};
 
   // Multi-chain config: five primary EVM networks are always visible; configured V5 Vaults activate automatically.
@@ -24482,8 +24482,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           Trader recovery required: {pending.length} on-chain session{pending.length === 1 ? "" : "s"} still reserve capital.
                           {pending.map((sess) => ` #${sess.sessionId} (${String(sess.statusLabel || "ACTIVE").toUpperCase()})`).join(",")}
                           <div className="muted tiny" style={{ marginTop: 4 }}>
-                            Capital remains reserved until finalization is confirmed on-chain. Use session controls or contact support if recovery stays blocked.
+                            Capital remains reserved until finalization is confirmed on-chain. Orphan on-chain sessions can be stopped and finalized here even when the normal Trader card is no longer visible.
                           </div>
+                          {typeof onRecoverExactCoreVaultSession === "function" ? (
+                            <div style={{ marginTop: 7, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {pending.map((sess) => {
+                                const chain = String(sess?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(sess?.chainId)] || "")).toUpperCase();
+                                const busyKey = `TRADER:${chain}:${Number(sess?.sessionId || 0)}`;
+                                const busy = exactOrphanRecoveryBusyKey === busyKey;
+                                return (
+                                  <button key={`trader-orphan-stop-${chain}-${sess.sessionId}`} type="button" className="miniBtn" disabled={!!exactOrphanRecoveryBusyKey} onClick={() => onRecoverExactCoreVaultSession(sess.sessionId, "TRADER", chain, sess.chainId)}>
+                                    {busy ? `Processing #${sess.sessionId}...` : `Stop & Finalize ${chain} #${sess.sessionId}`}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
                         </div>
                       );
                     })()}
@@ -27740,6 +27754,7 @@ export default function App() {
   const [ownerAdminMsg, setOwnerAdminMsg] = useState("");
   const [coreVaultSessionPreview, setCoreVaultSessionPreview] = useState(null);
   const [coreVaultRecoveryJobs, setCoreVaultRecoveryJobs] = useState({});
+  const [exactOrphanRecoveryBusyKey, setExactOrphanRecoveryBusyKey] = useState("");
   const [ownerAdminHash, setOwnerAdminHash] = useState("");
   const [privyPolicyPreview, setPrivyPolicyPreview] = useState(null);
   const [privyPolicyChainId, setPrivyPolicyChainId] = useState(137);
@@ -28196,6 +28211,35 @@ export default function App() {
       window.clearTimeout(timeoutId);
       if (coreVaultScanAbortRef.current === controller) coreVaultScanAbortRef.current = null;
       coreVaultScanFlightRef.current = false; setOwnerAdminBusy("");
+    }
+  };
+
+  const _recoverExactCoreVaultSession = async (sessionId, engine, chain = "ETH", chainId = 0) => {
+    const normalizedEngine = String(engine || "").toUpperCase().replace("TRADING", "TRADER");
+    const normalizedChain = String(chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(chainId)] || "")).toUpperCase();
+    const sid = Number(sessionId || 0);
+    if (!sid || !CORE_VAULT_SESSION_ENGINES.includes(normalizedEngine) || !["ETH", "BNB", "POL"].includes(normalizedChain)) return false;
+    const busyKey = `${normalizedEngine}:${normalizedChain}:${sid}`;
+    if (exactOrphanRecoveryBusyKey) return false;
+    setExactOrphanRecoveryBusyKey(busyKey);
+    setOwnerAdminMsg(`Stopping and finalizing exact ${_coreVaultEngineLabel(normalizedEngine)} ${normalizedChain} session #${sid}...`);
+    try {
+      const res = await fetch(`${API_BASE}/api/live/stop-orphan-session`, {
+        method: "POST", cache: "no-store", credentials: "include", headers: _authHeaders(),
+        body: JSON.stringify({ engine: normalizedEngine, chain: normalizedChain, chainId: Number(chainId || 0), sessionId: sid }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!(res.ok || res.status === 202)) throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
+      setOwnerAdminMsg(`${_coreVaultEngineLabel(normalizedEngine)} ${normalizedChain} session #${sid}: Stop & Finalize queued. Waiting for on-chain confirmation.`);
+      // Refresh authoritative on-chain inventory shortly after queueing. The session
+      // remains visible until finalizeSession is actually confirmed on-chain.
+      window.setTimeout(() => { try { _inspectCoreVaultSessions(); } catch {} }, 2500);
+      return true;
+    } catch (err) {
+      setOwnerAdminMsg(`Exact session recovery failed: ${err?.message || err}`);
+      return false;
+    } finally {
+      setExactOrphanRecoveryBusyKey("");
     }
   };
 
@@ -28668,7 +28712,7 @@ export default function App() {
 
   return (
     <>
-      <AppInner coreVaultSessionPreview={coreVaultSessionPreview} coreVaultRecoveryJobs={coreVaultRecoveryJobs} />
+      <AppInner coreVaultSessionPreview={coreVaultSessionPreview} coreVaultRecoveryJobs={coreVaultRecoveryJobs} onRecoverExactCoreVaultSession={_recoverExactCoreVaultSession} exactOrphanRecoveryBusyKey={exactOrphanRecoveryBusyKey} />
 
       <div className="nexus-footer-left">
         {canOpenSystemInfo && (
@@ -29333,10 +29377,19 @@ export default function App() {
                               </div>
                             ) : null}
                             {s.recoverable ? <div style={{ marginTop: 7 }}>
-                              <button type="button" className="miniBtn" disabled={!!ownerAdminBusy} onClick={() => _recoverStaleCoreVaultReservation(s.sessionId, s.engine, s.chainId, s.vault, s.chain)}>
+                              <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !!exactOrphanRecoveryBusyKey} onClick={() => _recoverStaleCoreVaultReservation(s.sessionId, s.engine, s.chainId, s.vault, s.chain)}>
                                 {ownerAdminBusy === `Stale ${String(s.engine || "").toUpperCase()} recovery ${s.sessionId}` ? `Processing ${engLabel} session #${s.sessionId}...` : `Recover / Finalize ${engLabel} session #${s.sessionId}`}
                               </button>
                             </div> : null}
+                            {!s.recoverable && ["ACTIVE", "PAUSED"].includes(String(s.statusLabel || "").toUpperCase()) ? (() => {
+                              const ck = String(s.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(s.chainId)] || "")).toUpperCase();
+                              const busyKey = `${String(s.engine || "").toUpperCase()}:${ck}:${Number(s.sessionId || 0)}`;
+                              return <div style={{ marginTop: 7 }}>
+                                <button type="button" className="miniBtn" disabled={!!ownerAdminBusy || !!exactOrphanRecoveryBusyKey} onClick={() => _recoverExactCoreVaultSession(s.sessionId, s.engine, ck, s.chainId)}>
+                                  {exactOrphanRecoveryBusyKey === busyKey ? `Processing ${engLabel} session #${s.sessionId}...` : `Stop & Finalize exact ${engLabel} session #${s.sessionId}`}
+                                </button>
+                              </div>;
+                            })() : null}
                             {coreVaultRecoveryJobs?.[`${String(s.engine || "").toUpperCase()}:${s.sessionId}`] ? (() => { const j = coreVaultRecoveryJobs[`${String(s.engine || "").toUpperCase()}:${s.sessionId}`]; return <div style={{ marginTop: 7, padding: 7, borderRadius: 7, background: "rgba(0,0,0,0.22)", border: "1px solid rgba(255,255,255,0.10)", display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 8px", wordBreak: "break-all" }}>
                               <span className="muted">Job</span><span>{j.job_status || "—"}</span>
                               <span className="muted">Step</span><span>{j.step ?? 0}/5 · {j.step_label || "—"}</span>

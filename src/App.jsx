@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD430-FIX-BUDGET-SPLITS-SCOPE";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD431-HIDE-CARD-ON-START-CLOSING";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -10044,7 +10044,7 @@ useEffect(() => {
   }, [nexusBackendState, dedupeTradingQueue, buildTradingSessionsFromQueue, setTradingExecutionQueue, setTradingSessionStatus]);
 
   const openTradingSessions = useMemo(() => {
-    const terminal = new Set(["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "FINALIZED", "COMPLETED", "COMPLETE"]);
+    const terminal = new Set(["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "FINALIZED", "COMPLETED", "COMPLETE", "STOPPING", "CLOSING", "FINALIZING", "EXITING"]);
     const chainName = (row = {}) => String(
       row?.chain || row?.chainKey || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(row?.chainId)] || "")
     ).toUpperCase();
@@ -10057,7 +10057,10 @@ useEffect(() => {
       .filter((row) => {
         const st = String(row?.statusLabel || row?.status || "").toUpperCase();
         const raw = Number(row?.statusId ?? row?.rawStatusId ?? row?.onchainStatusId ?? 0);
-        return raw !== 4 && !terminal.has(st);
+        // BUILD431: hide card as soon as on-chain is CLOSING (3) or FINALIZED (4).
+        if (raw === 3 || raw === 4) return false;
+        if (["CLOSING", "STOPPING", "FINALIZING", "EXITING", "FINALIZED", "COMPLETED", "COMPLETE"].includes(st)) return false;
+        return !terminal.has(st);
       });
     const authByKey = new Map();
     authRows.forEach((row) => {
@@ -11824,12 +11827,24 @@ useEffect(() => {
     setTradingStopBusy(true);
     setTradingSessionStatus("STOPPING");
     setTradingSessionUpdatedTs(now);
-    updateTradingSessionMeta(sid, { status: "STOPPING", stoppingAt: now, active: true, chain, onchainSessionId: onchainSid || undefined, onchain_session_id: onchainSid || undefined });
-    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((slot) => {
-      if (!tradingSessionIdMatches(getTradingSlotSessionId(slot), sid)) return slot;
-      return { ...slot, status: "STOPPING", stoppingAt: now };
+    // BUILD431: hide session card immediately (optimistic). On-chain Start Closing + Finalize continue in background.
+    setTradingSessions((prev) => (Array.isArray(prev) ? prev : []).map((row) => {
+      const rid = String(row?.id || row?.session_id || "");
+      const oid = Number(row?.onchainSessionId || row?.onchain_session_id || row?.coreVaultSessionId || 0) || 0;
+      const same = tradingSessionIdMatches(rid, sid) || (onchainSid > 0 && oid === onchainSid);
+      if (!same) return row;
+      return { ...row, status: "CLOSING", statusLabel: "CLOSING", active: false, stoppingAt: now, closedAt: now, onchainSessionId: onchainSid || row?.onchainSessionId, queue: [] };
     }));
-    updateTradingPreparedSession({ status: "STOPPING", stoppingAt: now, chain, onchainSessionId: onchainSid || undefined, userAction: { stopped: true, sessionId: sid } });
+    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).filter((slot) => {
+      if (tradingSessionIdMatches(getTradingSlotSessionId(slot), sid)) return false;
+      const slotOid = Number(slot?.onchainSessionId || slot?.onchain_session_id || slot?.meta?.onchain_session_id || 0) || 0;
+      if (onchainSid > 0 && slotOid === onchainSid) return false;
+      return true;
+    }));
+    setActiveTradingSessionId((prev) => (tradingSessionIdMatches(String(prev || ""), sid) ? "" : prev));
+    updateTradingSessionMeta(sid, { status: "CLOSING", stoppingAt: now, active: false, chain, onchainSessionId: onchainSid || undefined, onchain_session_id: onchainSid || undefined });
+    updateTradingPreparedSession({ status: "CLOSING", stoppingAt: now, chain, onchainSessionId: onchainSid || undefined, userAction: { stopped: true, sessionId: sid } });
+    setErrorMsg(`Trader ${chain} #${onchainSid}: closing on-chain… card removed.`);
 
     try {
       // BUILD418: keep the runtime queue until CoreVault confirms FINALIZED.

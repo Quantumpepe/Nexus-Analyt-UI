@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD414-TRADER-STOP-EVENT-GUARD-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD415-TRADER-STOP-AUTHORITATIVE-ONCHAIN-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -11441,8 +11441,21 @@ useEffect(() => {
       setErrorMsg("Trader stop could not resolve the selected session.");
       return;
     }
-    const chain = String(sess?.chain || sess?.chainKey || meta?.chain || meta?.chain_key || liveVaultChainByMode?.trading || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
-    const onchainSid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || meta?.onchain_session_id || meta?.coreVaultSessionId || 0) || 0;
+    // BUILD415: the authoritative Trader chain/session comes from the live CoreVault inventory,
+    // never from stale local slot/session metadata. A Polygon CoreVault session may legitimately
+    // trade an ETH asset, so sess.chain can describe the slot asset context and must not redirect
+    // Stop & Finalize to Ethereum.
+    const localOnchainSid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || meta?.onchain_session_id || meta?.coreVaultSessionId || 0) || 0;
+    const activeOnchainTraderRows = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+      .filter((row) => String(row?.engine || "").toUpperCase() === "TRADER")
+      .filter((row) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(row?.statusLabel || "").toUpperCase()));
+    const selectedLiveChain = String(liveVaultChainByMode?.trading || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
+    const authoritativeRow =
+      (localOnchainSid > 0 ? activeOnchainTraderRows.find((row) => Number(row?.sessionId || 0) === localOnchainSid) : null) ||
+      activeOnchainTraderRows.find((row) => String(row?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(row?.chainId)] || "")).toUpperCase() === selectedLiveChain) ||
+      (activeOnchainTraderRows.length === 1 ? activeOnchainTraderRows[0] : null);
+    const chain = String(authoritativeRow?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(authoritativeRow?.chainId)] || "") || selectedLiveChain).toUpperCase();
+    const onchainSid = Number(authoritativeRow?.sessionId || localOnchainSid || 0) || 0;
 
     setTradingStopBusy(true);
     setTradingSessionStatus("STOPPING");
@@ -11525,7 +11538,7 @@ useEffect(() => {
     } finally {
       setTradingStopBusy(false);
     }
-  }, [tradingCanStop, tradingStopBusy, selectedTradingSession, selectedTradingSessionId, activeTradingSessionId, liveVaultChainByMode, activeGridChainKey, getTradingSlotSessionId, tradingSessionIdMatches, normalizeTradingSessionBaseId, openTradingSessions, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession, setActiveTradingSessionId, token, wallet, api, refreshNexusBackendState, setErrorMsg]);
+  }, [tradingCanStop, tradingStopBusy, selectedTradingSession, selectedTradingSessionId, activeTradingSessionId, liveVaultChainByMode, activeGridChainKey, getTradingSlotSessionId, tradingSessionIdMatches, normalizeTradingSessionBaseId, openTradingSessions, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession, setActiveTradingSessionId, token, wallet, api, refreshNexusBackendState, setErrorMsg, coreVaultSessionPreview]);
 
   const handleTradingReleaseCapital = useCallback(() => {
     if (!tradingCanReleaseCapital) return;
@@ -24632,9 +24645,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
 
                     {(() => {
-                      const pending = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+                      const allPendingTrader = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
                         .filter((sess) => String(sess?.engine || "").toUpperCase() === "TRADER")
                         .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(sess?.statusLabel || "").toUpperCase()));
+                      const localOpenTrader = Array.isArray(openTradingSessions) ? openTradingSessions : [];
+                      // BUILD415: the yellow control is orphan recovery only. Never show it for the
+                      // normal active Trader session that is represented by the Trader card.
+                      const pending = allPendingTrader.filter((onchain, idx) => {
+                        const sid = Number(onchain?.sessionId || 0);
+                        const chain = String(onchain?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(onchain?.chainId)] || "")).toUpperCase();
+                        const exactLocal = localOpenTrader.some((local) => {
+                          const lm = local?.meta && typeof local.meta === "object" ? local.meta : {};
+                          const localSid = Number(local?.onchainSessionId || local?.onchain_session_id || local?.coreVaultSessionId || lm?.onchain_session_id || lm?.coreVaultSessionId || 0) || 0;
+                          return localSid > 0 && localSid === sid;
+                        });
+                        if (exactLocal) return false;
+                        // Backward compatibility for older cards that never persisted the CoreVault id:
+                        // one local Trader card + one live CoreVault Trader session is the same runtime,
+                        // even if the card still carries a stale asset/chain label.
+                        if (localOpenTrader.length === 1 && allPendingTrader.length === 1) return false;
+                        return true;
+                      });
                       if (!pending.length) return null;
                       return (
                         <div style={{ padding: "9px 10px", borderRadius: 12, border: "1px solid rgba(255,209,102,.45)", background: "rgba(255,209,102,.08)", color: "#ffd166", fontWeight: 900 }}>
@@ -28393,6 +28424,40 @@ export default function App() {
       // Refresh authoritative on-chain inventory shortly after queueing. The session
       // remains visible until finalizeSession is actually confirmed on-chain.
       window.setTimeout(() => { try { _inspectCoreVaultSessions(); } catch {} }, 2500);
+      // BUILD415: if the exact orphan/recovery action finalizes a Trader session, also
+      // reconcile the stale local Trader card. Previously the CoreVault finalized but
+      // the old local card could remain ACTIVE forever.
+      if (normalizedEngine === "TRADER") {
+        const pollTraderFinalized = async (attempt = 0) => {
+          try {
+            const q = new URLSearchParams({ wallet: footerWallet, wallet_address: footerWallet, engine: "TRADER", chainId: String(Number(chainId || ({ ETH: 1, BNB: 56, POL: 137 }[normalizedChain] || 0))) });
+            const rr = await fetch(`${API_BASE}/api/nexus/live-reservation/recover?${q.toString()}`, { cache: "no-store", credentials: "include", headers: _authHeaders() });
+            const rd = await rr.json().catch(() => ({}));
+            const row = (Array.isArray(rd?.sessions) ? rd.sessions : []).find((x) => Number(x?.sessionId || 0) === sid);
+            if (rr.ok && (String(row?.statusLabel || "").toUpperCase() === "FINALIZED" || Number(row?.statusId || 0) === 4)) {
+              const doneAt = Date.now();
+              setTradingSessions((prev) => (Array.isArray(prev) ? prev : []).map((local) => {
+                const lm = local?.meta && typeof local.meta === "object" ? local.meta : {};
+                const localSid = Number(local?.onchainSessionId || local?.onchain_session_id || local?.coreVaultSessionId || lm?.onchain_session_id || lm?.coreVaultSessionId || 0) || 0;
+                const shouldClose = localSid === sid || ((Array.isArray(prev) ? prev : []).filter((x) => !["STOPPED", "RELEASED", "CLOSED", "EXPIRED"].includes(String(x?.status || "").toUpperCase())).length === 1);
+                return shouldClose ? { ...local, status: "STOPPED", active: false, stoppedAt: doneAt, closedAt: doneAt, onchainSessionId: sid, onchain_session_id: sid } : local;
+              }));
+              setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).filter((slot) => {
+                const ssid = Number(slot?.onchainSessionId || slot?.onchain_session_id || slot?.coreVaultSessionId || slot?.meta?.onchain_session_id || 0) || 0;
+                return ssid > 0 ? ssid !== sid : false;
+              }));
+              setActiveTradingSessionId("");
+              setTradingSessionStatus("PREPARED");
+              setTradingSessionUpdatedTs(doneAt);
+              await refreshNexusBackendState().catch(() => null);
+              try { await _inspectCoreVaultSessions(); } catch {}
+              return;
+            }
+          } catch {}
+          if (attempt < 40) window.setTimeout(() => pollTraderFinalized(attempt + 1), attempt < 8 ? 1500 : 3000);
+        };
+        window.setTimeout(() => pollTraderFinalized(0), 900);
+      }
       return true;
     } catch (err) {
       setOwnerAdminMsg(`Exact session recovery failed: ${err?.message || err}`);

@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD415-TRADER-STOP-AUTHORITATIVE-ONCHAIN-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD416-TRADER-FINALIZED-CARD-RECONCILE-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -10029,6 +10029,65 @@ useEffect(() => {
     return Array.from(bySessionId.values()).sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
   }, [tradingSessions, coreVaultSessionPreview, activeTraderChainKey, activeGridChainKey]);
 
+  // BUILD416: backend-first ghost-card reconciliation. Some recovery endpoints stop
+  // returning a session after FINALIZED. In that case waiting for a FINALIZED row
+  // leaves an ACTIVE card forever. Verify known CoreVault ids per chain; if the
+  // authoritative inventory no longer contains that id, retire only that exact card.
+  useEffect(() => {
+    const live = Array.isArray(openTradingSessions) ? openTradingSessions : [];
+    const candidates = live.map((sess) => {
+      const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+      const oid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || meta?.onchain_session_id || meta?.coreVaultSessionId || 0) || 0;
+      const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || meta?.chain || "").toUpperCase();
+      const chainId = Number({ ETH: 1, BNB: 56, POL: 137 }[chain] || 0);
+      return { sess, oid, chain, chainId };
+    }).filter((x) => x.oid > 0 && x.chainId > 0);
+    if (!candidates.length) return;
+
+    let cancelled = false;
+    const run = async () => {
+      const byChain = new Map();
+      candidates.forEach((x) => { if (!byChain.has(x.chainId)) byChain.set(x.chainId, []); byChain.get(x.chainId).push(x); });
+      const retired = [];
+      for (const [chainId, rows] of byChain.entries()) {
+        try {
+          const state = await api(`/api/nexus/live-reservation/recover?engine=TRADER&chainId=${chainId}&_ts=${Date.now()}`, { method: "GET", token, wallet });
+          if (cancelled || !Array.isArray(state?.sessions)) continue;
+          for (const item of rows) {
+            const found = state.sessions.find((row) => Number(row?.sessionId || 0) === item.oid);
+            const foundStatus = String(found?.statusLabel || found?.status || "").toUpperCase();
+            const foundStatusId = Number(found?.statusId ?? found?.rawStatusId ?? 0);
+            const terminal = foundStatusId === 4 || ["FINALIZED", "COMPLETED", "COMPLETE", "CLOSED", "CANCELLED", "RELEASED"].includes(foundStatus);
+            if (!found || terminal) retired.push(item);
+          }
+        } catch {}
+      }
+      if (cancelled || !retired.length) return;
+      const retireKeys = new Set(retired.map((x) => `${x.chain}:${x.oid}`));
+      const retiredLocalIds = new Set();
+      setTradingSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
+        const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+        const oid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || meta?.onchain_session_id || meta?.coreVaultSessionId || 0) || 0;
+        const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || meta?.chain || "").toUpperCase();
+        if (!retireKeys.has(`${chain}:${oid}`)) return sess;
+        const localId = String(sess?.id || sess?.session_id || sess?.sessionId || "").trim();
+        if (localId) retiredLocalIds.add(localId);
+        const now = Date.now();
+        return { ...sess, status: "FINALIZED", statusLabel: "FINALIZED", lifecycleState: "FINALIZED", active: false, queue: [], stoppedAt: Number(sess?.stoppedAt || now), closedAt: Number(sess?.closedAt || now), updatedAt: now };
+      }));
+      if (retiredLocalIds.size) {
+        setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).filter((slot) => {
+          const sid = String(getTradingSlotSessionId(slot) || "").trim();
+          return !Array.from(retiredLocalIds).some((rid) => tradingSessionIdMatches(sid, rid));
+        }));
+        setActiveTradingSessionId((prev) => retiredLocalIds.has(String(prev || "").trim()) ? "" : prev);
+        setTradingSessionStatus("PREPARED");
+      }
+    };
+    run();
+    return () => { cancelled = true; };
+  }, [openTradingSessions, api, token, wallet, setTradingSessions, setTradingExecutionQueue, setActiveTradingSessionId, setTradingSessionStatus, getTradingSlotSessionId, tradingSessionIdMatches]);
+
   const stoppedTradingSessions = useMemo(() => {
     const sessions = Array.isArray(tradingSessions) ? tradingSessions : [];
     return sessions.filter((sess) => {
@@ -10036,6 +10095,53 @@ useEffect(() => {
       return ["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "FINALIZED", "COMPLETED", "COMPLETE", "ARCHIVED"].includes(st);
     });
   }, [tradingSessions]);
+
+  // BUILD416: CoreVault terminal state is authoritative for Trader card visibility.
+  // Finalized on-chain Trader sessions retire matching local/UI sessions even when
+  // wallet app-state still contains an older ACTIVE snapshot. Match by chain + id.
+  useEffect(() => {
+    const previewRows = Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [];
+    if (!previewRows.length) return;
+    const chainOf = (row = {}) => String(
+      row?.chain || row?.chainKey || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(row?.chainId)] || "")
+    ).toUpperCase();
+    const terminalTraderKeys = new Set(
+      previewRows
+        .filter((row) => String(row?.engine || "").toUpperCase() === "TRADER")
+        .filter((row) => {
+          const label = String(row?.statusLabel || row?.status || "").toUpperCase();
+          const rawId = Number(row?.statusId ?? row?.rawStatusId ?? row?.onchainStatusId ?? 0);
+          return rawId === 4 || ["FINALIZED", "COMPLETED", "COMPLETE", "CLOSED", "CANCELLED", "RELEASED"].includes(label);
+        })
+        .map((row) => `${chainOf(row)}:${String(row?.sessionId ?? row?.onchainSessionId ?? row?.coreVaultSessionId ?? "").trim()}`)
+        .filter((key) => !key.endsWith(":"))
+    );
+    if (!terminalTraderKeys.size) return;
+
+    setTradingSessions((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      let changed = false;
+      const next = rows.map((sess) => {
+        const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+        const oid = String(
+          sess?.onchainSessionId ?? sess?.onchain_session_id ?? sess?.coreVaultSessionId ??
+          meta?.onchain_session_id ?? meta?.onchainSessionId ?? meta?.coreVaultSessionId ?? ""
+        ).trim();
+        const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || meta?.chain || "").toUpperCase();
+        const key = `${chain}:${oid}`;
+        if (!oid || !terminalTraderKeys.has(key)) return sess;
+        const st = String(sess?.status || "").toUpperCase();
+        if (["STOPPED", "FINALIZED", "CLOSED", "COMPLETED", "COMPLETE", "RELEASED", "ARCHIVED"].includes(st) && sess?.active === false) return sess;
+        changed = true;
+        const now = Date.now();
+        return {
+          ...sess, status: "FINALIZED", statusLabel: "FINALIZED", lifecycleState: "FINALIZED", active: false, queue: [],
+          stoppedAt: Number(sess?.stoppedAt || now), closedAt: Number(sess?.closedAt || now), updatedAt: now,
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [coreVaultSessionPreview, setTradingSessions]);
 
   const selectedTradingSession = useMemo(() => {
     const sessions = Array.isArray(openTradingSessions) ? openTradingSessions : [];
@@ -11441,7 +11547,7 @@ useEffect(() => {
       setErrorMsg("Trader stop could not resolve the selected session.");
       return;
     }
-    // BUILD415: the authoritative Trader chain/session comes from the live CoreVault inventory,
+    // BUILD416: the authoritative Trader chain/session comes from the live CoreVault inventory,
     // never from stale local slot/session metadata. A Polygon CoreVault session may legitimately
     // trade an ETH asset, so sess.chain can describe the slot asset context and must not redirect
     // Stop & Finalize to Ethereum.
@@ -11509,15 +11615,30 @@ useEffect(() => {
       // Poll authoritative CoreVault state. The yellow orphan recovery control is now
       // only a fallback; a normal Protect / Stop completes the same lifecycle itself.
       const chainId = Number({ ETH: 1, BNB: 56, POL: 137 }[chain] || 0);
+      let consecutiveMissingFinalizedInventory = 0;
       const pollFinalized = async (attempt = 0) => {
         try {
           if (chainId > 0 && resolvedOnchainSid > 0) {
-            const state = await api(`/api/nexus/live-reservation/recover?engine=TRADER&chainId=${chainId}`, { method: "GET", token, wallet });
-            const row = (Array.isArray(state?.sessions) ? state.sessions : []).find((x) => Number(x?.sessionId || 0) === resolvedOnchainSid);
-            if (String(row?.statusLabel || "").toUpperCase() === "FINALIZED" || Number(row?.statusId || 0) === 4) {
-              finishStopAfterFinalized();
-              await refreshNexusBackendState().catch(() => null);
-              return;
+            const state = await api(`/api/nexus/live-reservation/recover?engine=TRADER&chainId=${chainId}&_ts=${Date.now()}`, { method: "GET", token, wallet });
+            if (Array.isArray(state?.sessions)) {
+              const row = state.sessions.find((x) => Number(x?.sessionId || 0) === resolvedOnchainSid);
+              const rowStatus = String(row?.statusLabel || row?.status || "").toUpperCase();
+              const rowStatusId = Number(row?.statusId ?? row?.rawStatusId ?? 0);
+              if (rowStatus === "FINALIZED" || rowStatusId === 4) {
+                finishStopAfterFinalized();
+                await refreshNexusBackendState().catch(() => null);
+                return;
+              }
+              // The authoritative recovery inventory may omit sessions once they are finalized.
+              // Require two consecutive successful inventories without the known id before
+              // retiring the UI card, avoiding a one-off transient RPC/read gap.
+              if (!row) consecutiveMissingFinalizedInventory += 1;
+              else consecutiveMissingFinalizedInventory = 0;
+              if (consecutiveMissingFinalizedInventory >= 2) {
+                finishStopAfterFinalized();
+                await refreshNexusBackendState().catch(() => null);
+                return;
+              }
             }
           }
         } catch {}
@@ -24649,7 +24770,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         .filter((sess) => String(sess?.engine || "").toUpperCase() === "TRADER")
                         .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(sess?.statusLabel || "").toUpperCase()));
                       const localOpenTrader = Array.isArray(openTradingSessions) ? openTradingSessions : [];
-                      // BUILD415: the yellow control is orphan recovery only. Never show it for the
+                      // BUILD416: the yellow control is orphan recovery only. Never show it for the
                       // normal active Trader session that is represented by the Trader card.
                       const pending = allPendingTrader.filter((onchain, idx) => {
                         const sid = Number(onchain?.sessionId || 0);
@@ -28424,7 +28545,7 @@ export default function App() {
       // Refresh authoritative on-chain inventory shortly after queueing. The session
       // remains visible until finalizeSession is actually confirmed on-chain.
       window.setTimeout(() => { try { _inspectCoreVaultSessions(); } catch {} }, 2500);
-      // BUILD415: if the exact orphan/recovery action finalizes a Trader session, also
+      // BUILD416: if the exact orphan/recovery action finalizes a Trader session, also
       // reconcile the stale local Trader card. Previously the CoreVault finalized but
       // the old local card could remain ACTIVE forever.
       if (normalizedEngine === "TRADER") {

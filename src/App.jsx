@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD419-TRADER-PAUSE-STOP-ONCHAIN-RESOLVE";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD421-AUTO-ONCHAIN-SESSION-REFRESH";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3166,7 +3166,7 @@ function EngineEventHistory({ engine, events = [] }) {
   );
 }
 
-function AppInner({ coreVaultSessionPreview = null, coreVaultRecoveryJobs: coreVaultRecoveryJobsProp = null, onRecoverExactCoreVaultSession = null, exactOrphanRecoveryBusyKey = "" }) {
+function AppInner({ coreVaultSessionPreview = null, coreVaultRecoveryJobs: coreVaultRecoveryJobsProp = null, onRecoverExactCoreVaultSession = null, exactOrphanRecoveryBusyKey = "" , refreshOnchainSessionsSilent = null }) {
   const coreVaultRecoveryJobs = (coreVaultRecoveryJobsProp && typeof coreVaultRecoveryJobsProp === 'object') ? coreVaultRecoveryJobsProp : {};
 
   // Multi-chain config: five primary EVM networks are always visible; configured V5 Vaults activate automatically.
@@ -11552,6 +11552,7 @@ useEffect(() => {
   }, [selectedTradingSession, selectedTradingSessionId, activeTradingSessionId, liveVaultChainByMode, activeGridChainKey, coreVaultSessionPreview]);
 
   const handleTradingPauseSession = useCallback(async (sessionOverride = null) => {
+    try { if (typeof refreshOnchainSessionsSilent === 'function') await refreshOnchainSessionsSilent(); } catch {}
     const { sess, sid, chain, onchainSid } = resolveTraderOnchainControl(sessionOverride);
     if (!sid) { setErrorMsg("Trader Pause: no local session id."); return; }
     if (!onchainSid) { setErrorMsg("Trader Pause: on-chain session id missing. Open System Info → Refresh on-chain sessions, then try again."); return; }
@@ -11586,6 +11587,7 @@ useEffect(() => {
 
   const handleTradingStopSession = useCallback(async (sessionIdOverride = "", sessionOverride = null) => {
     if (tradingStopBusy) return;
+    try { if (typeof refreshOnchainSessionsSilent === 'function') await refreshOnchainSessionsSilent(); } catch {}
     // BUILD414: React passes the click SyntheticEvent as the first argument when a
     // handler is bound as onClick={handleTradingStopSession}. Never interpret that
     // event object as a session id ("[object Object]"). Only explicit string/number
@@ -11617,13 +11619,22 @@ useEffect(() => {
     const activeOnchainTraderRows = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
       .filter((row) => String(row?.engine || "").toUpperCase() === "TRADER")
       .filter((row) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(row?.statusLabel || "").toUpperCase()));
-    const selectedLiveChain = String(liveVaultChainByMode?.trading || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
+    const selectedLiveChain = String(
+      sess?.chain || sess?.chainKey || liveVaultChainByMode?.trading || activeGridChainKey || DEFAULT_CHAIN || "ETH"
+    ).toUpperCase();
+    // Prefer POL/BNB/ETH match from the visible "On-chain Trader session #N" list.
     const authoritativeRow =
       (localOnchainSid > 0 ? activeOnchainTraderRows.find((row) => Number(row?.sessionId || 0) === localOnchainSid) : null) ||
       activeOnchainTraderRows.find((row) => String(row?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(row?.chainId)] || "")).toUpperCase() === selectedLiveChain) ||
-      (activeOnchainTraderRows.length === 1 ? activeOnchainTraderRows[0] : null);
+      (activeOnchainTraderRows.length === 1 ? activeOnchainTraderRows[0] : null) ||
+      (activeOnchainTraderRows.length ? activeOnchainTraderRows[0] : null);
     const chain = String(authoritativeRow?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(authoritativeRow?.chainId)] || "") || selectedLiveChain).toUpperCase();
     const onchainSid = Number(authoritativeRow?.sessionId || localOnchainSid || 0) || 0;
+    if (!onchainSid) {
+      setErrorMsg("Trader Stop: no on-chain session id. Open System Info → Refresh on-chain sessions, then Stop again.");
+      setTradingStopBusy(false);
+      return;
+    }
 
     setTradingStopBusy(true);
     setTradingSessionStatus("STOPPING");
@@ -11700,6 +11711,8 @@ useEffect(() => {
       window.setTimeout(() => pollFinalized(0), 900);
       return stopResult;
     } catch (e) {
+      const em = String(e?.message || e || "unknown");
+      setErrorMsg(`Trader Stop failed: ${em}`);
       setTradingSessionStatus("ACTIVE");
       setTradingSessionUpdatedTs(Date.now());
       updateTradingSessionMeta(sid, { status: "ACTIVE", stoppingAt: 0, active: true });
@@ -28581,6 +28594,98 @@ export default function App() {
     }
   };
 
+  // BUILD421: silent on-chain session refresh for Trader/NKR controls — no System Info click needed.
+  const _refreshOnchainSessionsSilent = useCallback(async () => {
+    const wa = String(footerWallet || wallet || "").trim();
+    if (!wa || !/^0x[a-fA-F0-9]{40}$/i.test(wa)) return;
+    if (coreVaultScanFlightRef.current) return;
+    coreVaultScanFlightRef.current = true;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 35000);
+    try {
+      const q = new URLSearchParams({ wallet: wa, wallet_address: wa });
+      const res = await fetch(`${API_BASE}/api/nexus/system-info/onchain-sessions?${q.toString()}`, {
+        cache: "no-store", credentials: "include", headers: _authHeaders(), signal: controller.signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const sessions = [];
+      const candidates = [];
+      const nextByChain = {};
+      for (const raw of (Array.isArray(data.sessions) ? data.sessions : [])) {
+        const engine = String(raw?.engine || "").toUpperCase();
+        if (engine === "GRID" || !CORE_VAULT_SESSION_ENGINES.includes(engine)) continue;
+        const chainId = Number(raw?.chainId || 0);
+        const chain = String(raw?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[chainId] || "")).toUpperCase();
+        const session = {
+          ...raw, chain, chainId,
+          vault: raw?.vault || CORE_VAULT_ADDRESS_BY_CHAIN[chain] || "",
+          engine,
+          engineLabel: raw?.engineLabel || _coreVaultEngineLabel(engine),
+          displayName: raw?.displayName || `${_coreVaultEngineLabel(engine)} Session #${raw?.sessionId}`,
+        };
+        sessions.push(session);
+        if (session.recoverable) candidates.push(session);
+        if (chain) nextByChain[chain] = Math.max(Number(nextByChain[chain] || 0), Number(raw?.sessionId || 0) + 1);
+      }
+      const apiNext = data?.nextSessionIdByChain || {};
+      for (const ck of ["ETH", "BNB", "POL"]) {
+        const n = Number(apiNext[ck] || 0);
+        if (n > 0) nextByChain[ck] = Math.max(Number(nextByChain[ck] || 0), n);
+      }
+      const counts = { NKR: 0, TRADER: 0 };
+      sessions.forEach((s) => { const e = String(s.engine || "").toUpperCase(); if (e in counts) counts[e] += 1; });
+      setCoreVaultSessionPreview({
+        nextSessionId: nextByChain, nextSessionIdByChain: nextByChain,
+        sessions, candidates, counts, engines: CORE_VAULT_SESSION_ENGINES,
+        chains: ["ETH", "BNB", "POL"], failures: [], usedEndpoint: "onchain-sessions-auto", gridExcluded: true,
+      });
+      // Stamp on-chain ids onto local Trader session cards so Pause/Stop always have them.
+      setTradingSessions((prev) => {
+        const list = Array.isArray(prev) ? prev : [];
+        if (!list.length) return prev;
+        return list.map((local) => {
+          const lm = local?.meta && typeof local.meta === "object" ? local.meta : {};
+          const localChain = String(local?.chain || local?.chainKey || lm?.chain || "").toUpperCase();
+          const existing = Number(local?.onchainSessionId || local?.onchain_session_id || lm?.onchain_session_id || 0) || 0;
+          if (existing > 0) return local;
+          const match = sessions.find((s) =>
+            String(s.engine || "").toUpperCase() === "TRADER"
+            && String(s.chain || "").toUpperCase() === localChain
+            && !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(s.statusLabel || "").toUpperCase())
+          ) || sessions.find((s) =>
+            String(s.engine || "").toUpperCase() === "TRADER"
+            && !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(s.statusLabel || "").toUpperCase())
+          );
+          if (!match) return local;
+          const oid = Number(match.sessionId || 0) || 0;
+          if (!oid) return local;
+          return {
+            ...local,
+            onchainSessionId: oid,
+            onchain_session_id: oid,
+            chain: match.chain || localChain,
+            meta: { ...lm, onchain_session_id: oid, coreVaultSessionId: oid, chain: match.chain || localChain },
+          };
+        });
+      });
+    } catch (_) {
+      /* silent */
+    } finally {
+      window.clearTimeout(timeoutId);
+      coreVaultScanFlightRef.current = false;
+    }
+  }, [footerWallet, wallet]);
+
+  // Auto-refresh on-chain sessions while wallet is connected (Trader/NKR need this for Pause/Stop).
+  useEffect(() => {
+    const wa = String(footerWallet || wallet || "").trim();
+    if (!wa || !/^0x[a-fA-F0-9]{40}$/i.test(wa)) return undefined;
+    _refreshOnchainSessionsSilent();
+    const id = window.setInterval(() => { _refreshOnchainSessionsSilent(); }, 45000);
+    return () => window.clearInterval(id);
+  }, [footerWallet, wallet, _refreshOnchainSessionsSilent]);
+
   const _recoverExactCoreVaultSession = async (sessionId, engine, chain = "ETH", chainId = 0) => {
     const normalizedEngine = String(engine || "").toUpperCase().replace("TRADING", "TRADER");
     const normalizedChain = String(chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(chainId)] || "")).toUpperCase();
@@ -29113,7 +29218,7 @@ export default function App() {
 
   return (
     <>
-      <AppInner coreVaultSessionPreview={coreVaultSessionPreview} coreVaultRecoveryJobs={coreVaultRecoveryJobs} onRecoverExactCoreVaultSession={_recoverExactCoreVaultSession} exactOrphanRecoveryBusyKey={exactOrphanRecoveryBusyKey} />
+      <AppInner coreVaultSessionPreview={coreVaultSessionPreview} coreVaultRecoveryJobs={coreVaultRecoveryJobs} refreshOnchainSessionsSilent={_refreshOnchainSessionsSilent} onRecoverExactCoreVaultSession={_recoverExactCoreVaultSession} exactOrphanRecoveryBusyKey={exactOrphanRecoveryBusyKey} />
 
       <div className="nexus-footer-left">
         {canOpenSystemInfo && (

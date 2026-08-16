@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD413-TRADER-STOP-DIRECT-SESSION-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD414-TRADER-STOP-EVENT-GUARD-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -11421,10 +11421,16 @@ useEffect(() => {
 
   const handleTradingStopSession = useCallback(async (sessionIdOverride = "", sessionOverride = null) => {
     if (tradingStopBusy) return;
-    const requestedSid = String(sessionIdOverride || "").trim();
+    // BUILD414: React passes the click SyntheticEvent as the first argument when a
+    // handler is bound as onClick={handleTradingStopSession}. Never interpret that
+    // event object as a session id ("[object Object]"). Only explicit string/number
+    // overrides are valid; otherwise resolve the selected/active Trader session.
+    const hasExplicitSessionId = typeof sessionIdOverride === "string" || typeof sessionIdOverride === "number";
+    const requestedSid = hasExplicitSessionId ? String(sessionIdOverride || "").trim() : "";
+    const explicitSessionOverride = sessionOverride && typeof sessionOverride === "object" && !sessionOverride?.nativeEvent ? sessionOverride : null;
     if (!requestedSid && !tradingCanStop) return;
     const now = Date.now();
-    const overrideSession = sessionOverride && typeof sessionOverride === "object" ? sessionOverride : null;
+    const overrideSession = explicitSessionOverride;
     const resolvedSession = overrideSession || (requestedSid
       ? (Array.isArray(openTradingSessions) ? openTradingSessions : []).find((row) => tradingSessionIdMatches(row?.id || row?.session_id || row?.sessionId, requestedSid))
       : null) || selectedTradingSession || {};
@@ -25522,7 +25528,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <button className="miniBtn" type="button" onClick={handleTradingResumeSession} title="Resume only this selected Trading session">Resume</button>
                                 ) : null}
                                 {tradingCanStop ? (
-                                  <button className="miniBtn" type="button" onClick={handleTradingStopSession} title="Protect / stop only this selected Trading session" style={{ color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}>{tradingStopBusy ? "Stopping…" : "Protect / Stop"}</button>
+                                  <button className="miniBtn" type="button" onClick={() => handleTradingStopSession()} title="Protect / stop only this selected Trading session" style={{ color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}>{tradingStopBusy ? "Stopping…" : "Protect / Stop"}</button>
                                 ) : null}
                                 {tradingCanReleaseCapital ? (
                                   <button className="miniBtn" type="button" onClick={handleTradingReleaseCapital} title="Release capital for this selected Trading session">Release Capital</button>
@@ -25638,7 +25644,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           <button className="btn" type="button" onClick={handleTradingResumeSession} style={{ height: 30, paddingInline: 10 }}>Resume</button>
                         ) : null}
                         {tradingCanStop ? (
-                          <button className="btnDanger" type="button" onClick={handleTradingStopSession} style={{ height: 30, paddingInline: 10 }}>{tradingStopBusy ? "Stopping…" : "Protect / Stop"}</button>
+                          <button className="btnDanger" type="button" onClick={() => handleTradingStopSession()} style={{ height: 30, paddingInline: 10 }}>{tradingStopBusy ? "Stopping…" : "Protect / Stop"}</button>
                         ) : null}
                         {tradingCanReleaseCapital ? (
                           <button className="btnGhost" type="button" onClick={handleTradingReleaseCapital} style={{ height: 30, paddingInline: 10 }}>Release Capital</button>

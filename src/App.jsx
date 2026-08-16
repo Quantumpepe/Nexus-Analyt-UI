@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD417-TRADER-AUTHORITATIVE-LIFECYCLE-HEADER-CLEANUP";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD418-TRADER-EXACT-CONTROL-CONFIRMED-FINALIZE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -10043,6 +10043,8 @@ useEffect(() => {
         createdAt: Number(local?.createdAt || row?.createdAt || Date.now()),
         updatedAt: Math.max(Number(local?.updatedAt || 0), Date.now()),
         source: "corevault_onchain",
+        runtimeBacked: !!(local && Object.keys(local).length),
+        exactOnchainControl: true,
       });
     });
 
@@ -11530,42 +11532,44 @@ useEffect(() => {
     }
   }, [tradingStartBusy, wallet, tradingSessions, liveVaultChainByMode, tradingPreflight, handleTradingApproveBudget, activeGridChainKey, selectedTraderAssets, manualPayoutAsset, api, refreshNexusBackendState, setErrorMsg, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
-  const handleTradingPauseSession = useCallback(() => {
-    if (!tradingCanPause) return;
-    const now = Date.now();
-    const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
-    setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((s) => {
-      const sameSession = !sid || String(getTradingSlotSessionId(s) || "") === sid;
-      return sameSession && ["ACTIVE", "READY"].includes(String(s.status || "").toUpperCase())
-        ? { ...s, status: "WAIT", pausedAt: now }
-        : s;
-    }));
-    setTradingSessionStatus("PAUSED");
-    setTradingSessionUpdatedTs(now);
-    updateTradingSessionMeta(sid, { status: "PAUSED", pausedAt: now });
-    updateTradingPreparedSession({ status: "PAUSED", pausedAt: now, userAction: { paused: true, sessionId: sid } });
-  }, [tradingCanPause, selectedTradingSessionId, activeTradingSessionId, getTradingSlotSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession]);
+  const handleTradingPauseSession = useCallback(async (sessionOverride = null) => {
+    const sess = sessionOverride && typeof sessionOverride === "object" && !sessionOverride?.nativeEvent ? sessionOverride : (selectedTradingSession || {});
+    const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+    const sid = String(sess?.id || selectedTradingSessionId || activeTradingSessionId || "").trim();
+    const onchainSid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || meta?.onchain_session_id || meta?.coreVaultSessionId || 0) || 0;
+    const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || liveVaultChainByMode?.trading || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
+    if (!sid || !onchainSid) { setErrorMsg("Trader Pause requires the exact on-chain session id."); return; }
+    try {
+      setErrorMsg(`Pausing Trader ${chain} #${onchainSid} on-chain...`);
+      await api("/api/nexus/trading/control", { method:"POST", token, wallet, body:{ action:"pause", session_id:sid, sessionId:sid, chain, onchainSessionId:onchainSid, onchain_session_id:onchainSid } });
+      const now = Date.now();
+      setTradingSessionStatus("PAUSED");
+      setTradingSessionUpdatedTs(now);
+      updateTradingSessionMeta(sid, { status:"PAUSED", pausedAt:now, onchainSessionId:onchainSid, chain });
+      setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).map((slot) => tradingSessionIdMatches(getTradingSlotSessionId(slot), sid) ? { ...slot, status:"WAIT", pausedAt:now } : slot));
+      await refreshNexusBackendState().catch(() => null);
+      setErrorMsg(`Trader ${chain} #${onchainSid} paused on-chain.`);
+    } catch (e) { setErrorMsg(`Trader Pause failed: ${e?.message || e}`); }
+  }, [selectedTradingSession, selectedTradingSessionId, activeTradingSessionId, liveVaultChainByMode, activeGridChainKey, api, token, wallet, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingExecutionQueue, tradingSessionIdMatches, getTradingSlotSessionId, refreshNexusBackendState, setErrorMsg]);
 
-  const handleTradingResumeSession = useCallback(() => {
-    if (!tradingCanResume) return;
-    const now = Date.now();
-    const sid = String(selectedTradingSessionId || activeTradingSessionId || "").trim();
-    setTradingExecutionQueue((prev) => {
-      let activated = false;
-      return (Array.isArray(prev) ? prev : []).map((s) => {
-        const sameSession = !sid || String(getTradingSlotSessionId(s) || "") === sid;
-        if (sameSession && !activated && String(s.status || "").toUpperCase() === "WAIT" && Number(s.priority || 0) >= 50) {
-          activated = true;
-          return { ...s, status: "ACTIVE", resumedAt: now };
-        }
-        return s;
-      });
-    });
-    setTradingSessionStatus("ACTIVE");
-    setTradingSessionUpdatedTs(now);
-    updateTradingSessionMeta(sid, { status: "ACTIVE", resumedAt: now });
-    updateTradingPreparedSession({ status: "ACTIVE", resumedAt: now, executionQueue: tradingVisibleQueueSummary.queue, userAction: { paused: false, sessionId: sid } });
-  }, [tradingCanResume, selectedTradingSessionId, activeTradingSessionId, getTradingSlotSessionId, tradingVisibleQueueSummary.queue, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, updateTradingPreparedSession]);
+  const handleTradingResumeSession = useCallback(async (sessionOverride = null) => {
+    const sess = sessionOverride && typeof sessionOverride === "object" && !sessionOverride?.nativeEvent ? sessionOverride : (selectedTradingSession || {});
+    const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
+    const sid = String(sess?.id || selectedTradingSessionId || activeTradingSessionId || "").trim();
+    const onchainSid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || meta?.onchain_session_id || meta?.coreVaultSessionId || 0) || 0;
+    const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || liveVaultChainByMode?.trading || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
+    if (!sid || !onchainSid) { setErrorMsg("Trader Resume requires the exact on-chain session id."); return; }
+    try {
+      setErrorMsg(`Resuming Trader ${chain} #${onchainSid} on-chain...`);
+      await api("/api/nexus/trading/control", { method:"POST", token, wallet, body:{ action:"resume", session_id:sid, sessionId:sid, chain, onchainSessionId:onchainSid, onchain_session_id:onchainSid } });
+      const now = Date.now();
+      setTradingSessionStatus("ACTIVE");
+      setTradingSessionUpdatedTs(now);
+      updateTradingSessionMeta(sid, { status:"ACTIVE", resumedAt:now, onchainSessionId:onchainSid, chain });
+      await refreshNexusBackendState().catch(() => null);
+      setErrorMsg(`Trader ${chain} #${onchainSid} resumed on-chain.`);
+    } catch (e) { setErrorMsg(`Trader Resume failed: ${e?.message || e}`); }
+  }, [selectedTradingSession, selectedTradingSessionId, activeTradingSessionId, liveVaultChainByMode, activeGridChainKey, api, token, wallet, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, refreshNexusBackendState, setErrorMsg]);
 
   const handleTradingStopSession = useCallback(async (sessionIdOverride = "", sessionOverride = null) => {
     if (tradingStopBusy) return;
@@ -11616,11 +11620,7 @@ useEffect(() => {
     updateTradingPreparedSession({ status: "STOPPING", stoppingAt: now, chain, onchainSessionId: onchainSid || undefined, userAction: { stopped: true, sessionId: sid } });
 
     try {
-      await api("/api/nexus/trading/hold-state", {
-        method: "POST",
-        body: { action: "stop", queue: [], reason: "user_stop_session", session_id: sid, base_session_id: normalizeTradingSessionBaseId(sid), chain },
-      }).catch(() => null);
-
+      // BUILD418: keep the runtime queue until CoreVault confirms FINALIZED.
       const stopResult = await api("/api/nexus/trading/control", {
         method: "POST",
         token,
@@ -11640,6 +11640,7 @@ useEffect(() => {
       const finishStopAfterFinalized = () => {
         const doneAt = Date.now();
         setTradingExecutionQueue((prev) => (Array.isArray(prev) ? prev : []).filter((slot) => !tradingSessionIdMatches(getTradingSlotSessionId(slot), sid)));
+        api("/api/nexus/trading/hold-state", { method:"POST", body:{ action:"stop", queue:[], reason:"onchain_finalized", session_id:sid, base_session_id:normalizeTradingSessionBaseId(sid), chain } }).catch(() => null);
         setTradingSessionStatus("PREPARED");
         setTradingSessionUpdatedTs(doneAt);
         updateTradingSessionMeta(sid, { status: "STOPPED", stoppedAt: doneAt, closedAt: doneAt, active: false, onchainSessionId: resolvedOnchainSid || undefined });
@@ -11657,34 +11658,28 @@ useEffect(() => {
       // Poll authoritative CoreVault state. The yellow orphan recovery control is now
       // only a fallback; a normal Protect / Stop completes the same lifecycle itself.
       const chainId = Number({ ETH: 1, BNB: 56, POL: 137 }[chain] || 0);
-      let consecutiveMissingFinalizedInventory = 0;
       const pollFinalized = async (attempt = 0) => {
         try {
           if (chainId > 0 && resolvedOnchainSid > 0) {
-            const state = await api(`/api/nexus/live-reservation/recover?engine=TRADER&chainId=${chainId}&_ts=${Date.now()}`, { method: "GET", token, wallet });
-            if (Array.isArray(state?.sessions)) {
-              const row = state.sessions.find((x) => Number(x?.sessionId || 0) === resolvedOnchainSid);
-              const rowStatus = String(row?.statusLabel || row?.status || "").toUpperCase();
-              const rowStatusId = Number(row?.statusId ?? row?.rawStatusId ?? 0);
-              if (rowStatus === "FINALIZED" || rowStatusId === 4) {
-                finishStopAfterFinalized();
-                await refreshNexusBackendState().catch(() => null);
-                return;
-              }
-              // The authoritative recovery inventory may omit sessions once they are finalized.
-              // Require two consecutive successful inventories without the known id before
-              // retiring the UI card, avoiding a one-off transient RPC/read gap.
-              if (!row) consecutiveMissingFinalizedInventory += 1;
-              else consecutiveMissingFinalizedInventory = 0;
-              if (consecutiveMissingFinalizedInventory >= 2) {
-                finishStopAfterFinalized();
-                await refreshNexusBackendState().catch(() => null);
-                return;
-              }
+            const state = await api(`/api/nexus/trading/session-status?chain=${encodeURIComponent(chain)}&sessionId=${encodeURIComponent(resolvedOnchainSid)}&_ts=${Date.now()}`, { method:"GET", token, wallet });
+            const statusId = Number(state?.statusId || 0);
+            const statusLabel = String(state?.statusLabel || "").toUpperCase();
+            if (statusId === 4 || statusLabel === "FINALIZED") {
+              finishStopAfterFinalized();
+              await refreshNexusBackendState().catch(() => null);
+              return;
+            }
+            if ([1,2,3].includes(statusId)) {
+              const liveStatus = statusId === 3 ? "STOPPING" : (statusId === 2 ? "PAUSED" : "ACTIVE");
+              setTradingSessionStatus(liveStatus);
+              updateTradingSessionMeta(sid, { status:liveStatus, onchainSessionId:resolvedOnchainSid, chain, active:true });
             }
           }
-        } catch {}
-        if (attempt < 40) window.setTimeout(() => pollFinalized(attempt + 1), attempt < 8 ? 1500 : 3000);
+        } catch (pollErr) {
+          if (attempt === 0) setErrorMsg("Trader stop submitted; waiting for confirmed on-chain finalization...");
+        }
+        if (attempt < 60) window.setTimeout(() => pollFinalized(attempt + 1), attempt < 10 ? 1500 : 3000);
+        else setErrorMsg(`Trader ${chain} #${resolvedOnchainSid || ""} is still not confirmed FINALIZED. Session card kept for recovery/control.`);
       };
       window.setTimeout(() => pollFinalized(0), 900);
       return stopResult;
@@ -25719,10 +25714,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div style={{ display: "grid", gap: 7, minWidth: 116 }}>
                                 <button className="miniBtn" type="button" title="Open detailed session view">Details</button>
                                 {tradingCanPause ? (
-                                  <button className="miniBtn" type="button" onClick={handleTradingPauseSession} title="Pause only this selected Trading session">Pause</button>
+                                  <button className="miniBtn" type="button" onClick={() => handleTradingPauseSession(selectedTradingSession)} title="Pause this exact Trading session on-chain">Pause</button>
                                 ) : null}
                                 {tradingCanResume ? (
-                                  <button className="miniBtn" type="button" onClick={handleTradingResumeSession} title="Resume only this selected Trading session">Resume</button>
+                                  <button className="miniBtn" type="button" onClick={() => handleTradingResumeSession(selectedTradingSession)} title="Resume this exact Trading session on-chain">Resume</button>
                                 ) : null}
                                 {tradingCanStop ? (
                                   <button className="miniBtn" type="button" onClick={() => handleTradingStopSession()} title="Protect / stop only this selected Trading session" style={{ color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}>{tradingStopBusy ? "Stopping…" : "Protect / Stop"}</button>
@@ -25835,10 +25830,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         ) : null}
                         
                         {tradingCanPause ? (
-                          <button className="btnGhost" type="button" onClick={handleTradingPauseSession} style={{ height: 30, paddingInline: 10 }}>Pause</button>
+                          <button className="btnGhost" type="button" onClick={() => handleTradingPauseSession(selectedTradingSession)} style={{ height: 30, paddingInline: 10 }}>Pause</button>
                         ) : null}
                         {tradingCanResume ? (
-                          <button className="btn" type="button" onClick={handleTradingResumeSession} style={{ height: 30, paddingInline: 10 }}>Resume</button>
+                          <button className="btn" type="button" onClick={() => handleTradingResumeSession(selectedTradingSession)} style={{ height: 30, paddingInline: 10 }}>Resume</button>
                         ) : null}
                         {tradingCanStop ? (
                           <button className="btnDanger" type="button" onClick={() => handleTradingStopSession()} style={{ height: 30, paddingInline: 10 }}>{tradingStopBusy ? "Stopping…" : "Protect / Stop"}</button>

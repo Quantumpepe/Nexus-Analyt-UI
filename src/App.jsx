@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD428-SETTINGS-CACHE-AND-INSTANT-STOP";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD429-SESSION-SLOTS-FROM-BUDGET";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9713,8 +9713,21 @@ useEffect(() => {
 
   const getTradingSessionSlotCount = useCallback((sess = {}) => {
     const q = Array.isArray(sess.queue) ? sess.queue : [];
-    const explicit = Number(sess.slots || sess.slotCount || 0);
-    return q.length || (Number.isFinite(explicit) ? explicit : 0);
+    if (q.length) return q.length;
+    const explicit = Number(sess.slots || sess.slotCount || sess.meta?.slotCount || 0);
+    if (Number.isFinite(explicit) && explicit > 0) return explicit;
+    try {
+      const sid = String(sess?.id || sess?.session_id || "");
+      const oid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || 0) || 0;
+      const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || "").toUpperCase();
+      const cached = traderSessionSettingsCacheRef.current[sid]
+        || (oid ? traderSessionSettingsCacheRef.current[`OID:${oid}`] : null)
+        || (oid && chain ? traderSessionSettingsCacheRef.current[`${chain}:${oid}`] : null)
+        || {};
+      const fromCache = Number(cached.slotCount || (Array.isArray(cached.budgetSplits) ? cached.budgetSplits.length : 0) || 0);
+      if (fromCache > 0) return fromCache;
+    } catch (_) {}
+    return 0;
   }, []);
 
   const getTradingSessionTradeCount = useCallback((sess = {}, slotsOverride = null) => {
@@ -10135,6 +10148,33 @@ useEffect(() => {
         source: "corevault_onchain",
         runtimeBacked: !!(src && Object.keys(src).length),
         exactOnchainControl: true,
+        queue: (Array.isArray(src?.queue) && src.queue.length)
+          ? src.queue
+          : (Array.isArray(local?.queue) && local.queue.length)
+            ? local.queue
+            : (() => {
+                const c = traderSessionSettingsCacheRef.current[`${chain}:${oid}`]
+                  || traderSessionSettingsCacheRef.current[`OID:${oid}`]
+                  || {};
+                const splits = Array.isArray(c.budgetSplits) ? c.budgetSplits : (Array.isArray(c.slotAmounts) ? c.slotAmounts : []);
+                if (!splits.length) return [];
+                return splits.map((amount, idx) => ({
+                  id: `cached-slot-${chain}-${oid}-${idx + 1}`,
+                  slot: idx + 1,
+                  slot_id: idx + 1,
+                  amountUsd: Number(amount) || 0,
+                  reserved_capital_usd: Number(amount) || 0,
+                  status: "WAIT",
+                  state: "WAIT",
+                  chain,
+                  session_id: String(src?.id || local?.id || `TRADER-LIVE-${chain}-${oid}`),
+                  style: c.style,
+                  trading_style: c.trading_style || c.style,
+                  meta: { ...(c || {}), source: "settings_cache_slots" },
+                }));
+              })(),
+        slots: Number(src?.slots || src?.slotCount || local?.slots || 0) || undefined,
+        slotCount: Number(src?.slotCount || src?.slots || local?.slotCount || 0) || undefined,
       });
     });
 
@@ -11258,6 +11298,7 @@ useEffect(() => {
     setActiveTradingSessionId(sessionId);
     // BUILD428: cache settings under local session id and on-chain id when known.
     try {
+      const budgetSplitsForCache = parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
       const settingsPayload = {
         style: sessionStyle,
         trading_style: sessionStyle,
@@ -11283,6 +11324,9 @@ useEffect(() => {
         chain: traderStartChain,
         onchainSessionId: coreVaultSessionId || 0,
         budgetUsd: Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0,
+        budgetSplits: Array.isArray(budgetSplitsForCache) ? budgetSplitsForCache : [],
+        slotCount: Array.isArray(budgetSplitsForCache) ? budgetSplitsForCache.length : 0,
+        slotAmounts: Array.isArray(budgetSplitsForCache) ? budgetSplitsForCache : [],
       };
       traderSessionSettingsCacheRef.current[sessionId] = settingsPayload;
       if (coreVaultSessionId) {
@@ -11405,9 +11449,12 @@ useEffect(() => {
           onchainSessionId: coreVaultSessionId || undefined,
           onchain_session_id: coreVaultSessionId || undefined,
           coreVaultSessionId: coreVaultSessionId || undefined,
-          meta: { chain: traderStartChain, chain_key: traderStartChain, chain_id: coreVaultChainId, onchain_session_id: coreVaultSessionId || undefined, coreVaultSessionId: coreVaultSessionId || undefined },
+          meta: { chain: traderStartChain, chain_key: traderStartChain, chain_id: coreVaultChainId, onchain_session_id: coreVaultSessionId || undefined, coreVaultSessionId: coreVaultSessionId || undefined, slotCount: activeQueue.length, budgetSplits: Array.isArray(budgetSplitsForCache) ? budgetSplitsForCache : [], style: sessionStyle, risk_mode: sessionRiskMode },
           status: activeQueue.some((s) => String(s.status || "").toUpperCase() === "READY") ? "READY" : "WAIT",
           slots: activeQueue.length,
+          slotCount: activeQueue.length,
+          queue: activeQueue,
+          budgetSplits: Array.isArray(budgetSplitsForCache) ? budgetSplitsForCache : activeQueue.map((s) => Number(s?.amountUsd || 0)),
           runtimeHours: runtimeHoursNum,
           runtime_hours: runtimeHoursNum,
           reuseProfitPct: reuseProfitPctNum,
@@ -25065,12 +25112,40 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         >
                           {openTradingSessions.map((sess) => {
                             const sid = String(sess?.id || sess?.session_id || "").trim();
-                            const sessionSlots = Array.isArray(sess?.queue)
-                              ? sess.queue
-                              : (Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue.filter((slot) => {
-                                  const slotSid = String(getTradingSlotSessionId(slot) || "").trim();
-                                  return sid && slotSid === sid;
-                                }) : []);
+                            const sessionSlots = (() => {
+                              if (Array.isArray(sess?.queue) && sess.queue.length) return sess.queue;
+                              const fromExec = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue.filter((slot) => {
+                                const slotSid = String(getTradingSlotSessionId(slot) || "").trim();
+                                const slotOid = Number(slot?.onchainSessionId || slot?.onchain_session_id || slot?.meta?.onchain_session_id || 0) || 0;
+                                const sessOid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || 0) || 0;
+                                if (sid && slotSid && (slotSid === sid || slotSid.startsWith(sid) || sid.startsWith(slotSid))) return true;
+                                if (sessOid > 0 && slotOid > 0 && sessOid === slotOid) return true;
+                                return false;
+                              }) : [];
+                              if (fromExec.length) return fromExec;
+                              // BUILD429: rebuild display slots from settings cache (budget 8+8 → 2 slots).
+                              const oid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || 0) || 0;
+                              const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || "").toUpperCase();
+                              const cached = traderSessionSettingsCacheRef.current[sid]
+                                || (oid ? traderSessionSettingsCacheRef.current[`OID:${oid}`] : null)
+                                || (oid && chain ? traderSessionSettingsCacheRef.current[`${chain}:${oid}`] : null)
+                                || {};
+                              const splits = Array.isArray(cached.budgetSplits) ? cached.budgetSplits : (Array.isArray(cached.slotAmounts) ? cached.slotAmounts : []);
+                              if (!splits.length) return [];
+                              return splits.map((amount, idx) => ({
+                                id: `display-slot-${sid || oid}-${idx + 1}`,
+                                slot: idx + 1,
+                                slot_id: idx + 1,
+                                amountUsd: Number(amount) || 0,
+                                reserved_capital_usd: Number(amount) || 0,
+                                status: "WAIT",
+                                state: "WAIT",
+                                chain,
+                                session_id: sid,
+                                style: cached.style,
+                                meta: { source: "settings_cache_display" },
+                              }));
+                            })();
                             const sessionAsset = getTradingSessionPrimaryAsset(sess) || "ASSET";
                             const sessionBudget = getTradingSessionBudgetUsd(sess);
                             const sessionProfit = getTradingSessionProfitUsd(sess);

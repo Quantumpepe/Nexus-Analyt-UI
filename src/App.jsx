@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD429-SESSION-SLOTS-FROM-BUDGET";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD430-FIX-BUDGET-SPLITS-SCOPE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -11297,8 +11297,11 @@ useEffect(() => {
     const sessionExpiresTs = Math.floor(sessionExpiresAt / 1000);
     setActiveTradingSessionId(sessionId);
     // BUILD428: cache settings under local session id and on-chain id when known.
+    const budgetSplitsForCache = (() => {
+      try { return parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd); }
+      catch (_) { return []; }
+    })();
     try {
-      const budgetSplitsForCache = parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
       const settingsPayload = {
         style: sessionStyle,
         trading_style: sessionStyle,
@@ -25217,7 +25220,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.1fr 1.1fr auto", gap: 12, alignItems: "center" }}>
                                   <div style={{ display: "grid", gap: 6 }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                      <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 14 }}>{sessionAsset} · {fmtUsd(sessionBudget)} · {getTradingSessionSlotCount(sess)} slots</div>
+                                      <div style={{ color: "#eafff5", fontWeight: 950, fontSize: 14 }}>{sessionAsset} · {fmtUsd(sessionBudget)} · {(sessionSlots.length || getTradingSessionSlotCount(sess) || 0)} slots</div>
                                       <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                     </div>
                                     <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>

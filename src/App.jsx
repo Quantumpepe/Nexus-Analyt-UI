@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD416-TRADER-FINALIZED-CARD-RECONCILE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD417-TRADER-AUTHORITATIVE-LIFECYCLE-HEADER-CLEANUP";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9958,17 +9958,30 @@ useEffect(() => {
       setTradingExecutionQueue(normalizedQueue);
 
       const restoredSessions = buildTradingSessionsFromQueue(normalizedQueue);
-      if (restoredSessions.length) {
-        setTradingSessions(() => restoredSessions.filter((sess) => {
-          const st = String(sess?.status || "").toUpperCase();
-          // FINALIZED must never stay in the active Trader list after on-chain close.
-          return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "FINALIZED", "COMPLETED", "COMPLETE", "ARCHIVED"].includes(st);
-        }));
+      const restoredOpenSessions = restoredSessions.filter((sess) => {
+        const st = String(sess?.status || "").toUpperCase();
+        return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "FINALIZED", "COMPLETED", "COMPLETE", "ARCHIVED"].includes(st);
+      });
+      if (restoredOpenSessions.length) {
+        setTradingSessions(() => restoredOpenSessions);
         setActiveTradingSessionId((prev) => {
           const current = String(prev || "").trim();
-          if (current && restoredSessions.some((sess) => String(sess.id) === current)) return current;
-          return String(restoredSessions[0]?.id || current || "");
+          if (current && restoredOpenSessions.some((sess) => String(sess.id) === current)) return current;
+          return String(restoredOpenSessions[0]?.id || "");
         });
+      } else {
+        // BUILD417: an empty authoritative execution queue must be allowed to clear stale
+        // local session cards. A live CoreVault session without slots is supplied separately
+        // by openTradingSessions from the on-chain inventory below.
+        setTradingSessions((prev) => {
+          const rows = Array.isArray(prev) ? prev : [];
+          const keep = rows.filter((sess) => {
+            const st = String(sess?.status || "").toUpperCase();
+            return ["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "FINALIZED", "COMPLETED", "COMPLETE", "ARCHIVED"].includes(st);
+          });
+          return keep.length === rows.length ? prev : keep;
+        });
+        setActiveTradingSessionId("");
       }
     }
     const holdStatus = String(nexusBackendState?.hold_state?.status || "").toUpperCase();
@@ -9976,60 +9989,89 @@ useEffect(() => {
   }, [nexusBackendState, dedupeTradingQueue, buildTradingSessionsFromQueue, setTradingExecutionQueue, setTradingSessionStatus]);
 
   const openTradingSessions = useMemo(() => {
-    const localSessions = Array.isArray(tradingSessions) ? tradingSessions : [];
-    // Multi-device: do not resurrect closed trader cards from a stale CoreVault preview.
-    // Only enrich IDs that already exist as non-terminal local sessions.
-    const localLiveIds = new Set(
-      localSessions
-        .filter((s) => !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "FINALIZED", "COMPLETED", "COMPLETE"].includes(String(s?.status || "").toUpperCase()))
-        .map((s) => String(s?.onchainSessionId ?? s?.coreVaultSessionId ?? s?.id ?? s?.session_id ?? ""))
-        .filter(Boolean)
-    );
-    const onchainFallback = localLiveIds.size
-      ? (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
-          .filter((sess) => String(sess?.engine || "").toUpperCase() === "TRADER")
-          .filter((sess) => !["FINALIZED", "COMPLETED", "CANCELLED", "CLOSED"].includes(String(sess?.statusLabel || sess?.status || "").toUpperCase()))
-          .filter((sess) => localLiveIds.has(String(sess?.sessionId || sess?.onchainSessionId || "")))
-          .map((sess) => {
-            const oid = String(sess?.sessionId || sess?.onchainSessionId || "");
-            const chain = String(sess?.chain || sess?.chainKey || activeTraderChainKey || activeGridChainKey || "ETH").toUpperCase();
-            const asset = String(sess?.settlementAsset || sess?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH")).toUpperCase();
-            return {
-              id: `TRADER-LIVE-${oid}`, session_id: `TRADER-LIVE-${oid}`, onchainSessionId: oid, coreVaultSessionId: oid,
-              status: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(), chains: [chain], chain, chainId: Number(sess?.chainId || 0),
-              asset, settlementAsset: asset, budgetUsd: Number(sess?.budget || sess?.budgetAmount || 0),
-              createdAt: Number(sess?.createdAt || Date.now()), updatedAt: Date.now(), queue: [], source: "corevault_onchain"
-            };
-          })
-      : [];
-    const sessions = [...localSessions, ...onchainFallback];
-    const active = sessions.filter((sess) => {
-      const st = String(sess?.status || "").toUpperCase();
-      // Keep aligned with CoreVault terminal states so FINALIZED sessions disappear
-      // from Active Trading Session cards and do not block a fresh start.
-      // STOPPING stays visible (Pause→Stop must not vanish, then reappear as PAUSED).
-      return !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "FINALIZED", "COMPLETED", "COMPLETE"].includes(st);
+    const terminal = new Set(["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "ARCHIVED", "FINALIZED", "COMPLETED", "COMPLETE"]);
+    const chainName = (row = {}) => String(
+      row?.chain || row?.chainKey || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(row?.chainId)] || "")
+    ).toUpperCase();
+    const onchainId = (row = {}) => {
+      const meta = row?.meta && typeof row.meta === "object" ? row.meta : {};
+      return String(row?.onchainSessionId ?? row?.onchain_session_id ?? row?.coreVaultSessionId ?? row?.sessionId ?? meta?.onchain_session_id ?? meta?.onchainSessionId ?? meta?.coreVaultSessionId ?? "").trim();
+    };
+    const authRows = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+      .filter((row) => String(row?.engine || "").toUpperCase() === "TRADER")
+      .filter((row) => {
+        const st = String(row?.statusLabel || row?.status || "").toUpperCase();
+        const raw = Number(row?.statusId ?? row?.rawStatusId ?? row?.onchainStatusId ?? 0);
+        return raw !== 4 && !terminal.has(st);
+      });
+    const authByKey = new Map();
+    authRows.forEach((row) => {
+      const oid = onchainId(row);
+      const chain = chainName(row);
+      if (oid && chain) authByKey.set(`${chain}:${oid}`, row);
     });
 
-    // IMPORTANT: multiple independent budgets/sessions per chain/asset are allowed.
-    // Do NOT dedupe by asset/chain here. A user can start ETH 500$ + ETH 500$
-    // as two separate signed/approved Trading sessions, and both must remain visible.
-    // Old POL duplicate bugs must be prevented by proper session_id/runtime_id matching
-    // in the queue layer, not by hiding valid sessions with the same asset.
-    const bySessionId = new Map();
-    active.forEach((sess, idx) => {
-      const sid = String(sess?.id || sess?.session_id || sess?.sessionId || sess?.baseSessionId || `SESSION-${idx}`).trim();
-      if (!sid) return;
-      const prev = bySessionId.get(sid);
-      if (!prev || Number(sess?.updatedAt || 0) >= Number(prev?.updatedAt || 0)) {
-        bySessionId.set(sid, sess);
-      }
+    const localSessions = (Array.isArray(tradingSessions) ? tradingSessions : [])
+      .filter((s) => !terminal.has(String(s?.status || "").toUpperCase()));
+    const localByKey = new Map();
+    localSessions.forEach((sess) => {
+      const oid = onchainId(sess);
+      const chain = chainName(sess);
+      if (oid && chain) localByKey.set(`${chain}:${oid}`, sess);
     });
 
-    return Array.from(bySessionId.values()).sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
+    const merged = [];
+    // CoreVault inventory is authoritative for live on-chain Trader sessions. Merge local
+    // queue/slot metadata only when it belongs to that exact chain + CoreVault session id.
+    authByKey.forEach((row, key) => {
+      const local = localByKey.get(key) || {};
+      const oid = onchainId(row);
+      const chain = chainName(row) || String(activeTraderChainKey || activeGridChainKey || "ETH").toUpperCase();
+      const settlementAsset = String(row?.settlementAsset || row?.asset || local?.settlementAsset || local?.asset || (chain === "BNB" ? "BNB" : chain === "POL" ? "POL" : "ETH")).toUpperCase();
+      merged.push({
+        ...local,
+        id: String(local?.id || local?.session_id || `TRADER-LIVE-${chain}-${oid}`),
+        session_id: String(local?.session_id || local?.id || `TRADER-LIVE-${chain}-${oid}`),
+        onchainSessionId: oid,
+        coreVaultSessionId: oid,
+        chain,
+        chains: [chain],
+        chainId: Number(row?.chainId || local?.chainId || 0),
+        settlementAsset,
+        budgetUsd: Number(row?.budget || row?.budgetAmount || local?.budgetUsd || 0),
+        status: String(row?.statusLabel || row?.status || local?.status || "ACTIVE").toUpperCase(),
+        createdAt: Number(local?.createdAt || row?.createdAt || Date.now()),
+        updatedAt: Math.max(Number(local?.updatedAt || 0), Date.now()),
+        source: "corevault_onchain",
+      });
+    });
+
+    // Before the first on-chain inventory refresh, keep local STARTING/CONFIRMING sessions
+    // visible. Once a CoreVault id is known, a local card survives only if the authoritative
+    // inventory still contains that exact chain + id.
+    if (!coreVaultSessionPreview) {
+      localSessions.forEach((sess) => merged.push(sess));
+    } else {
+      localSessions.forEach((sess) => {
+        const oid = onchainId(sess);
+        if (oid) return; // handled only through authoritative inventory above
+        const st = String(sess?.status || "").toUpperCase();
+        if (["STARTING", "CREATE_SUBMITTING", "CONFIRMING", "RECOVERING", "RECOVERING_RECEIPT", "START_REQUESTED"].includes(st)) merged.push(sess);
+      });
+    }
+
+    const byIdentity = new Map();
+    merged.forEach((sess, idx) => {
+      const oid = onchainId(sess);
+      const chain = chainName(sess);
+      const key = oid && chain ? `${chain}:${oid}` : String(sess?.id || sess?.session_id || `LOCAL-${idx}`);
+      const prev = byIdentity.get(key);
+      if (!prev || Number(sess?.updatedAt || 0) >= Number(prev?.updatedAt || 0)) byIdentity.set(key, sess);
+    });
+    return Array.from(byIdentity.values()).sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0));
   }, [tradingSessions, coreVaultSessionPreview, activeTraderChainKey, activeGridChainKey]);
 
-  // BUILD416: backend-first ghost-card reconciliation. Some recovery endpoints stop
+  // BUILD417: backend-first ghost-card reconciliation. Some recovery endpoints stop
   // returning a session after FINALIZED. In that case waiting for a FINALIZED row
   // leaves an ACTIVE card forever. Verify known CoreVault ids per chain; if the
   // authoritative inventory no longer contains that id, retire only that exact card.
@@ -10096,7 +10138,7 @@ useEffect(() => {
     });
   }, [tradingSessions]);
 
-  // BUILD416: CoreVault terminal state is authoritative for Trader card visibility.
+  // BUILD417: CoreVault terminal state is authoritative for Trader card visibility.
   // Finalized on-chain Trader sessions retire matching local/UI sessions even when
   // wallet app-state still contains an older ACTIVE snapshot. Match by chain + id.
   useEffect(() => {
@@ -12612,10 +12654,12 @@ useEffect(() => {
         if (rotationSettingsSource.rotationShadowSnapshot && typeof rotationSettingsSource.rotationShadowSnapshot === "object") setRotationShadowSnapshot(rotationSettingsSource.rotationShadowSnapshot);
         if (Array.isArray(rotationSettingsSource.rotationShadowEvents)) setRotationShadowEvents(rotationSettingsSource.rotationShadowEvents);
         if (rotationSettingsSource.rotationNetworkScope != null) setRotationNetworkScope(String(rotationSettingsSource.rotationNetworkScope));
-        if (serverTradingSessions.length) {
-          setTradingSessions(serverTradingSessions);
-          if (serverActiveTradingSessionId) setActiveTradingSessionId(serverActiveTradingSessionId);
-        }
+        // BUILD417: ui_state_json is settings/display persistence only, never Trader lifecycle truth.
+        // Active Trader sessions are reconstructed from the authoritative execution queue and
+        // CoreVault on-chain inventory. Rehydrating serverUi.tradingSessions here could resurrect
+        // a session that was already finalized on-chain.
+        void serverTradingSessions;
+        void serverActiveTradingSessionId;
         // NKR sessions are hydrated separately from /api/rotation-sessions.
       }
       if (serverUpdatedTs) storeAppStateServerTs(serverUpdatedTs);
@@ -22415,7 +22459,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             <div className="cardActions" style={{ alignItems: "center", flex: "0 0 auto" }}>
              
-              <span className="pill silver">Price: {shownGridPrice ? fmtUsd(shownGridPrice) : "—"}</span>
+              {/* BUILD417: remove the shared Grid price pill. It reflected the Grid selection
+                  even while NKR/Trader was active and therefore looked like a live engine price. */}
               <InfoButton title="Grid Trader – Info">
                 <Help showClose dismissable
                   de={

@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD418-TRADER-EXACT-CONTROL-CONFIRMED-FINALIZE";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD419-TRADER-PAUSE-STOP-ONCHAIN-RESOLVE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -11532,13 +11532,29 @@ useEffect(() => {
     }
   }, [tradingStartBusy, wallet, tradingSessions, liveVaultChainByMode, tradingPreflight, handleTradingApproveBudget, activeGridChainKey, selectedTraderAssets, manualPayoutAsset, api, refreshNexusBackendState, setErrorMsg, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession]);
 
-  const handleTradingPauseSession = useCallback(async (sessionOverride = null) => {
+  const resolveTraderOnchainControl = useCallback((sessionOverride = null) => {
     const sess = sessionOverride && typeof sessionOverride === "object" && !sessionOverride?.nativeEvent ? sessionOverride : (selectedTradingSession || {});
     const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
     const sid = String(sess?.id || selectedTradingSessionId || activeTradingSessionId || "").trim();
-    const onchainSid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || meta?.onchain_session_id || meta?.coreVaultSessionId || 0) || 0;
-    const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || liveVaultChainByMode?.trading || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
-    if (!sid || !onchainSid) { setErrorMsg("Trader Pause requires the exact on-chain session id."); return; }
+    const localOnchainSid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || meta?.onchain_session_id || meta?.coreVaultSessionId || 0) || 0;
+    const selectedLiveChain = String(liveVaultChainByMode?.trading || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
+    const activeOnchainTraderRows = (Array.isArray(coreVaultSessionPreview?.sessions) ? coreVaultSessionPreview.sessions : [])
+      .filter((row) => String(row?.engine || "").toUpperCase() === "TRADER")
+      .filter((row) => !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(row?.statusLabel || "").toUpperCase()));
+    const localChain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || "").toUpperCase();
+    const authoritativeRow =
+      (localOnchainSid > 0 ? activeOnchainTraderRows.find((row) => Number(row?.sessionId || 0) === localOnchainSid) : null) ||
+      activeOnchainTraderRows.find((row) => String(row?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(row?.chainId)] || "")).toUpperCase() === (localChain || selectedLiveChain)) ||
+      (activeOnchainTraderRows.length === 1 ? activeOnchainTraderRows[0] : null);
+    const chain = String(authoritativeRow?.chain || ({ 1: "ETH", 56: "BNB", 137: "POL" }[Number(authoritativeRow?.chainId)] || "") || localChain || selectedLiveChain).toUpperCase();
+    const onchainSid = Number(authoritativeRow?.sessionId || localOnchainSid || 0) || 0;
+    return { sess, sid, chain, onchainSid };
+  }, [selectedTradingSession, selectedTradingSessionId, activeTradingSessionId, liveVaultChainByMode, activeGridChainKey, coreVaultSessionPreview]);
+
+  const handleTradingPauseSession = useCallback(async (sessionOverride = null) => {
+    const { sess, sid, chain, onchainSid } = resolveTraderOnchainControl(sessionOverride);
+    if (!sid) { setErrorMsg("Trader Pause: no local session id."); return; }
+    if (!onchainSid) { setErrorMsg("Trader Pause: on-chain session id missing. Open System Info → Refresh on-chain sessions, then try again."); return; }
     try {
       setErrorMsg(`Pausing Trader ${chain} #${onchainSid} on-chain...`);
       await api("/api/nexus/trading/control", { method:"POST", token, wallet, body:{ action:"pause", session_id:sid, sessionId:sid, chain, onchainSessionId:onchainSid, onchain_session_id:onchainSid } });
@@ -11550,15 +11566,12 @@ useEffect(() => {
       await refreshNexusBackendState().catch(() => null);
       setErrorMsg(`Trader ${chain} #${onchainSid} paused on-chain.`);
     } catch (e) { setErrorMsg(`Trader Pause failed: ${e?.message || e}`); }
-  }, [selectedTradingSession, selectedTradingSessionId, activeTradingSessionId, liveVaultChainByMode, activeGridChainKey, api, token, wallet, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingExecutionQueue, tradingSessionIdMatches, getTradingSlotSessionId, refreshNexusBackendState, setErrorMsg]);
+  }, [resolveTraderOnchainControl, api, token, wallet, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, setTradingExecutionQueue, tradingSessionIdMatches, getTradingSlotSessionId, refreshNexusBackendState, setErrorMsg]);
 
   const handleTradingResumeSession = useCallback(async (sessionOverride = null) => {
-    const sess = sessionOverride && typeof sessionOverride === "object" && !sessionOverride?.nativeEvent ? sessionOverride : (selectedTradingSession || {});
-    const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
-    const sid = String(sess?.id || selectedTradingSessionId || activeTradingSessionId || "").trim();
-    const onchainSid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || meta?.onchain_session_id || meta?.coreVaultSessionId || 0) || 0;
-    const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || liveVaultChainByMode?.trading || activeGridChainKey || DEFAULT_CHAIN || "ETH").toUpperCase();
-    if (!sid || !onchainSid) { setErrorMsg("Trader Resume requires the exact on-chain session id."); return; }
+    const { sid, chain, onchainSid } = resolveTraderOnchainControl(sessionOverride);
+    if (!sid) { setErrorMsg("Trader Resume: no local session id."); return; }
+    if (!onchainSid) { setErrorMsg("Trader Resume: on-chain session id missing. Refresh on-chain sessions first."); return; }
     try {
       setErrorMsg(`Resuming Trader ${chain} #${onchainSid} on-chain...`);
       await api("/api/nexus/trading/control", { method:"POST", token, wallet, body:{ action:"resume", session_id:sid, sessionId:sid, chain, onchainSessionId:onchainSid, onchain_session_id:onchainSid } });
@@ -11569,7 +11582,7 @@ useEffect(() => {
       await refreshNexusBackendState().catch(() => null);
       setErrorMsg(`Trader ${chain} #${onchainSid} resumed on-chain.`);
     } catch (e) { setErrorMsg(`Trader Resume failed: ${e?.message || e}`); }
-  }, [selectedTradingSession, selectedTradingSessionId, activeTradingSessionId, liveVaultChainByMode, activeGridChainKey, api, token, wallet, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, refreshNexusBackendState, setErrorMsg]);
+  }, [resolveTraderOnchainControl, api, token, wallet, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, refreshNexusBackendState, setErrorMsg]);
 
   const handleTradingStopSession = useCallback(async (sessionIdOverride = "", sessionOverride = null) => {
     if (tradingStopBusy) return;
@@ -11580,7 +11593,10 @@ useEffect(() => {
     const hasExplicitSessionId = typeof sessionIdOverride === "string" || typeof sessionIdOverride === "number";
     const requestedSid = hasExplicitSessionId ? String(sessionIdOverride || "").trim() : "";
     const explicitSessionOverride = sessionOverride && typeof sessionOverride === "object" && !sessionOverride?.nativeEvent ? sessionOverride : null;
-    if (!requestedSid && !tradingCanStop) return;
+    if (!requestedSid && !tradingCanStop) {
+      setErrorMsg("Trader Stop is not available for the current session state. Select the ACTIVE session card first.");
+      return;
+    }
     const now = Date.now();
     const overrideSession = explicitSessionOverride;
     const resolvedSession = overrideSession || (requestedSid

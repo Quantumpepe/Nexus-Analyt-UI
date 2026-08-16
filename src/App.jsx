@@ -502,7 +502,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD422-FIX-WALLET-NOT-DEFINED";
+const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD425-TRADER-CONTROLS-CARD-ONLY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9491,6 +9491,8 @@ useEffect(() => {
   const [aggressiveRiskConsentOpen, setAggressiveRiskConsentOpen] = useState(false);
   const [aggressiveRiskPendingValue, setAggressiveRiskPendingValue] = useState("");
   const [aggressiveRiskAcceptedForDraft, setAggressiveRiskAcceptedForDraft] = useState(false);
+  const aggressiveRiskAcceptedRef = useRef(false);
+
   const [tradingPreparedSetup, setTradingPreparedSetup] = useState(null);
   const [tradingLearningSetups, setTradingLearningSetups] = useState([]);
   const [tradingRiskExpanded, setTradingRiskExpanded] = useState(false);
@@ -11123,7 +11125,7 @@ useEffect(() => {
       setErrorMsg(tradingPreflight.title || "Complete Nexus Trading setup before starting.");
       return null;
     }
-    if (String(tradingStyle || "").toUpperCase() === "AGGRESSIVE" && !aggressiveRiskAcceptedForDraft) {
+    if (String(tradingStyle || "").toUpperCase() === "AGGRESSIVE" && !(aggressiveRiskAcceptedRef.current || aggressiveRiskAcceptedForDraft)) {
       setAggressiveRiskPendingValue("AGGRESSIVE");
       setAggressiveRiskConsentOpen(true);
       setErrorMsg("Please accept the Aggressive Performance risk warning before starting this Trading session.");
@@ -11468,7 +11470,7 @@ useEffect(() => {
     setTradingBudgetSplitInput("");
     setErrorMsg(`Trading budget confirmed: ${fmtUsd(Number(String(tradingBudgetUsd || "0").replace(",", ".")) || 0)} · ${sessionId}. Starting Trader...`);
     return sessionId;
-  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, normalizeTradingRuntimeHours, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, tradingStyle, tradingRiskMode, tradingMaxTrades, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingCautionDrawdownPct, manualPayoutAsset, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState]);
+  }, [tradingCanApprove, tradingBudgetUsd, tradingHoldHours, tradingPreflight, buildTradingQueue, clampTradingHoldHours, activeGridChainKey, makeNexusSessionId, normalizeTradingRuntimeHours, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, tradingStyle, aggressiveRiskAcceptedForDraft, tradingRiskMode, tradingMaxTrades, tradingHardStopPct, tradingProfitLockPct, tradingMaxSlippagePct, tradingCautionDrawdownPct, manualPayoutAsset, dedupeTradingQueue, setTradingExecutionQueue, setTradingSessions, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingPreparedSession, setActiveTradingSessionId, setErrorMsg, setTradingBudgetUsd, setTradingBudgetSplitInput, wallet, api, refreshNexusBackendState, createCoreVaultSystemSession, liveVaultChainByMode, liveVaultAssetByMode]);
 
   const handleTradingStartSession = useCallback(async () => {
     if (tradingStartBusy) return;
@@ -11648,19 +11650,37 @@ useEffect(() => {
 
     try {
       // BUILD418: keep the runtime queue until CoreVault confirms FINALIZED.
-      const stopResult = await api("/api/nexus/trading/control", {
+      // BUILD423: use the same exact on-chain stop path as System Info recovery.
+      // /api/nexus/trading/control often only touched the local queue; orphan stop always finalizes.
+      const chainIdNum = Number({ ETH: 1, BNB: 56, POL: 137 }[chain] || 0);
+      const stopResult = await api("/api/live/stop-orphan-session", {
         method: "POST",
         token,
         wallet,
         body: {
-          action: "stop",
-          session_id: sid,
-          sessionId: sid,
+          engine: "TRADER",
           chain,
-          onchainSessionId: onchainSid || undefined,
-          onchain_session_id: onchainSid || undefined,
+          chainId: chainIdNum,
+          sessionId: onchainSid,
+          onchainSessionId: onchainSid,
         },
       });
+      // Also mark local queue stopped so Strategist does not keep ticking.
+      try {
+        await api("/api/nexus/trading/control", {
+          method: "POST",
+          token,
+          wallet,
+          body: {
+            action: "stop",
+            session_id: sid,
+            sessionId: sid,
+            chain,
+            onchainSessionId: onchainSid,
+            onchain_session_id: onchainSid,
+          },
+        });
+      } catch (_) { /* local queue best-effort */ }
       const resolvedOnchainSid = Number(onchainSid || stopResult?.coreVaultFinalize?.[0]?.sessionId || 0) || 0;
       setErrorMsg(`Trader stop accepted on ${chain}${resolvedOnchainSid ? ` · CoreVault #${resolvedOnchainSid}` : ""}. Closing and finalizing on-chain...`);
 
@@ -12195,6 +12215,7 @@ useEffect(() => {
     // Any new budget input must start from Tactical again so the risk warning
     // cannot be bypassed by a previous session.
     setTradingStyle("TACTICAL");
+    aggressiveRiskAcceptedRef.current = false;
     setAggressiveRiskAcceptedForDraft(false);
     setAggressiveRiskPendingValue("");
     setAggressiveRiskConsentOpen(false);
@@ -12221,11 +12242,13 @@ useEffect(() => {
   const handleTradingPerformanceChange = useCallback((value) => {
     const next = String(value || "TACTICAL").toUpperCase();
     if (next === "AGGRESSIVE") {
+      aggressiveRiskAcceptedRef.current = false;
       setAggressiveRiskAcceptedForDraft(false);
       setAggressiveRiskPendingValue(next);
       setAggressiveRiskConsentOpen(true);
       return;
     }
+    aggressiveRiskAcceptedRef.current = false;
     setAggressiveRiskAcceptedForDraft(false);
     setTradingStyle(next);
   }, [setTradingStyle, setAggressiveRiskAcceptedForDraft, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen]);
@@ -12235,6 +12258,7 @@ useEffect(() => {
     // Sticky: confirmed style stays selected until the user changes it.
     setTradingStyle(next);
     setTradingRiskExpanded(false);
+    aggressiveRiskAcceptedRef.current = true;
     setAggressiveRiskAcceptedForDraft(true);
     setAggressiveRiskPendingValue("");
     setAggressiveRiskConsentOpen(false);
@@ -12262,6 +12286,7 @@ useEffect(() => {
   }, [aggressiveRiskPendingValue, setTradingStyle, setTradingRiskExpanded, setAggressiveRiskAcceptedForDraft, setAggressiveRiskPendingValue, setAggressiveRiskConsentOpen, wallet, api, tradingBudgetUsd]);
 
   const cancelAggressiveRiskConsent = useCallback(() => {
+    aggressiveRiskAcceptedRef.current = false;
     setAggressiveRiskAcceptedForDraft(false);
     setAggressiveRiskPendingValue("");
     setAggressiveRiskConsentOpen(false);
@@ -25033,11 +25058,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         updateTradingSessionMeta(sid, { status: "PAUSED", pausedAt: now });
                                         updateTradingPreparedSession({ status: "PAUSED", pausedAt: now, userAction: { paused: true, sessionId: sid } });
                                       }}
-                                      disabled={!sid || stateLabel === "PAUSED" || stateLabel === "STOPPED"}
+                                      disabled={!sid || stateLabel === "PAUSED" || stateLabel === "STOPPED" || stateLabel === "STOPPING" || tradingStopBusy}
                                       title="Pause only this Trading session"
                                     >
                                       Pause
                                     </button>
+                                    {stateLabel === "PAUSED" ? (
+                                      <button
+                                        className="miniBtn"
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (!sid || tradingStopBusy) return;
+                                          setActiveTradingSessionId(sid);
+                                          handleTradingResumeSession(sess);
+                                        }}
+                                        disabled={!sid || tradingStopBusy}
+                                        title="Resume this Trading session on-chain"
+                                      >
+                                        Resume
+                                      </button>
+                                    ) : null}
                                     <button
                                       className="miniBtn"
                                       type="button"
@@ -25048,11 +25089,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         setActiveTradingSessionId(sid);
                                         handleTradingStopSession(sid, sess);
                                       }}
-                                      disabled={!sid || stateLabel === "STOPPED" || stateLabel === "STOPPING"}
-                                      style={{ color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}
+                                      disabled={!sid || stateLabel === "STOPPED" || stateLabel === "STOPPING" || tradingStopBusy}
+                                      style={{ color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)", opacity: (stateLabel === "STOPPING" || tradingStopBusy) ? 0.55 : 1 }}
                                       title="Stop this Trading session (stays visible as stopping until closed)"
                                     >
-                                      {stateLabel === "STOPPING" ? "Stopping…" : "Protect / Stop"}
+                                      {(stateLabel === "STOPPING" || tradingStopBusy) ? "Stopping…" : "Protect / Stop"}
                                     </button>
                                     <button className="miniBtn" type="button" onClick={(e) => { e.stopPropagation(); setExpandedTradingSessionSlots((prev) => ({ ...(prev || {}), [sid]: !prev?.[sid] })); }} style={{ color: "#8bdcff", borderColor: "rgba(139,220,255,.25)" }} title="Show or hide this session's slots">
                                       {slotsOpen ? "Hide Slots ▲" : `Show Slots (${sessionSlots.length}) ▼`}
@@ -25742,15 +25783,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                               <div style={{ display: "grid", gap: 7, minWidth: 116 }}>
                                 <button className="miniBtn" type="button" title="Open detailed session view">Details</button>
-                                {tradingCanPause ? (
-                                  <button className="miniBtn" type="button" onClick={() => handleTradingPauseSession(selectedTradingSession)} title="Pause this exact Trading session on-chain">Pause</button>
-                                ) : null}
-                                {tradingCanResume ? (
-                                  <button className="miniBtn" type="button" onClick={() => handleTradingResumeSession(selectedTradingSession)} title="Resume this exact Trading session on-chain">Resume</button>
-                                ) : null}
-                                {tradingCanStop ? (
-                                  <button className="miniBtn" type="button" onClick={() => handleTradingStopSession()} title="Protect / stop only this selected Trading session" style={{ color: "#ff8a8a", borderColor: "rgba(255,107,107,.35)" }}>{tradingStopBusy ? "Stopping…" : "Protect / Stop"}</button>
-                                ) : null}
+                                {/* BUILD425: Pause / Stop only on Active Trading Session cards — no duplicate controls here. */}
                                 {tradingCanReleaseCapital ? (
                                   <button className="miniBtn" type="button" onClick={handleTradingReleaseCapital} title="Release capital for this selected Trading session">Release Capital</button>
                                 ) : null}
@@ -25835,7 +25868,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ fontWeight: 900, color: selectedTradingSessionLabel === "ACTIVE" ? "#7cf7a2" : selectedTradingSessionLabel === "PROTECT" ? "#ffd166" : ["HOLD", "OBSERVE"].includes(selectedTradingSessionLabel) ? "#8bdcff" : selectedTradingSessionLabel === "RELEASE_REQUIRED" ? "#ffd166" : "#f5c16c", fontSize: 13 }}>
                           Status: {selectedTradingSessionLabel === "PREPARED" ? "Prepared" : selectedTradingSessionLabel === "ARMED" ? "Armed" : selectedTradingSessionLabel === "ACTIVE" ? "Active" : selectedTradingSessionLabel === "PROTECT" ? "Protect" : selectedTradingSessionLabel === "PAUSED" ? "Paused" : selectedTradingSessionLabel === "HOLD" ? "Capital Hold" : selectedTradingSessionLabel === "OBSERVE" ? "Observe" : selectedTradingSessionLabel === "RELEASE_REQUIRED" ? "Release required" : selectedTradingSessionLabel === "STOPPED" ? "Stopped" : "Prepared"}
                         </div>
-                        <div className="muted tiny">{selectedTradingSessionLabel === "PREPARED" ? "Approve a budget to create a new independent Trading session. Later budgets create additional sessions inside your limits." : selectedTradingSessionLabel === "ARMED" ? "Armed. Nexus Trading activates automatically." : selectedTradingSessionLabel === "ACTIVE" ? "Autonomous trading active. User controls Pause and Stop only." : selectedTradingSessionLabel === "PROTECT" ? "Protect mode active. Strategist detected elevated risk; no new add-ons and exit can be triggered if risk worsens." : selectedTradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : selectedTradingSessionLabel === "HOLD" ? "Capital protected. Minimum HOLD is active; no new allocation can start." : selectedTradingSessionLabel === "OBSERVE" ? "Minimum HOLD completed. Strategist keeps checking; no trade unless market quality is clean." : selectedTradingSessionLabel === "RELEASE_REQUIRED" ? "Max 12h observation reached. User must release/approve capital before new allocation." : "Stopped. Load or approve a setup again to continue."}</div>
+                        <div className="muted tiny">{selectedTradingSessionLabel === "PREPARED" ? "Approve a budget to create a new independent Trading session. Later budgets create additional sessions inside your limits." : selectedTradingSessionLabel === "ARMED" ? "Armed. Nexus Trading activates automatically." : selectedTradingSessionLabel === "ACTIVE" ? "Autonomous trading active. Pause and Stop are on the session card." : selectedTradingSessionLabel === "PROTECT" ? "Protect mode active. Strategist detected elevated risk; no new add-ons and exit can be triggered if risk worsens." : selectedTradingSessionLabel === "PAUSED" ? "Paused by user. Resume or Stop remains under user control." : selectedTradingSessionLabel === "HOLD" ? "Capital protected. Minimum HOLD is active; no new allocation can start." : selectedTradingSessionLabel === "OBSERVE" ? "Minimum HOLD completed. Strategist keeps checking; no trade unless market quality is clean." : selectedTradingSessionLabel === "RELEASE_REQUIRED" ? "Max 12h observation reached. User must release/approve capital before new allocation." : "Stopped. Load or approve a setup again to continue."}</div>
                         <div className="muted tiny" style={{ marginTop: 3, color: tradingGlobalRiskState?.status === "COOLDOWN" || tradingGlobalRiskState?.status === "PROTECT" ? "#ffd166" : "rgba(216,255,241,.72)" }}>
                           {tradingGlobalRiskLabel}
                           {tradingGlobalRiskState?.blocked_reason ? ` · ${String(tradingGlobalRiskState.blocked_reason).slice(0, 140)}` : ""}
@@ -25858,15 +25891,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           </button>
                         ) : null}
                         
-                        {tradingCanPause ? (
-                          <button className="btnGhost" type="button" onClick={() => handleTradingPauseSession(selectedTradingSession)} style={{ height: 30, paddingInline: 10 }}>Pause</button>
-                        ) : null}
-                        {tradingCanResume ? (
-                          <button className="btn" type="button" onClick={() => handleTradingResumeSession(selectedTradingSession)} style={{ height: 30, paddingInline: 10 }}>Resume</button>
-                        ) : null}
-                        {tradingCanStop ? (
-                          <button className="btnDanger" type="button" onClick={() => handleTradingStopSession()} style={{ height: 30, paddingInline: 10 }}>{tradingStopBusy ? "Stopping…" : "Protect / Stop"}</button>
-                        ) : null}
+                        {/* BUILD425: Pause / Resume / Stop only on session cards. */}
                         {tradingCanReleaseCapital ? (
                           <button className="btnGhost" type="button" onClick={handleTradingReleaseCapital} style={{ height: 30, paddingInline: 10 }}>Release Capital</button>
                         ) : null}
@@ -28640,35 +28665,7 @@ export default function App() {
         sessions, candidates, counts, engines: CORE_VAULT_SESSION_ENGINES,
         chains: ["ETH", "BNB", "POL"], failures: [], usedEndpoint: "onchain-sessions-auto", gridExcluded: true,
       });
-      // Stamp on-chain ids onto local Trader session cards so Pause/Stop always have them.
-      setTradingSessions((prev) => {
-        const list = Array.isArray(prev) ? prev : [];
-        if (!list.length) return prev;
-        return list.map((local) => {
-          const lm = local?.meta && typeof local.meta === "object" ? local.meta : {};
-          const localChain = String(local?.chain || local?.chainKey || lm?.chain || "").toUpperCase();
-          const existing = Number(local?.onchainSessionId || local?.onchain_session_id || lm?.onchain_session_id || 0) || 0;
-          if (existing > 0) return local;
-          const match = sessions.find((s) =>
-            String(s.engine || "").toUpperCase() === "TRADER"
-            && String(s.chain || "").toUpperCase() === localChain
-            && !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(s.statusLabel || "").toUpperCase())
-          ) || sessions.find((s) =>
-            String(s.engine || "").toUpperCase() === "TRADER"
-            && !["FINALIZED", "COMPLETED", "CANCELLED"].includes(String(s.statusLabel || "").toUpperCase())
-          );
-          if (!match) return local;
-          const oid = Number(match.sessionId || 0) || 0;
-          if (!oid) return local;
-          return {
-            ...local,
-            onchainSessionId: oid,
-            onchain_session_id: oid,
-            chain: match.chain || localChain,
-            meta: { ...lm, onchain_session_id: oid, coreVaultSessionId: oid, chain: match.chain || localChain },
-          };
-        });
-      });
+
     } catch (_) {
       /* silent */
     } finally {

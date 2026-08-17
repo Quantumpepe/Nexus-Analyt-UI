@@ -353,6 +353,19 @@ function buildCompactAiInsight({ backendText = "", trendStructure = "", momentum
 
 const LS_WATCH_REMOVED = "nexus_watch_removed";
 
+// BUILD432: Nexus must never open as an empty market for guests or brand-new wallets.
+// These are presentation/onboarding defaults only. Once a wallet has a saved watchlist,
+// that wallet's backend state is authoritative and every default coin remains removable.
+const NEXUS_DEFAULT_WATCH_ITEMS = Object.freeze([
+  Object.freeze({ symbol: "ETH", mode: "market", coingecko_id: "ethereum", id: "ethereum", name: "Ethereum" }),
+  Object.freeze({ symbol: "BNB", mode: "market", coingecko_id: "binancecoin", id: "binancecoin", name: "BNB" }),
+  Object.freeze({ symbol: "POL", mode: "market", coingecko_id: "polygon-ecosystem-token", id: "polygon-ecosystem-token", name: "POL" }),
+  Object.freeze({ symbol: "LINK", mode: "market", coingecko_id: "chainlink", id: "chainlink", name: "Chainlink" }),
+  Object.freeze({ symbol: "UNI", mode: "market", coingecko_id: "uniswap", id: "uniswap", name: "Uniswap" }),
+]);
+const NEXUS_DEFAULT_COMPARE_SYMBOLS = Object.freeze(NEXUS_DEFAULT_WATCH_ITEMS.map((x) => x.symbol));
+const cloneNexusDefaultWatchItems = () => NEXUS_DEFAULT_WATCH_ITEMS.map((x) => ({ ...x }));
+
 /** BUILD396: map internal/backend text to short user-facing copy. System Info stays raw. */
 function toUserFacingMessage(raw, fallback = "") {
   const s = String(raw ?? "").trim();
@@ -502,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.16-BUILD431-HIDE-CARD-ON-START-CLOSING";
+const FRONTEND_BUILD_ID = "F-2026.08.17-BUILD432-DEFAULT-GUEST-NEW-WALLET-WATCHLIST";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -6551,7 +6564,7 @@ const byChain = {};
   }, [walletModalOpen, wallet]);
 
   // watchlist
-  const [watchItems, setWatchItems] = useState([]);
+  const [watchItems, setWatchItems] = useState(() => cloneNexusDefaultWatchItems());
   const [watchRows, setWatchRows] = useState([]);
   const [watchDragKey, setWatchDragKey] = useState("");
   const [watchDropKey, setWatchDropKey] = useState("");
@@ -6693,7 +6706,13 @@ const byChain = {};
   const syncWatchlistFromServer = useCallback(async () => {
     const wa = resolveWalletAddress(wallet);
     if (!wa) {
-      setWatchRows([]);
+      // Public/guest Nexus view: always start with a useful market instead of an empty page.
+      // Nothing is written to a wallet/backend until a real Privy wallet exists.
+      const guestItems = cloneNexusDefaultWatchItems();
+      watchApplyingServerRef.current = true;
+      setWatchItems(guestItems);
+      watchApplyingServerRef.current = false;
+      fetchWatchSnapshot(guestItems, { force: true, user: false, allowGuest: true });
       return;
     }
     if (watchSyncBusyRef.current) return;
@@ -7069,17 +7088,24 @@ const byChain = {};
   );
   const compareHydratedKeyRef = useRef("");
   const compareSkipNextPersistRef = useRef(false);
-  const [compareSet, setCompareSet] = useState([]);
+  const [compareSet, setCompareSet] = useState(() => [...NEXUS_DEFAULT_COMPARE_SYMBOLS]);
 
   useEffect(() => {
     let next = [];
     try {
       const raw = localStorage.getItem(compareStorageKey);
-      const arr = JSON.parse(raw || "[]");
-      next = Array.isArray(arr)
-        ? arr.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20)
-        : [];
-    } catch {}
+      if (raw == null && !compareWalletKey) {
+        // Guest view gets the five public defaults checked from the first render.
+        next = [...NEXUS_DEFAULT_COMPARE_SYMBOLS];
+      } else {
+        const arr = JSON.parse(raw || "[]");
+        next = Array.isArray(arr)
+          ? arr.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20)
+          : [];
+      }
+    } catch {
+      if (!compareWalletKey) next = [...NEXUS_DEFAULT_COMPARE_SYMBOLS];
+    }
 
     // Critical deploy/remount guard:
     // React runs this hydration effect and the persistence effect from the same render.
@@ -7088,7 +7114,7 @@ const byChain = {};
     compareHydratedKeyRef.current = compareStorageKey;
     compareSkipNextPersistRef.current = true;
     setCompareSet(next); // empty is authoritative for this exact wallet key
-  }, [compareStorageKey]);
+  }, [compareStorageKey, compareWalletKey]);
 
   useEffect(() => {
     if (compareHydratedKeyRef.current !== compareStorageKey) return;
@@ -13214,13 +13240,14 @@ useEffect(() => {
     inflightWatch.current = false;
     watchRefreshQueued.current = false;
 
-    setWatchItems([]);
+    const resetToGuest = !!clearAuth;
+    setWatchItems(resetToGuest ? cloneNexusDefaultWatchItems() : []);
     setWatchRows([]);
     // Clear only in-memory UI state. Never persist this transient reset over the
     // wallet-bound compare selection during auth/wallet handover or a new deployment.
     compareHydratedKeyRef.current = "";
     compareSkipNextPersistRef.current = true;
-    setCompareSet([]);
+    setCompareSet(resetToGuest ? [...NEXUS_DEFAULT_COMPARE_SYMBOLS] : []);
     setTimeframe("90D");
     setIndexMode(true);
     setAiSelected([]);

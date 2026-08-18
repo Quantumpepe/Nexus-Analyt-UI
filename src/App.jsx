@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.18-BUILD433-ACTIVE-ONCHAIN-SESSIONS-FIRST";
+const FRONTEND_BUILD_ID = "F-2026.08.18-BUILD434-COINGECKO-NEWS-MARKET-BRIEF";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -8784,6 +8784,29 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     const id = setInterval(() => setStrategistMovesTick((n) => n + 1), 10000);
     return () => clearInterval(id);
   }, []);
+  // BUILD434: CoinGecko Pro news for the Strategist top strip.
+  // The API key remains backend-only; the browser calls only the Nexus proxy.
+  const [coingeckoNews, setCoingeckoNews] = useState([]);
+  const [coingeckoNewsLoading, setCoingeckoNewsLoading] = useState(false);
+  const [coingeckoNewsError, setCoingeckoNewsError] = useState("");
+  const refreshCoinGeckoNews = useCallback(async () => {
+    setCoingeckoNewsLoading(true);
+    try {
+      const res = await api("/api/coingecko/news?per_page=6");
+      const items = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : []);
+      setCoingeckoNews(items.filter((item) => item && typeof item === "object"));
+      setCoingeckoNewsError("");
+    } catch (err) {
+      setCoingeckoNewsError(String(err?.message || err || "News unavailable"));
+    } finally {
+      setCoingeckoNewsLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    refreshCoinGeckoNews();
+    const id = setInterval(refreshCoinGeckoNews, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [refreshCoinGeckoNews]);
   // User-facing Strategist status (English). Regular users have no System Info access.
   const [nkrStrategistStatus, setNkrStrategistStatus] = useState(null);
   const [rotationBudgetRelease, setRotationBudgetRelease] = useState("");
@@ -27059,7 +27082,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
             ) : null}
 
-            {/* Top context strip: Pulse (non-banner metrics) · Crypto moves · live NKR · live Trading */}
+            {/* Top context strip: Pulse · Crypto Moves · CoinGecko News · Market Brief */}
             {(() => {
               // Pulse must NOT mirror the header banner. Use complementary stats:
               // BTC/ETH dominance, market health score, watchlist breadth, ETH−BTC spread.
@@ -27159,43 +27182,42 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 : [];
               void strategistMovesTick; // ensure tick is read for re-render
 
-              // User-facing status only — never show backend ERROR / FAILED labels
-              const toUserEngineStatus = (raw, controlFallback = "WAITING") => {
-                const s = String(raw || controlFallback || "WAITING").toUpperCase();
-                if (["ERROR", "FAILED", "FAIL", "REJECTED"].includes(s)) return "Busy";
-                if (["STOPPING", "FINALIZING", "CLOSING", "EXITING"].includes(s)) return "Stopping";
-                if (s === "PAUSED" || s === "USER_PAUSED") return "Paused";
-                if (["ACTIVE", "RUNNING", "OPEN", "ENTERING"].includes(s)) return "Running";
-                if (["STOPPED", "FINALIZED", "CLOSED", "COMPLETE", "COMPLETED", "CANCELLED", "EXPIRED"].includes(s)) return "Idle";
-                if (s === "WAITING" || s === "IDLE") return "Waiting";
-                if (s === "HOLD") return "Holding";
-                // Unknown technical codes → neutral label
-                if (s.includes("ERROR") || s.includes("FAIL")) return "Busy";
-                return "Live";
+              // CoinGecko News + deterministic Nexus Market Brief.
+              // This deliberately summarizes headline context without issuing trading commands.
+              const cgNewsItems = (Array.isArray(coingeckoNews) ? coingeckoNews : [])
+                .filter((item) => String(item?.title || "").trim())
+                .slice(0, 3);
+              const cgNewsText = cgNewsItems.map((item) => String(item?.title || "")).join(" ").toLowerCase();
+              const countMatches = (patterns) => patterns.reduce((n, re) => n + (re.test(cgNewsText) ? 1 : 0), 0);
+              const positiveNewsScore = countMatches([/\brally|surge|gain|gains|rise|rises|approval|approved|inflow|adoption|launch|record|partnership|upgrade|bullish\b/i]);
+              const negativeNewsScore = countMatches([/\bhack|exploit|breach|lawsuit|ban|drop|falls?|outflow|liquidation|fraud|crackdown|bearish|bankruptcy\b/i]);
+              const briefSentiment = positiveNewsScore > negativeNewsScore ? "Positive" : negativeNewsScore > positiveNewsScore ? "Cautious" : "Neutral";
+              const themeCandidates = [
+                ["Security", /hack|exploit|breach|security|stolen|attack/i],
+                ["Regulation", /regulation|regulator|sec\b|cftc|law|lawsuit|ban|mica|policy/i],
+                ["Institutional", /institution|blackrock|fidelity|fund|treasury|bank|whale|inflow|outflow/i],
+                ["ETF", /\betf\b|exchange-traded/i],
+                ["Macro", /fed\b|interest rate|inflation|jobs|cpi|macro|dollar/i],
+                ["Stablecoins", /stablecoin|usdt|usdc|tether|circle/i],
+                ["DeFi", /defi|dex\b|lending|staking|liquidity/i],
+                ["Bitcoin", /bitcoin|\bbtc\b/i],
+                ["Ethereum", /ethereum|\beth\b/i],
+              ];
+              const briefTheme = (themeCandidates.find(([, re]) => re.test(cgNewsText)) || ["Broad Market"])[0];
+              const securityRisk = /hack|exploit|breach|attack|stolen|fraud/i.test(cgNewsText);
+              const regulationRisk = /ban|crackdown|lawsuit|regulator|regulation|sec\b|cftc/i.test(cgNewsText);
+              const briefRisk = securityRisk ? "Elevated · Security" : regulationRisk ? "Watch · Regulation" : negativeNewsScore > positiveNewsScore ? "Elevated" : "Normal";
+              const highImpact = /\betf\b|sec\b|fed\b|hack|exploit|bankruptcy|liquidation|approval|regulation|blackrock|fidelity/i.test(cgNewsText);
+              const briefImpact = cgNewsItems.length ? (highImpact ? "High" : "Moderate") : "Waiting";
+              const formatCgNewsAge = (raw) => {
+                const ts = new Date(raw || "").getTime();
+                if (!Number.isFinite(ts)) return "";
+                const mins = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+                if (mins < 60) return `${mins}m`;
+                const hours = Math.floor(mins / 60);
+                if (hours < 24) return `${hours}h`;
+                return `${Math.floor(hours / 24)}d`;
               };
-
-              // NKR card fills from live sessions (ERROR rows still count as live until cleared, but never labeled ERROR)
-              const nkrSessions = (Array.isArray(rotationSessions) ? rotationSessions : []).filter(
-                (s) => !["STOPPED", "FINALIZED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED"].includes(String(s?.status || "").toUpperCase())
-              );
-              const nkrCtrl = String(nkrControlState || "WAITING").toUpperCase();
-              const nkrPrimary = nkrSessions[0] || null;
-              const nkrAsset = String(nkrPrimary?.asset || nkrPrimary?.settlementAsset || nkrPrimary?.meta?.active_asset || nkrStrategistStatus?.bestCandidate || nkrStrategistStatus?.best_candidate || "").toUpperCase();
-              const nkrBudget = Number(nkrPrimary?.budgetUsd || nkrPrimary?.budgetAmount || nkrPrimary?.reservedUsd || 0);
-              const nkrStatusRaw = String(nkrPrimary?.status || nkrCtrl || "WAITING").toUpperCase();
-              const nkrStatus = toUserEngineStatus(nkrStatusRaw, nkrCtrl);
-              const nkrLive = nkrSessions.length > 0;
-              const nkrIsStopping = ["STOPPING", "FINALIZING", "CLOSING", "EXITING", "ERROR", "FAILED"].includes(nkrStatusRaw) || nkrStatus === "Stopping" || nkrStatus === "Busy";
-
-              // Trading card fills from open sessions
-              const traderSessions = Array.isArray(openTradingSessions) ? openTradingSessions : [];
-              const traderLive = traderSessions.length > 0;
-              const traderPrimary = traderSessions[0] || null;
-              const traderAsset = String(traderPrimary?.asset || traderPrimary?.settlementAsset || "").toUpperCase();
-              const traderStatusRaw = String(traderPrimary?.status || tradingSessionStatus || "IDLE").toUpperCase();
-              const traderStatus = toUserEngineStatus(traderStatusRaw, "IDLE");
-              const traderBudget = Number(traderPrimary?.budgetUsd || traderPrimary?.budgetAmount || 0);
-              const traderIsStopping = ["STOPPING", "FINALIZING", "CLOSING", "EXITING", "ERROR", "FAILED"].includes(traderStatusRaw) || traderStatus === "Stopping" || traderStatus === "Busy";
 
               const cardBase = {
                 borderRadius: 12,
@@ -27256,76 +27278,50 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     )}
                   </div>
 
-                  {/* NKR — user-facing labels only (never ERROR) */}
+                  {/* COINGECKO NEWS — latest paid-plan news via backend proxy */}
                   <div style={{
                     ...cardBase,
-                    border: nkrIsStopping
-                      ? "1px solid rgba(255,209,102,.40)"
-                      : nkrLive
-                        ? "1px solid rgba(34,197,94,.40)"
-                        : "1px solid rgba(255,255,255,.10)",
-                    background: nkrIsStopping
-                      ? "linear-gradient(180deg, rgba(255,209,102,.10), rgba(0,0,0,.22))"
-                      : nkrLive
-                        ? "linear-gradient(180deg, rgba(34,197,94,.12), rgba(0,0,0,.22))"
-                        : "linear-gradient(180deg, rgba(255,255,255,.04), rgba(0,0,0,.18))",
+                    border: "1px solid rgba(139,220,255,.34)",
+                    background: "linear-gradient(180deg, rgba(139,220,255,.09), rgba(0,0,0,.22))",
                   }}>
-                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: nkrIsStopping ? "#ffd166" : nkrLive ? "#86efac" : undefined }}>NKR</div>
-                    {nkrLive ? (
-                      <>
-                        <div style={{ fontWeight: 850, fontSize: 13, color: nkrIsStopping ? "#ffd166" : "#86efac" }}>
-                          {nkrStatus}{nkrSessions.length > 1 ? ` · ${nkrSessions.length} sessions` : ""}
-                        </div>
-                        <div style={{ fontSize: 12, color: "#dfffee" }}>
-                          {nkrIsStopping
-                            ? "Finishing session…"
-                            : (nkrAsset ? `Focus ${nkrAsset}` : "Session live")}
-                          {!nkrIsStopping && nkrBudget > 0 ? ` · $${Math.round(nkrBudget)}` : ""}
-                        </div>
-                        <div className="muted tiny">{String(nkrPrimary?.chain || nkrPrimary?.meta?.chain || "").toUpperCase() || "Multi-chain ready"}</div>
-                      </>
+                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: "#8bdcff" }}>CoinGecko News</div>
+                    {cgNewsItems.length ? (
+                      cgNewsItems.map((item, i) => {
+                        const href = String(item?.url || "").trim();
+                        const source = String(item?.source_name || item?.author || "CoinGecko").trim();
+                        const age = formatCgNewsAge(item?.posted_at);
+                        const title = String(item?.title || "").trim();
+                        const content = (
+                          <>
+                            <div style={{ fontSize: 11, fontWeight: 750, color: "#dfffee", lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+                            <div className="muted tiny" style={{ lineHeight: 1.1 }}>{source}{age ? ` · ${age}` : ""}</div>
+                          </>
+                        );
+                        return href ? (
+                          <a key={`${href}-${i}`} href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block" }} title={title}>
+                            {content}
+                          </a>
+                        ) : <div key={`${title}-${i}`}>{content}</div>;
+                      })
                     ) : (
                       <>
-                        <div style={{ fontWeight: 850, fontSize: 13, color: "#dfffee" }}>{toUserEngineStatus(nkrCtrl, "Waiting")}</div>
-                        <div className="muted tiny">No live NKR session — starts filling when you run NKR.</div>
+                        <div style={{ fontWeight: 850, fontSize: 12, color: "#dfffee" }}>{coingeckoNewsLoading ? "Loading latest news…" : "No current headlines"}</div>
+                        <div className="muted tiny" style={{ lineHeight: 1.25 }}>{coingeckoNewsError ? "CoinGecko news is temporarily unavailable." : "Latest CoinGecko headlines appear here automatically."}</div>
                       </>
                     )}
                   </div>
 
-                  {/* TRADING — same user-facing status rules as NKR */}
+                  {/* MARKET BRIEF — compact Nexus interpretation of the latest headlines */}
                   <div style={{
                     ...cardBase,
-                    border: traderIsStopping
-                      ? "1px solid rgba(255,209,102,.40)"
-                      : traderLive
-                        ? "1px solid rgba(139,220,255,.40)"
-                        : "1px solid rgba(255,255,255,.10)",
-                    background: traderIsStopping
-                      ? "linear-gradient(180deg, rgba(255,209,102,.10), rgba(0,0,0,.22))"
-                      : traderLive
-                        ? "linear-gradient(180deg, rgba(139,220,255,.12), rgba(0,0,0,.22))"
-                        : "linear-gradient(180deg, rgba(255,255,255,.04), rgba(0,0,0,.18))",
+                    border: "1px solid rgba(187,134,252,.34)",
+                    background: "linear-gradient(180deg, rgba(187,134,252,.09), rgba(0,0,0,.22))",
                   }}>
-                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: traderIsStopping ? "#ffd166" : traderLive ? "#8bdcff" : undefined }}>Trading</div>
-                    {traderLive ? (
-                      <>
-                        <div style={{ fontWeight: 850, fontSize: 13, color: traderIsStopping ? "#ffd166" : "#8bdcff" }}>
-                          {traderStatus}{traderSessions.length > 1 ? ` · ${traderSessions.length} open` : ""}
-                        </div>
-                        <div style={{ fontSize: 12, color: "#dfffee" }}>
-                          {traderIsStopping
-                            ? "Finishing session…"
-                            : (traderAsset || "Session")}
-                          {!traderIsStopping && traderBudget > 0 ? ` · $${Math.round(traderBudget)}` : ""}
-                        </div>
-                        <div className="muted tiny">{String(traderPrimary?.chain || "").toUpperCase() || "Live trader runtime"}</div>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ fontWeight: 850, fontSize: 13, color: "#dfffee" }}>Idle</div>
-                        <div className="muted tiny">No open trader session — fills when Trading is running.</div>
-                      </>
-                    )}
+                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: "#c9a7ff" }}>Market Brief</div>
+                    <div style={{ fontSize: 11, lineHeight: 1.35, color: "#dfffee" }}><span className="muted">Sentiment:</span> <b>{cgNewsItems.length ? briefSentiment : "Waiting"}</b></div>
+                    <div style={{ fontSize: 11, lineHeight: 1.35, color: "#dfffee" }}><span className="muted">Theme:</span> <b>{cgNewsItems.length ? briefTheme : "Latest headlines"}</b></div>
+                    <div style={{ fontSize: 11, lineHeight: 1.35, color: "#dfffee" }}><span className="muted">Risk:</span> <b>{cgNewsItems.length ? briefRisk : "Waiting"}</b></div>
+                    <div style={{ fontSize: 11, lineHeight: 1.35, color: "#dfffee" }}><span className="muted">Impact:</span> <b>{briefImpact}</b></div>
                   </div>
                 </div>
               );

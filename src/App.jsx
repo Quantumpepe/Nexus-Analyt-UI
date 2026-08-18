@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.17-BUILD432-DEFAULT-GUEST-NEW-WALLET-WATCHLIST";
+const FRONTEND_BUILD_ID = "F-2026.08.18-BUILD433-ACTIVE-ONCHAIN-SESSIONS-FIRST";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -30127,12 +30127,14 @@ export default function App() {
                           {" · "}Grid excluded
                         </div>
                         {(coreVaultSessionPreview?.sessions || []).length ? (coreVaultSessionPreview.sessions || []).slice().sort((a, b) => {
-                          const engRank = (x) => (String(x?.engine || "").toUpperCase() === "NKR" ? 0 : 1);
+                          // BUILD433: session state is the primary sort key across ALL engines.
+                          // ACTIVE NKR/Trader sessions must stay together at the top; engine is only a tie-breaker.
                           const rank = (x) => ({ ACTIVE: 0, PAUSED: 1, CLOSING: 2, ERROR: 3, FINALIZED: 9 }[String(x?.statusLabel || "").toUpperCase()] ?? 5);
-                          const ea = engRank(a), eb = engRank(b);
-                          if (ea !== eb) return ea - eb;
+                          const engRank = (x) => (String(x?.engine || "").toUpperCase() === "NKR" ? 0 : 1);
                           const ra = rank(a), rb = rank(b);
                           if (ra !== rb) return ra - rb;
+                          const ea = engRank(a), eb = engRank(b);
+                          if (ea !== eb) return ea - eb;
                           return Number(b?.sessionId || 0) - Number(a?.sessionId || 0);
                         }).map((s) => {
                           const engLabel = s.engineLabel || _coreVaultEngineLabel(s.engine);

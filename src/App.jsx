@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.18-BUILD434-COINGECKO-NEWS-MARKET-BRIEF";
+const FRONTEND_BUILD_ID = "F-2026.08.18-BUILD434-COINGECKO-TRENDS-MARKET-BRIEF";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -8784,29 +8784,28 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     const id = setInterval(() => setStrategistMovesTick((n) => n + 1), 10000);
     return () => clearInterval(id);
   }, []);
-  // BUILD434: CoinGecko Pro news for the Strategist top strip.
-  // The API key remains backend-only; the browser calls only the Nexus proxy.
-  const [coingeckoNews, setCoingeckoNews] = useState([]);
-  const [coingeckoNewsLoading, setCoingeckoNewsLoading] = useState(false);
-  const [coingeckoNewsError, setCoingeckoNewsError] = useState("");
-  const refreshCoinGeckoNews = useCallback(async () => {
-    setCoingeckoNewsLoading(true);
-    try {
-      const res = await api("/api/coingecko/news?per_page=6");
-      const items = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : []);
-      setCoingeckoNews(items.filter((item) => item && typeof item === "object"));
-      setCoingeckoNewsError("");
-    } catch (err) {
-      setCoingeckoNewsError(String(err?.message || err || "News unavailable"));
-    } finally {
-      setCoingeckoNewsLoading(false);
-    }
-  }, []);
+
+  // BUILD434: CoinGecko Basic-compatible trending discovery.
+  // The API key stays server-side; this UI only reads Nexus' backend proxy.
+  const [coingeckoTrending, setCoingeckoTrending] = useState([]);
+  const [coingeckoTrendingLoaded, setCoingeckoTrendingLoaded] = useState(false);
   useEffect(() => {
-    refreshCoinGeckoNews();
-    const id = setInterval(refreshCoinGeckoNews, 15 * 60 * 1000);
-    return () => clearInterval(id);
-  }, [refreshCoinGeckoNews]);
+    let cancelled = false;
+    const loadTrending = async () => {
+      try {
+        const res = await api("/api/coingecko/trending");
+        const rows = Array.isArray(res?.coins) ? res.coins : [];
+        if (!cancelled) setCoingeckoTrending(rows);
+      } catch (_) {
+        if (!cancelled) setCoingeckoTrending([]);
+      } finally {
+        if (!cancelled) setCoingeckoTrendingLoaded(true);
+      }
+    };
+    loadTrending();
+    const id = setInterval(loadTrending, 10 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
   // User-facing Strategist status (English). Regular users have no System Info access.
   const [nkrStrategistStatus, setNkrStrategistStatus] = useState(null);
   const [rotationBudgetRelease, setRotationBudgetRelease] = useState("");
@@ -27082,7 +27081,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
             ) : null}
 
-            {/* Top context strip: Pulse · Crypto Moves · CoinGecko News · Market Brief */}
+            {/* Top context strip: Pulse · Crypto Moves · CoinGecko Trends · Market Brief */}
             {(() => {
               // Pulse must NOT mirror the header banner. Use complementary stats:
               // BTC/ETH dominance, market health score, watchlist breadth, ETH−BTC spread.
@@ -27182,42 +27181,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 : [];
               void strategistMovesTick; // ensure tick is read for re-render
 
-              // CoinGecko News + deterministic Nexus Market Brief.
-              // This deliberately summarizes headline context without issuing trading commands.
-              const cgNewsItems = (Array.isArray(coingeckoNews) ? coingeckoNews : [])
-                .filter((item) => String(item?.title || "").trim())
-                .slice(0, 3);
-              const cgNewsText = cgNewsItems.map((item) => String(item?.title || "")).join(" ").toLowerCase();
-              const countMatches = (patterns) => patterns.reduce((n, re) => n + (re.test(cgNewsText) ? 1 : 0), 0);
-              const positiveNewsScore = countMatches([/\brally|surge|gain|gains|rise|rises|approval|approved|inflow|adoption|launch|record|partnership|upgrade|bullish\b/i]);
-              const negativeNewsScore = countMatches([/\bhack|exploit|breach|lawsuit|ban|drop|falls?|outflow|liquidation|fraud|crackdown|bearish|bankruptcy\b/i]);
-              const briefSentiment = positiveNewsScore > negativeNewsScore ? "Positive" : negativeNewsScore > positiveNewsScore ? "Cautious" : "Neutral";
-              const themeCandidates = [
-                ["Security", /hack|exploit|breach|security|stolen|attack/i],
-                ["Regulation", /regulation|regulator|sec\b|cftc|law|lawsuit|ban|mica|policy/i],
-                ["Institutional", /institution|blackrock|fidelity|fund|treasury|bank|whale|inflow|outflow/i],
-                ["ETF", /\betf\b|exchange-traded/i],
-                ["Macro", /fed\b|interest rate|inflation|jobs|cpi|macro|dollar/i],
-                ["Stablecoins", /stablecoin|usdt|usdc|tether|circle/i],
-                ["DeFi", /defi|dex\b|lending|staking|liquidity/i],
-                ["Bitcoin", /bitcoin|\bbtc\b/i],
-                ["Ethereum", /ethereum|\beth\b/i],
-              ];
-              const briefTheme = (themeCandidates.find(([, re]) => re.test(cgNewsText)) || ["Broad Market"])[0];
-              const securityRisk = /hack|exploit|breach|attack|stolen|fraud/i.test(cgNewsText);
-              const regulationRisk = /ban|crackdown|lawsuit|regulator|regulation|sec\b|cftc/i.test(cgNewsText);
-              const briefRisk = securityRisk ? "Elevated · Security" : regulationRisk ? "Watch · Regulation" : negativeNewsScore > positiveNewsScore ? "Elevated" : "Normal";
-              const highImpact = /\betf\b|sec\b|fed\b|hack|exploit|bankruptcy|liquidation|approval|regulation|blackrock|fidelity/i.test(cgNewsText);
-              const briefImpact = cgNewsItems.length ? (highImpact ? "High" : "Moderate") : "Waiting";
-              const formatCgNewsAge = (raw) => {
-                const ts = new Date(raw || "").getTime();
-                if (!Number.isFinite(ts)) return "";
-                const mins = Math.max(0, Math.floor((Date.now() - ts) / 60000));
-                if (mins < 60) return `${mins}m`;
-                const hours = Math.floor(mins / 60);
-                if (hours < 24) return `${hours}h`;
-                return `${Math.floor(hours / 24)}d`;
-              };
+              // CoinGecko Trends: Basic-plan endpoint /search/trending, normalized by Nexus backend.
+              const trendRows = Array.isArray(coingeckoTrending) ? coingeckoTrending : [];
+              const trendTop = trendRows.slice(0, 3); // display-only: CoinGecko Basic returns the full default trending set upstream
+              const trendChanges = trendRows
+                .map((row) => Number(row?.change24h))
+                .filter((v) => Number.isFinite(v));
+              const trendAvg = trendChanges.length ? trendChanges.reduce((a, b) => a + b, 0) / trendChanges.length : NaN;
+              const trendPositive = trendChanges.filter((v) => v > 0).length;
+              const trendNegative = trendChanges.filter((v) => v < 0).length;
+              const trendMaxAbs = trendChanges.length ? Math.max(...trendChanges.map((v) => Math.abs(v))) : NaN;
+
+              // Market Brief combines trending attention with the already-live Pulse/watchlist context.
+              const breadthTotal = watchUp + watchDown;
+              const breadthPct = breadthTotal ? (watchUp / breadthTotal) * 100 : NaN;
+              const briefSentiment = Number.isFinite(health)
+                ? (health >= 62 ? "Positive" : health <= 42 ? "Cautious" : "Neutral")
+                : (Number.isFinite(breadthPct) ? (breadthPct >= 60 ? "Positive" : breadthPct <= 40 ? "Cautious" : "Neutral") : "Neutral");
+              const briefTheme = trendTop.length
+                ? `Attention: ${trendTop.slice(0, 2).map((r) => String(r?.symbol || r?.name || "").toUpperCase()).filter(Boolean).join(" · ")}`
+                : "Attention: broad market";
+              const briefRisk = Number.isFinite(trendMaxAbs) && trendMaxAbs >= 12
+                ? "High trend volatility"
+                : (trendPositive && trendNegative ? "Mixed momentum" : (trendNegative > trendPositive ? "Downside pressure" : "Controlled"));
+              const briefImpact = Number.isFinite(trendAvg)
+                ? (trendAvg >= 3 ? "Trending momentum positive" : trendAvg <= -3 ? "Trending momentum weak" : "Selective / mixed")
+                : (Number.isFinite(breadthPct) ? (breadthPct >= 60 ? "Broad participation" : breadthPct <= 40 ? "Narrow / defensive" : "Selective / mixed") : "Monitoring");
 
               const cardBase = {
                 borderRadius: 12,
@@ -27278,50 +27267,46 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     )}
                   </div>
 
-                  {/* COINGECKO NEWS — latest paid-plan news via backend proxy */}
+                  {/* COINGECKO TRENDS — Basic-plan compatible /search/trending data */}
                   <div style={{
                     ...cardBase,
-                    border: "1px solid rgba(139,220,255,.34)",
-                    background: "linear-gradient(180deg, rgba(139,220,255,.09), rgba(0,0,0,.22))",
+                    border: "1px solid rgba(139,220,255,.32)",
+                    background: "linear-gradient(180deg, rgba(64,196,255,.09), rgba(0,0,0,.22))",
                   }}>
-                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: "#8bdcff" }}>CoinGecko News</div>
-                    {cgNewsItems.length ? (
-                      cgNewsItems.map((item, i) => {
-                        const href = String(item?.url || "").trim();
-                        const source = String(item?.source_name || item?.author || "CoinGecko").trim();
-                        const age = formatCgNewsAge(item?.posted_at);
-                        const title = String(item?.title || "").trim();
-                        const content = (
-                          <>
-                            <div style={{ fontSize: 11, fontWeight: 750, color: "#dfffee", lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
-                            <div className="muted tiny" style={{ lineHeight: 1.1 }}>{source}{age ? ` · ${age}` : ""}</div>
-                          </>
+                    <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: "#8bdcff" }}>CoinGecko Trends</div>
+                    {trendTop.length ? (
+                      trendTop.map((row, i) => {
+                        const sym = String(row?.symbol || "").toUpperCase();
+                        const name = String(row?.name || sym || "Trending");
+                        const ch = Number(row?.change24h);
+                        const tone = Number.isFinite(ch) ? (ch >= 0 ? "#86efac" : "#fca5a5") : "#dfffee";
+                        return (
+                          <div key={`${row?.id || sym || name}-${i}`} style={{ fontSize: 11, lineHeight: 1.3, color: "#dfffee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={name}>
+                            <b style={{ color: "#8bdcff" }}>#{i + 1} {sym || name}</b>
+                            {Number.isFinite(ch) ? <span style={{ color: tone }}> {ch >= 0 ? "+" : ""}{ch.toFixed(1)}%</span> : null}
+                            {Number.isFinite(Number(row?.marketCapRank)) && Number(row.marketCapRank) > 0 ? <span className="muted"> · Rank {Number(row.marketCapRank)}</span> : null}
+                          </div>
                         );
-                        return href ? (
-                          <a key={`${href}-${i}`} href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block" }} title={title}>
-                            {content}
-                          </a>
-                        ) : <div key={`${title}-${i}`}>{content}</div>;
                       })
                     ) : (
                       <>
-                        <div style={{ fontWeight: 850, fontSize: 12, color: "#dfffee" }}>{coingeckoNewsLoading ? "Loading latest news…" : "No current headlines"}</div>
-                        <div className="muted tiny" style={{ lineHeight: 1.25 }}>{coingeckoNewsError ? "CoinGecko news is temporarily unavailable." : "Latest CoinGecko headlines appear here automatically."}</div>
+                        <div style={{ fontWeight: 850, fontSize: 12, color: "#dfffee" }}>{coingeckoTrendingLoaded ? "No trending data" : "Loading trends…"}</div>
+                        <div className="muted tiny">CoinGecko 24h search trends.</div>
                       </>
                     )}
                   </div>
 
-                  {/* MARKET BRIEF — compact Nexus interpretation of the latest headlines */}
+                  {/* MARKET BRIEF — compact Nexus interpretation of live market + trend data */}
                   <div style={{
                     ...cardBase,
-                    border: "1px solid rgba(187,134,252,.34)",
-                    background: "linear-gradient(180deg, rgba(187,134,252,.09), rgba(0,0,0,.22))",
+                    border: "1px solid rgba(187,134,252,.30)",
+                    background: "linear-gradient(180deg, rgba(187,134,252,.08), rgba(0,0,0,.22))",
                   }}>
                     <div className="muted tiny" style={{ fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: "#c9a7ff" }}>Market Brief</div>
-                    <div style={{ fontSize: 11, lineHeight: 1.35, color: "#dfffee" }}><span className="muted">Sentiment:</span> <b>{cgNewsItems.length ? briefSentiment : "Waiting"}</b></div>
-                    <div style={{ fontSize: 11, lineHeight: 1.35, color: "#dfffee" }}><span className="muted">Theme:</span> <b>{cgNewsItems.length ? briefTheme : "Latest headlines"}</b></div>
-                    <div style={{ fontSize: 11, lineHeight: 1.35, color: "#dfffee" }}><span className="muted">Risk:</span> <b>{cgNewsItems.length ? briefRisk : "Waiting"}</b></div>
-                    <div style={{ fontSize: 11, lineHeight: 1.35, color: "#dfffee" }}><span className="muted">Impact:</span> <b>{briefImpact}</b></div>
+                    <div style={{ fontSize: 11, lineHeight: 1.3, color: "#dfffee" }}>Sentiment: <b>{briefSentiment}</b></div>
+                    <div style={{ fontSize: 11, lineHeight: 1.3, color: "#dfffee", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{briefTheme}</div>
+                    <div style={{ fontSize: 11, lineHeight: 1.3, color: "#dfffee" }}>Risk: <b>{briefRisk}</b></div>
+                    <div className="muted tiny" style={{ lineHeight: 1.2 }}>Impact: {briefImpact}</div>
                   </div>
                 </div>
               );

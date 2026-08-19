@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.18-BUILD434-COINGECKO-TRENDS-MARKET-BRIEF";
+const FRONTEND_BUILD_ID = "F-2026.08.19-BUILD435-GRID-WALLETWIDE-SESSIONS";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -15147,7 +15147,8 @@ const applyGridMetaResponse = useCallback((r, fallbackItemId = gridItemId) => {
 
 useEffect(() => {
   if (!gridItemId) return;
-  setGridOrders([]);
+  // BUILD435: visible Grid Orders are wallet-wide and must survive setup chain/item changes.
+  // Only reset setup-specific vault stats here.
   setGridVaultStats({ vault: 0, reserved: 0, free: 0 });
 }, [gridItemId]);
 
@@ -15159,7 +15160,7 @@ const fetchGridOrders = useCallback(async (opts = {}) => {
   // so every caller is protected, even if React re-renders quickly.
   const force = !!(opts && opts.force);
   const nowMs = Date.now();
-  const requestKey = `${String(gridItemId || "")}|${String(activeGridChainKey || "")}|${String(walletAddress || "")}`;
+  const requestKey = `walletwide|${String(walletAddress || "")}`;
   const guard = gridOrdersFetchGuardRef.current || { key: "", ts: 0, inflight: false };
   const openNow = (Array.isArray(gridOrders) ? gridOrders : []).some((o) => String(o?.status || "").toUpperCase() === "OPEN");
   const minGapMs = openNow ? 15000 : 60000;
@@ -15169,15 +15170,15 @@ const fetchGridOrders = useCallback(async (opts = {}) => {
   // Only fetch when wallet + backend grid context are ready.
   // Do not require the backend auth token here: api() can fall back to API key + wallet header,
   // and requiring token caused empty grid state after refresh on some devices until auth finished.
-  if (!gridUiHydrated || !gridItemId || !walletAddress) return;
+  if (!gridUiHydrated || !walletAddress) return;
 
   gridOrdersFetchGuardRef.current = { key: requestKey, ts: nowMs, inflight: true };
   try {
     // Be permissive with query param naming across backend revisions.
     // Some deployments use `addr`, others `wallet`.
+    // BUILD435: fetch all Grid orders for this wallet across every chain.
+    // Chain/item selection below is setup context only and must not hide running sessions.
     const params = new URLSearchParams({
-      item: gridItemId,
-      chain: activeGridChainKey,
       addr: walletAddress,
       wallet: walletAddress,
     });
@@ -15210,7 +15211,10 @@ const fetchGridOrders = useCallback(async (opts = {}) => {
       }
     } catch (_) {}
 
-    applyGridMetaResponse(r, gridItemId);
+    // Wallet-wide order responses are presentation-only; do not overwrite selected setup metadata.
+    if (r?.item || r?.active_item || r?.data?.item || r?.data?.active_item) {
+      applyGridMetaResponse(r, gridItemId);
+    }
   } catch (e) {
     // Browser/timeout aborts are transient. Keep current grid state and do not show a red error box.
     const msg = String(e?.message || e || "");
@@ -15227,7 +15231,7 @@ const fetchGridOrders = useCallback(async (opts = {}) => {
     const cur = gridOrdersFetchGuardRef.current || {};
     gridOrdersFetchGuardRef.current = { ...cur, inflight: false };
   }
-}, [gridUiHydrated, gridItemId, activeGridChainKey, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState, gridOrders]);
+}, [gridUiHydrated, gridItemId, walletAddress, token, normalizeGridOrders, gridItem, refreshVaultState, gridOrders]);
 
 // Auto-load orders as soon as wallet/auth becomes ready (e.g. after refresh)
 useEffect(() => {
@@ -26257,6 +26261,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", minWidth: 0 }}>
                             <b style={{ color: "#eafff5" }}>Order #{idx + 1}</b>
+                            <span className="pill silver">{String(o?.chain || o?.chainKey || o?.network || "").toUpperCase() || "CHAIN"}</span>
                             <span className={`pill ${side === "BUY" ? "good" : "bad"}`}>{side}</span>
                             <span className="pill silver">{statusTxt}</span>
                           </div>

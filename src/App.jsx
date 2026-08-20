@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD438-SESSION-SNAPSHOT-STABLE";
+const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD439-PERIOD-MODE-SESSION-LOCK";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -8761,6 +8761,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // BUILD407: keep the exact selected NKR mode locked while an async CoreVault create is pending.
   // Delayed app-state hydration must never overwrite AGGRESSIVE with an older DYNAMIC draft.
   const nkrStartPendingRef = useRef(false);
+  const nkrPeriodEditingRef = useRef(false);
+  const tradingRuntimeEditingRef = useRef(false);
+  const nkrModeEditingRef = useRef(false);
+
   const nkrStartModeRef = useRef("");
   useEffect(() => { nkrCapitalModeRef.current = String(nkrCapitalMode || "DYNAMIC").toUpperCase(); }, [nkrCapitalMode]);
   const [nkrObservationWindow, setNkrObservationWindow] = useState("1h");
@@ -9366,16 +9370,18 @@ useEffect(() => {
         console.warn("NKR Aggressive session-start audit failed", ackErr);
       }
     }
-    // BUILD437: keep the exact mode selected for the just-started session visible and
-    // persist it as the wallet draft. This must never reset AGGRESSIVE to DYNAMIC after start.
-    nkrCapitalModeRef.current = startedNkrCapitalMode;
-    setNkrCapitalMode(startedNkrCapitalMode);
+    // BUILD439: running session mode is locked in backend start-config.
+    // Draft setup always returns to DYNAMIC so the next start requires an explicit choice
+    // (and Aggressive re-confirm). Session cards must read session.nkrCapitalMode only.
+    nkrCapitalModeRef.current = "DYNAMIC";
+    setNkrCapitalMode("DYNAMIC");
+    setNkrAggressiveAcceptedForDraft(false);
     try {
       if (wallet) {
         await api('/api/nkr/state', {
           method: 'POST', token, wallet,
           body: {
-            nkrCapitalMode: startedNkrCapitalMode,
+            nkrCapitalMode: "DYNAMIC",
             nkrObservationWindow,
             nkrProfitMode,
             nkrPeriodValue: nkrPeriodDays,
@@ -12923,8 +12929,10 @@ useEffect(() => {
         if (serverUi.gridMode != null) setGridMode(String(serverUi.gridMode || "normal"));
         if (serverUi.gridChain != null) setGridChain(String(serverUi.gridChain || DEFAULT_CHAIN || "POL").toUpperCase());
         if (serverUi.gridItem != null) setGridItem(String(serverUi.gridItem || "").toUpperCase());
-        if (serverUi.tradingRuntimeHours != null) setTradingRuntimeHours(String(serverUi.tradingRuntimeHours));
-        if (serverUi.tradingRuntimeUnit != null) setTradingRuntimeUnit(String(serverUi.tradingRuntimeUnit || "hours"));
+        if (!tradingRuntimeEditingRef.current) {
+          if (serverUi.tradingRuntimeHours != null) setTradingRuntimeHours(String(serverUi.tradingRuntimeHours));
+          if (serverUi.tradingRuntimeUnit != null) setTradingRuntimeUnit(String(serverUi.tradingRuntimeUnit || "hours"));
+        }
         if (serverUi.tradingHoldHours != null) setTradingHoldHours(String(serverUi.tradingHoldHours));
         if (serverUi.tradingAllowedAssets != null) setTradingAllowedAssets(String(serverUi.tradingAllowedAssets));
         if (serverUi.tradingAllowedChains != null) setTradingAllowedChains(String(serverUi.tradingAllowedChains));
@@ -12947,10 +12955,10 @@ useEffect(() => {
         if (rotationSettingsSource.rotationMaxSlippage != null) setRotationMaxSlippage(String(rotationSettingsSource.rotationMaxSlippage));
         if (rotationSettingsSource.rotationMinNetAdvantage != null) setRotationMinNetAdvantage(String(rotationSettingsSource.rotationMinNetAdvantage));
         if (rotationSettingsSource.rotationMode != null) setRotationMode(String(rotationSettingsSource.rotationMode));
-        if (rotationSettingsSource.nkrCapitalMode != null && !nkrStartPendingRef.current) setNkrCapitalMode(String(rotationSettingsSource.nkrCapitalMode));
+        if (rotationSettingsSource.nkrCapitalMode != null && !nkrStartPendingRef.current && !nkrModeEditingRef.current) setNkrCapitalMode(String(rotationSettingsSource.nkrCapitalMode));
         if (rotationSettingsSource.nkrObservationWindow != null) setNkrObservationWindow(String(rotationSettingsSource.nkrObservationWindow));
         if (rotationSettingsSource.nkrProfitMode != null) setNkrProfitMode(String(rotationSettingsSource.nkrProfitMode));
-        if (rotationSettingsSource.nkrPeriodUnit != null || rotationSettingsSource.nkrPeriodHours != null || rotationSettingsSource.nkrPeriodDays != null) {
+        if (!nkrPeriodEditingRef.current && (rotationSettingsSource.nkrPeriodUnit != null || rotationSettingsSource.nkrPeriodHours != null || rotationSettingsSource.nkrPeriodDays != null)) {
           const restoredUnit = String(rotationSettingsSource.nkrPeriodUnit || (Number(rotationSettingsSource.nkrPeriodHours || 0) < 24 ? "hours" : "days")).toLowerCase();
           const restoredHours = Number(rotationSettingsSource.nkrPeriodHours);
           const restoredDays = Number(rotationSettingsSource.nkrPeriodDays);
@@ -23771,10 +23779,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const persistedNkrActiveMode = "";
                       const nkrOverviewActiveMode = String(
                         nkrModeSourceRow?.nkrCapitalMode ||
+                        nkrModeSourceRow?.capitalMode ||
                         nkrModeSourceRow?.meta?.nkr_capital_mode ||
                         nkrModeSourceRow?.meta?.capital_mode ||
+                        nkrModeSourceRow?.meta?.nkrCapitalMode ||
+                        // Only draft settings when NOTHING is running.
                         (!nkrOverviewRunning ? nkrCapitalMode : "") ||
-                        (nkrOverviewRunning ? "UNKNOWN" : "DYNAMIC")
+                        (nkrOverviewRunning ? "LOCKED" : "DYNAMIC")
                       ).toUpperCase();
                       const nkrOverviewStartedLabel = nkrOverviewStartTs > 0
                         ? new Date(nkrOverviewStartTs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })
@@ -24441,7 +24452,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     >
                       <div className="formRow">
                         <label>Nexus NKR Capital Mode</label>
-                        <select value={nkrCapitalMode} onChange={(e) => handleNkrCapitalModeChange(e.target.value)}>
+                        <select value={nkrCapitalMode} onFocus={() => { nkrModeEditingRef.current = true; }} onBlur={() => { setTimeout(() => { nkrModeEditingRef.current = false; }, 500); }} onChange={(e) => { nkrModeEditingRef.current = true; handleNkrCapitalModeChange(e.target.value); }}>
                           <option value="DYNAMIC">Dynamic</option>
                           <option value="TACTICAL">Tactical</option>
                           <option value="AGGRESSIVE">Aggressive</option>
@@ -24472,28 +24483,39 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 8 }}>
                           <input
                             type="number"
-                            min="1"
-                            step="1"
+                            min="0.01"
+                            step="any"
                             value={nkrPeriodDays}
-                            onChange={(e) => { setNkrPeriodDays(e.target.value); setRotationBudgetReleased(false); }}
+                            onFocus={() => { nkrPeriodEditingRef.current = true; }}
+                            onBlur={() => {
+                              nkrPeriodEditingRef.current = false;
+                              const n = Number(String(nkrPeriodDays || "").replace(",", "."));
+                              if (Number.isFinite(n) && n > 0) setNkrPeriodDays(String(n));
+                            }}
+                            onChange={(e) => { nkrPeriodEditingRef.current = true; setNkrPeriodDays(e.target.value); setRotationBudgetReleased(false); }}
                             placeholder={String(nkrPeriodUnit).toLowerCase() === "hours" ? "e.g. 2, 6, 12" : "e.g. 1, 7, 14"}
                           />
                           <select
                             value={nkrPeriodUnit}
                             onChange={(e) => {
+                              nkrPeriodEditingRef.current = true;
                               const nextUnit = String(e.target.value || "days").toLowerCase();
                               const currentUnit = String(nkrPeriodUnit || "days").toLowerCase();
                               const currentValue = Number(String(nkrPeriodDays || "").replace(",", "."));
                               if (Number.isFinite(currentValue) && currentValue > 0 && nextUnit !== currentUnit) {
-                                const converted = currentUnit === "days" && nextUnit === "hours"
-                                  ? currentValue * 24
-                                  : currentUnit === "hours" && nextUnit === "days"
-                                    ? currentValue / 24
-                                    : currentValue;
-                                setNkrPeriodDays(String(Math.round(converted * 1000000) / 1000000));
+                                // Keep the same duration: 2 days ↔ 48 hours (no fractional spin).
+                                let converted = currentValue;
+                                if (currentUnit === "days" && nextUnit === "hours") converted = currentValue * 24;
+                                else if (currentUnit === "hours" && nextUnit === "days") converted = currentValue / 24;
+                                // Prefer whole numbers when possible for cleaner typing.
+                                const rounded = Math.abs(converted - Math.round(converted)) < 1e-9
+                                  ? Math.round(converted)
+                                  : Math.round(converted * 100) / 100;
+                                setNkrPeriodDays(String(rounded));
                               }
                               setNkrPeriodUnit(nextUnit);
                               setRotationBudgetReleased(false);
+                              setTimeout(() => { nkrPeriodEditingRef.current = false; }, 800);
                             }}
                             title="NKR period unit"
                           >
@@ -24730,12 +24752,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const statusSession = activeSession;
                       const asset = String(statusSession?.symbol || statusSession?.targetAsset || "").toUpperCase();
                       const activeSessionId = String(statusSession?.id || statusSession?.session_id || "");
-                      const activeSessionSnapshot = {};
                       const activeWorkingCapital = getNkrSessionWorkingCapitalUsd(activeSession) || Number(statusSession?.budgetUsd || 0) || 0;
                       const activeReserveRaw = Number(statusSession?.nkrCashReserveUsd ?? statusSession?.meta?.nkr_cash_reserve_usd ?? statusSession?.protectedReserveUsd ?? statusSession?.meta?.protected_reserve_usd);
                       const activeReserve = Number.isFinite(activeReserveRaw) ? Math.max(0, activeReserveRaw) : 0;
-                      const activePersistedStartMode = "";
-                      const activeStartMode = String(activeSessionSnapshot?.capitalMode || activePersistedStartMode || statusSession?.nkrCapitalMode || statusSession?.capitalMode || statusSession?.meta?.nkr_capital_mode || statusSession?.meta?.capital_mode || "UNKNOWN").toUpperCase();
+                      // BUILD439: never use draft nkrCapitalMode for a running session.
+                      const activeStartMode = String(statusSession?.nkrCapitalMode || statusSession?.capitalMode || statusSession?.meta?.nkr_capital_mode || statusSession?.meta?.capital_mode || statusSession?.meta?.nkrCapitalMode || "LOCKED").toUpperCase();
                       const activeReservePctByMode = { AGGRESSIVE: 10, DYNAMIC: 20, TACTICAL: 25, DEFENSIVE: 35 };
                       const activeAllocationFraction = Math.max(0.01, 1 - (Number(activeReservePctByMode[activeStartMode] ?? 0) / 100));
                       const explicitActiveTotalBudget = Math.max(
@@ -25546,8 +25567,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <div className="formRow">
                         <label>Runtime (h)</label>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 6 }}>
-                          <input value={tradingRuntimeHours} onChange={(e) => setTradingRuntimeHours(e.target.value)} placeholder="24" />
-                          <select value={tradingRuntimeUnit} onChange={(e) => setTradingRuntimeUnit(e.target.value)} title="Runtime unit">
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            value={tradingRuntimeHours}
+                            onFocus={() => { tradingRuntimeEditingRef.current = true; }}
+                            onBlur={() => { tradingRuntimeEditingRef.current = false; }}
+                            onChange={(e) => { tradingRuntimeEditingRef.current = true; setTradingRuntimeHours(e.target.value); }}
+                            placeholder="24"
+                          />
+                          <select
+                            value={tradingRuntimeUnit}
+                            onChange={(e) => {
+                              tradingRuntimeEditingRef.current = true;
+                              const nextUnit = String(e.target.value || "hours").toLowerCase();
+                              const currentUnit = String(tradingRuntimeUnit || "hours").toLowerCase();
+                              const currentValue = Number(String(tradingRuntimeHours || "").replace(",", "."));
+                              if (Number.isFinite(currentValue) && currentValue > 0 && nextUnit !== currentUnit) {
+                                let converted = currentValue;
+                                if (currentUnit === "days" && nextUnit === "hours") converted = currentValue * 24;
+                                else if (currentUnit === "hours" && nextUnit === "days") converted = currentValue / 24;
+                                const rounded = Math.abs(converted - Math.round(converted)) < 1e-9
+                                  ? Math.round(converted)
+                                  : Math.round(converted * 100) / 100;
+                                setTradingRuntimeHours(String(rounded));
+                              }
+                              setTradingRuntimeUnit(nextUnit);
+                              setTimeout(() => { tradingRuntimeEditingRef.current = false; }, 800);
+                            }}
+                            title="Runtime unit"
+                          >
                             <option value="hours">hours</option>
                             <option value="days">day</option>
                           </select>

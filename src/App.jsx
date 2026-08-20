@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD437-SESSION-SETTINGS-LOCK";
+const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD438-SESSION-SNAPSHOT-STABLE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9372,7 +9372,19 @@ useEffect(() => {
     setNkrCapitalMode(startedNkrCapitalMode);
     try {
       if (wallet) {
-        await api('/api/nkr/state', { method: 'POST', token, wallet, body: { nkrCapitalMode: startedNkrCapitalMode } });
+        await api('/api/nkr/state', {
+          method: 'POST', token, wallet,
+          body: {
+            nkrCapitalMode: startedNkrCapitalMode,
+            nkrObservationWindow,
+            nkrProfitMode,
+            nkrPeriodValue: nkrPeriodDays,
+            nkrPeriodUnit,
+            nkrPeriodHours: runtimeHours,
+            nkrPeriodDays: periodDays,
+            maxActiveAssets: rotationMaxActiveSessions,
+          },
+        });
       }
     } catch (persistModeErr) {
       console.warn('NKR mode draft persistence failed', persistModeErr);
@@ -24246,18 +24258,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             baseAsset,
                                             asset: sym,
                                             mode: sessionCapitalMode,
-                                            observation: String(sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || immutableSessionSnapshot?.observationWindow || nkrObservationWindow || "1h"),
-                                            profitMode: String(sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || immutableSessionSnapshot?.profitMode || nkrProfitMode || "REINVEST").toUpperCase(),
-                                            periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || immutableSessionSnapshot?.periodDays || (normalizeNkrPeriodHours() / 24)),
-                                            periodHours: Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || sess?.meta?.runtime_hours || immutableSessionSnapshot?.periodHours || normalizeNkrPeriodHours()),
-                                            periodUnit: String(sess?.nkrPeriodUnit || sess?.meta?.nkr_period_unit || nkrPeriodUnit || "days"),
+                                            observation: String(sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || immutableSessionSnapshot?.observationWindow || "—"),
+                                            profitMode: String(sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || immutableSessionSnapshot?.profitMode || "—").toUpperCase(),
+                                            periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || immutableSessionSnapshot?.periodDays || 0),
+                                            periodHours: Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || sess?.meta?.runtime_hours || immutableSessionSnapshot?.periodHours || 0),
+                                            periodUnit: String(sess?.nkrPeriodUnit || sess?.meta?.nkr_period_unit || "days"),
                                             maxAssets: Number(sess?.maxActiveAssets ?? sess?.nkrMaxActiveAssets ?? sess?.meta?.nkr_max_active_assets ?? immutableSessionSnapshot?.maxActiveAssets ?? 0),
                                             payoutAsset: String(sess?.payoutAsset || sess?.meta?.payout_asset || immutableSessionSnapshot?.payoutAsset || manualPayoutAsset || baseAsset || "USDC").toUpperCase(),
                                             networkScope: String(sess?.networkScope || sess?.meta?.network_scope || immutableSessionSnapshot?.networkScope || rotationNetworkScope || chain),
                                             riskLimit: Number(sess?.riskLimit || sess?.meta?.risk_limit || sess?.riskLimitPct || immutableSessionSnapshot?.riskLimit || rotationRiskLimit || 0),
                                             maxSlippage: Number(sess?.maxSlippage || sess?.meta?.max_slippage || sess?.maxSlippagePct || immutableSessionSnapshot?.maxSlippage || rotationMaxSlippage || 0),
                                             minNetAdvantage: Number(sess?.minNetAdvantage || sess?.meta?.min_net_advantage || sess?.minNetAdvantagePct || immutableSessionSnapshot?.minNetAdvantage || rotationMinNetAdvantage || 0),
-                                            sessionBudgetUsd: sessionBudgetUsd > 0 ? sessionBudgetUsd : (Number(sess?.budgetUsd || sess?.reservedUsd || workingCapital || rotationBudgetRelease || 0) || 0),
+                                            sessionBudgetUsd: sessionBudgetUsd > 0 ? sessionBudgetUsd : (Number(sess?.budgetUsd || sess?.reservedUsd || workingCapital || 0) || 0),
                                             workingCapital: workingCapital > 0 ? workingCapital : (Number(sess?.workingCapitalUsd || sess?.budgetUsd || 0) || 0),
                                             protectedReserveUsd,
                                             plannedReserveUsd,

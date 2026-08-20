@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD439-PERIOD-MODE-SESSION-LOCK";
+const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD440-PERIOD-STABLE-NO-FRACTION-SPIN";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -12929,7 +12929,7 @@ useEffect(() => {
         if (serverUi.gridMode != null) setGridMode(String(serverUi.gridMode || "normal"));
         if (serverUi.gridChain != null) setGridChain(String(serverUi.gridChain || DEFAULT_CHAIN || "POL").toUpperCase());
         if (serverUi.gridItem != null) setGridItem(String(serverUi.gridItem || "").toUpperCase());
-        if (!tradingRuntimeEditingRef.current) {
+        if (neverSynced && !tradingRuntimeEditingRef.current) {
           if (serverUi.tradingRuntimeHours != null) setTradingRuntimeHours(String(serverUi.tradingRuntimeHours));
           if (serverUi.tradingRuntimeUnit != null) setTradingRuntimeUnit(String(serverUi.tradingRuntimeUnit || "hours"));
         }
@@ -12958,27 +12958,52 @@ useEffect(() => {
         if (rotationSettingsSource.nkrCapitalMode != null && !nkrStartPendingRef.current && !nkrModeEditingRef.current) setNkrCapitalMode(String(rotationSettingsSource.nkrCapitalMode));
         if (rotationSettingsSource.nkrObservationWindow != null) setNkrObservationWindow(String(rotationSettingsSource.nkrObservationWindow));
         if (rotationSettingsSource.nkrProfitMode != null) setNkrProfitMode(String(rotationSettingsSource.nkrProfitMode));
-        if (!nkrPeriodEditingRef.current && (rotationSettingsSource.nkrPeriodUnit != null || rotationSettingsSource.nkrPeriodHours != null || rotationSettingsSource.nkrPeriodDays != null)) {
-          const restoredUnit = String(rotationSettingsSource.nkrPeriodUnit || (Number(rotationSettingsSource.nkrPeriodHours || 0) < 24 ? "hours" : "days")).toLowerCase();
+        // BUILD440: period is local UI draft. Restore only on first wallet hydrate.
+        // Continuous app-state polls used to re-apply nkrPeriodDays as hours/24 (e.g. 0.08)
+        // and flip the unit to hours a few seconds later.
+        if (neverSynced && !nkrPeriodEditingRef.current && (rotationSettingsSource.nkrPeriodUnit != null || rotationSettingsSource.nkrPeriodValue != null || rotationSettingsSource.nkrPeriodHours != null || rotationSettingsSource.nkrPeriodDays != null)) {
+          const explicitUnit = String(rotationSettingsSource.nkrPeriodUnit || "").toLowerCase().trim();
           const restoredHours = Number(rotationSettingsSource.nkrPeriodHours);
           const restoredDays = Number(rotationSettingsSource.nkrPeriodDays);
           const restoredValue = Number(rotationSettingsSource.nkrPeriodValue);
-          // BUILD406 migration: BUILD405 could persist a day-fraction (2h => 0.083333d)
-          // while the unit was already "hours". Prefer the canonical hours field in that case.
+          // Prefer explicit unit. Never invent unit from hours<24 when unit is present.
+          let restoredUnit = explicitUnit === "hours" || explicitUnit === "days" ? explicitUnit : "";
+          if (!restoredUnit) {
+            // Legacy rows without unit: values < 1 that match hours/24 are day-fractions → show hours.
+            if (Number.isFinite(restoredValue) && restoredValue > 0 && restoredValue < 1 && Number.isFinite(restoredHours) && restoredHours >= 1) {
+              restoredUnit = "hours";
+            } else if (Number.isFinite(restoredHours) && restoredHours > 0 && restoredHours < 24 && !(Number.isFinite(restoredDays) && restoredDays >= 1)) {
+              restoredUnit = "hours";
+            } else {
+              restoredUnit = "days";
+            }
+          }
           let draftValue;
           if (restoredUnit === "hours") {
-            const valueLooksLikeDayFraction = Number.isFinite(restoredValue) && restoredValue > 0 && restoredValue < 1 && Number.isFinite(restoredHours) && restoredHours >= 1;
-            draftValue = valueLooksLikeDayFraction ? restoredHours
-              : (Number.isFinite(restoredValue) && restoredValue > 0 ? restoredValue
-              : (Number.isFinite(restoredHours) && restoredHours > 0 ? restoredHours
-              : (Number.isFinite(restoredDays) && restoredDays > 0 ? restoredDays * 24 : 1)));
+            // Show hours number the user typed — never a day fraction.
+            if (Number.isFinite(restoredValue) && restoredValue >= 1) draftValue = restoredValue;
+            else if (Number.isFinite(restoredHours) && restoredHours > 0) draftValue = restoredHours;
+            else if (Number.isFinite(restoredDays) && restoredDays > 0) draftValue = restoredDays * 24;
+            else draftValue = 24;
           } else {
-            draftValue = Number.isFinite(restoredValue) && restoredValue > 0 ? restoredValue
-              : (Number.isFinite(restoredDays) && restoredDays > 0 ? restoredDays
-              : (Number.isFinite(restoredHours) && restoredHours > 0 ? restoredHours / 24 : 1));
+            // Days unit: if stored value is a day-fraction (<1) but hours exist, convert to whole/half days.
+            if (Number.isFinite(restoredValue) && restoredValue >= 1) draftValue = restoredValue;
+            else if (Number.isFinite(restoredDays) && restoredDays >= 1) draftValue = restoredDays;
+            else if (Number.isFinite(restoredHours) && restoredHours > 0) draftValue = restoredHours / 24;
+            else if (Number.isFinite(restoredValue) && restoredValue > 0) draftValue = restoredValue; // rare fraction
+            else draftValue = 1;
+            // Avoid showing 0.08 days — round to 2 decimals only when not near-integer.
+            if (draftValue < 1) {
+              // Prefer switching display to hours for sub-day periods.
+              restoredUnit = "hours";
+              draftValue = Number.isFinite(restoredHours) && restoredHours > 0 ? restoredHours : Math.max(1, Math.round(draftValue * 24));
+            }
           }
+          const rounded = Math.abs(draftValue - Math.round(draftValue)) < 1e-9
+            ? Math.round(draftValue)
+            : Math.round(draftValue * 100) / 100;
           setNkrPeriodUnit(restoredUnit);
-          setNkrPeriodDays(String(Math.round(draftValue * 1000000) / 1000000));
+          setNkrPeriodDays(String(rounded));
         }
         if (rotationSettingsSource.rotationBudgetRelease != null) setRotationBudgetRelease(String(rotationSettingsSource.rotationBudgetRelease));
         if (rotationSettingsSource.rotationShadowSnapshot && typeof rotationSettingsSource.rotationShadowSnapshot === "object") setRotationShadowSnapshot(rotationSettingsSource.rotationShadowSnapshot);
@@ -13052,10 +13077,14 @@ useEffect(() => {
         nkrCapitalMode,
         nkrObservationWindow,
         nkrProfitMode,
+        // BUILD440: nkrPeriodValue = what the user sees in the input; unit is authoritative.
         nkrPeriodValue: nkrPeriodDays,
         nkrPeriodUnit,
         nkrPeriodHours: normalizeNkrPeriodHours(),
-        nkrPeriodDays: normalizeNkrPeriodHours() / 24,
+        // True day-count for analytics only — never feed this back into the input as a fraction.
+        nkrPeriodDays: (String(nkrPeriodUnit || "").toLowerCase() === "days"
+          ? (Number(String(nkrPeriodDays || "").replace(",", ".")) || 1)
+          : (normalizeNkrPeriodHours() / 24)),
         rotationBudgetRelease,
         rotationShadowSnapshot,
         rotationShadowEvents: (Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []),
@@ -24515,7 +24544,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               }
                               setNkrPeriodUnit(nextUnit);
                               setRotationBudgetReleased(false);
-                              setTimeout(() => { nkrPeriodEditingRef.current = false; }, 800);
+                              setTimeout(() => { nkrPeriodEditingRef.current = false; }, 5000);
                             }}
                             title="NKR period unit"
                           >

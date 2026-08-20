@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD440-PERIOD-STABLE-NO-FRACTION-SPIN";
+const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD441-FIX-ACTIVE-SESSION-SNAPSHOT-CRASH";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -24790,7 +24790,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       const activeAllocationFraction = Math.max(0.01, 1 - (Number(activeReservePctByMode[activeStartMode] ?? 0) / 100));
                       const explicitActiveTotalBudget = Math.max(
                         Number(statusSession?.nkrTotalBudgetUsd || statusSession?.meta?.nkr_total_budget_usd || statusSession?.sessionBudgetUsd || statusSession?.meta?.session_budget_usd || statusSession?.budgetUsd || 0) || 0,
-                        Number(activeSessionSnapshot?.budgetUsd || 0) || 0
+                        Number(statusSession?.workingCapitalUsd || statusSession?.meta?.working_capital_usd || 0) || 0
                       );
                       const activeModeDerivedTotal = explicitActiveTotalBudget <= 0 && activeWorkingCapital > 0 ? activeWorkingCapital / activeAllocationFraction : 0;
                       const activeTotalBudget = explicitActiveTotalBudget > 0

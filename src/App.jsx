@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.19-BUILD435-GRID-WALLETWIDE-SESSIONS";
+const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD437-SESSION-SETTINGS-LOCK";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9365,11 +9365,17 @@ useEffect(() => {
       } catch (ackErr) {
         console.warn("NKR Aggressive session-start audit failed", ackErr);
       }
-      // Keep the selected mode visible after start. The running session is already
-      // locked by chain + on-chain session id; changing a later draft cannot alter it.
-      // A different mode for another session must be chosen explicitly by the user.
-      nkrCapitalModeRef.current = startedNkrCapitalMode;
-      setNkrCapitalMode(startedNkrCapitalMode);
+    }
+    // BUILD437: keep the exact mode selected for the just-started session visible and
+    // persist it as the wallet draft. This must never reset AGGRESSIVE to DYNAMIC after start.
+    nkrCapitalModeRef.current = startedNkrCapitalMode;
+    setNkrCapitalMode(startedNkrCapitalMode);
+    try {
+      if (wallet) {
+        await api('/api/nkr/state', { method: 'POST', token, wallet, body: { nkrCapitalMode: startedNkrCapitalMode } });
+      }
+    } catch (persistModeErr) {
+      console.warn('NKR mode draft persistence failed', persistModeErr);
     }
   }, [rotationBudgetRelease, rotationCapitalTopup, rotationMaxActiveSessions, rotationRuntimeHours, rotationSessions, makeNexusSessionId, setRotationSessions, setActiveRotationSessionId, activeGridChainKey, liveVaultChainByMode, liveVaultAssetByMode, rotationSelectedPick, strategistRotationCandidates, watchRows, gridItem, rotationMode, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, nkrPeriodUnit, normalizeNkrPeriodHours, rotationNetworkScope, rotationRiskLimit, rotationMinNetAdvantage, rotationMaxSlippage, manualPayoutAsset, wallet, setNkrAggressiveAcceptedForDraft, setNkrAggressivePendingValue, setNkrAggressiveConsentOpen, setNkrCapitalMode, nkrAggressiveAcceptedForDraft, createCoreVaultSystemSession, api, token, isRotationSessionRunnable]);
 
@@ -12404,8 +12410,17 @@ useEffect(() => {
     nkrCapitalModeRef.current = next;
     setNkrCapitalMode(next);
     setRotationBudgetReleased(false);
+    // BUILD437: save only the wallet setup draft. Do NOT send sessions here; running
+    // sessions keep the immutable start snapshot stored by the backend.
+    try {
+      if (wallet) {
+        await api('/api/nkr/state', { method: 'POST', token, wallet, body: { nkrCapitalMode: next } });
+      }
+    } catch (persistModeErr) {
+      console.warn('NKR mode draft persistence failed', persistModeErr);
+    }
     return true;
-  }, [setNkrCapitalMode, setRotationBudgetReleased]);
+  }, [setNkrCapitalMode, setRotationBudgetReleased, wallet, token, api]);
 
   const handleNkrCapitalModeChange = useCallback(async (value) => {
     const next = String(value || "DYNAMIC").toUpperCase();
@@ -13629,17 +13644,9 @@ const [aiLoading, setAiLoading] = useState(false);
             body: {
               sessions,
               marketRows: strategistMarketRows,
-              settings: {
-                nkrCapitalMode,
-                nkrProfitMode,
-                nkrObservationWindow,
-                nkrPeriodValue: nkrPeriodDays,
-                nkrPeriodUnit,
-                nkrPeriodHours: normalizeNkrPeriodHours(),
-                nkrPeriodDays: normalizeNkrPeriodHours() / 24,
-                nkrBudgetUsd: Number.isFinite(typedBudgetStart) ? typedBudgetStart : 0,
-                totalNkrBudgetUsd: Number.isFinite(typedBudgetStart) ? typedBudgetStart : 0,
-              },
+              // BUILD437: running session strategy is immutable. The current UI controls
+              // are only the draft for a future start and must not be sent as live rules.
+              settings: {},
             },
           });
           if (Array.isArray(tick?.sessions)) {
@@ -13663,7 +13670,16 @@ const [aiLoading, setAiLoading] = useState(false);
             return;
           }
         } catch (e) {
-          console.warn("NKR backend executor tick unavailable; falling back to UI preview", e);
+          console.warn("NKR backend executor tick unavailable; preserving live session state", e);
+          const hasLiveOnchainNkr = (Array.isArray(sessions) ? sessions : []).some((sess) => {
+            const meta = sess?.meta && typeof sess.meta === 'object' ? sess.meta : {};
+            const sid = sess?.onchainSessionId ?? sess?.onchain_session_id ?? sess?.coreVaultSessionId ?? meta?.onchain_session_id ?? meta?.core_vault_session_id;
+            return String(sid || '').trim() !== '' || String(sess?.executionMode || meta?.execution_mode || '').toLowerCase() === 'live';
+          });
+          if (hasLiveOnchainNkr) {
+            if (!silent) setRotationBackendMsg(toUserFacingMessage(e?.message || e, "Live update briefly unavailable — running session settings preserved."));
+            return;
+          }
           if (!silent) setRotationBackendMsg(toUserFacingMessage(e?.message || e, "Live update briefly unavailable — using preview."));
         }
       }
@@ -15282,11 +15298,9 @@ useInterval(
       applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
-      const execOrdersRaw = getGridOrdersFromResponse(r);
-      if (Array.isArray(execOrdersRaw)) {
-        const execOrders = normalizeGridOrders(execOrdersRaw);
-        setGridOrders(execOrders);
-      }
+      // BUILD436: execute response is item-scoped. Never replace the wallet-wide order list
+      // with it; immediately refresh the authoritative wallet-wide SQLite order view instead.
+      try { fetchGridOrders({ force: true }); } catch (_) {}
 
       try {
         const sym = String(gridItem || "").toUpperCase().trim();
@@ -16013,12 +16027,8 @@ if (qty > Number(manualVaultAvailableQty || 0)) {
       applyGridMetaResponse(r, gridItemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
 
-      const addOrdersRaw = getGridOrdersFromResponse(r);
-      if (Array.isArray(addOrdersRaw)) {
-        const addOrders = normalizeGridOrders(addOrdersRaw);
-        setGridOrders(addOrders);
-      }
-      // Always reload from backend so the server can commit the order and the UI stays live.
+      // BUILD436: add response is item-scoped; keep all other chain sessions visible.
+      // Always reload the wallet-wide list after the server commits the order.
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
@@ -16031,26 +16041,28 @@ if (qty > Number(manualVaultAvailableQty || 0)) {
   async function stopGridOrder(orderId) {
     setErrorMsg("");
     if (!token) return setErrorMsg("");
-    if (!gridItem) return;
 
     const _oid = String(orderId);
     if (gridBusy.stopOrderId === _oid) return;
-    if (!isGridReady) {
-      setErrorMsg("Grid not ready yet (connect wallet + select coin).");
+    const orderObj = (Array.isArray(gridOrders) ? gridOrders : []).find((x) => String(idOf(x)) === _oid) || {};
+    const orderItemRaw = String(orderObj?.item || orderObj?.item_id || "").trim();
+    const orderChainRaw = String(orderObj?.chain || orderObj?.chainKey || orderObj?.network || (orderItemRaw.includes(":") ? orderItemRaw.split(":", 1)[0] : "")).toUpperCase();
+    const chainKey = orderChainRaw || String(activeGridChainKey || balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+    const orderSymbol = String(orderObj?.symbol || orderObj?.asset || (orderItemRaw.includes(":") ? orderItemRaw.split(":").slice(1).join(":") : orderItemRaw) || gridItem || "").toUpperCase();
+    const targetGridItemId = orderItemRaw || `${chainKey}:${orderSymbol}`;
+    if (!targetGridItemId || !chainKey) {
+      setErrorMsg("Grid order context missing.");
       return;
     }
     setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
     patchGridOrderStatusLocal(_oid, "PAUSED");
 
-    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
-    const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
-    const orderObj = (Array.isArray(gridOrders) ? gridOrders : []).find((x) => String(idOf(x)) === _oid) || {};
     const sessId = String(orderObj?.session_id || orderObj?.core_vault_session_id || orderObj?.meta?.session_id || "").trim();
 
     // BUILD388: Pause = order PAUSED + on-chain setSessionPaused (like NKR/Trader).
     const addrPayload = walletAddress || undefined;
     const baseBody = {
-      item: gridItemId, item_id: gridItemId, chain: chainKey,
+      item: targetGridItemId, item_id: targetGridItemId, chain: chainKey,
       addr: addrPayload, wallet: addrPayload,
       session_id: sessId || undefined, core_vault_session_id: sessId || undefined,
     };
@@ -16063,12 +16075,10 @@ if (qty > Number(manualVaultAvailableQty || 0)) {
     for (const a of attempts) {
       try {
         const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-        const stopOrdersRaw = getGridOrdersFromResponse(r);
-        if (Array.isArray(stopOrdersRaw)) {
-          setGridOrders(normalizeGridOrders(stopOrdersRaw));
+        // BUILD436: response is scoped to this order's Grid session. Keep wallet-wide orders intact.
+        if (targetGridItemId === String(gridItemId || "")) {
+          setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         }
-        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-        applyGridMetaResponse(r, gridItemId);
         patchGridOrderStatusLocal(_oid, "PAUSED");
         if (r?.onchain_error) setErrorMsg(`Pause on-chain: ${r.onchain_error}`);
         setTimeout(() => { try { fetchGridOrders({ force: true }); } catch (_) {} }, 350);
@@ -16086,24 +16096,26 @@ if (qty > Number(manualVaultAvailableQty || 0)) {
   async function resumeGridOrder(orderId) {
     setErrorMsg("");
     if (!token) return setErrorMsg("");
-    if (!gridItem) return;
 
     const _oid = String(orderId);
     if (gridBusy.stopOrderId === _oid) return;
-    if (!isGridReady) {
-      setErrorMsg("Grid not ready yet (connect wallet + select coin).");
+    const orderObj = (Array.isArray(gridOrders) ? gridOrders : []).find((x) => String(idOf(x)) === _oid) || {};
+    const orderItemRaw = String(orderObj?.item || orderObj?.item_id || "").trim();
+    const orderChainRaw = String(orderObj?.chain || orderObj?.chainKey || orderObj?.network || (orderItemRaw.includes(":") ? orderItemRaw.split(":", 1)[0] : "")).toUpperCase();
+    const chainKey = orderChainRaw || String(activeGridChainKey || balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+    const orderSymbol = String(orderObj?.symbol || orderObj?.asset || (orderItemRaw.includes(":") ? orderItemRaw.split(":").slice(1).join(":") : orderItemRaw) || gridItem || "").toUpperCase();
+    const targetGridItemId = orderItemRaw || `${chainKey}:${orderSymbol}`;
+    if (!targetGridItemId || !chainKey) {
+      setErrorMsg("Grid order context missing.");
       return;
     }
     setGridBusy((s) => ({ ...s, stopOrderId: _oid }));
     patchGridOrderStatusLocal(_oid, "OPEN");
 
-    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
-    const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
-    const orderObj = (Array.isArray(gridOrders) ? gridOrders : []).find((x) => String(idOf(x)) === _oid) || {};
     const sessId = String(orderObj?.session_id || orderObj?.core_vault_session_id || orderObj?.meta?.session_id || "").trim();
     const addrPayload = walletAddress || undefined;
     const baseBody = {
-      item: gridItemId, item_id: gridItemId, chain: chainKey,
+      item: targetGridItemId, item_id: targetGridItemId, chain: chainKey,
       addr: addrPayload, wallet: addrPayload,
       session_id: sessId || undefined, core_vault_session_id: sessId || undefined,
     };
@@ -16117,12 +16129,10 @@ if (qty > Number(manualVaultAvailableQty || 0)) {
     for (const a of attempts) {
       try {
         const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-        const resumeOrdersRaw = getGridOrdersFromResponse(r);
-        if (Array.isArray(resumeOrdersRaw)) {
-          setGridOrders(normalizeGridOrders(resumeOrdersRaw));
+        // BUILD436: response is scoped to this order's Grid session. Keep wallet-wide orders intact.
+        if (targetGridItemId === String(gridItemId || "")) {
+          setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         }
-        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-        applyGridMetaResponse(r, gridItemId);
         patchGridOrderStatusLocal(_oid, "OPEN");
         if (r?.onchain_error) setErrorMsg(`Resume on-chain: ${r.onchain_error}`);
         setTimeout(() => { try { fetchGridOrders({ force: true }); } catch (_) {} }, 350);
@@ -16142,24 +16152,26 @@ if (qty > Number(manualVaultAvailableQty || 0)) {
     // BUILD388: UI label is Stop — ends order + finalizes on-chain GRID session (like NKR/Trader Stop).
     setErrorMsg("");
     if (!token) return setErrorMsg("");
-    if (!gridItem) return;
 
     const _oid = String(orderId);
     if (gridBusy.deleteOrderId === _oid) return;
-    if (!isGridReady) {
-      setErrorMsg("Grid not ready yet (connect wallet + select coin).");
+    const orderObj = (Array.isArray(gridOrders) ? gridOrders : []).find((x) => String(idOf(x)) === _oid) || {};
+    const orderItemRaw = String(orderObj?.item || orderObj?.item_id || "").trim();
+    const orderChainRaw = String(orderObj?.chain || orderObj?.chainKey || orderObj?.network || (orderItemRaw.includes(":") ? orderItemRaw.split(":", 1)[0] : "")).toUpperCase();
+    const chainKey = orderChainRaw || String(activeGridChainKey || balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase();
+    const orderSymbol = String(orderObj?.symbol || orderObj?.asset || (orderItemRaw.includes(":") ? orderItemRaw.split(":").slice(1).join(":") : orderItemRaw) || gridItem || "").toUpperCase();
+    const targetGridItemId = orderItemRaw || `${chainKey}:${orderSymbol}`;
+    if (!targetGridItemId || !chainKey) {
+      setErrorMsg("Grid order context missing.");
       return;
     }
     setGridBusy((s) => ({ ...s, deleteOrderId: _oid }));
 
-    const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
-    const gridItemId = gridMeta?.gridItemId ?? gridMeta?.itemId ?? gridMeta?.id ?? `${chainKey}:${gridItem}`;
-    const orderObj = (Array.isArray(gridOrders) ? gridOrders : []).find((x) => String(idOf(x)) === _oid) || {};
     const sessId = String(orderObj?.session_id || orderObj?.core_vault_session_id || orderObj?.meta?.session_id || "").trim();
 
     const addrPayload = walletAddress || undefined;
     const body = {
-      item: gridItemId, item_id: gridItemId, chain: chainKey,
+      item: targetGridItemId, item_id: targetGridItemId, chain: chainKey,
       addr: addrPayload, wallet: addrPayload,
       order_id: orderId, id: orderId, orderId,
       session_id: sessId || undefined, core_vault_session_id: sessId || undefined,
@@ -16173,14 +16185,11 @@ if (qty > Number(manualVaultAvailableQty || 0)) {
     for (const a of attempts) {
       try {
         const r = await api(a.url, { method: a.method, token, wallet: walletAddress, body: a.body });
-        const respOrdersRaw = getGridOrdersFromResponse(r);
-        if (Array.isArray(respOrdersRaw)) {
-          setGridOrders(normalizeGridOrders(respOrdersRaw));
-        } else {
-          setGridOrders((prev) => (Array.isArray(prev) ? prev : []).filter((o) => String(idOf(o)) !== _oid));
+        // BUILD436: remove only this order locally; the wallet-wide refresh reconciles final truth.
+        setGridOrders((prev) => (Array.isArray(prev) ? prev : []).filter((o) => String(idOf(o)) !== _oid));
+        if (targetGridItemId === String(gridItemId || "")) {
+          setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
         }
-        setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
-        applyGridMetaResponse(r, gridItemId);
         kickGridRefresh();
         if (r?.onchain_error) setErrorMsg(`Stop finalize: ${r.onchain_error}`);
         else if (Array.isArray(r?.onchain_finalize) && r.onchain_finalize.some((x) => x && x.ok === false)) {
@@ -24030,8 +24039,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   sess?.meta?.nkr_capital_mode ||
                                   sess?.capitalMode ||
                                   sess?.meta?.capital_mode ||
-                                  nkrCapitalMode ||
-                                  "DYNAMIC"
+                                  "UNKNOWN"
                                 ).toUpperCase();
                                 // ENGINE-242: The amount confirmed by the user is the complete session budget.
                                 // Never inflate 20 USDC to 22.22 USDC from the capital-mode percentage.
@@ -26244,8 +26252,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     const price = Number(o?.price ?? o?.target_price ?? 0);
                     const investedUsd = Number(o?.investedUsd ?? o?.invested_usd ?? o?.invested ?? o?.cost_basis ?? (qty * price)) || 0;
                     const atTargetUsd = Number(o?.targetValue ?? o?.target_value ?? o?.expectedOutUsd ?? o?.expected_out_usd ?? o?.expectedPayoutUsd ?? o?.expected_payout_usd ?? (qty * price)) || 0;
-                    // Live mark-to-market vs sell target (SELL: higher current = closer to profit at target).
-                    const livePx = Number(shownGridPrice || gridLiveFallback || gridMeta?.price || 0) || 0;
+                    const orderItem = String(o?.item || o?.item_id || "").trim();
+                    const orderChain = String(o?.chain || o?.chainKey || o?.network || (orderItem.includes(":") ? orderItem.split(":", 1)[0] : "")).toUpperCase();
+                    const selectedItem = String(gridItemId || "").trim().toUpperCase();
+                    const sameSelectedItem = !!orderItem && orderItem.toUpperCase() === selectedItem;
+                    // BUILD436: every wallet-wide order uses its own worker-persisted market price.
+                    // Only the currently selected setup item may fall back to the setup price.
+                    const livePx = Number(
+                      o?.current_price ?? o?.currentPrice ?? o?.live_price ?? o?.livePrice ?? o?.mark_price ?? o?.markPrice ?? o?.last_price ??
+                      (sameSelectedItem ? (shownGridPrice || gridLiveFallback || gridMeta?.price || 0) : 0)
+                    ) || 0;
                     const markUsd = (Number.isFinite(livePx) && livePx > 0 && Number.isFinite(qty) && qty > 0) ? livePx * qty : 0;
                     const targetUsd = (Number.isFinite(price) && price > 0 && Number.isFinite(qty) && qty > 0) ? price * qty : atTargetUsd;
                     const uPnL = (markUsd > 0 && targetUsd > 0)
@@ -26261,7 +26277,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap", minWidth: 0 }}>
                             <b style={{ color: "#eafff5" }}>Order #{idx + 1}</b>
-                            <span className="pill silver">{String(o?.chain || o?.chainKey || o?.network || "").toUpperCase() || "CHAIN"}</span>
+                            <span className="pill silver">{orderChain || "—"}</span>
                             <span className={`pill ${side === "BUY" ? "good" : "bad"}`}>{side}</span>
                             <span className="pill silver">{statusTxt}</span>
                           </div>

@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD443-NKR-MODE-LOCK-PENDING-STAMP";
+const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD444-FIX-ROTATION-SESSIONS-TDZ";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -8838,6 +8838,44 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationBudgetReleased, setRotationBudgetReleased] = useState(false);
   const [rotationBackendLoading, setRotationBackendLoading] = useState(false);
 
+
+  const [rotationBackendMsg, setRotationBackendMsg] = useState("");
+  const [rotationShadowBusy, setRotationShadowBusy] = useState(false);
+  const [rotationShadowSnapshot, setRotationShadowSnapshot] = useState(null);
+  const [rotationShadowEvents, setRotationShadowEvents] = useState([]);
+  const [rotationShadowEventsOpen, setRotationShadowEventsOpen] = useState(false);
+  const [rotationShadowEventsShowAll, setRotationShadowEventsShowAll] = useState(false);
+  const [rotationShadowEventsFilter, setRotationShadowEventsFilter] = useState("ALL");
+  const [nkrAggressiveConsentOpen, setNkrAggressiveConsentOpen] = useState(false);
+  const [nkrAggressivePendingValue, setNkrAggressivePendingValue] = useState("");
+  const [nkrAggressiveAcceptedForDraft, setNkrAggressiveAcceptedForDraft] = useState(false);
+  const rotationAutoShadowRef = useRef(0);
+  // Wallet-bound delete tombstones: prevents a just-deleted Rotation session from
+  // being resurrected by a delayed GET/POST sync or by the auto Shadow loop.
+  const rotationDeletedSessionIdsRef = useRef(new Set());
+
+  const isRotationSessionRunnable = useCallback((sess, now = Date.now()) => {
+    if (!sess || typeof sess !== "object") return false;
+    const st = String(sess?.status || "APPROVED").toUpperCase();
+    // FINALIZED / STOPPING must never count as runnable (restart after on-chain finalize).
+    if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL", "FINALIZED", "STOPPING", "FINALIZING", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED", "CANCELLED"].includes(st)) return false;
+    const explicitHours = Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || sess?.meta?.runtime_hours || 0);
+    const fallbackDays = Number(sess?.periodDays || sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || 0);
+    const periodHours = explicitHours > 0 ? explicitHours : (fallbackDays > 0 ? fallbackDays * 24 : normalizeNkrPeriodHours());
+    const start = Number(sess?.campaignStartedAt || sess?.meta?.campaign_started_at || sess?.startedAt || sess?.createdAt || 0);
+    const periodExpiry = start > 0 ? start + periodHours * 60 * 60 * 1000 : 0;
+    const exp = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || periodExpiry || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
+    return !exp || exp > now;
+  }, [nkrPeriodDays, nkrPeriodUnit, normalizeNkrPeriodHours]);
+
+  // Multi-session support: each later budget approval becomes an independent user-bounded session.
+  // Existing sessions are preserved; new Trading/NKR sessions get their own session_id.
+  const [tradingSessions, setTradingSessions] = useState([]);
+  const [gridEventHistory, setGridEventHistory] = useState([]);
+  const [traderEventHistory, setTraderEventHistory] = useState([]);
+  const [activeTradingSessionId, setActiveTradingSessionId] = useState("");
+  const [rotationSessions, setRotationSessions] = useState([]);
+
   // BUILD443: while an ETH NKR start is pending, stamp frozen config onto matching sessions once.
   const nkrPendingStampSigRef = useRef("");
   useEffect(() => {
@@ -8896,43 +8934,6 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     setRotationSessions(next);
     nkrStartPendingRef.current = false;
   }, [rotationSessions]);
-
-  const [rotationBackendMsg, setRotationBackendMsg] = useState("");
-  const [rotationShadowBusy, setRotationShadowBusy] = useState(false);
-  const [rotationShadowSnapshot, setRotationShadowSnapshot] = useState(null);
-  const [rotationShadowEvents, setRotationShadowEvents] = useState([]);
-  const [rotationShadowEventsOpen, setRotationShadowEventsOpen] = useState(false);
-  const [rotationShadowEventsShowAll, setRotationShadowEventsShowAll] = useState(false);
-  const [rotationShadowEventsFilter, setRotationShadowEventsFilter] = useState("ALL");
-  const [nkrAggressiveConsentOpen, setNkrAggressiveConsentOpen] = useState(false);
-  const [nkrAggressivePendingValue, setNkrAggressivePendingValue] = useState("");
-  const [nkrAggressiveAcceptedForDraft, setNkrAggressiveAcceptedForDraft] = useState(false);
-  const rotationAutoShadowRef = useRef(0);
-  // Wallet-bound delete tombstones: prevents a just-deleted Rotation session from
-  // being resurrected by a delayed GET/POST sync or by the auto Shadow loop.
-  const rotationDeletedSessionIdsRef = useRef(new Set());
-
-  const isRotationSessionRunnable = useCallback((sess, now = Date.now()) => {
-    if (!sess || typeof sess !== "object") return false;
-    const st = String(sess?.status || "APPROVED").toUpperCase();
-    // FINALIZED / STOPPING must never count as runnable (restart after on-chain finalize).
-    if (["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "RELEASED", "REBALANCED_OUT", "WAITING_REALLOCATION", "WATCH_POOL", "FINALIZED", "STOPPING", "FINALIZING", "DELETED", "ARCHIVED", "COMPLETE", "COMPLETED", "CANCELLED"].includes(st)) return false;
-    const explicitHours = Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || sess?.meta?.runtime_hours || 0);
-    const fallbackDays = Number(sess?.periodDays || sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || 0);
-    const periodHours = explicitHours > 0 ? explicitHours : (fallbackDays > 0 ? fallbackDays * 24 : normalizeNkrPeriodHours());
-    const start = Number(sess?.campaignStartedAt || sess?.meta?.campaign_started_at || sess?.startedAt || sess?.createdAt || 0);
-    const periodExpiry = start > 0 ? start + periodHours * 60 * 60 * 1000 : 0;
-    const exp = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || periodExpiry || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
-    return !exp || exp > now;
-  }, [nkrPeriodDays, nkrPeriodUnit, normalizeNkrPeriodHours]);
-
-  // Multi-session support: each later budget approval becomes an independent user-bounded session.
-  // Existing sessions are preserved; new Trading/NKR sessions get their own session_id.
-  const [tradingSessions, setTradingSessions] = useState([]);
-  const [gridEventHistory, setGridEventHistory] = useState([]);
-  const [traderEventHistory, setTraderEventHistory] = useState([]);
-  const [activeTradingSessionId, setActiveTradingSessionId] = useState("");
-  const [rotationSessions, setRotationSessions] = useState([]);
   const finalizedNkrStorageKey = useMemo(() => `nexus_nkr_finalized_onchain_v2_${String(resolveWalletAddress(wallet) || wallet || "guest").toLowerCase()}`, [wallet]);
   const readFinalizedNkrIds = useCallback(() => {
     try {

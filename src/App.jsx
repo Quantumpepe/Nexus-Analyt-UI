@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD442-NKR-SESSION-INFO-START-STAMP";
+const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD443-NKR-MODE-LOCK-PENDING-STAMP";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -8761,9 +8761,10 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // BUILD407: keep the exact selected NKR mode locked while an async CoreVault create is pending.
   // Delayed app-state hydration must never overwrite AGGRESSIVE with an older DYNAMIC draft.
   const nkrStartPendingRef = useRef(false);
-  // BUILD442: cache exact start settings by on-chain session id so Info never shows UNKNOWN/$0
-  // when the backend row is still hydrating without locked fields.
+  // BUILD442/443: cache exact start settings by on-chain session id + last pending start
+  // (ETH async create returns before sessionId exists — must not lose AGGRESSIVE/budget).
   const nkrStartSettingsCacheRef = useRef({});
+  const nkrPendingStartConfigRef = useRef(null);
   const nkrPeriodEditingRef = useRef(false);
   const tradingRuntimeEditingRef = useRef(false);
   const nkrModeEditingRef = useRef(false);
@@ -8836,6 +8837,66 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [fundingPrompt, setFundingPrompt] = useState(null);
   const [rotationBudgetReleased, setRotationBudgetReleased] = useState(false);
   const [rotationBackendLoading, setRotationBackendLoading] = useState(false);
+
+  // BUILD443: while an ETH NKR start is pending, stamp frozen config onto matching sessions once.
+  const nkrPendingStampSigRef = useRef("");
+  useEffect(() => {
+    const pending = nkrPendingStartConfigRef.current;
+    if (!pending || !pending.chain) return;
+    const age = Date.now() - Number(pending.frozenAt || 0);
+    if (age > 15 * 60 * 1000) { nkrPendingStartConfigRef.current = null; nkrPendingStampSigRef.current = ""; return; }
+    const list = Array.isArray(rotationSessions) ? rotationSessions : [];
+    if (!list.length) return;
+    const wantMode = String(pending.nkrCapitalMode || "").toUpperCase();
+    const need = list.some((s) => {
+      const ch = String(s?.chain || s?.meta?.chain || "").toUpperCase();
+      if (ch && ch !== String(pending.chain).toUpperCase()) return false;
+      const mode = String(s?.nkrCapitalMode || s?.capitalMode || s?.meta?.nkr_capital_mode || "").toUpperCase();
+      const budget = Number(s?.budgetUsd || s?.sessionBudgetUsd || s?.reservedUsd || 0);
+      return mode !== wantMode || budget <= 0;
+    });
+    if (!need) {
+      nkrStartPendingRef.current = false;
+      return;
+    }
+    const sig = list.map((s) => `${s?.id}:${s?.nkrCapitalMode}:${s?.budgetUsd}`).join("|") + `|${wantMode}|${pending.budgetUsd}`;
+    if (sig === nkrPendingStampSigRef.current) return;
+    nkrPendingStampSigRef.current = sig;
+    const next = list.map((s) => {
+      const ch = String(s?.chain || s?.meta?.chain || s?.meta?.chain_key || "").toUpperCase();
+      if (ch && ch !== String(pending.chain).toUpperCase()) return s;
+      const oid = String(s?.onchainSessionId || s?.coreVaultSessionId || s?.meta?.onchain_session_id || "");
+      if (oid) nkrStartSettingsCacheRef.current[`OID:${oid}`] = { ...pending };
+      const hasBudget = Number(s?.budgetUsd || s?.sessionBudgetUsd || s?.reservedUsd || 0) > 0;
+      return {
+        ...s,
+        nkrCapitalMode: wantMode || s?.nkrCapitalMode,
+        capitalMode: wantMode || s?.capitalMode,
+        nkrObservationWindow: s?.nkrObservationWindow || pending.nkrObservationWindow,
+        nkrProfitMode: s?.nkrProfitMode || pending.nkrProfitMode,
+        nkrPeriodHours: s?.nkrPeriodHours || pending.nkrPeriodHours,
+        nkrPeriodDays: s?.nkrPeriodDays || pending.nkrPeriodDays,
+        nkrPeriodUnit: s?.nkrPeriodUnit || pending.nkrPeriodUnit,
+        budgetUsd: hasBudget ? s.budgetUsd : pending.budgetUsd,
+        sessionBudgetUsd: Number(s?.sessionBudgetUsd || 0) > 0 ? s.sessionBudgetUsd : pending.sessionBudgetUsd,
+        reservedUsd: Number(s?.reservedUsd || 0) > 0 ? s.reservedUsd : pending.reservedUsd,
+        workingCapitalUsd: Number(s?.workingCapitalUsd || 0) > 0 ? s.workingCapitalUsd : pending.workingCapitalUsd,
+        meta: {
+          ...(s?.meta && typeof s.meta === "object" ? s.meta : {}),
+          nkr_capital_mode: wantMode,
+          capital_mode: wantMode,
+          nkr_observation_window: pending.nkrObservationWindow,
+          nkr_profit_mode: pending.nkrProfitMode,
+          nkr_period_hours: pending.nkrPeriodHours,
+          nkr_period_days: pending.nkrPeriodDays,
+          session_budget_usd: pending.budgetUsd,
+        },
+      };
+    });
+    setRotationSessions(next);
+    nkrStartPendingRef.current = false;
+  }, [rotationSessions]);
+
   const [rotationBackendMsg, setRotationBackendMsg] = useState("");
   const [rotationShadowBusy, setRotationShadowBusy] = useState(false);
   const [rotationShadowSnapshot, setRotationShadowSnapshot] = useState(null);
@@ -9167,7 +9228,17 @@ useEffect(() => {
       setRotationBackendMsg(`Enter a budget amount to start NKR on ${startChainCheck}.`);
       return;
     }
+    // BUILD443: freeze mode/period/budget at click time. Never re-read the draft after
+    // create returns — form may already be reset to DYNAMIC while ETH job is still pending.
     const startedNkrCapitalMode = String(nkrCapitalModeRef.current || nkrCapitalMode || "DYNAMIC").toUpperCase();
+    const startedObservation = String(nkrObservationWindow || "1h");
+    const startedProfitMode = String(nkrProfitMode || "REINVEST").toUpperCase();
+    const startedPeriodUnit = String(nkrPeriodUnit || "days").toLowerCase();
+    const startedPeriodValue = nkrPeriodDays;
+    const startedPeriodHours = normalizeNkrPeriodHours();
+    const startedPeriodDays = startedPeriodHours / 24;
+    const startedMaxAssets = Number(rotationMaxActiveSessions) || 0;
+    const startedPayout = String(liveVaultAssetByMode?.rotation || "USDC").toUpperCase();
     // Aggressive always requires a wallet-bound warning acceptance for this draft.
     if (startedNkrCapitalMode === "AGGRESSIVE" && !nkrAggressiveAcceptedForDraft) {
       setNkrAggressivePendingValue("AGGRESSIVE");
@@ -9175,37 +9246,63 @@ useEffect(() => {
       setRotationBackendMsg("Confirm the Aggressive risk warning before starting this NKR session.");
       return;
     }
+    const frozenStartConfig = {
+      nkrCapitalMode: startedNkrCapitalMode,
+      capitalMode: startedNkrCapitalMode,
+      nkrObservationWindow: startedObservation,
+      nkrProfitMode: startedProfitMode,
+      nkrPeriodHours: startedPeriodHours,
+      nkrPeriodDays: startedPeriodDays,
+      nkrPeriodUnit: startedPeriodUnit,
+      nkrPeriodValue: startedPeriodValue,
+      maxActiveAssets: startedMaxAssets,
+      budgetUsd: Number(amount) || 0,
+      sessionBudgetUsd: Number(amount) || 0,
+      reservedUsd: Number(amount) || 0,
+      workingCapitalUsd: Number(amount) || 0,
+      payoutAsset: startedPayout,
+      chain: startChainCheck,
+      frozenAt: Date.now(),
+    };
+    nkrPendingStartConfigRef.current = frozenStartConfig;
+    nkrStartPendingRef.current = true;
     let coreVaultSession = null;
     try {
       setRotationBackendLoading(true);
-      setRotationBackendMsg(`Reserving NKR budget on ${startChainCheck} in CoreVault...`);
+      setRotationBackendMsg(`Reserving NKR budget on ${startChainCheck} · mode ${startedNkrCapitalMode}...`);
       coreVaultSession = await createCoreVaultSystemSession({
         system: "NKR",
         budgetUsd: amount,
-        durationHours: normalizeNkrPeriodHours(),
+        durationHours: startedPeriodHours,
         maxSlippageBps: Math.round((Number(rotationMaxSlippage) || 1) * 100),
         maxLossBps: Math.round((Number(rotationRiskLimit) || 15) * 100),
         chain: startChainCheck,
-        settlementAsset: String(liveVaultAssetByMode?.rotation || "USDC").toUpperCase(),
+        settlementAsset: startedPayout,
         sessionConfig: {
           nkrCapitalMode: startedNkrCapitalMode,
-          nkrObservationWindow,
-          nkrProfitMode,
-          nkrPeriodValue: nkrPeriodDays,
-          nkrPeriodUnit,
-          nkrPeriodHours: normalizeNkrPeriodHours(),
-          nkrPeriodDays: normalizeNkrPeriodHours() / 24,
-          maxActiveAssets: rotationMaxActiveSessions,
+          nkrObservationWindow: startedObservation,
+          nkrProfitMode: startedProfitMode,
+          nkrPeriodValue: startedPeriodValue,
+          nkrPeriodUnit: startedPeriodUnit,
+          nkrPeriodHours: startedPeriodHours,
+          nkrPeriodDays: startedPeriodDays,
+          maxActiveAssets: startedMaxAssets,
           maxCapitalPerAssetPct: 80,
         },
       });
       if (coreVaultSession?.pending) {
+        // ETH async path: keep frozen config until session id appears (poll merges it).
+        const jobId = String(coreVaultSession?.jobId || coreVaultSession?.result?.jobId || "");
+        if (jobId) nkrStartSettingsCacheRef.current[`JOB:${jobId}`] = frozenStartConfig;
+        nkrStartSettingsCacheRef.current[`CHAIN:${startChainCheck}`] = frozenStartConfig;
         setRotationBudgetReleased(true);
-        setRotationBackendMsg(`ETH NKR session starting · confirmation pending. Other chains and engines continue normally.`);
+        setRotationBackendMsg(`ETH NKR session starting (${startedNkrCapitalMode}) · waiting for on-chain confirmation. Do not change mode until the session appears.`);
         setRotationCapitalTopup("");
+        setRotationBackendLoading(false);
+        // Do NOT reset form mode yet — wait until session is visible with stamped mode.
         return;
       }
-      setRotationBackendMsg(`NKR started on ${startChainCheck}. Capital reserved · scanning ${startChainCheck}-tradable assets.`);
+      setRotationBackendMsg(`NKR started on ${startChainCheck} · ${startedNkrCapitalMode}. Capital reserved · scanning ${startChainCheck}-tradable assets.`);
       setRotationCapitalTopup("");
     } catch (e) {
       const rawMessage = String(e?.message || e || "NKR CoreVault session failed");
@@ -9324,22 +9421,7 @@ useEffect(() => {
     const expiresAt = now + periodDays * 24 * 60 * 60 * 1000;
     // NKR session state is backend-owned. The browser stores no session snapshot.
     setRotationBudgetReleased(true);
-    const startStamp = {
-      nkrCapitalMode: startedNkrCapitalMode,
-      capitalMode: startedNkrCapitalMode,
-      nkrObservationWindow: String(nkrObservationWindow || "1h"),
-      nkrProfitMode: String(nkrProfitMode || "REINVEST").toUpperCase(),
-      nkrPeriodHours: Number(runtimeHours) || normalizeNkrPeriodHours(),
-      nkrPeriodDays: Number(periodDays) || (normalizeNkrPeriodHours() / 24),
-      nkrPeriodUnit: String(nkrPeriodUnit || "days").toLowerCase(),
-      nkrPeriodValue: nkrPeriodDays,
-      maxActiveAssets: Number(rotationMaxActiveSessions) || 0,
-      budgetUsd: Number(amount) || 0,
-      sessionBudgetUsd: Number(amount) || 0,
-      reservedUsd: Number(amount) || 0,
-      workingCapitalUsd: Number(amount) || 0,
-      payoutAsset: String(liveVaultAssetByMode?.rotation || "USDC").toUpperCase(),
-    };
+    const startStamp = { ...(nkrPendingStartConfigRef.current || {}), nkrCapitalMode: startedNkrCapitalMode, capitalMode: startedNkrCapitalMode, budgetUsd: Number(amount) || 0, sessionBudgetUsd: Number(amount) || 0, reservedUsd: Number(amount) || 0, workingCapitalUsd: Number(amount) || 0, nkrPeriodHours: Number(runtimeHours) || startedPeriodHours, nkrPeriodDays: Number(periodDays) || startedPeriodDays, nkrPeriodUnit: startedPeriodUnit, nkrPeriodValue: startedPeriodValue, nkrObservationWindow: startedObservation, nkrProfitMode: startedProfitMode, maxActiveAssets: startedMaxAssets, payoutAsset: startedPayout };
     try {
       const liveState = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(String(wallet || ""))}&wallet_address=${encodeURIComponent(String(wallet || ""))}`, { method: "GET", token, wallet });
       const backendSessions = Array.isArray(liveState?.sessions) ? liveState.sessions : [];

@@ -515,7 +515,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD441-FIX-ACTIVE-SESSION-SNAPSHOT-CRASH";
+const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD442-NKR-SESSION-INFO-START-STAMP";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -8761,6 +8761,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // BUILD407: keep the exact selected NKR mode locked while an async CoreVault create is pending.
   // Delayed app-state hydration must never overwrite AGGRESSIVE with an older DYNAMIC draft.
   const nkrStartPendingRef = useRef(false);
+  // BUILD442: cache exact start settings by on-chain session id so Info never shows UNKNOWN/$0
+  // when the backend row is still hydrating without locked fields.
+  const nkrStartSettingsCacheRef = useRef({});
   const nkrPeriodEditingRef = useRef(false);
   const tradingRuntimeEditingRef = useRef(false);
   const nkrModeEditingRef = useRef(false);
@@ -9321,10 +9324,65 @@ useEffect(() => {
     const expiresAt = now + periodDays * 24 * 60 * 60 * 1000;
     // NKR session state is backend-owned. The browser stores no session snapshot.
     setRotationBudgetReleased(true);
+    const startStamp = {
+      nkrCapitalMode: startedNkrCapitalMode,
+      capitalMode: startedNkrCapitalMode,
+      nkrObservationWindow: String(nkrObservationWindow || "1h"),
+      nkrProfitMode: String(nkrProfitMode || "REINVEST").toUpperCase(),
+      nkrPeriodHours: Number(runtimeHours) || normalizeNkrPeriodHours(),
+      nkrPeriodDays: Number(periodDays) || (normalizeNkrPeriodHours() / 24),
+      nkrPeriodUnit: String(nkrPeriodUnit || "days").toLowerCase(),
+      nkrPeriodValue: nkrPeriodDays,
+      maxActiveAssets: Number(rotationMaxActiveSessions) || 0,
+      budgetUsd: Number(amount) || 0,
+      sessionBudgetUsd: Number(amount) || 0,
+      reservedUsd: Number(amount) || 0,
+      workingCapitalUsd: Number(amount) || 0,
+      payoutAsset: String(liveVaultAssetByMode?.rotation || "USDC").toUpperCase(),
+    };
     try {
       const liveState = await api(`/api/rotation-sessions?wallet=${encodeURIComponent(String(wallet || ""))}&wallet_address=${encodeURIComponent(String(wallet || ""))}`, { method: "GET", token, wallet });
       const backendSessions = Array.isArray(liveState?.sessions) ? liveState.sessions : [];
-      setRotationSessions(backendSessions);
+      // Stamp cache for every live session that still lacks mode/budget.
+      const stamped = backendSessions.map((s) => {
+        const oid = String(s?.onchainSessionId || s?.coreVaultSessionId || s?.meta?.onchain_session_id || "");
+        if (oid) nkrStartSettingsCacheRef.current[`OID:${oid}`] = { ...startStamp, ...(nkrStartSettingsCacheRef.current[`OID:${oid}`] || {}) };
+        const hasMode = !!(s?.nkrCapitalMode || s?.capitalMode || s?.meta?.nkr_capital_mode);
+        const hasBudget = Number(s?.budgetUsd || s?.sessionBudgetUsd || s?.reservedUsd || 0) > 0;
+        if (hasMode && hasBudget) return s;
+        const cached = (oid && nkrStartSettingsCacheRef.current[`OID:${oid}`]) || startStamp;
+        return {
+          ...s,
+          nkrCapitalMode: s?.nkrCapitalMode || cached.nkrCapitalMode,
+          capitalMode: s?.capitalMode || cached.capitalMode,
+          nkrObservationWindow: s?.nkrObservationWindow || cached.nkrObservationWindow,
+          nkrProfitMode: s?.nkrProfitMode || cached.nkrProfitMode,
+          nkrPeriodHours: s?.nkrPeriodHours || cached.nkrPeriodHours,
+          nkrPeriodDays: s?.nkrPeriodDays || cached.nkrPeriodDays,
+          nkrPeriodUnit: s?.nkrPeriodUnit || cached.nkrPeriodUnit,
+          nkrPeriodValue: s?.nkrPeriodValue || cached.nkrPeriodValue,
+          maxActiveAssets: s?.maxActiveAssets ?? cached.maxActiveAssets,
+          budgetUsd: Number(s?.budgetUsd || 0) > 0 ? s.budgetUsd : cached.budgetUsd,
+          sessionBudgetUsd: Number(s?.sessionBudgetUsd || 0) > 0 ? s.sessionBudgetUsd : cached.sessionBudgetUsd,
+          reservedUsd: Number(s?.reservedUsd || 0) > 0 ? s.reservedUsd : cached.reservedUsd,
+          workingCapitalUsd: Number(s?.workingCapitalUsd || 0) > 0 ? s.workingCapitalUsd : cached.workingCapitalUsd,
+          meta: {
+            ...(s?.meta && typeof s.meta === "object" ? s.meta : {}),
+            nkr_capital_mode: s?.meta?.nkr_capital_mode || cached.nkrCapitalMode,
+            capital_mode: s?.meta?.capital_mode || cached.capitalMode,
+            nkr_observation_window: s?.meta?.nkr_observation_window || cached.nkrObservationWindow,
+            nkr_profit_mode: s?.meta?.nkr_profit_mode || cached.nkrProfitMode,
+            nkr_period_hours: s?.meta?.nkr_period_hours || cached.nkrPeriodHours,
+            nkr_period_days: s?.meta?.nkr_period_days || cached.nkrPeriodDays,
+            nkr_period_unit: s?.meta?.nkr_period_unit || cached.nkrPeriodUnit,
+            session_budget_usd: Number(s?.meta?.session_budget_usd || 0) > 0 ? s.meta.session_budget_usd : cached.budgetUsd,
+          },
+        };
+      });
+      // Also cache by the create response id immediately.
+      const createOid = String(coreVaultSession?.sessionId || coreVaultSession?.result?.sessionId || "");
+      if (createOid) nkrStartSettingsCacheRef.current[`OID:${createOid}`] = startStamp;
+      setRotationSessions(stamped);
       setActiveRotationSessionId(String(liveState?.activeRotationSessionId || ""));
       // Prefer backend controlState. Never force RUNNING just because terminal FINALIZED rows still exist.
       const liveOk = backendSessions.some((s) => !["STOPPED","FINALIZED","CLOSED","EXPIRED","CANCELLED","RELEASED","DELETED","ARCHIVED","COMPLETE","COMPLETED","STOPPING","FINALIZING"].includes(String(s?.status || "").toUpperCase()));
@@ -23955,9 +24013,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               {rotationVisibleActiveRows.length ? rotationVisibleActiveRows.map((sess, idx) => {
                                 const chain = String(sess?.chain || "CHAIN").toUpperCase();
                                 const sessionIdValue = String(sess?.id || sess?.session_id || "");
-                                const immutableSessionSnapshot = {};
-                                const legacyPersistedActiveMode = "";
-                                const budget = Number(sess?.budgetUsd || immutableSessionSnapshot?.budgetUsd || 0);
+                                const oidKey = String(sess?.onchainSessionId || sess?.coreVaultSessionId || sess?.meta?.onchain_session_id || "");
+                                const cachedStart = (oidKey && nkrStartSettingsCacheRef.current[`OID:${oidKey}`]) || {};
+                                const immutableSessionSnapshot = {
+                                  capitalMode: sess?.nkrCapitalMode || sess?.capitalMode || sess?.meta?.nkr_capital_mode || sess?.meta?.capital_mode || cachedStart.nkrCapitalMode || "",
+                                  budgetUsd: Number(sess?.budgetUsd || sess?.sessionBudgetUsd || sess?.reservedUsd || sess?.meta?.session_budget_usd || cachedStart.budgetUsd || 0) || 0,
+                                  observationWindow: sess?.nkrObservationWindow || sess?.meta?.nkr_observation_window || cachedStart.nkrObservationWindow || "",
+                                  profitMode: sess?.nkrProfitMode || sess?.meta?.nkr_profit_mode || cachedStart.nkrProfitMode || "",
+                                  periodHours: Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || cachedStart.nkrPeriodHours || 0) || 0,
+                                  periodDays: Number(sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || cachedStart.nkrPeriodDays || 0) || 0,
+                                  periodUnit: String(sess?.nkrPeriodUnit || sess?.meta?.nkr_period_unit || cachedStart.nkrPeriodUnit || "days"),
+                                  maxActiveAssets: Number(sess?.maxActiveAssets ?? sess?.meta?.nkr_max_active_assets ?? cachedStart.maxActiveAssets ?? 0) || 0,
+                                  payoutAsset: String(sess?.payoutAsset || sess?.meta?.payout_asset || cachedStart.payoutAsset || "USDC").toUpperCase(),
+                                };
+                                const legacyPersistedActiveMode = String(cachedStart.nkrCapitalMode || "");
+                                const budget = Number(sess?.budgetUsd || sess?.sessionBudgetUsd || sess?.reservedUsd || immutableSessionSnapshot?.budgetUsd || 0);
                                 const sessionStatus = getRotationDerivedStatus(sess);
                                 const status = getRotationDisplayStatus(sess);
                                 const statusTone = getRotationStatusTone(status);
@@ -24091,8 +24161,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   sess?.meta?.nkr_capital_mode ||
                                   sess?.capitalMode ||
                                   sess?.meta?.capital_mode ||
-                                  "UNKNOWN"
-                                ).toUpperCase();
+                                  cachedStart.nkrCapitalMode ||
+                                  "DYNAMIC"
+                                ).toUpperCase() || "DYNAMIC";
                                 // ENGINE-242: The amount confirmed by the user is the complete session budget.
                                 // Never inflate 20 USDC to 22.22 USDC from the capital-mode percentage.
                                 // A reserve is displayed only when the backend/session explicitly reports one.

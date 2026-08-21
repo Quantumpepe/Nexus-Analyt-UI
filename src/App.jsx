@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD448-WNATIVE-WEI-STRING-BALANCE";
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD449-WNATIVE-ALCHEMY-BALANCE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -6328,6 +6328,40 @@ useEffect(() => {
     }
   };
 
+  /** BUILD449: chain-RPC balanceOf — no Privy switch, no JSON number wei. Returns decimal string of whole tokens. */
+  const fetchWnativeBalanceHuman = async (address, chainKey, tokenAddress) => {
+    try {
+      const c = normalizeWalletChainKey(chainKey);
+      const to = String(tokenAddress || "").toLowerCase();
+      const owner = String(address || "").toLowerCase();
+      if (!/^0x[a-f0-9]{40}$/.test(to) || !/^0x[a-f0-9]{40}$/.test(owner)) return null;
+      const data = "0x70a08231" + owner.replace(/^0x/, "").padStart(64, "0");
+      let rawHex = null;
+      try {
+        rawHex = await alchemyRpc(c, "eth_call", [{ to, data }, "latest"]);
+      } catch (_) {
+        rawHex = null;
+      }
+      if (!rawHex || !String(rawHex).startsWith("0x")) {
+        // fallback provider
+        rawHex = null;
+        try {
+          const provider = await _getEmbeddedProvider();
+          const chainId = CHAIN_ID?.[c];
+          if (provider?.request && chainId) {
+            await _trySwitchChain(provider, chainId);
+            rawHex = await provider.request({ method: "eth_call", params: [{ to, data }, "latest"] });
+          }
+        } catch (_) {}
+      }
+      if (!rawHex || !String(rawHex).startsWith("0x")) return null;
+      const bi = hexToBigInt(rawHex);
+      return stripTrailingZeros(formatNativeFromWei(bi, 18, 8));
+    } catch {
+      return null;
+    }
+  };
+
   const refreshBalances = async () => {
     if (!wallet) return;
     // Wallet balances are loaded through the backend RPC fallback.
@@ -6474,10 +6508,19 @@ if (allSpecs.length) {
     const val = stripTrailingZeros(formatNativeFromWei(bi, dec, 6));
     if (stableAddrSet.has(t.address)) {
       // For stables, show compact (2 decimals) unless tiny.
-      const val2 = stripTrailingZeros(formatNativeFromWei(bi, t.decimals, 2));
+      const val2 = stripTrailingZeros(formatNativeFromWei(bi, Number(t.decimals ?? 6), 2));
       stables[t.symbol] = val2;
     } else {
-      custom.push({ address: t.address, symbol: t.symbol, balance: val, decimals: t.decimals, name: t.name });
+      let bal = val;
+      let decOut = isWnTok ? 18 : Number(t.decimals ?? 18);
+      if (isWnTok) {
+        const human = await fetchWnativeBalanceHuman(address, c, t.address);
+        if (human != null && human !== "" && Number(human) >= 0) {
+          bal = human;
+          decOut = 18;
+        }
+      }
+      custom.push({ address: t.address, symbol: t.symbol, balance: bal, decimals: decOut, name: t.name });
     }
   }
 }

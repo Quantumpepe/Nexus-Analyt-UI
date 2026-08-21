@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD446-WNATIVE-BALANCE-DECIMALS-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD447-WNATIVE-DISPLAY-80-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -6392,30 +6392,36 @@ const wnativeSpecs = _wn && _wn.address ? [{ address: _wn.address, symbol: _wn.s
 // De-dupe by contract address. Automatic discovery is display-only; Vault admission
 // is still decided separately by exact-contract Owner approval + GoPlus security.
 const allSpecs = [];
-const seen = new Set();
+const seen = new Map(); // address -> index in allSpecs
 const wnAddr = String(_wn?.address || "").toLowerCase();
 for (const t of [...stableSpecs, ...customSpecs, ...wnativeSpecs]) {
   const addr = String(t?.address || "").toLowerCase();
-  if (!addr || seen.has(addr)) continue;
-  seen.add(addr);
-  // BUILD446: WNative is always 18 decimals — wrong discovery decimals made 80 WPOL show as 8.
-  const isWn = wnAddr && addr === wnAddr;
-  allSpecs.push({
+  if (!addr) continue;
+  const isWn = !!(wnAddr && addr === wnAddr);
+  const entry = {
     address: addr,
     symbol: isWn ? String(_wn.symbol || "WPOL").toUpperCase() : String(t?.symbol || "").toUpperCase(),
     decimals: isWn ? 18 : Number(t?.decimals ?? 18),
     name: isWn ? String(_wn.name || "Wrapped native") : String(t?.name || ""),
-  });
+  };
+  if (seen.has(addr)) {
+    // BUILD447: if discovery came first with wrong decimals, overwrite with WNative truth
+    if (isWn) {
+      allSpecs[seen.get(addr)] = entry;
+    }
+    continue;
+  }
+  seen.set(addr, allSpecs.length);
+  allSpecs.push(entry);
 }
-// Ensure wnative is present even if discovery listed it first with bad metadata
 if (wnAddr && !seen.has(wnAddr)) {
+  seen.set(wnAddr, allSpecs.length);
   allSpecs.push({
     address: wnAddr,
     symbol: String(_wn.symbol || "WPOL").toUpperCase(),
     decimals: 18,
     name: String(_wn.name || "Wrapped native"),
   });
-  seen.add(wnAddr);
 }
 
 const stables = {};

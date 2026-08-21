@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD450-FIX-TRAILING-ZERO-FORMAT";
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD451-WATCHLIST-7D-SPARK-FIXED";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -2663,9 +2663,33 @@ function Legend({ symbols, highlightedSyms = [], setHighlightedSyms, colorForSym
 }
 
 function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, idx = 0 }) {
+  // BUILD451: Watchlist mini-chart must be independent from Compare checkbox state.
+  // The backend watchlist snapshot already returns CoinGecko's real sparkline_in_7d
+  // as row.sparkline7d. Prefer that source first so checking/unchecking Compare
+  // can never change the Watchlist 7D chart.
+  const rowSpark7d = Array.isArray(row?.sparkline7d)
+    ? row.sparkline7d.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0)
+    : [];
   const fullSeries = Array.isArray(seriesMap?.[sym]) ? (seriesMap[sym] || []) : [];
 
   const values = (() => {
+    if (rowSpark7d.length >= 8) {
+      const src = rowSpark7d.slice();
+      const current = Number(row?.price);
+      if (Number.isFinite(current) && current > 0) {
+        const last = src[src.length - 1];
+        if (!Number.isFinite(last) || Math.abs(last - current) > Math.max(current * 1e-10, 1e-12)) src.push(current);
+      }
+      const maxPoints = 120;
+      const step = Math.max(1, Math.ceil(src.length / maxPoints));
+      const sampled = src.filter((_, i) => i % step === 0);
+      const last = src[src.length - 1];
+      if (Number.isFinite(last) && sampled[sampled.length - 1] !== last) sampled.push(last);
+      return sampled;
+    }
+
+    // Legacy fallback only when the watchlist snapshot has no 7D CoinGecko history.
+    // This fallback may use Compare history, but normal market watch rows should not need it.
     const normalize = (pts) => (pts || [])
       .map((pt) => {
         if (Array.isArray(pt)) {
@@ -2688,9 +2712,6 @@ function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, i
     if (pts.length) {
       const maxT = Number(pts[pts.length - 1]?.t || 0);
       const sevenDayMs = 7 * 24 * 60 * 60 * 1000;
-
-      // CoinGecko-style: use the real 7D line with many points.
-      // Old version sampled down to ~36 points, which made the line look rough/simple.
       const chosen = maxT > 0 ? pts.filter((p) => p.t >= (maxT - sevenDayMs)) : pts;
       const src = chosen.length >= 12 ? chosen : pts;
 

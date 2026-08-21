@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD456-WALLET-CLICK-OUTSIDE-CLOSE";;
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD457-INFO-HELP-AI-INSIGHT";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -22035,6 +22035,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <li><b>Oversold (Grün)</b> → stark gefallen / möglicher Rebound.</li>
                       </ul>
                       <p className="muted tiny">RSI zeigt Extreme, aber keine direkten Buy/Sell-Signale.</p>
+
+                      <p><b>AI Insight (Klick auf ein Pair → AI Insight):</b></p>
+                      <p>AI Insight ist die kompakte Markt-Interpretation für das gewählte Pair. Es ist Analyse und Orientierung — keine automatische Order und keine Finanzberatung.</p>
+                      <ul>
+                        <li><b>RSI &amp; Correlation:</b> Momentum und wie eng die beiden Coins zusammenlaufen.</li>
+                        <li><b>Risk / Grid Fit:</b> Health Score und ob die Pair-Struktur eher für Grid oder vorsichtigen Einsatz passt.</li>
+                        <li><b>Vol / Drawdown:</b> lokale Volatilität und Rücksetzer der beiden Seiten.</li>
+                        <li><b>Longer-Term Reversion Idea:</b> z. B. „SELL X later-view“ / „BUY Y later-view“ — nur eine längerfristige Idee (Mean Reversion). Kein direkter Button und kein automatischer Trade.</li>
+                        <li><b>Suggested Grid / Mode / Horizon:</b> grobe Hinweise zu Grid-Breite und Zeithorizont, falls du manuell planst.</li>
+                        <li><b>Why this setup:</b> kurze Begründung (Korrelation, Spread, stärkere/schwächere Seite).</li>
+                      </ul>
+                      <p><b>Unterschied Strategist:</b> AI Insight erklärt das aktuelle Pair. Nexus Strategist ist der Arbeitsbereich für Research, Strategie, Backtest und längere Aufgaben.</p>
+                      <p className="muted tiny">AI Insight erstellt keine Buy/Sell-Orders. Alle Entscheidungen bleiben bei dir.</p>
                     </>
                   }
                   en={
@@ -22061,6 +22074,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <li><b>Oversold (Green)</b> → strong recent selling, possible rebound.</li>
                       </ul>
                       <p className="muted tiny">RSI indicates extremes, not direct buy/sell signals.</p>
+
+                      <p><b>AI Insight (click a pair → AI Insight):</b></p>
+                      <p>AI Insight is the compact market interpretation for the selected pair. It is analysis and orientation — not an automatic order and not financial advice.</p>
+                      <ul>
+                        <li><b>RSI &amp; Correlation:</b> momentum and how tightly the two coins move together.</li>
+                        <li><b>Risk / Grid Fit:</b> health score and whether the pair structure is more suitable for grid-style or cautious use.</li>
+                        <li><b>Vol / Drawdown:</b> local volatility and drawdown on both sides.</li>
+                        <li><b>Longer-Term Reversion Idea:</b> e.g. “SELL X later-view” / “BUY Y later-view” — only a longer-term mean-reversion idea. No apply button and no automatic trade.</li>
+                        <li><b>Suggested Grid / Mode / Horizon:</b> rough hints for grid width and time horizon if you plan manually.</li>
+                        <li><b>Why this setup:</b> short rationale (correlation, spread, stronger/weaker side).</li>
+                      </ul>
+                      <p><b>Difference vs Strategist:</b> AI Insight explains the current pair. Nexus Strategist is the workspace for research, strategy, backtests, and longer tasks.</p>
+                      <p className="muted tiny">AI Insight does not create buy/sell orders. All decisions remain yours.</p>
                     </>
                   }
                 />
@@ -23283,6 +23309,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Nexus Grid:</b> Ein einfacher Exit-Manager für Token, die du bereits besitzt. Du bestimmst Netzwerk, Coin, Menge, Verkaufsziel, maximalen Verlust und Auszahlungs-Asset. Grid kauft keine Assets, sucht keine Assets und verwendet den Strategist nicht.</p>
                       <p><b>Vor dem Start:</b> Die Token müssen zuerst in den <b>Core Vault</b> eingezahlt werden. Erst danach erscheinen sie unter „Coin in Vault“ und können für eine Grid-Regel verwendet werden. Token, die sich nur im verbundenen Wallet befinden, können von Grid nicht genutzt werden.</p>
                       <p><b>Ablauf:</b> Grid reserviert nur die ausgewählte Token-Menge, überwacht den Preis und verkauft beim festgelegten Zielpreis oder beim definierten Verlustlimit. Es wird keine Kauforder erstellt.</p>
+                      <p><b>Auszahlung:</b> Bei erfolgreichem Verkauf wird in <b>USDC oder USDT</b> (je nach Einstellung) getauscht. Der Betrag bleibt in deinem <b>Privy Wallet</b> — nicht automatisch zurück im Vault.</p>
 
                       <p><b>Nexus NKR:</b> Kapitalrotation. Nexus NKR überwacht fortlaufend die Watchlist, nutzt die stärksten Marktchancen, kann schwache Sessions stoppen und Kapital zu stärkeren Assets rotieren. Die ausgewählte Anzahl Sessions ist ein Maximum und keine Pflichtanzahl.</p>
 
@@ -23310,6 +23337,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       <p><b>Nexus Grid:</b> a simple exit manager for tokens you already own. You choose network, coin, amount, sell target, maximum loss and payout. Grid never buys, discovers assets or uses the Strategist.</p>
                       <p><b>Before starting:</b> The tokens must first be deposited into the <b>Core Vault</b>. Only then do they appear under “Coin in Vault” and become available for a Grid rule. Tokens held only in the connected wallet cannot be used by Grid.</p>
                       <p><b>Flow:</b> Grid reserves only the selected token amount, monitors the price and sells at the target price or the defined loss limit. No buy order is created.</p>
+                      <p><b>Payout:</b> On a successful sell, the asset is swapped to <b>USDC or USDT</b> (per your setting). Funds stay in your <b>Privy Wallet</b> — not automatically back in the Vault.</p>
 
                       <p><b>Nexus NKR:</b> capital rotation. Nexus NKR continuously watches the watchlist, uses the strongest market opportunities, can stop weak sessions and redirect capital toward stronger assets. The selected session number is only the maximum, not a required count.</p>
 

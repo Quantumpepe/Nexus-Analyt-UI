@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD447-WNATIVE-DISPLAY-80-FIX";
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD448-WNATIVE-WEI-STRING-BALANCE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -6433,24 +6433,44 @@ if (allSpecs.length) {
 
   for (const t of allSpecs) {
     let rawBalance = respBalances?.[t.address]?.balance_raw;
+    const isWnTok = !!(wnAddr && String(t.address || "").toLowerCase() === wnAddr);
 
-    // Backend RPC is the preferred source, but for Privy embedded wallets it can be
-    // missing/stale depending on the chain ENV. Fallback to the connected wallet
-    // provider and force the correct chain before reading ERC20 balanceOf.
+    // BUILD448: Wei balances > 2^53 cannot be JSON numbers — 80e18 becomes ~8e18 and shows as 8.
+    // Prefer hex/string paths; for WNative always read via provider eth_call (hex string).
+    const toWeiBi = (raw) => {
+      if (raw == null || raw === "") return 0n;
+      if (typeof raw === "bigint") return raw;
+      if (typeof raw === "number") {
+        // unsafe — reject float path for large balances
+        if (!Number.isFinite(raw) || raw < 0) return 0n;
+        if (raw > Number.MAX_SAFE_INTEGER) return 0n;
+        return BigInt(Math.floor(raw));
+      }
+      const s = String(raw).trim();
+      if (!s) return 0n;
+      if (s.startsWith("0x") || s.startsWith("0X")) return BigInt(s);
+      if (/e/i.test(s)) return 0n; // scientific notation from JSON number stringification
+      if (!/^[0-9]+$/.test(s)) return 0n;
+      return BigInt(s);
+    };
+
     try {
-      const backendBi = rawBalance != null ? BigInt(String(rawBalance || "0")) : 0n;
-      if (backendBi <= 0n) {
+      let backendBi = toWeiBi(rawBalance);
+      // Always refresh WNative from provider hex — never trust JSON number wei
+      if (isWnTok || backendBi <= 0n) {
         const providerRaw = await fetchProviderErc20BalanceRaw(address, c, t.address);
         if (providerRaw != null) {
-          const providerBi = BigInt(String(providerRaw || "0"));
-          if (providerBi > backendBi) rawBalance = providerRaw;
+          const providerBi = toWeiBi(providerRaw);
+          if (isWnTok || providerBi > backendBi) {
+            rawBalance = providerRaw;
+            backendBi = providerBi;
+          }
         }
       }
     } catch (_) {}
 
-    const bi = rawBalance != null ? BigInt(String(rawBalance || "0")) : 0n;
-    // BUILD446: never trust wrong decimals for wrapped native
-    const dec = (wnAddr && String(t.address || "").toLowerCase() === wnAddr) ? 18 : Number(t.decimals ?? 18);
+    const bi = toWeiBi(rawBalance);
+    const dec = isWnTok ? 18 : Number(t.decimals ?? 18);
     const val = stripTrailingZeros(formatNativeFromWei(bi, dec, 6));
     if (stableAddrSet.has(t.address)) {
       // For stables, show compact (2 decimals) unless tiny.

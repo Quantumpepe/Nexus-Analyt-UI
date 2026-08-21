@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD452-PRIVY-10-CHAIN-CATALOG";;
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD453-PRIVY-CATALOG-WHITE-LABELS";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -30652,7 +30652,7 @@ export default function App() {
                     </div>
                     {(privyPolicyCatalog || []).length ? (
                       <div style={{ marginTop: 8 }}>
-                        <div style={{ fontWeight: 900, marginBottom: 6 }}>Chains ({privyPolicyCatalog.length})</div>
+                        <div style={{ fontWeight: 900, marginBottom: 6, color: "#ffffff" }}>Chains ({privyPolicyCatalog.length})</div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 6 }}>
                           {privyPolicyCatalog.map((c) => {
                             const active = Number(c.chainId) === Number(privyPolicyChainId);
@@ -30669,10 +30669,11 @@ export default function App() {
                                   border: active ? "1px solid rgba(0,255,136,0.55)" : "1px solid rgba(255,255,255,0.12)",
                                   background: active ? "rgba(0,255,136,0.10)" : "rgba(0,0,0,0.18)",
                                   fontWeight: active ? 900 : 600,
+                                  color: "#f2fffa",
                                 }}
                               >
-                                <div>{c.key}</div>
-                                <div className="muted" style={{ fontSize: 9 }}>{c.name}</div>
+                                <div style={{ color: "#ffffff", fontWeight: 900 }}>{c.key}</div>
+                                <div style={{ fontSize: 9, color: "rgba(220,255,240,0.82)" }}>{c.name}</div>
                                 <div style={{ fontSize: 9, marginTop: 3, color: c.vaultConfigured ? "#8dffd0" : "#ffd978" }}>
                                   {c.vaultConfigured ? `Vault · ${avail} targets` : `No vault yet · ${avail} targets`}
                                 </div>

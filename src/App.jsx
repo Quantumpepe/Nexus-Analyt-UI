@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD451-WATCHLIST-7D-SPARK-FIXED";
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD452-PRIVY-10-CHAIN-CATALOG";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -28835,6 +28835,9 @@ export default function App() {
   const [privyPolicyChainId, setPrivyPolicyChainId] = useState(137);
   const [privyPolicyBusy, setPrivyPolicyBusy] = useState("");
   const [privyPolicyMsg, setPrivyPolicyMsg] = useState("");
+  // BUILD452: top-10 EVM catalog for System Info Privy policy
+  const [privyPolicyCatalog, setPrivyPolicyCatalog] = useState([]);
+  const [privyPolicyCatalogMsg, setPrivyPolicyCatalogMsg] = useState("");
   const [ownerAdminWalletMode, setOwnerAdminWalletMode] = useState(() => {
     try { return window.localStorage.getItem("nexus_owner_admin_wallet_mode_v1") || "METAMASK"; }
     catch { return "METAMASK"; }
@@ -29060,12 +29063,46 @@ export default function App() {
   }, [canOpenSystemInfo, showSystemInfo, footerWallet]);
 
 
+  const _privyPolicyChainLabel = (chainId) => {
+    const cid = Number(chainId);
+    const row = (privyPolicyCatalog || []).find((c) => Number(c.chainId) === cid);
+    if (row) return `${row.key} · ${row.name}`;
+    return ({ 1: "ETH", 56: "BNB", 137: "POL", 8453: "BASE", 42161: "ARBITRUM", 10: "OPTIMISM", 43114: "AVALANCHE", 59144: "LINEA", 534352: "SCROLL", 324: "ZKSYNC" }[cid]) || `Chain ${cid}`;
+  };
+
+  const _loadPrivyPolicyCatalog = async () => {
+    if (!canOpenSystemInfo) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/nexus/privy-policy-chain-catalog`, {
+        method: "GET", cache: "no-store", credentials: "include", headers: _authHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.status !== "ok") throw new Error(data?.error || `Catalog failed (${res.status})`);
+      const chains = Array.isArray(data?.chains) ? data.chains : [];
+      setPrivyPolicyCatalog(chains);
+      setPrivyPolicyCatalogMsg(`${chains.length} chains loaded`);
+      // keep current selection if still in catalog, else first available with vault
+      if (chains.length) {
+        const still = chains.some((c) => Number(c.chainId) === Number(privyPolicyChainId));
+        if (!still) {
+          const prefer = chains.find((c) => c.vaultConfigured) || chains[0];
+          if (prefer) setPrivyPolicyChainId(Number(prefer.chainId));
+        }
+      }
+    } catch (err) {
+      setPrivyPolicyCatalogMsg(`Catalog: ${err?.message || err}`);
+    }
+  };
+
   const _loadPrivyPolicyPreview = async () => {
     if (!canOpenSystemInfo || privyPolicyBusy) return;
     setPrivyPolicyBusy("preview");
-    const policyChainName = Number(privyPolicyChainId) === 137 ? "POL" : "BNB";
+    const policyChainName = _privyPolicyChainLabel(privyPolicyChainId);
     setPrivyPolicyMsg(`Reloading the live Privy policy and current server ENV for ${policyChainName}...`);
     try {
+      if (!(privyPolicyCatalog || []).length) {
+        await _loadPrivyPolicyCatalog();
+      }
       const res = await fetch(`${API_BASE}/api/nexus/system-info/privy-policy/preview`, {
         method: "POST", cache: "no-store", credentials: "include", headers: _authHeaders(),
         body: JSON.stringify({ chainId: Number(privyPolicyChainId) }),
@@ -29088,7 +29125,7 @@ export default function App() {
     if (!canOpenSystemInfo || privyPolicyBusy || !privyPolicyPreview?.confirmationToken) return;
     const count = (privyPolicyPreview?.toAdd || []).length;
     if (!count) return;
-    const policyChainName = Number(privyPolicyChainId) === 137 ? "POL" : "BNB";
+    const policyChainName = _privyPolicyChainLabel(privyPolicyChainId);
     const ok = window.confirm(`Add ${count} reviewed ${policyChainName} rule(s) to the existing Privy policy ${privyPolicyPreview?.policy?.name || ""}? Existing rules remain unchanged.`);
     if (!ok) return;
     setPrivyPolicyBusy("apply");
@@ -29108,6 +29145,13 @@ export default function App() {
       setPrivyPolicyBusy("");
     }
   };
+
+  useEffect(() => {
+    if (!showSystemInfo || !canOpenSystemInfo) return;
+    _loadPrivyPolicyCatalog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSystemInfo, canOpenSystemInfo]);
+
 
   const _primaryEmbeddedPrivyWallet = () => {
     return (systemWallets || []).find((w) => String(w?.walletClientType || "").toLowerCase() === "privy")
@@ -30595,15 +30639,73 @@ export default function App() {
                         <div className="muted" style={{ marginTop: 2, wordBreak: "break-all" }}>Policy ID: {privyPolicyPreview?.policy?.id || "Load preview to read"}</div>
                       </div>
                       <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                        <select className="select" value={String(privyPolicyChainId)} disabled={!!privyPolicyBusy} onChange={(e) => { setPrivyPolicyChainId(Number(e.target.value)); setPrivyPolicyPreview(null); setPrivyPolicyMsg(""); }} style={{ minWidth: 150 }}>
-                          <option value="137">Polygon (POL)</option>
-                          <option value="56">BNB Chain</option>
-                        </select>
+                        <button type="button" className="miniBtn" disabled={!!privyPolicyBusy} onClick={_loadPrivyPolicyCatalog}>
+                          Load 10-chain catalog
+                        </button>
                         <button type="button" className="miniBtn" disabled={!!privyPolicyBusy} onClick={_loadPrivyPolicyPreview}>
-                          {privyPolicyBusy === "preview" ? "Reloading..." : `Reload & Preview ${Number(privyPolicyChainId) === 137 ? "POL" : "BNB"} Rules`}
+                          {privyPolicyBusy === "preview" ? "Reloading..." : `Reload & Preview ${_privyPolicyChainLabel(privyPolicyChainId)} Rules`}
                         </button>
                       </div>
                     </div>
+                    <div className="muted" style={{ marginTop: 7 }}>
+                      Top-10 EVM chains. Select a chain, preview targets (Vault / Router / WNative / USDC / USDT), then confirm. Later vaults (Base, Arbitrum, …) appear here as soon as addresses are configured — no code change needed.
+                    </div>
+                    {(privyPolicyCatalog || []).length ? (
+                      <div style={{ marginTop: 8 }}>
+                        <div style={{ fontWeight: 900, marginBottom: 6 }}>Chains ({privyPolicyCatalog.length})</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 6 }}>
+                          {privyPolicyCatalog.map((c) => {
+                            const active = Number(c.chainId) === Number(privyPolicyChainId);
+                            const avail = (c.components || []).filter((x) => x.available).length;
+                            return (
+                              <button
+                                key={c.chainId}
+                                type="button"
+                                className="miniBtn"
+                                disabled={!!privyPolicyBusy}
+                                onClick={() => { setPrivyPolicyChainId(Number(c.chainId)); setPrivyPolicyPreview(null); setPrivyPolicyMsg(""); }}
+                                style={{
+                                  textAlign: "left",
+                                  border: active ? "1px solid rgba(0,255,136,0.55)" : "1px solid rgba(255,255,255,0.12)",
+                                  background: active ? "rgba(0,255,136,0.10)" : "rgba(0,0,0,0.18)",
+                                  fontWeight: active ? 900 : 600,
+                                }}
+                              >
+                                <div>{c.key}</div>
+                                <div className="muted" style={{ fontSize: 9 }}>{c.name}</div>
+                                <div style={{ fontSize: 9, marginTop: 3, color: c.vaultConfigured ? "#8dffd0" : "#ffd978" }}>
+                                  {c.vaultConfigured ? `Vault · ${avail} targets` : `No vault yet · ${avail} targets`}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {(() => {
+                          const sel = privyPolicyCatalog.find((c) => Number(c.chainId) === Number(privyPolicyChainId));
+                          if (!sel) return null;
+                          return (
+                            <div style={{ marginTop: 8, border: "1px solid rgba(187,134,252,0.22)", borderRadius: 8, padding: 8 }}>
+                              <div style={{ fontWeight: 900 }}>{sel.key} · components for policy</div>
+                              <div style={{ marginTop: 5, display: "grid", gap: 4 }}>
+                                {(sel.components || []).map((comp) => (
+                                  <div key={comp.id} className="muted" style={{ fontSize: 10, wordBreak: "break-all" }}>
+                                    <b style={{ color: comp.available ? "#8dffd0" : "#ffb4b4" }}>{comp.title}</b>
+                                    {" · "}
+                                    {comp.available ? comp.address : "not configured yet"}
+                                  </div>
+                                ))}
+                              </div>
+                              {sel.cfgError ? <div style={{ marginTop: 4, color: "#ffb4b4", fontSize: 10 }}>{sel.cfgError}</div> : null}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>
+                        Click <b>Load 10-chain catalog</b> to list ETH, BNB, POL, Base, Arbitrum, Optimism, Avalanche, Linea, Scroll, zkSync.
+                        {privyPolicyCatalogMsg ? ` · ${privyPolicyCatalogMsg}` : ""}
+                      </div>
+                    )}
                     <div className="muted" style={{ marginTop: 7 }}>
                       Uses existing server ENV: PRIVY_APP_ID, PRIVY_APP_SECRET, PRIVY_TRADING_POLICY_ID, PRIVY_TRADING_KEY_QUORUM_ID and PRIVY_TRADING_AUTHORIZATION_PRIVATE_KEY. Secrets are never sent to the browser.
                     </div>
@@ -30614,7 +30716,7 @@ export default function App() {
                         </div>)}
                       </div>
                       <div className="muted" style={{ marginTop: 7, fontSize: 10 }}>Live reload: {privyPolicyPreview.source || "server"} · {privyPolicyPreview.ts ? new Date(Number(privyPolicyPreview.ts) * 1000).toLocaleString() : "now"}</div>
-                      <div style={{ marginTop: 9, fontWeight: 900 }}>{Number(privyPolicyChainId) === 137 ? "POL" : "BNB"} targets to add ({(privyPolicyPreview.toAdd || []).length})</div>
+                      <div style={{ marginTop: 9, fontWeight: 900 }}>{_privyPolicyChainLabel(privyPolicyChainId)} targets to add ({(privyPolicyPreview.toAdd || []).length})</div>
                       <div style={{ marginTop: 5, display: "grid", gap: 5 }}>
                         {(privyPolicyPreview.toAdd || []).map((rule) => <div key={rule.name} style={{ border: "1px solid rgba(187,134,252,.24)", borderRadius: 7, padding: 7 }}>
                           <b>{rule.name}</b><div className="muted" style={{ wordBreak: "break-all", marginTop: 2 }}>{rule.label}: {rule.target}</div>
@@ -30625,7 +30727,7 @@ export default function App() {
                       {(privyPolicyPreview.requested || []).length ? <details style={{ marginTop: 7 }}><summary style={{ cursor: "pointer", fontWeight: 800 }}>Loaded targets ({privyPolicyPreview.requested.length})</summary><div style={{ marginTop: 5, display: "grid", gap: 4 }}>{privyPolicyPreview.requested.map((r) => <div key={`${r.label}:${r.target}`} className="muted" style={{ wordBreak: "break-all" }}><b>{r.label}</b> · {r.target}</div>)}</div></details> : null}
                       <div style={{ display: "flex", gap: 7, marginTop: 9, flexWrap: "wrap" }}>
                         <button type="button" className="miniBtn" disabled={!!privyPolicyBusy || !(privyPolicyPreview.toAdd || []).length} onClick={_applyPrivyPolicyPreview}>
-                          {privyPolicyBusy === "apply" ? "Applying signed update..." : `Confirm & Add ${Number(privyPolicyChainId) === 137 ? "POL" : "BNB"} Rules`}
+                          {privyPolicyBusy === "apply" ? "Applying signed update..." : `Confirm & Add ${_privyPolicyChainLabel(privyPolicyChainId)} Rules`}
                         </button>
                       </div>
                     </> : null}

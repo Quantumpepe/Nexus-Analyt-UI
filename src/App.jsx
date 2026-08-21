@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD453-PRIVY-CATALOG-WHITE-LABELS";;
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD455-REMOVE-AI-APPLY-BUY-SELL";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3844,6 +3844,12 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [walletSendAmount, setWalletSendAmount] = useState("");
   const [walletSendBusy, setWalletSendBusy] = useState(false);
   const [walletSendMsg, setWalletSendMsg] = useState("");
+  // BUILD454: manual Privy wallet swap (user-initiated)
+  const [walletSwapFromKey, setWalletSwapFromKey] = useState("");
+  const [walletSwapToSym, setWalletSwapToSym] = useState("USDC");
+  const [walletSwapAmount, setWalletSwapAmount] = useState("");
+  const [walletSwapBusy, setWalletSwapBusy] = useState(false);
+  const [walletSwapMsg, setWalletSwapMsg] = useState("");
   const [walletViewTab, setWalletViewTab] = useState("ASSETS");
   const [walletTransactionsStore, setWalletTransactionsStore] = useLocalStorageState("nexus_privy_wallet_transactions_v1", {});
 
@@ -5851,7 +5857,92 @@ useEffect(() => {
     if (!walletAssetRows.some((row) => row.key === walletSendAssetKey)) {
       setWalletSendAssetKey(walletAssetRows[0].key);
     }
-  }, [walletAssetRows, walletSendAssetKey]);
+    if (walletSwapFromKey && !walletAssetRows.some((row) => row.key === walletSwapFromKey)) {
+      setWalletSwapFromKey(walletAssetRows[0]?.key || "");
+    }
+  }, [walletAssetRows, walletSendAssetKey, walletSwapFromKey]);
+
+
+  const runPrivyWalletSwap = async () => {
+    try {
+      setWalletSwapMsg("");
+      if (!wallet) throw new Error("Wallet not connected.");
+      const fromRow = walletAssetRows.find((item) => item.key === walletSwapFromKey);
+      if (!fromRow) throw new Error("Select an asset to swap from.");
+      const rawAmount = String(walletSwapAmount || "").trim();
+      if (!/^\d+(\.\d+)?$/.test(rawAmount) || Number(rawAmount) <= 0) throw new Error("Enter a valid amount.");
+      if (Number(rawAmount) > Number(fromRow.amount || 0)) throw new Error("Amount exceeds wallet balance.");
+      const toSym = String(walletSwapToSym || "USDC").toUpperCase();
+      if (!["USDC", "USDT"].includes(toSym)) throw new Error("Swap destination must be USDC or USDT.");
+      const chainKey = normalizeWalletChainKey(fromRow.chain || DEFAULT_CHAIN);
+      const chainId = CHAIN_ID?.[chainKey];
+      if (!chainId) throw new Error(`Unsupported network: ${chainKey}`);
+
+      setWalletSwapBusy(true);
+      setWalletSwapMsg(`Preparing ${fromRow.symbol} → ${toSym} on ${walletChainDisplayName(chainKey)}…`);
+      const tokenIn = (fromRow.kind === "native" || fromRow.address === "native")
+        ? "native"
+        : String(fromRow.address || "");
+      const prepRes = await fetch(`${API_BASE}/api/wallet/swap/prepare`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", ...(_authHeaders?.() || {}) },
+        body: JSON.stringify({
+          wallet,
+          chain: chainKey,
+          chainId,
+          tokenIn,
+          tokenOut: toSym,
+          amount: Number(rawAmount),
+          slippageBps: 100,
+        }),
+      });
+      const prep = await prepRes.json().catch(() => ({}));
+      if (!prepRes.ok || prep?.status !== "ok") throw new Error(prep?.error || `Prepare failed (${prepRes.status})`);
+      const steps = Array.isArray(prep.steps) ? prep.steps : [];
+      if (!steps.length) throw new Error("No swap steps returned.");
+
+      const provider = await _getEmbeddedProvider();
+      await _trySwitchChain(provider, chainId);
+      const currentHex = await provider.request({ method: "eth_chainId" });
+      const expectedHex = "0x" + Number(chainId).toString(16);
+      if (String(currentHex).toLowerCase() !== expectedHex.toLowerCase()) {
+        throw new Error(`Please switch your Privy wallet to ${walletChainDisplayName(chainKey)}.`);
+      }
+
+      const hashes = [];
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
+        setWalletSwapMsg(`${step.label || step.type || "Step"} (${i + 1}/${steps.length})…`);
+        const tx = {
+          from: wallet,
+          to: String(step.to || ""),
+          data: String(step.data || "0x"),
+          value: String(step.value || "0x0"),
+        };
+        const hash = await provider.request({ method: "eth_sendTransaction", params: [tx] });
+        hashes.push(hash);
+        try {
+          saveWalletTransaction({
+            type: `WALLET SWAP ${String(step.type || "").toUpperCase()}`,
+            chain: chainKey,
+            asset: fromRow.symbol,
+            amount: rawAmount,
+            from: wallet,
+            to: step.to,
+            txHash: hash,
+            status: "SUBMITTED",
+          });
+        } catch (_) {}
+      }
+      setWalletSwapMsg(`Swap submitted (${hashes.length} tx). ${toSym} stays in your wallet. Refresh balances shortly.`);
+      try { await refreshBalances?.(); } catch (_) {}
+    } catch (e) {
+      setWalletSwapMsg(String(e?.message || e || "Swap failed"));
+    } finally {
+      setWalletSwapBusy(false);
+    }
+  };
 
   const sendPrivyWalletAsset = async () => {
     try {
@@ -21184,6 +21275,70 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   {balError ? <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>Some network balances could not be loaded.</div> : null}
 
                   <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
+
+                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.10)" }}>
+                      <div style={{ fontWeight: 900, fontSize: 13, color: "#ffffff" }}>Swap</div>
+                      <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
+                        Swap in your Privy Wallet (same network). Result stays in the wallet — not the Vault.
+                      </div>
+                      <select
+                        className="input"
+                        value={walletSwapFromKey}
+                        onChange={(e) => { setWalletSwapFromKey(e.target.value); setWalletSwapMsg(""); }}
+                        disabled={walletSwapBusy || !walletAssetRows.length}
+                        style={{ width: "100%", height: 42, marginTop: 9 }}
+                      >
+                        <option value="">From asset…</option>
+                        {walletAssetRows.map((row) => (
+                          <option key={`swap-from-${row.key}`} value={row.key}>
+                            {row.symbol} · {walletChainDisplayName(row.chain)} · {fmtQty(row.amount)}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="input"
+                        value={walletSwapToSym}
+                        onChange={(e) => { setWalletSwapToSym(e.target.value); setWalletSwapMsg(""); }}
+                        disabled={walletSwapBusy}
+                        style={{ width: "100%", height: 42, marginTop: 8 }}
+                      >
+                        <option value="USDC">To · USDC</option>
+                        <option value="USDT">To · USDT</option>
+                      </select>
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <input
+                          className="input"
+                          inputMode="decimal"
+                          value={walletSwapAmount}
+                          onChange={(e) => { setWalletSwapAmount(e.target.value); setWalletSwapMsg(""); }}
+                          placeholder="Amount"
+                          disabled={walletSwapBusy}
+                          style={{ height: 42, flex: 1 }}
+                        />
+                        <button
+                          type="button"
+                          className="miniBtn"
+                          onClick={() => {
+                            const row = walletAssetRows.find((item) => item.key === walletSwapFromKey);
+                            if (row) setWalletSwapAmount(String(row.amount));
+                          }}
+                          disabled={walletSwapBusy || !walletSwapFromKey}
+                        >MAX</button>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={runPrivyWalletSwap}
+                        disabled={!wallet || walletSwapBusy || !walletSwapFromKey || !walletSwapAmount}
+                        style={{ width: "100%", height: 44, marginTop: 8 }}
+                      >
+                        {walletSwapBusy ? "Swapping…" : "Swap in Privy Wallet"}
+                      </button>
+                      {walletSwapMsg ? (
+                        <div className="muted" style={{ fontSize: 11, marginTop: 7, wordBreak: "break-word" }}>{walletSwapMsg}</div>
+                      ) : null}
+                    </div>
+
                     <div style={{ fontWeight: 900, fontSize: 13 }}>Send asset</div>
                     <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>Directly from your Privy Wallet to another wallet. No Vault approval is required.</div>
                     <select className="input" value={walletSendAssetKey} onChange={(e) => { setWalletSendAssetKey(e.target.value); setWalletSendMsg(""); }} disabled={walletSendBusy || !walletAssetRows.length} style={{ width: "100%", height: 42, marginTop: 9 }}>
@@ -22911,30 +23066,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {aiExplainData.winner && aiExplainData.loser ? (
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                             <span className="pill" style={{ background: "rgba(255,92,92,0.18)", borderColor: "rgba(255,92,92,0.35)" }}>SELL {aiExplainData.winner} later-view</span>
-                            <button
-                              className="btn"
-                              type="button"
-                              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                              onTouchStart={(e) => { e.stopPropagation(); }}
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); applyAiSuggestionToGrid(aiExplainData.winner, "SELL"); }}
-                              title="Prefill Grid Trader with this coin, side and suggested price. No order is created."
-                              style={{ padding: "6px 10px", fontSize: 12, pointerEvents: "auto", cursor: "pointer" }}
-                            >
-                              Apply SELL {aiExplainData.winner}
-                            </button>
-
                             <span className="pill" style={{ background: "rgba(57,217,138,0.18)", borderColor: "rgba(57,217,138,0.35)" }}>BUY {aiExplainData.loser} later-view</span>
-                            <button
-                              className="btn"
-                              type="button"
-                              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                              onTouchStart={(e) => { e.stopPropagation(); }}
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); applyAiSuggestionToGrid(aiExplainData.loser, "BUY"); }}
-                              title="Prefill Grid Trader with this coin, side and suggested price. No order is created."
-                              style={{ padding: "6px 10px", fontSize: 12, pointerEvents: "auto", cursor: "pointer" }}
-                            >
-                              Apply BUY {aiExplainData.loser}
-                            </button>
                           </div>
                         ) : null}
 

@@ -133,6 +133,31 @@ const NATIVE_SYMBOL_BY_CHAIN = {
   FTM: "FTM", FANTOM: "FTM",
   LINEA: "ETH", SCROLL: "ETH", ZKSYNC: "ETH",
 };
+/** Wrapped native ERC-20 per chain — always queried, only shown if balance > 0. */
+const WNATIVE_BY_CHAIN = {
+  ETH: { address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", symbol: "WETH", name: "Wrapped Ether" },
+  ETHEREUM: { address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", symbol: "WETH", name: "Wrapped Ether" },
+  BNB: { address: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c", symbol: "WBNB", name: "Wrapped BNB" },
+  BSC: { address: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c", symbol: "WBNB", name: "Wrapped BNB" },
+  POL: { address: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", symbol: "WPOL", name: "Wrapped POL" },
+  POLYGON: { address: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", symbol: "WPOL", name: "Wrapped POL" },
+  MATIC: { address: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", symbol: "WPOL", name: "Wrapped POL" },
+  BASE: { address: "0x4200000000000000000000000000000000000006", symbol: "WETH", name: "Wrapped Ether" },
+  ARB: { address: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", symbol: "WETH", name: "Wrapped Ether" },
+  ARBITRUM: { address: "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1", symbol: "WETH", name: "Wrapped Ether" },
+  OP: { address: "0x4200000000000000000000000000000000000006", symbol: "WETH", name: "Wrapped Ether" },
+  OPTIMISM: { address: "0x4200000000000000000000000000000000000006", symbol: "WETH", name: "Wrapped Ether" },
+  AVAX: { address: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", symbol: "WAVAX", name: "Wrapped AVAX" },
+  AVALANCHE: { address: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", symbol: "WAVAX", name: "Wrapped AVAX" },
+  LINEA: { address: "0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f", symbol: "WETH", name: "Wrapped Ether" },
+  SCROLL: { address: "0x5300000000000000000000000000000000000004", symbol: "WETH", name: "Wrapped Ether" },
+  ZKSYNC: { address: "0x5AEa5775959fBC2557Cc8789bC1bf90A239D9a91", symbol: "WETH", name: "Wrapped Ether" },
+};
+function wnativeSpecForChain(chainKey) {
+  const k = String(chainKey || "").toUpperCase().trim();
+  return WNATIVE_BY_CHAIN[k] || null;
+}
+
 function nativeSymbolForChain(chainKey) {
   const k = String(chainKey || "").toUpperCase().trim();
   if (!k) return "";
@@ -515,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.20-BUILD444-FIX-ROTATION-SESSIONS-TDZ";
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD445-WNATIVE-ASSETS-WHEN-BALANCED";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -5766,7 +5791,13 @@ useEffect(() => {
         const amount = Number(tokenRow?.balance);
         if (!Number.isFinite(amount) || amount <= 0) continue;
         const address = String(tokenRow?.address || "").toLowerCase();
-        const px = Number(walletPx?.tokenByChain?.[chain]?.[address]);
+        const _wnRow = wnativeSpecForChain(chain);
+        const isWnative = _wnRow && String(_wnRow.address || "").toLowerCase() === address;
+        let px = Number(walletPx?.tokenByChain?.[chain]?.[address]);
+        // Wrapped native tracks native gas token price when no separate token price.
+        if (!Number.isFinite(px) && isWnative) {
+          px = Number(walletPx?.native?.[chain]);
+        }
         const security = walletAssetSecurityByKey?.[`${chain}:${address}`];
         let vaultStatus = "PENDING";
         let vaultLabel = "Security check pending";
@@ -5778,7 +5809,7 @@ useEffect(() => {
         }
         rows.push({
           key: `${chain}:${address}`, chain, symbol: String(tokenRow?.symbol || "TOKEN").toUpperCase(),
-          name: String(tokenRow?.name || "ERC-20 token"), amount,
+          name: isWnative ? String(_wnRow?.name || "Wrapped native") : String(tokenRow?.name || "ERC-20 token"), amount,
           usd: Number.isFinite(px) ? amount * px : null, address, kind: "custom",
           decimals: Number(tokenRow?.decimals ?? 18), vaultStatus, vaultLabel, security,
         });
@@ -6353,12 +6384,16 @@ const customSpecs = [
   ...(walletTokensByChain?.[c] || []),
   ...(discoveredTokensByChain?.[c] || []),
 ];
+// BUILD445: always query wrapped native (WPOL/WETH/WBNB/…) so balance > 0 shows in Assets.
+// Zero balances stay out of the UI (walletAssetRows filters amount > 0).
+const _wn = wnativeSpecForChain(c);
+const wnativeSpecs = _wn && _wn.address ? [{ address: _wn.address, symbol: _wn.symbol, decimals: 18, name: _wn.name }] : [];
 
 // De-dupe by contract address. Automatic discovery is display-only; Vault admission
 // is still decided separately by exact-contract Owner approval + GoPlus security.
 const allSpecs = [];
 const seen = new Set();
-for (const t of [...stableSpecs, ...customSpecs]) {
+for (const t of [...stableSpecs, ...customSpecs, ...wnativeSpecs]) {
   const addr = String(t?.address || "").toLowerCase();
   if (!addr || seen.has(addr)) continue;
   seen.add(addr);

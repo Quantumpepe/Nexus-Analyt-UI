@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD445-WNATIVE-ASSETS-WHEN-BALANCED";
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD446-WNATIVE-BALANCE-DECIMALS-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -6393,16 +6393,29 @@ const wnativeSpecs = _wn && _wn.address ? [{ address: _wn.address, symbol: _wn.s
 // is still decided separately by exact-contract Owner approval + GoPlus security.
 const allSpecs = [];
 const seen = new Set();
+const wnAddr = String(_wn?.address || "").toLowerCase();
 for (const t of [...stableSpecs, ...customSpecs, ...wnativeSpecs]) {
   const addr = String(t?.address || "").toLowerCase();
   if (!addr || seen.has(addr)) continue;
   seen.add(addr);
+  // BUILD446: WNative is always 18 decimals — wrong discovery decimals made 80 WPOL show as 8.
+  const isWn = wnAddr && addr === wnAddr;
   allSpecs.push({
     address: addr,
-    symbol: String(t?.symbol || "").toUpperCase(),
-    decimals: Number(t?.decimals ?? 18),
-    name: String(t?.name || ""),
+    symbol: isWn ? String(_wn.symbol || "WPOL").toUpperCase() : String(t?.symbol || "").toUpperCase(),
+    decimals: isWn ? 18 : Number(t?.decimals ?? 18),
+    name: isWn ? String(_wn.name || "Wrapped native") : String(t?.name || ""),
   });
+}
+// Ensure wnative is present even if discovery listed it first with bad metadata
+if (wnAddr && !seen.has(wnAddr)) {
+  allSpecs.push({
+    address: wnAddr,
+    symbol: String(_wn.symbol || "WPOL").toUpperCase(),
+    decimals: 18,
+    name: String(_wn.name || "Wrapped native"),
+  });
+  seen.add(wnAddr);
 }
 
 const stables = {};
@@ -6430,7 +6443,9 @@ if (allSpecs.length) {
     } catch (_) {}
 
     const bi = rawBalance != null ? BigInt(String(rawBalance || "0")) : 0n;
-    const val = stripTrailingZeros(formatNativeFromWei(bi, t.decimals, 6));
+    // BUILD446: never trust wrong decimals for wrapped native
+    const dec = (wnAddr && String(t.address || "").toLowerCase() === wnAddr) ? 18 : Number(t.decimals ?? 18);
+    const val = stripTrailingZeros(formatNativeFromWei(bi, dec, 6));
     if (stableAddrSet.has(t.address)) {
       // For stables, show compact (2 decimals) unless tiny.
       const val2 = stripTrailingZeros(formatNativeFromWei(bi, t.decimals, 2));

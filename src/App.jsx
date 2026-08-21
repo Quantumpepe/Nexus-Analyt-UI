@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD449-WNATIVE-ALCHEMY-BALANCE";
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD450-FIX-TRAILING-ZERO-FORMAT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -870,7 +870,11 @@ function _cgSearchPut(q, data) {
   } catch {}
 }
 
-const stripTrailingZeros = (s) => s.replace(/0+$/, "").replace(/\.$/, "");
+const stripTrailingZeros = (value) => {
+  const s = String(value ?? "");
+  if (!s.includes(".")) return s;
+  return s.replace(/0+$/, "").replace(/\.$/, "");
+};
 
 const fmtUsd = (n) => {
   if (n == null || !Number.isFinite(n)) return "—";

@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD455-REMOVE-AI-APPLY-BUY-SELL";;
+const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD456-WALLET-CLICK-OUTSIDE-CLOSE";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3803,6 +3803,9 @@ const [errorMsg, setErrorMsg] = useState("");
   // Trading policy is UI-only for now (no Vault/Allowance yet).
   // Keep it local to avoid backend auth/CORS coupling during early UX work.
 const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const walletPanelRef = useRef(null);
+  const walletTriggerRef = useRef(null);
+
   const [withdrawSendOpen, setWithdrawSendOpen] = useState(false);
   const [balActiveChain, setBalActiveChain] = useState(() => {
     try { return normalizeWalletChainKey(localStorage.getItem("nexus_wallet_bal_chain") || DEFAULT_CHAIN); } catch (_) { return DEFAULT_CHAIN; }
@@ -6045,6 +6048,29 @@ useEffect(() => {
     run();
     return () => { cancelled = true; };
   }, [wallet, walletModalOpen, walletAssetRows, walletAssetSecurityByKey, token]);
+  // BUILD456: click/tap outside the wallet panel closes it (does NOT disconnect).
+  useEffect(() => {
+    if (!walletModalOpen) return;
+    const onPointerDown = (e) => {
+      try {
+        const panel = walletPanelRef.current;
+        const trigger = walletTriggerRef.current;
+        const target = e.target;
+        if (panel && panel.contains(target)) return;
+        if (trigger && trigger.contains(target)) return;
+        // any element marked as wallet trigger (pill / value)
+        if (target?.closest?.("[data-nexus-wallet-trigger]")) return;
+        setWalletModalOpen(false);
+      } catch (_) {}
+    };
+    document.addEventListener("mousedown", onPointerDown, true);
+    document.addEventListener("touchstart", onPointerDown, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown, true);
+      document.removeEventListener("touchstart", onPointerDown, true);
+    };
+  }, [walletModalOpen]);
+
 
   const [walletUsdLoading, setWalletUsdLoading] = useState(false);
   const [walletProfitBaselineStore, setWalletProfitBaselineStore] = useLocalStorageState("nexus_wallet_profit_baseline_v1", {});
@@ -20555,6 +20581,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <button
               type="button"
               className="pill silver"
+              data-nexus-wallet-trigger="1"
               style={{ cursor: "pointer" }}
               onClick={(e) => {
                 e.preventDefault();
@@ -20596,6 +20623,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   overflow: "hidden",
                   flex: "0 1 auto",
                 }}
+                data-nexus-wallet-trigger="1"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -21131,6 +21159,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 {/* Nexus Core Vault wallet panel (top-right dropdown) */}
           {walletModalOpen && (
             <div
+              ref={walletPanelRef}
               role="dialog"
               aria-label="Privy Wallet and Nexus Core Vault"
               onMouseDown={(e) => e.stopPropagation()}

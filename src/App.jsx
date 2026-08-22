@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.21-BUILD457-INFO-HELP-AI-INSIGHT";;
+const FRONTEND_BUILD_ID = "F-2026.08.22-BUILD458-PANEL-FULL-CLICK";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -19087,24 +19087,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
   const el = e?.target;
   if (!el || typeof el.closest !== "function") return;
 
-  // Buttons/inputs inside the tile still do their own job (mode switch, info, …)
-  const interactive = el.closest('button, input, select, textarea, label, a, [role="dialog"], .infoBtn, .iconBtn, .chip, .btn, .btnGhost, .btnDanger, .btnPill, .pill, .pairRow, .pairsScroll, .watchRow, .sessionCard, .rotationSessionCard, .tradingSessionCard, .orderRow, .watchTable, .ordersList');
+  // Buttons/inputs/lists inside the tile still do their own job
+  const interactive = el.closest('button, input, select, textarea, label, a, [role="dialog"], .infoBtn, .iconBtn, .chip, .btn, .btnGhost, .btnDanger, .btnPill, .pill, .pairRow, .pairsScroll, .watchRow, .sessionCard, .rotationSessionCard, .tradingSessionCard, .orderRow, .watchTable, .ordersList, .aiPanel, canvas, svg');
   if (interactive) return;
 
-  const panelEl = el.closest(".dashboardPanel");
-  const inFocusedDashboard = !!el.closest(".dashboardGrid.hasFocus");
-  const isMinimizedRailTile = !!(inFocusedDashboard && panelEl && !panelEl.classList.contains("panelActive"));
-
-  // Minimized right-rail tiles: the whole surface expands the panel (not only the header)
-  if (isMinimizedRailTile) {
-    setActivePanel(name);
-    return;
-  }
-
-  // Overview / already-expanded panels: keep header-only focus (avoids accidental switches)
-  const headerClick = el.closest(".cardHead");
-  if (!headerClick) return;
-
+  // BUILD458: entire panel surface activates focus (not only the header / upper area)
   setActivePanel(name);
 }, []);
 

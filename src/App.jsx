@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.22-BUILD458-PANEL-FULL-CLICK";;
+const FRONTEND_BUILD_ID = "F-2026.08.22-BUILD461-NKR-PNL-AND-LIVE-NO-PAPER";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -10992,7 +10992,7 @@ useEffect(() => {
     if (state === "READY") return "Ready: setup passed basic checks; Strategist waits for pace/edge confirmation.";
     if (state === "ACTIVE") return "Active: Strategist allocated capital within slot and session limits.";
     if (state === "PROTECT") return "Protect: risk increased; no new add-ons until quality improves.";
-    if (state === "SIMULATED_EXIT") return "Exited: paper cycle closed by Strategist decision.";
+    if (state === "SIMULATED_EXIT") return "Exited: paper cycle closed by Strategist decision (Shadow only).";
     return "Strategist state is synced from backend.";
   }, []);
 
@@ -11346,7 +11346,52 @@ useEffect(() => {
     (selectedTradingSessionIsOpen && selectedSessionHasRuntimeQueue);
   const tradingCanReleaseCapital = ["HOLD", "OBSERVE", "RELEASE_REQUIRED", "STOPPED"].includes(selectedControlStatus);
 
+
+  /** BUILD461: Live CoreVault sessions must never show Shadow paper cycles (SIMULATED_EXIT). */
+  const isTradingSessionLive = useCallback((sess = null) => {
+    const s = sess && typeof sess === "object" ? sess : {};
+    const meta = s.meta && typeof s.meta === "object" ? s.meta : {};
+    const oid = Number(
+      s.onchainSessionId ?? s.onchain_session_id ?? s.coreVaultSessionId ??
+      meta.onchain_session_id ?? meta.onchainSessionId ?? meta.coreVaultSessionId ?? 0
+    ) || 0;
+    const mode = String(s.executionMode || s.execution_mode || meta.execution_mode || meta.executionMode || "").toLowerCase();
+    if (oid > 0) return true;
+    if (mode === "live") return true;
+    if (s.liveVaultReady === true || meta.live_vault_ready === true) return true;
+    return false;
+  }, []);
+
+  const sanitizeLiveTradingSlot = useCallback((slot = {}) => {
+    const st = String(slot?.status || slot?.state || "").toUpperCase();
+    if (st !== "SIMULATED_EXIT" && st !== "SHADOW_PAPER_EXIT") return slot;
+    const meta = { ...(slot?.meta && typeof slot.meta === "object" ? slot.meta : {}) };
+    return {
+      ...slot,
+      status: "WAIT",
+      state: "WAIT",
+      decision_reason: "Waiting for live entry — paper/shadow exit is not used in Live mode.",
+      reason: "Waiting for live entry — paper/shadow exit is not used in Live mode.",
+      paper_gross_pnl_usd: 0,
+      paper_net_pnl_usd: 0,
+      paper_pnl_usd: 0,
+      paper_estimated_costs_usd: 0,
+      paper_cycle_realized_usd: 0,
+      meta: {
+        ...meta,
+        decision_reason: "Waiting for live entry — paper/shadow exit is not used in Live mode.",
+        live_sanitized_from: st,
+        paper_gross_pnl_usd: 0,
+        paper_net_pnl_usd: 0,
+        paper_pnl_usd: 0,
+      },
+    };
+  }, []);
+
   const applyShadowQueuePreview = useCallback((shadowQueue = [], shadowRun = null) => {
+    if (isTradingSessionLive(selectedTradingSession)) {
+      return false;
+    }
     const previewRows = Array.isArray(shadowQueue) ? shadowQueue.filter((x) => x && typeof x === "object") : [];
     if (!previewRows.length) return false;
 
@@ -11643,12 +11688,31 @@ useEffect(() => {
     if (String(gridMode || "").toLowerCase() !== "trading") return;
     if (status !== "running") return;
     if (!wallet || !selectedTradingSessionId) return;
+    if (isTradingSessionLive(selectedTradingSession)) return;
     const id = setInterval(() => {
       if (document?.hidden) return;
+      if (isTradingSessionLive(selectedTradingSession)) return;
       runShadowRuntimeAction("tick");
     }, 5 * 60 * 1000);
     return () => clearInterval(id);
-  }, [gridMode, wallet, selectedTradingSessionId, shadowExecutorState?.runtime_status, shadowExecutorState?.last_run, shadowExecutorState?.run, runShadowRuntimeAction]);
+  }, [gridMode, wallet, selectedTradingSessionId, selectedTradingSession, isTradingSessionLive, shadowExecutorState?.runtime_status, shadowExecutorState?.last_run, shadowExecutorState?.run, runShadowRuntimeAction]);
+
+  useEffect(() => {
+    if (!isTradingSessionLive(selectedTradingSession)) return;
+    setTradingExecutionQueue((prev) => {
+      const rows = Array.isArray(prev) ? prev : [];
+      let changed = false;
+      const next = rows.map((slot) => {
+        const st = String(slot?.status || slot?.state || "").toUpperCase();
+        if (st !== "SIMULATED_EXIT" && st !== "SHADOW_PAPER_EXIT") return slot;
+        changed = true;
+        return sanitizeLiveTradingSlot(slot);
+      });
+      return changed ? next : prev;
+    });
+  }, [selectedTradingSession, selectedTradingSessionId, isTradingSessionLive, sanitizeLiveTradingSlot]);
+
+
 
 
   // Runtime heartbeat for multi-session Trading.
@@ -24596,32 +24660,39 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const positionQty = Number(sess?.positionQty ?? sess?.positionAmount ?? sess?.openRotation?.positionQty ?? sess?.openRotation?.quantity ?? sess?.meta?.nkr_position_qty ?? 0) || 0;
                                 const entryPrice = Number(sess?.entryPriceUsd ?? sess?.openRotation?.entryPriceUsd ?? sess?.meta?.nkr_entry_price_usd ?? 0) || 0;
                                 const currentPositionPrice = Number(sess?.currentPriceUsd ?? sess?.openRotation?.currentPriceUsd ?? sess?.meta?.nkr_current_price_usd ?? livePrice ?? 0) || 0;
-                                const positionValue = Math.max(
-                                  Number(sess?.positionValueUsd ?? sess?.openRotation?.currentValueUsd ?? sess?.meta?.nkr_position_value_usd ?? (positionQty * currentPositionPrice) ?? 0) || 0,
-                                  Number(sess?.investedUsd ?? sess?.workingCapitalUsd ?? 0) || 0,
-                                  hasOpenPosition && openAssetCountEarly > 0 ? Math.max(0.01, Number(sess?.budgetUsd ?? sess?.reservedUsd ?? 0) * 0.9) : 0,
-                                );
-                                // BUILD403: Shadow-like live PnL — never show Gross/Costs/Net as $0 while open.
-                                const investedLive = Math.max(
-                                  Number(sess?.investedUsd ?? sess?.workingCapitalUsd ?? sess?.meta?.nkr_entry_value_usd ?? 0) || 0,
-                                  entryPrice > 0 && positionQty > 0 ? entryPrice * positionQty : 0,
-                                  hasOpenPosition ? Math.max(0.01, Number(sess?.budgetUsd ?? sess?.reservedUsd ?? 0) * 0.85) : 0,
-                                );
-                                const markValue = Math.max(
-                                  positionValue,
-                                  currentPositionPrice > 0 && positionQty > 0 ? currentPositionPrice * positionQty : 0,
-                                  livePrice > 0 && positionQty > 0 ? livePrice * positionQty : 0,
-                                );
+                                const markPrice = (currentPositionPrice > 0 ? currentPositionPrice : (livePrice > 0 ? livePrice : 0));
+                                // BUILD460: mark value from qty × live price first — do NOT floor with invested
+                                // (that hid real upside and left stale backend Gross negative while % was green).
+                                const markFromQty = (positionQty > 0 && markPrice > 0) ? (positionQty * markPrice) : 0;
+                                const positionValueReported = Number(
+                                  sess?.positionValueUsd ?? sess?.openRotation?.currentValueUsd ?? sess?.meta?.nkr_position_value_usd ?? 0
+                                ) || 0;
+                                const positionValue = markFromQty > 0
+                                  ? markFromQty
+                                  : (positionValueReported > 0 ? positionValueReported : 0);
+                                const investedLive = (() => {
+                                  const fromEntry = (entryPrice > 0 && positionQty > 0) ? (entryPrice * positionQty) : 0;
+                                  const fromSess = Number(sess?.investedUsd ?? sess?.workingCapitalUsd ?? sess?.meta?.nkr_entry_value_usd ?? 0) || 0;
+                                  // Prefer explicit entry notional; avoid budget*0.85 inventing a fake cost basis.
+                                  if (fromEntry > 0) return fromEntry;
+                                  if (fromSess > 0) return fromSess;
+                                  return 0;
+                                })();
+                                const markValue = positionValue > 0 ? positionValue : markFromQty;
+                                // BUILD460: while position is open, ALWAYS recompute Gross/Net from mark − invested
+                                // when we have both sides — ignore stale backend grossProfitUsd (was showing −$7 while +34%).
                                 let gross = Number(sess?.grossProfitUsd ?? sess?.liveGrossProfitUsd ?? sess?.meta?.nkr_live_gross_profit_usd ?? sess?.meta?.grossProfitUsd ?? 0) || 0;
                                 let costs = Number(sess?.costsUsd ?? sess?.liveCostsUsd ?? sess?.meta?.nkr_live_costs_usd ?? sess?.meta?.costsUsd ?? 0) || 0;
                                 let net = Number(sess?.netProfitUsd ?? sess?.liveNetProfitUsd ?? sess?.meta?.nkr_live_net_profit_usd ?? sess?.meta?.netProfitUsd ?? 0) || 0;
-                                if (hasOpenPosition && Math.abs(gross) < 1e-9 && investedLive > 0 && markValue > 0) {
+                                if (hasOpenPosition && investedLive > 0 && markValue > 0) {
                                   gross = markValue - investedLive;
-                                }
-                                if (hasOpenPosition && costs <= 0 && investedLive > 0) {
-                                  costs = Math.max(0.02, Math.min(1.5, investedLive * 0.0035));
-                                }
-                                if (hasOpenPosition && Math.abs(net) < 1e-9) {
+                                  if (costs <= 0) {
+                                    costs = Math.max(0.01, Math.min(1.5, investedLive * 0.0035));
+                                  }
+                                  net = gross - costs;
+                                } else if (hasOpenPosition && Math.abs(gross) < 1e-9 && investedLive > 0 && markValue > 0) {
+                                  gross = markValue - investedLive;
+                                  if (costs <= 0) costs = Math.max(0.01, Math.min(1.5, investedLive * 0.0035));
                                   net = gross - costs;
                                 }
                                 if (!hasOpenPosition && Math.abs(gross) < 1e-9 && Math.abs(profit) > 0) {
@@ -25728,7 +25799,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           {openTradingSessions.map((sess) => {
                             const sid = String(sess?.id || sess?.session_id || "").trim();
                             const sessionSlots = (() => {
-                              if (Array.isArray(sess?.queue) && sess.queue.length) return sess.queue;
+                              const _sanSlots = (rows) => {
+                                const list = Array.isArray(rows) ? rows : [];
+                                return isTradingSessionLive(sess) ? list.map((sl) => sanitizeLiveTradingSlot(sl)) : list;
+                              };
+                              if (Array.isArray(sess?.queue) && sess.queue.length) return _sanSlots(sess.queue);
                               const fromExec = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue.filter((slot) => {
                                 const slotSid = String(getTradingSlotSessionId(slot) || "").trim();
                                 const slotOid = Number(slot?.onchainSessionId || slot?.onchain_session_id || slot?.meta?.onchain_session_id || 0) || 0;
@@ -25737,7 +25812,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 if (sessOid > 0 && slotOid > 0 && sessOid === slotOid) return true;
                                 return false;
                               }) : [];
-                              if (fromExec.length) return fromExec;
+                              if (fromExec.length) return _sanSlots(fromExec);
                               // BUILD429: rebuild display slots from settings cache (budget 8+8 → 2 slots).
                               const oid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || 0) || 0;
                               const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || "").toUpperCase();
@@ -26589,7 +26664,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           })}
                         </select>
                         {(isCompactMobile && selectedTradingSession) ? (() => {
-                          const sessionSlots = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+                          const sessionSlots = (() => {
+                            const rows = Array.isArray(tradingVisibleQueueSummary?.queue) ? tradingVisibleQueueSummary.queue : [];
+                            return isTradingSessionLive(selectedTradingSession) ? rows.map((sl) => sanitizeLiveTradingSlot(sl)) : rows;
+                          })();
                           const sessionAsset = getTradingSessionPrimaryAsset(selectedTradingSession) || "ASSET";
                           const sessionBudget = getTradingSessionBudgetUsd(selectedTradingSession);
                           const sessionProfit = getTradingSessionProfitUsd(selectedTradingSession);

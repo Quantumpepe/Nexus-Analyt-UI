@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.22-BUILD461-NKR-PNL-AND-LIVE-NO-PAPER";;
+const FRONTEND_BUILD_ID = "F-2026.08.22-BUILD462-NKR-ALLOWED-ASSETS";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -5291,6 +5291,9 @@ useEffect(() => {
         nkrPeriodDays: Math.max(1 / 24, Number(sessionConfig?.nkrPeriodHours ?? normalizeNkrPeriodHours(sessionConfig?.nkrPeriodValue ?? nkrPeriodDays, sessionConfig?.nkrPeriodUnit ?? nkrPeriodUnit)) / 24),
         maxActiveAssets: Math.max(0, Math.floor(Number(sessionConfig?.maxActiveAssets ?? rotationMaxActiveSessions ?? 0) || 0)),
         maxCapitalPerAssetPct: Math.max(0, Number(sessionConfig?.maxCapitalPerAssetPct ?? 80) || 80),
+        allowedAssets: Array.isArray(sessionConfig?.allowedAssets) ? sessionConfig.allowedAssets : (Array.isArray(sessionConfig?.nkrAllowedAssets) ? sessionConfig.nkrAllowedAssets : selectedNkrAssets),
+        nkrAllowedAssets: Array.isArray(sessionConfig?.nkrAllowedAssets) ? sessionConfig.nkrAllowedAssets : (Array.isArray(sessionConfig?.allowedAssets) ? sessionConfig.allowedAssets : selectedNkrAssets),
+        allowed_assets: Array.isArray(sessionConfig?.allowed_assets) ? sessionConfig.allowed_assets : (Array.isArray(sessionConfig?.allowedAssets) ? sessionConfig.allowedAssets : selectedNkrAssets),
       } : {}),
     };
     const enrichCreateError = (error) => {
@@ -9013,6 +9016,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationSelectedPick, setRotationSelectedPick] = useState(null);
   const [rotationShowAllRecommendations, setRotationShowAllRecommendations] = useState(false);
   const [rotationNetworkScope, setRotationNetworkScope] = useState("ALL");
+  // BUILD462: optional NKR allowed assets (like Trader). Empty = Strategist picks best on session chain.
+  const [nkrAllowedAssets, setNkrAllowedAssets] = useState("");
+
   const [rotationMode, setRotationMode] = useState("RECOMMENDATION");
   const [nkrCapitalMode, setNkrCapitalMode] = useState("DYNAMIC");
   // BUILD384: synchronous source of truth for the next session create request.
@@ -9518,6 +9524,8 @@ useEffect(() => {
       nkrPeriodUnit: startedPeriodUnit,
       nkrPeriodValue: startedPeriodValue,
       maxActiveAssets: startedMaxAssets,
+      allowedAssets: selectedNkrAssets,
+      nkrAllowedAssets: selectedNkrAssets,
       budgetUsd: Number(amount) || 0,
       sessionBudgetUsd: Number(amount) || 0,
       reservedUsd: Number(amount) || 0,
@@ -9550,6 +9558,9 @@ useEffect(() => {
           nkrPeriodDays: startedPeriodDays,
           maxActiveAssets: startedMaxAssets,
           maxCapitalPerAssetPct: 80,
+          allowedAssets: selectedNkrAssets,
+          nkrAllowedAssets: selectedNkrAssets,
+          allowed_assets: selectedNkrAssets,
         },
       });
       if (coreVaultSession?.pending) {
@@ -9946,6 +9957,42 @@ useEffect(() => {
     if (next.has(sym)) next.delete(sym); else next.add(sym);
     setTradingAllowedAssets(Array.from(next).join(","));
   }, [tradingAllowedAssets]);
+
+  const selectedNkrAssets = useMemo(() => normalizeTradingCsv(nkrAllowedAssets), [nkrAllowedAssets, normalizeTradingCsv]);
+  const toggleNkrAsset = useCallback((symbol) => {
+    const sym = String(symbol || "").toUpperCase();
+    if (!sym) return;
+    const next = new Set(normalizeTradingCsv(nkrAllowedAssets));
+    if (next.has(sym)) next.delete(sym); else next.add(sym);
+    setNkrAllowedAssets(Array.from(next).join(","));
+    setRotationBudgetReleased(false);
+  }, [nkrAllowedAssets, normalizeTradingCsv]);
+  const nkrAssetOptions = useMemo(() => {
+    const chain = String(liveVaultChainByMode?.rotation || activeGridChainKey || "ETH").toUpperCase();
+    const out = new Set();
+    const src = Array.isArray(watchItems) && watchItems.length
+      ? watchItems
+      : (Array.isArray(watchRows) ? watchRows : []);
+    for (const row of src) {
+      const sym = String(row?.symbol || row?.sym || row?.asset || "").trim().toUpperCase();
+      if (!sym) continue;
+      const mode = String(row?.mode || "market").toLowerCase();
+      const rowChain = String(row?.chain || row?.chain_key || row?.network || "").trim().toUpperCase();
+      if (mode === "dex") {
+        const rc = rowChain === "ETHEREUM" || rowChain === "1" ? "ETH"
+          : rowChain === "BSC" || rowChain === "56" ? "BNB"
+          : rowChain === "POLYGON" || rowChain === "MATIC" || rowChain === "137" ? "POL"
+          : rowChain;
+        if (rc && rc !== chain) continue;
+      }
+      out.add(sym);
+    }
+    if (chain === "ETH") out.add("ETH");
+    if (chain === "BNB") out.add("BNB");
+    if (chain === "POL") out.add("POL");
+    return Array.from(out).filter(Boolean).sort();
+  }, [liveVaultChainByMode?.rotation, activeGridChainKey, watchItems, watchRows]);
+
   // Trader chain is derived exclusively from Live Core Vault Capital.
   // There is no second Allowed Chains selector or local chain authority.
   const tradingAllowedChains = String(activeGridChainKey || "ETH").toUpperCase();
@@ -25163,6 +25210,42 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           }}
                           placeholder="0 = unlimited sessions/assets"
                         />
+                      </div>
+                    </div>
+
+
+                    <div className="formRow" style={{ gridColumn: "1 / -1" }}>
+                      <label>Allowed assets (optional)</label>
+                      <div className="muted tiny" style={{ marginBottom: 6 }}>
+                        Same as Trader: leave empty → Strategist picks the best asset on this session chain only.
+                        Select e.g. ETH → NKR only trades that symbol (not every token on the chain).
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {(Array.isArray(nkrAssetOptions) ? nkrAssetOptions : []).map((sym) => {
+                          const on = selectedNkrAssets.includes(sym);
+                          return (
+                            <button
+                              key={`nkr-allow-${sym}`}
+                              type="button"
+                              onClick={() => toggleNkrAsset(sym)}
+                              style={{
+                                borderRadius: 999,
+                                border: on ? "1px solid rgba(34,197,94,.55)" : "1px solid rgba(139,220,255,.22)",
+                                background: on ? "rgba(34,197,94,.16)" : "rgba(255,255,255,.04)",
+                                color: on ? "#86efac" : "#cfefff",
+                                fontWeight: 800,
+                                fontSize: 11,
+                                padding: "4px 10px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {sym}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="muted tiny" style={{ marginTop: 6 }}>
+                        Selected: {selectedNkrAssets.length ? selectedNkrAssets.join(", ") : "none (Strategist picks on chain)"}
                       </div>
                     </div>
 

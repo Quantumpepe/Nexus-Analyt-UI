@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.22-BUILD462-NKR-ALLOWED-ASSETS";;
+const FRONTEND_BUILD_ID = "F-2026.08.23-BUILD463-STRATEGIST-SCROLL-FIX";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -19886,19 +19886,45 @@ const handlePanelActivate = useCallback((name) => (e) => {
             border-radius: 999px;
           }
 
-          /* disable inner desktop scroll strips */
+          /* disable inner desktop scroll strips (NOT Strategist chat — needs scroll) */
           .dashboardPanel .watchScroll,
           .dashboardPanel .pairsScroll,
           .dashboardPanel .liveListBox,
           .dashboardPanel .ordersList,
-          .dashboardPanel .aiPanel,
-          .dashboardPanel .aiOut,
           .dashboardPanel .aiSelect,
           .dashboardPanel .gridLeft,
           .dashboardPanel .gridRight{
             overflow: visible !important;
             max-height: none !important;
             height: auto !important;
+          }
+          /* BUILD463: Strategist chat must scroll when answer is long */
+          .dashboardPanel .aiPanel,
+          .section-ai .aiPanel{
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            max-height: min(52vh, 520px) !important;
+            min-height: 200px !important;
+            height: auto !important;
+            -webkit-overflow-scrolling: touch;
+          }
+          .dashboardPanel .aiOut{
+            overflow: visible !important;
+            max-height: none !important;
+            height: auto !important;
+          }
+          .section-ai .panelScroll{
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            max-height: calc(100vh - 160px) !important;
+            min-height: 0 !important;
+            -webkit-overflow-scrolling: touch;
+          }
+          .dashboardGrid.focus-ai .section-ai .panelScroll{
+            max-height: calc(100vh - 120px) !important;
+          }
+          .dashboardGrid.focus-ai .section-ai .aiPanel{
+            max-height: min(60vh, 640px) !important;
           }
           .dashboardPanel .watchTable,
           .dashboardPanel .compareGrid,
@@ -28097,7 +28123,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <span className="muted tiny">crypto · market · Nexus only</span>
                 )}
               </div>
-              <div className="aiPanel" style={{ minHeight: 240, maxHeight: 420, overflowY: "auto", display: "grid", gap: 10, alignContent: "start" }}>
+              <div className="aiPanel" style={{ minHeight: 200, maxHeight: "min(52vh, 520px)", overflowY: "auto", overflowX: "hidden", display: "grid", gap: 10, alignContent: "start", WebkitOverflowScrolling: "touch" }}>
                 {(Array.isArray(aiHistory) && aiHistory.length > 0) || aiOutput ? (
                   <div style={{ display: "grid", gap: 10 }}>
                     {(Array.isArray(aiHistory) && aiHistory.length > 0 ? aiHistory : (

@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.23-BUILD463-STRATEGIST-SCROLL-FIX";;
+const FRONTEND_BUILD_ID = "F-2026.08.23-BUILD464-FREE-AI-7D";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7643,7 +7643,7 @@ const byChain = {};
   // Pro access: subscription or redeem code
   const isPro = !!(access?.active);
   const strategistActive = !!(access?.strategist_active || access?.strategist_access?.active);
-  const canUseStrategist = !!(access?.can_use_strategist || strategistActive || access?.is_demo);
+  const canUseStrategist = !!(access?.can_use_strategist || strategistActive || access?.is_demo || access?.mode === "DEMO" || access?.mode === "EXPIRED" || (access && !access?.active && !access?.is_live));
   const demoAiUsedToday = Number(access?.ai_used_today ?? 0);
   const demoAiDailyLimit = access?.ai_daily_limit ?? 3;
   const demoAiMonthDaysUsed = Number(access?.ai_month_days_used ?? 0);
@@ -7700,13 +7700,21 @@ const byChain = {};
   }, [isPro]);
 
   const requireStrategistAccess = useCallback((actionLabel = "Nexus Strategist") => {
-    if (canUseStrategist) return true;
+    // BUILD464: Demo / no-Core wallets may use free Strategist quota (backend 3/7d).
+    // canUseStrategist is true for is_demo; if access not loaded yet, allow attempt (backend decides).
+    if (canUseStrategist || access?.is_demo || access?.mode === "DEMO" || access?.mode === "EXPIRED" || (!access?.active && access != null)) {
+      return true;
+    }
+    if (access == null && wallet) {
+      // Access still loading — do not hard-block free trial
+      return true;
+    }
     setAccessTab("subscribe");
     setSubPlan("strategist_monthly");
     setAccessModalOpen(true);
-    setSubMsg(`🔒 ${actionLabel} requires Strategist access. Weekly: $20/7 days. Monthly: $50/30 days.`);
+    setSubMsg(`🔒 ${actionLabel}: free trial is 3 uses / 7 days. Then Weekly $20/7d or Monthly $50/30d.`);
     return false;
-  }, [canUseStrategist]);
+  }, [canUseStrategist, access, wallet]);
 
   const submitSupportTicket = useCallback(async () => {
     const msg = String(supportMessage || "").trim();
@@ -8426,7 +8434,12 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }, [selectedPair?.pair, timeframe]);
 
   async function runAiExplain() {
-    if (!requirePro("AI explain")) return;
+    // BUILD464: Free users get AI Insight without Core; backend enforces 3/7d quota.
+    // Core/Live still allowed. Only block when clearly no wallet session.
+    if (!wallet) {
+      setAiExplainText("Connect your wallet to use AI Insight.");
+      return;
+    }
     if (!selectedPair) {
       setAiExplainText("Select a pair first, then run AI Insight.");
       return;

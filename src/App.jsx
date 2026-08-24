@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.23-BUILD464-FREE-AI-7D";;
+const FRONTEND_BUILD_ID = "F-2026.08.24-BUILD465-NKR-PRESALE-BUY";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7530,7 +7530,29 @@ const byChain = {};
   }, [subPlan]);
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState("");
+  const [nkrPresale, setNkrPresale] = useState(null);
+  const [presaleBusy, setPresaleBusy] = useState(false);
+  const [presaleMsg, setPresaleMsg] = useState("");
+
   const [autoRenewBusy, setAutoRenewBusy] = useState(false);
+  const refreshNkrPresale = useCallback(async (force = false) => {
+    try {
+      const q = force ? "?force=1" : "";
+      const r = await api(`/api/nkr/presale/status${q}`, { method: "GET", token });
+      const p = r?.presale || r || null;
+      setNkrPresale(p);
+      return p;
+    } catch (e) {
+      setNkrPresale(null);
+      return null;
+    }
+  }, [api, token]);
+
+  useEffect(() => {
+    if (!accessModalOpen && !billingMenuOpen) return;
+    refreshNkrPresale(false);
+  }, [accessModalOpen, billingMenuOpen, wallet, refreshNkrPresale]);
+
   const [autoRenewMsg, setAutoRenewMsg] = useState("");
 
   const accessWalletKey = String(resolveWalletAddress(wallet) || wallet || "").toLowerCase();
@@ -8028,6 +8050,58 @@ const byChain = {};
       setSubBusy(false);
     }
   }, [wallet, subChain, subToken, subPlan, selectedSubPlan, selectedSubPriceUsd, selectedSubLabel, selectedSubPaymentAssets, billingEmail, token, api, refreshAccess, _getEmbeddedProvider, _trySwitchChain]);
+
+  const buyNkrPresalePackage = useCallback(async () => {
+    if (!wallet) {
+      setPresaleMsg("Wallet not connected.");
+      return;
+    }
+    setPresaleBusy(true);
+    setPresaleMsg("");
+    try {
+      const st = await refreshNkrPresale(true);
+      if (!st?.presale_active) {
+        throw new Error("Presale is not active. NKR is available on the market path.");
+      }
+      const to = String(st.presale_address || st?.buy_tx?.to || "").trim();
+      let valueWei = String(st.eth_required_wei || st?.buy_tx?.value_wei || "").trim();
+      if (!/^0x[a-fA-F0-9]{40}$/i.test(to)) throw new Error("Presale contract not configured.");
+      if (!valueWei || valueWei === "0") throw new Error("Could not quote ETH amount from Chainlink.");
+
+      // Small buffer (2%) for oracle move between quote and mine; contract refunds excess.
+      try {
+        const v = BigInt(valueWei);
+        valueWei = (v + v / 50n).toString();
+      } catch (_) {}
+
+      const valueHex = "0x" + BigInt(valueWei).toString(16);
+      const provider = await _getEmbeddedProvider();
+      if (!provider?.request) throw new Error("Wallet provider unavailable.");
+
+      // Presale is Ethereum mainnet only
+      try {
+        await _trySwitchChain(provider, 1);
+      } catch (_) {}
+
+      const from = resolveWalletAddress(wallet) || wallet;
+      const hash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{
+          from,
+          to,
+          value: valueHex,
+          data: "0x62158099", // buyPackage()
+        }],
+      });
+      setPresaleMsg(`Presale buy submitted: ${String(hash).slice(0, 12)}… — you receive 44,000 NKR when confirmed.`);
+      setTimeout(() => { try { refreshNkrPresale(true); } catch (_) {} }, 8000);
+    } catch (e) {
+      setPresaleMsg(String(e?.message || e || "Presale buy failed"));
+    } finally {
+      setPresaleBusy(false);
+    }
+  }, [wallet, refreshNkrPresale, _getEmbeddedProvider, _trySwitchChain]);
+
 
   // Best-pair explain (click -> modal)
   const [selectedPair, setSelectedPair] = useState(null); // e.g. { pair:"BTC/ETH", score, corr }
@@ -21071,6 +21145,50 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="muted" style={{ marginTop: 8 }}>
                 Redeem a permanent code, or subscribe to unlock <b>Trading + AI</b>.
                 </div>
+
+                {nkrPresale?.presale_active ? (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: 10,
+                      borderRadius: 12,
+                      border: "1px solid rgba(80,220,160,.35)",
+                      background: "rgba(20,60,45,.45)",
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, letterSpacing: ".04em", fontSize: 13 }}>NKR Presale (ETH only)</div>
+                    <div className="muted tiny" style={{ marginTop: 6, lineHeight: 1.4 }}>
+                      Pay ~$20 in <b>native ETH</b> → receive <b>{Number(nkrPresale?.nkr_total || 44000).toLocaleString()} NKR</b>
+                      {" "}(40k + 10% bonus). Enough for Strategist Weekly. Live ETH price via Chainlink.
+                    </div>
+                    {nkrPresale?.eth_required_eth != null ? (
+                      <div className="muted tiny" style={{ marginTop: 4 }}>
+                        Quote: ~{Number(nkrPresale.eth_required_eth).toFixed(6)} ETH
+                        {nkrPresale?.eth_usd ? ` @ $${Number(nkrPresale.eth_usd).toFixed(2)}` : ""}
+                      </div>
+                    ) : null}
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={presaleBusy || !wallet}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        buyNkrPresalePackage();
+                      }}
+                      style={{ marginTop: 10, width: "100%" }}
+                    >
+                      {presaleBusy ? "Confirm in wallet…" : "Buy NKR Presale with ETH"}
+                    </button>
+                    {presaleMsg ? (
+                      <div className="muted tiny" style={{ marginTop: 8, wordBreak: "break-word" }}>{presaleMsg}</div>
+                    ) : null}
+                  </div>
+                ) : nkrPresale && nkrPresale.phase_label === "market" ? (
+                  <div className="muted tiny" style={{ marginTop: 10 }}>
+                    NKR presale ended — buy NKR on the open market for Strategist plans.
+                  </div>
+                ) : null}
 
                 <div className="hr" style={{ margin: "12px 0" }} />
 

@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD468-PRESALE-BTN-ALWAYS";;
+const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD469-BUY-NKR-HEADER-FIX";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -21033,100 +21033,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   Billing {billingMenuOpen ? "▲" : "▼"}
                 </button>
 
-                {(nkrPresale?.presale_active || nkrPresale?.phase === 1 || nkrPresale?.phase_label === "presale_live") ? (
-                  <div style={{ position: "relative" }}>
-                    <button
-                      className="btn"
-                      type="button"
-                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setPresalePanelOpen((v) => !v);
-                        setBillingMenuOpen(false);
-                      }}
-                      title="Buy NKR in presale (0.0005 USD, no bonus)"
-                      style={{
-                        marginLeft: 8,
-                        background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
-                        border: "1px solid rgba(80,220,160,.45)",
-                        fontWeight: 800,
-                      }}
-                    >
-                      Buy NKR
-                    </button>
-                    {presalePanelOpen ? (
-                      <div
-                        role="dialog"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          position: "absolute",
-                          top: "110%",
-                          right: 0,
-                          width: 300,
-                          zIndex: 5000,
-                          padding: 12,
-                          borderRadius: 12,
-                          background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
-                          border: "1px solid rgba(80,220,160,.35)",
-                          boxShadow: "0 12px 40px rgba(0,0,0,.5)",
-                        }}
-                      >
-                        <div style={{ fontWeight: 800, fontSize: 13 }}>NKR Presale</div>
-                        <div className="muted tiny" style={{ marginTop: 4, lineHeight: 1.35 }}>
-                          $0.0005 / NKR · min $5 · <b>no bonus</b>
-                        </div>
-                        <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
-                          {[5, 10, 20, 50].map((u) => (
-                            <button
-                              key={u}
-                              type="button"
-                              className="btnGhost"
-                              style={{
-                                fontSize: 12,
-                                padding: "4px 8px",
-                                borderColor: presaleUsd === u ? "rgba(80,220,160,.7)" : undefined,
-                              }}
-                              onClick={() => setPresaleUsd(u)}
-                            >
-                              ${u}
-                            </button>
-                          ))}
-                        </div>
-                        <input
-                          type="number"
-                          min={5}
-                          max={50000}
-                          value={presaleUsd}
-                          onChange={(e) => setPresaleUsd(Math.max(5, Number(e.target.value) || 5))}
-                          style={{
-                            marginTop: 8,
-                            width: "100%",
-                            padding: "6px 8px",
-                            borderRadius: 8,
-                            border: "1px solid rgba(255,255,255,.12)",
-                            background: "rgba(0,0,0,.25)",
-                            color: "#e8fff4",
-                          }}
-                        />
-                        <button
-                          className="btn"
-                          type="button"
-                          disabled={presaleBusy || !wallet}
-                          style={{ width: "100%", marginTop: 10 }}
-                          onClick={() => buyNkrPresaleUsd(presaleUsd)}
-                        >
-                          {presaleBusy ? "Confirm in wallet…" : `Buy ~$${presaleUsd} NKR with ETH`}
-                        </button>
-                        {presaleMsg ? (
-                          <div className="muted tiny" style={{ marginTop: 8, wordBreak: "break-word" }}>{presaleMsg}</div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-
                 {billingMenuOpen && (
                   <>
                     <button
@@ -21215,6 +21121,104 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </>
                 )}
               </div>
+              {/* BUILD469: Buy NKR as flex sibling — always visible when wallet connected */}
+              <div style={{ position: "relative" }}>
+                <button
+                  className="btn"
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setPresalePanelOpen((v) => !v);
+                    setBillingMenuOpen(false);
+                    try { refreshNkrPresale(true); } catch (_) {}
+                  }}
+                  title="Buy NKR in presale (0.0005 USD, no bonus)"
+                  style={{
+                    marginLeft: 4,
+                    background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
+                    border: "1px solid rgba(80,220,160,.45)",
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Buy NKR
+                </button>
+                {presalePanelOpen ? (
+                  <div
+                    role="dialog"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      position: "absolute",
+                      top: "110%",
+                      right: 0,
+                      width: 300,
+                      zIndex: 5000,
+                      padding: 12,
+                      borderRadius: 12,
+                      background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+                      border: "1px solid rgba(80,220,160,.35)",
+                      boxShadow: "0 12px 40px rgba(0,0,0,.5)",
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, fontSize: 13 }}>NKR Presale</div>
+                    <div className="muted tiny" style={{ marginTop: 4, lineHeight: 1.35 }}>
+                      $0.0005 / NKR · min $5 · <b>no bonus</b>
+                      {nkrPresale?.presale_active === false ? (
+                        <span style={{ color: "#ffb3b3" }}> · Presale not active on-chain</span>
+                      ) : null}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                      {[5, 10, 20, 50].map((u) => (
+                        <button
+                          key={u}
+                          type="button"
+                          className="btnGhost"
+                          style={{
+                            fontSize: 12,
+                            padding: "4px 8px",
+                            borderColor: presaleUsd === u ? "rgba(80,220,160,.7)" : undefined,
+                          }}
+                          onClick={() => setPresaleUsd(u)}
+                        >
+                          ${u}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="number"
+                      min={5}
+                      max={50000}
+                      value={presaleUsd}
+                      onChange={(e) => setPresaleUsd(Math.max(5, Number(e.target.value) || 5))}
+                      style={{
+                        marginTop: 8,
+                        width: "100%",
+                        padding: "6px 8px",
+                        borderRadius: 8,
+                        border: "1px solid rgba(255,255,255,.12)",
+                        background: "rgba(0,0,0,.25)",
+                        color: "#e8fff4",
+                      }}
+                    />
+                    <button
+                      className="btn"
+                      type="button"
+                      disabled={presaleBusy || !wallet}
+                      style={{ width: "100%", marginTop: 10 }}
+                      onClick={() => buyNkrPresaleUsd(presaleUsd)}
+                    >
+                      {presaleBusy ? "Confirm in wallet…" : `Buy ~$${presaleUsd} NKR with ETH`}
+                    </button>
+                    {presaleMsg ? (
+                      <div className="muted tiny" style={{ marginTop: 8, wordBreak: "break-word" }}>{presaleMsg}</div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
 
               <div className="text-xs" style={{ opacity: 0.75, marginLeft: 6 }}>
                 {isPro ? (

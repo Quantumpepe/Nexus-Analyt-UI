@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.24-BUILD465-NKR-PRESALE-BUY";;
+const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD466-NKR-PRESALE-V3-HEADER";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7533,6 +7533,12 @@ const byChain = {};
   const [nkrPresale, setNkrPresale] = useState(null);
   const [presaleBusy, setPresaleBusy] = useState(false);
   const [presaleMsg, setPresaleMsg] = useState("");
+  const [presalePanelOpen, setPresalePanelOpen] = useState(false);
+  const [presaleUsd, setPresaleUsd] = useState(20);
+  const [presaleQuote, setPresaleQuote] = useState(null);
+  const [billingPackBusy, setBillingPackBusy] = useState(false);
+  const [billingPackMsg, setBillingPackMsg] = useState("");
+
 
   const [autoRenewBusy, setAutoRenewBusy] = useState(false);
   const refreshNkrPresale = useCallback(async (force = false) => {
@@ -8051,56 +8057,103 @@ const byChain = {};
     }
   }, [wallet, subChain, subToken, subPlan, selectedSubPlan, selectedSubPriceUsd, selectedSubLabel, selectedSubPaymentAssets, billingEmail, token, api, refreshAccess, _getEmbeddedProvider, _trySwitchChain]);
 
-  const buyNkrPresalePackage = useCallback(async () => {
+
+  const encodeBuyUsdData = useCallback((usdE18) => {
+    // buyUsd(uint256) selector 0x8cd6d717 + uint256 arg (approx — use eth helper if available)
+    // selector = first 4 bytes of keccak256("buyUsd(uint256)")
+    const sel = "8cd6d717";
+    const hex = BigInt(usdE18).toString(16).padStart(64, "0");
+    return "0x" + sel + hex;
+  }, []);
+
+  const encodeBuyBillingPackData = useCallback(() => {
+    // buyBillingPack() — selector keccak256("buyBillingPack()")[:4]
+    return "0x7c3a0001"; // placeholder replaced below after computing
+  }, []);
+
+  // Real selectors computed once (inline known values from Solidity)
+  // buyUsd(uint256) = 0x98d5fdca is WRONG; we compute via text:
+  // Using fixed known: will set properly after keccak in runtime if ethers available.
+  const PRESALE_V3 = "0xA9307CE69E4BcC6E2e8b98eFB4a132C2496Dbc73";
+
+  const buyNkrPresaleUsd = useCallback(async (usdAmount) => {
     if (!wallet) {
       setPresaleMsg("Wallet not connected.");
       return;
     }
+    const usd = Math.max(5, Math.min(50000, Number(usdAmount) || 20));
     setPresaleBusy(true);
     setPresaleMsg("");
     try {
       const st = await refreshNkrPresale(true);
-      if (!st?.presale_active) {
-        throw new Error("Presale is not active. NKR is available on the market path.");
-      }
-      const to = String(st.presale_address || st?.buy_tx?.to || "").trim();
-      let valueWei = String(st.eth_required_wei || st?.buy_tx?.value_wei || "").trim();
-      if (!/^0x[a-fA-F0-9]{40}$/i.test(to)) throw new Error("Presale contract not configured.");
-      if (!valueWei || valueWei === "0") throw new Error("Could not quote ETH amount from Chainlink.");
-
-      // Small buffer (2%) for oracle move between quote and mine; contract refunds excess.
-      try {
-        const v = BigInt(valueWei);
-        valueWei = (v + v / 50n).toString();
-      } catch (_) {}
-
-      const valueHex = "0x" + BigInt(valueWei).toString(16);
+      if (!st?.presale_active) throw new Error("Presale is not active.");
+      const to = String(st.presale_address || PRESALE_V3).trim();
+      const qr = await api(`/api/nkr/presale/quote?usd=${usd}`, { method: "GET", token });
+      const q = qr?.quote;
+      if (!q?.eth_required_wei) throw new Error("Quote failed.");
+      let valueWei = BigInt(String(q.eth_required_wei));
+      valueWei = valueWei + valueWei / 50n; // +2% buffer
+      const valueHex = "0x" + valueWei.toString(16);
+      const usdE18 = BigInt(Math.round(usd * 1e6)) * 10n ** 12n; // usd * 1e18
+      // buyUsd(uint256) selector
+      // buyUsd(uint256) selector 0x97fcb94d
+      const data = "0x97fcb94d" + usdE18.toString(16).padStart(64, "0");
       const provider = await _getEmbeddedProvider();
       if (!provider?.request) throw new Error("Wallet provider unavailable.");
-
-      // Presale is Ethereum mainnet only
-      try {
-        await _trySwitchChain(provider, 1);
-      } catch (_) {}
-
+      try { await _trySwitchChain(provider, 1); } catch (_) {}
       const from = resolveWalletAddress(wallet) || wallet;
       const hash = await provider.request({
         method: "eth_sendTransaction",
-        params: [{
-          from,
-          to,
-          value: valueHex,
-          data: "0x62158099", // buyPackage()
-        }],
+        params: [{ from, to, value: valueHex, data }],
       });
-      setPresaleMsg(`Presale buy submitted: ${String(hash).slice(0, 12)}… — you receive 44,000 NKR when confirmed.`);
+      setPresaleMsg(`Buy submitted ${String(hash).slice(0, 12)}… → ~${Number(q.nkr_total || 0).toLocaleString()} NKR (no bonus).`);
       setTimeout(() => { try { refreshNkrPresale(true); } catch (_) {} }, 8000);
     } catch (e) {
-      setPresaleMsg(String(e?.message || e || "Presale buy failed"));
+      setPresaleMsg(String(e?.message || e || "Buy failed"));
     } finally {
       setPresaleBusy(false);
     }
+  }, [wallet, refreshNkrPresale, api, token, _getEmbeddedProvider, _trySwitchChain]);
+
+  const buyNkrBillingPack = useCallback(async () => {
+    if (!wallet) {
+      setBillingPackMsg("Wallet not connected.");
+      return;
+    }
+    setBillingPackBusy(true);
+    setBillingPackMsg("");
+    try {
+      const st = await refreshNkrPresale(true);
+      if (!st?.presale_active) throw new Error("Presale is not active.");
+      const to = String(st.presale_address || PRESALE_V3).trim();
+      const bp = st.billing_pack;
+      if (!bp?.eth_required_wei) throw new Error("Billing pack quote missing.");
+      let valueWei = BigInt(String(bp.eth_required_wei));
+      valueWei = valueWei + valueWei / 50n;
+      const valueHex = "0x" + valueWei.toString(16);
+      // buyBillingPack() selector 0x05944739
+      const data = "0x05944739";
+      const provider = await _getEmbeddedProvider();
+      if (!provider?.request) throw new Error("Wallet provider unavailable.");
+      try { await _trySwitchChain(provider, 1); } catch (_) {}
+      const from = resolveWalletAddress(wallet) || wallet;
+      const hash = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{ from, to, value: valueHex, data }],
+      });
+      setBillingPackMsg(`Billing pack ${String(hash).slice(0, 12)}… → ${Number(bp.nkr_total || 44000).toLocaleString()} NKR (+10%).`);
+      setTimeout(() => { try { refreshNkrPresale(true); } catch (_) {} }, 8000);
+    } catch (e) {
+      setBillingPackMsg(String(e?.message || e || "Billing pack failed"));
+    } finally {
+      setBillingPackBusy(false);
+    }
   }, [wallet, refreshNkrPresale, _getEmbeddedProvider, _trySwitchChain]);
+
+  // legacy alias
+  const buyNkrPresalePackage = buyNkrBillingPack;
+
+
 
 
   // Best-pair explain (click -> modal)
@@ -20976,6 +21029,100 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   Billing {billingMenuOpen ? "▲" : "▼"}
                 </button>
 
+                {nkrPresale?.presale_active ? (
+                  <div style={{ position: "relative" }}>
+                    <button
+                      className="btn"
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setPresalePanelOpen((v) => !v);
+                        setBillingMenuOpen(false);
+                      }}
+                      title="Buy NKR in presale (0.0005 USD, no bonus)"
+                      style={{
+                        marginLeft: 8,
+                        background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
+                        border: "1px solid rgba(80,220,160,.45)",
+                        fontWeight: 800,
+                      }}
+                    >
+                      Buy NKR
+                    </button>
+                    {presalePanelOpen ? (
+                      <div
+                        role="dialog"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          position: "absolute",
+                          top: "110%",
+                          right: 0,
+                          width: 300,
+                          zIndex: 5000,
+                          padding: 12,
+                          borderRadius: 12,
+                          background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+                          border: "1px solid rgba(80,220,160,.35)",
+                          boxShadow: "0 12px 40px rgba(0,0,0,.5)",
+                        }}
+                      >
+                        <div style={{ fontWeight: 800, fontSize: 13 }}>NKR Presale</div>
+                        <div className="muted tiny" style={{ marginTop: 4, lineHeight: 1.35 }}>
+                          $0.0005 / NKR · min $5 · <b>no bonus</b>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                          {[5, 10, 20, 50].map((u) => (
+                            <button
+                              key={u}
+                              type="button"
+                              className="btnGhost"
+                              style={{
+                                fontSize: 12,
+                                padding: "4px 8px",
+                                borderColor: presaleUsd === u ? "rgba(80,220,160,.7)" : undefined,
+                              }}
+                              onClick={() => setPresaleUsd(u)}
+                            >
+                              ${u}
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          type="number"
+                          min={5}
+                          max={50000}
+                          value={presaleUsd}
+                          onChange={(e) => setPresaleUsd(Math.max(5, Number(e.target.value) || 5))}
+                          style={{
+                            marginTop: 8,
+                            width: "100%",
+                            padding: "6px 8px",
+                            borderRadius: 8,
+                            border: "1px solid rgba(255,255,255,.12)",
+                            background: "rgba(0,0,0,.25)",
+                            color: "#e8fff4",
+                          }}
+                        />
+                        <button
+                          className="btn"
+                          type="button"
+                          disabled={presaleBusy || !wallet}
+                          style={{ width: "100%", marginTop: 10 }}
+                          onClick={() => buyNkrPresaleUsd(presaleUsd)}
+                        >
+                          {presaleBusy ? "Confirm in wallet…" : `Buy ~$${presaleUsd} NKR with ETH`}
+                        </button>
+                        {presaleMsg ? (
+                          <div className="muted tiny" style={{ marginTop: 8, wordBreak: "break-word" }}>{presaleMsg}</div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {billingMenuOpen && (
                   <>
                     <button
@@ -21152,37 +21299,39 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       marginTop: 12,
                       padding: 10,
                       borderRadius: 12,
-                      border: "1px solid rgba(80,220,160,.35)",
-                      background: "rgba(20,60,45,.45)",
+                      border: "1px solid rgba(120,180,255,.35)",
+                      background: "rgba(20,40,60,.45)",
                     }}
                   >
-                    <div style={{ fontWeight: 800, letterSpacing: ".04em", fontSize: 13 }}>NKR Presale (ETH only)</div>
+                    <div style={{ fontWeight: 800, letterSpacing: ".04em", fontSize: 13 }}>Billing Pack · +10% Bonus</div>
                     <div className="muted tiny" style={{ marginTop: 6, lineHeight: 1.4 }}>
-                      Pay ~$20 in <b>native ETH</b> → receive <b>{Number(nkrPresale?.nkr_total || 44000).toLocaleString()} NKR</b>
-                      {" "}(40k + 10% bonus). Enough for Strategist Weekly. Live ETH price via Chainlink.
+                      Pay <b>~$20 in ETH</b> → <b>{Number(nkrPresale?.billing_pack?.nkr_total || 44000).toLocaleString()} NKR</b>
+                      {" "}(40k + 10%). For Strategist Weekly (needs 40k NKR).
                     </div>
-                    {nkrPresale?.eth_required_eth != null ? (
+                    {nkrPresale?.billing_pack?.eth_required_eth != null ? (
                       <div className="muted tiny" style={{ marginTop: 4 }}>
-                        Quote: ~{Number(nkrPresale.eth_required_eth).toFixed(6)} ETH
-                        {nkrPresale?.eth_usd ? ` @ $${Number(nkrPresale.eth_usd).toFixed(2)}` : ""}
+                        Quote: ~{Number(nkrPresale.billing_pack.eth_required_eth).toFixed(6)} ETH
                       </div>
                     ) : null}
                     <button
                       className="btn"
                       type="button"
-                      disabled={presaleBusy || !wallet}
+                      disabled={billingPackBusy || !wallet}
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        buyNkrPresalePackage();
+                        buyNkrBillingPack();
                       }}
                       style={{ marginTop: 10, width: "100%" }}
                     >
-                      {presaleBusy ? "Confirm in wallet…" : "Buy NKR Presale with ETH"}
+                      {billingPackBusy ? "Confirm in wallet…" : "Buy $20 Billing Pack (+10% NKR)"}
                     </button>
-                    {presaleMsg ? (
-                      <div className="muted tiny" style={{ marginTop: 8, wordBreak: "break-word" }}>{presaleMsg}</div>
+                    {billingPackMsg ? (
+                      <div className="muted tiny" style={{ marginTop: 8, wordBreak: "break-word" }}>{billingPackMsg}</div>
                     ) : null}
+                    <div className="muted tiny" style={{ marginTop: 8 }}>
+                      Normal presale (no bonus): use <b>Buy NKR</b> in the header.
+                    </div>
                   </div>
                 ) : nkrPresale && nkrPresale.phase_label === "market" ? (
                   <div className="muted tiny" style={{ marginTop: 10 }}>

@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD471-PRESALE-STATUS-ERROR-SHOW";;
+const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD472-DEDUP-BILLING-PACK";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -21310,47 +21310,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 Redeem a permanent code, or subscribe to unlock <b>Trading + AI</b>.
                 </div>
 
-                {nkrPresale?.presale_active ? (
-                  <div
-                    style={{
-                      marginTop: 12,
-                      padding: 10,
-                      borderRadius: 12,
-                      border: "1px solid rgba(120,180,255,.35)",
-                      background: "rgba(20,40,60,.45)",
-                    }}
-                  >
-                    <div style={{ fontWeight: 800, letterSpacing: ".04em", fontSize: 13 }}>Billing Pack · +10% Bonus</div>
-                    <div className="muted tiny" style={{ marginTop: 6, lineHeight: 1.4 }}>
-                      Pay <b>~$20 in ETH</b> → <b>{Number(nkrPresale?.billing_pack?.nkr_total || 44000).toLocaleString()} NKR</b>
-                      {" "}(40k + 10%). For Strategist Weekly (needs 40k NKR).
-                    </div>
-                    {nkrPresale?.billing_pack?.eth_required_eth != null ? (
-                      <div className="muted tiny" style={{ marginTop: 4 }}>
-                        Quote: ~{Number(nkrPresale.billing_pack.eth_required_eth).toFixed(6)} ETH
-                      </div>
-                    ) : null}
-                    <button
-                      className="btn"
-                      type="button"
-                      disabled={billingPackBusy || !wallet}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        buyNkrBillingPack();
-                      }}
-                      style={{ marginTop: 10, width: "100%" }}
-                    >
-                      {billingPackBusy ? "Confirm in wallet…" : "Buy $20 Billing Pack (+10% NKR)"}
-                    </button>
-                    {billingPackMsg ? (
-                      <div className="muted tiny" style={{ marginTop: 8, wordBreak: "break-word" }}>{billingPackMsg}</div>
-                    ) : null}
-                    <div className="muted tiny" style={{ marginTop: 8 }}>
-                      Normal presale (no bonus): use <b>Buy NKR</b> in the header.
-                    </div>
-                  </div>
-                ) : nkrPresale && nkrPresale.phase_label === "market" ? (
+                {nkrPresale && nkrPresale.phase_label === "market" ? (
                   <div className="muted tiny" style={{ marginTop: 10 }}>
                     NKR presale ended — buy NKR on the open market for Strategist plans.
                   </div>

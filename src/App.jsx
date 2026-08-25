@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD466-NKR-PRESALE-V3-HEADER";;
+const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD467-HIDE-PRIVY-WALLET-SWAP";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -21709,70 +21709,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                   <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
 
-                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.10)" }}>
-                      <div style={{ fontWeight: 900, fontSize: 13, color: "#ffffff" }}>Swap</div>
-                      <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
-                        Swap in your Privy Wallet (same network). Result stays in the wallet — not the Vault.
-                      </div>
-                      <select
-                        className="input"
-                        value={walletSwapFromKey}
-                        onChange={(e) => { setWalletSwapFromKey(e.target.value); setWalletSwapMsg(""); }}
-                        disabled={walletSwapBusy || !walletAssetRows.length}
-                        style={{ width: "100%", height: 42, marginTop: 9 }}
-                      >
-                        <option value="">From asset…</option>
-                        {walletAssetRows.map((row) => (
-                          <option key={`swap-from-${row.key}`} value={row.key}>
-                            {row.symbol} · {walletChainDisplayName(row.chain)} · {fmtQty(row.amount)}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className="input"
-                        value={walletSwapToSym}
-                        onChange={(e) => { setWalletSwapToSym(e.target.value); setWalletSwapMsg(""); }}
-                        disabled={walletSwapBusy}
-                        style={{ width: "100%", height: 42, marginTop: 8 }}
-                      >
-                        <option value="USDC">To · USDC</option>
-                        <option value="USDT">To · USDT</option>
-                      </select>
-                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <input
-                          className="input"
-                          inputMode="decimal"
-                          value={walletSwapAmount}
-                          onChange={(e) => { setWalletSwapAmount(e.target.value); setWalletSwapMsg(""); }}
-                          placeholder="Amount"
-                          disabled={walletSwapBusy}
-                          style={{ height: 42, flex: 1 }}
-                        />
-                        <button
-                          type="button"
-                          className="miniBtn"
-                          onClick={() => {
-                            const row = walletAssetRows.find((item) => item.key === walletSwapFromKey);
-                            if (row) setWalletSwapAmount(String(row.amount));
-                          }}
-                          disabled={walletSwapBusy || !walletSwapFromKey}
-                        >MAX</button>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn"
-                        onClick={runPrivyWalletSwap}
-                        disabled={!wallet || walletSwapBusy || !walletSwapFromKey || !walletSwapAmount}
-                        style={{ width: "100%", height: 44, marginTop: 8 }}
-                      >
-                        {walletSwapBusy ? "Swapping…" : "Swap in Privy Wallet"}
-                      </button>
-                      {walletSwapMsg ? (
-                        <div className="muted" style={{ fontSize: 11, marginTop: 7, wordBreak: "break-word" }}>{walletSwapMsg}</div>
-                      ) : null}
-                    </div>
+                    {/* BUILD467: Privy Wallet Swap UI removed — user deferred wallet swap */}
 
-                    <div style={{ fontWeight: 900, fontSize: 13 }}>Send asset</div>
+                                        <div style={{ fontWeight: 900, fontSize: 13 }}>Send asset</div>
                     <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>Directly from your Privy Wallet to another wallet. No Vault approval is required.</div>
                     <select className="input" value={walletSendAssetKey} onChange={(e) => { setWalletSendAssetKey(e.target.value); setWalletSendMsg(""); }} disabled={walletSendBusy || !walletAssetRows.length} style={{ width: "100%", height: 42, marginTop: 9 }}>
                       {walletAssetRows.map((row) => <option key={row.key} value={row.key}>{row.symbol} · {walletChainDisplayName(row.chain)} · {fmtQty(row.amount)}</option>)}

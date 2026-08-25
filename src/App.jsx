@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD469-BUY-NKR-HEADER-FIX";;
+const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD471-PRESALE-STATUS-ERROR-SHOW";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -8090,7 +8090,10 @@ const byChain = {};
     setPresaleMsg("");
     try {
       const st = await refreshNkrPresale(true);
-      if (!st?.presale_active) throw new Error("Presale is not active.");
+      if (!st?.presale_active) {
+        const err = String(st?.error || "");
+        throw new Error(err ? `Presale status: ${err.slice(0, 120)}` : "Presale is not active (API). Check RPC_URL_1 + NEXUS_NKR_PRESALE_ADDRESS.");
+      }
       const to = String(st.presale_address || PRESALE_V3).trim();
       const qr = await api(`/api/nkr/presale/quote?usd=${usd}`, { method: "GET", token });
       const q = qr?.quote;
@@ -21166,9 +21169,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div style={{ fontWeight: 800, fontSize: 13 }}>NKR Presale</div>
                     <div className="muted tiny" style={{ marginTop: 4, lineHeight: 1.35 }}>
                       $0.0005 / NKR · min $5 · <b>no bonus</b>
-                      {nkrPresale?.presale_active === false ? (
-                        <span style={{ color: "#ffb3b3" }}> · Presale not active on-chain</span>
-                      ) : null}
+                      {nkrPresale?.presale_active === true ? (
+                        <span style={{ color: "#8dffc0" }}> · live</span>
+                      ) : nkrPresale?.error ? (
+                        <span style={{ color: "#ffb3b3" }}> · status: {String(nkrPresale.error).slice(0, 80)}</span>
+                      ) : nkrPresale?.presale_active === false ? (
+                        <span style={{ color: "#ffb3b3" }}> · Presale not active</span>
+                      ) : (
+                        <span className="muted"> · checking…</span>
+                      )}
                     </div>
                     <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
                       {[5, 10, 20, 50].map((u) => (
@@ -21397,6 +21406,46 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <b>Strategist Monthly</b> · ${STRATEGIST_MONTHLY_PRICE_USD}/30 days · best value
                       </button>
                     </div>
+
+                    {subPlan === "strategist_weekly" ? (
+                      <div
+                        style={{
+                          marginBottom: 12,
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid rgba(120,180,255,.4)",
+                          background: "rgba(20,40,70,.5)",
+                        }}
+                      >
+                        <div style={{ fontWeight: 800, fontSize: 13 }}>First: get NKR</div>
+                        <div className="muted tiny" style={{ marginTop: 6, lineHeight: 1.4 }}>
+                          Strategist Weekly is paid in <b>NKR only</b> (40,000 NKR).
+                          {nkrPresale?.presale_active !== false ? (
+                            <> Buy the <b>$20 Billing Pack</b> (~44,000 NKR with +10% bonus), then pay the plan.</>
+                          ) : (
+                            <> Buy NKR on the market, then return here to pay the plan.</>
+                          )}
+                        </div>
+                        {nkrPresale?.presale_active !== false ? (
+                          <button
+                            className="btn"
+                            type="button"
+                            disabled={billingPackBusy || !wallet}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              buyNkrBillingPack();
+                            }}
+                            style={{ marginTop: 10, width: "100%" }}
+                          >
+                            {billingPackBusy ? "Confirm in wallet…" : "Buy $20 NKR Billing Pack (+10%)"}
+                          </button>
+                        ) : null}
+                        {billingPackMsg ? (
+                          <div className="muted tiny" style={{ marginTop: 8, wordBreak: "break-word" }}>{billingPackMsg}</div>
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     <div className="formRow" style={{ marginBottom: 10 }}>
                       <label className="label">Billing email (optional)</label>

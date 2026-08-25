@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD467-HIDE-PRIVY-WALLET-SWAP";;
+const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD468-PRESALE-BTN-ALWAYS";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7554,10 +7554,14 @@ const byChain = {};
     }
   }, [api, token]);
 
+  // Always load presale status so header "Buy NKR" is visible when active
   useEffect(() => {
-    if (!accessModalOpen && !billingMenuOpen) return;
     refreshNkrPresale(false);
-  }, [accessModalOpen, billingMenuOpen, wallet, refreshNkrPresale]);
+    const id = setInterval(() => {
+      try { refreshNkrPresale(false); } catch (_) {}
+    }, 60000);
+    return () => clearInterval(id);
+  }, [wallet, refreshNkrPresale]);
 
   const [autoRenewMsg, setAutoRenewMsg] = useState("");
 
@@ -21029,7 +21033,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   Billing {billingMenuOpen ? "▲" : "▼"}
                 </button>
 
-                {nkrPresale?.presale_active ? (
+                {(nkrPresale?.presale_active || nkrPresale?.phase === 1 || nkrPresale?.phase_label === "presale_live") ? (
                   <div style={{ position: "relative" }}>
                     <button
                       className="btn"

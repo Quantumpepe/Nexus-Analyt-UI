@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD472-DEDUP-BILLING-PACK";;
+const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD473-BUY-NKR-CLICK-OUTSIDE";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7553,6 +7553,33 @@ const byChain = {};
       return null;
     }
   }, [api, token]);
+
+  // Close Buy NKR panel on outside click or Escape
+  useEffect(() => {
+    if (!presalePanelOpen) return undefined;
+    const onDown = (e) => {
+      try {
+        const root = document.getElementById("nkr-presale-panel-root");
+        if (root && root.contains(e.target)) return;
+        const btn = document.getElementById("nkr-presale-buy-btn");
+        if (btn && btn.contains(e.target)) return;
+        setPresalePanelOpen(false);
+      } catch (_) {
+        setPresalePanelOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setPresalePanelOpen(false);
+    };
+    document.addEventListener("mousedown", onDown, true);
+    document.addEventListener("touchstart", onDown, true);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown, true);
+      document.removeEventListener("touchstart", onDown, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [presalePanelOpen]);
 
   // Always load presale status so header "Buy NKR" is visible when active
   useEffect(() => {
@@ -21127,6 +21154,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               {/* BUILD469: Buy NKR as flex sibling — always visible when wallet connected */}
               <div style={{ position: "relative" }}>
                 <button
+                  id="nkr-presale-buy-btn"
                   className="btn"
                   type="button"
                   onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
@@ -21150,6 +21178,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </button>
                 {presalePanelOpen ? (
                   <div
+                    id="nkr-presale-panel-root"
                     role="dialog"
                     onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => e.stopPropagation()}

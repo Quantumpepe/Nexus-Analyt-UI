@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD486-NKR-STRIP-STICKY";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD488-NKR-STRIP-COMPACT";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -22412,19 +22412,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
         <section
           className="card nkrTokenStrip"
           style={{
-            minHeight: "auto",
-            padding: "12px 14px",
-            marginBottom: 14,
+            minHeight: 42,
+            height: 42,
+            width: "min(720px, calc(100% - 48px))",
+            maxWidth: 720,
+            padding: "0 16px",
+            margin: "0 auto 14px",
             position: "sticky",
             top: 8,
             zIndex: 40,
+            overflow: "hidden",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
-            <b style={{ fontSize: 15, flex: "0 0 auto", minWidth: 92 }}>NKR Token</b>
-            <div style={{ flex: "1 1 auto", textAlign: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", height: "100%", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
+            <b style={{ fontSize: 14, flex: "0 0 auto" }}>NKR Token</b>
+            <div style={{ flex: "1 1 auto", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis" }}>
               {nkrSpot && nkrSpot.price > 0 ? (
-                <span style={{ fontWeight: 800, fontSize: 15 }}>
+                <span style={{ fontWeight: 800, fontSize: 14 }}>
                   ${formatNkrUsd(nkrSpot.price)}
                   <span style={{
                     marginLeft: 8,
@@ -22438,8 +22442,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <span className="muted">Uniswap NKR/WETH</span>
               )}
             </div>
-            <div style={{ flex: "0 0 168px", height: 34, display: "flex", alignItems: "center" }} title="NKR chart placeholder — live feed later">
-              <svg viewBox="0 0 168 34" width="168" height="34" aria-hidden="true">
+            <div style={{ flex: "0 0 120px", height: 22, display: "flex", alignItems: "center" }} title="NKR chart placeholder — live feed later">
+              <svg viewBox="0 0 168 34" width="120" height="22" aria-hidden="true">
                 <path d="M0 22 C18 22 22 10 36 14 C50 18 58 8 72 11 C86 14 96 24 110 16 C124 8 136 6 148 12 L168 18" fill="none" stroke="rgba(125,255,194,0.85)" strokeWidth="1.7" strokeLinejoin="round" />
                 <path d="M0 22 C18 22 22 10 36 14 C50 18 58 8 72 11 C86 14 96 24 110 16 C124 8 136 6 148 12 L168 18 L168 34 L0 34 Z" fill="rgba(125,255,194,0.10)" />
               </svg>

@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD477-BUY-NKR-TICKER";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD478-NKR-TOKEN-STRIP";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -1440,6 +1440,15 @@ function makeNexusSessionId(prefix = "NS") {
 // ------------------------
 // Info button + modal (opaque, bilingual content)
 // ------------------------
+function formatNkrUsd(price) {
+  const p = Number(price);
+  if (!Number.isFinite(p) || p <= 0) return "";
+  if (p >= 0.01) return p.toFixed(4);
+  let s = p.toFixed(10);
+  s = s.replace(/0+$/, "").replace(/\.$/, "");
+  return s;
+}
+
 function Help({ de, en }) {
   return (
     <div className="helpBlock">
@@ -7531,6 +7540,7 @@ const byChain = {};
   const [presaleMsg, setPresaleMsg] = useState("");
   const [presalePanelOpen, setPresalePanelOpen] = useState(false);
   const [nkrSpot, setNkrSpot] = useState(null);
+  const [nkrTokenInfoOpen, setNkrTokenInfoOpen] = useState(false);
   const [presaleUsd, setPresaleUsd] = useState(20);
   const [presaleQuote, setPresaleQuote] = useState(null);
   const [billingPackBusy, setBillingPackBusy] = useState(false);
@@ -21202,15 +21212,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   }}
                 >
                   Buy NKR
-                  {nkrSpot && nkrSpot.price > 0 ? (
-                    <span style={{ marginLeft: 6, fontWeight: 700, opacity: 0.95 }}>
-                      ${nkrSpot.price >= 0.0001 ? nkrSpot.price.toFixed(6) : nkrSpot.price.toPrecision(3)}
-                      <span style={{
-                        marginLeft: 5,
-                        color: nkrSpot.change24h >= 0 ? "#b8ffd4" : "#ffb3b3",
-                      }}>
-                        {nkrSpot.change24h >= 0 ? "+" : ""}{nkrSpot.change24h.toFixed(1)}%
-                      </span>
+                  {nkrSpot && Number.isFinite(nkrSpot.change24h) ? (
+                    <span style={{
+                      marginLeft: 8,
+                      fontWeight: 800,
+                      color: nkrSpot.change24h >= 0 ? "#b8ffd4" : "#ffb3b3",
+                    }}>
+                      {nkrSpot.change24h >= 0 ? "+" : ""}{nkrSpot.change24h.toFixed(1)}%
                     </span>
                   ) : null}
                 </button>
@@ -22349,6 +22357,105 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
       <main className="main mobileStack">
         <div className={`dashboardGrid ${activePanel ? `hasFocus focus-${activePanel}` : ""}`}>
+        <section
+          className="card nkrTokenStrip"
+          style={{
+            gridColumn: "1 / -1",
+            minHeight: "auto",
+            padding: "12px 14px",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div style={{ minWidth: 220, flex: "1 1 280px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <b style={{ fontSize: 15 }}>NKR Token</b>
+                {nkrSpot && nkrSpot.price > 0 ? (
+                  <span style={{ fontWeight: 800 }}>
+                    ${formatNkrUsd(nkrSpot.price)}
+                    <span style={{
+                      marginLeft: 8,
+                      color: nkrSpot.change24h >= 0 ? "#8dffd0" : "#ff9b9b",
+                    }}>
+                      {nkrSpot.change24h >= 0 ? "+" : ""}{Number(nkrSpot.change24h).toFixed(1)}%
+                    </span>
+                    <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>24h</span>
+                  </span>
+                ) : (
+                  <span className="muted">Uniswap NKR/WETH</span>
+                )}
+                <button
+                  type="button"
+                  className="iconBtn"
+                  title="What is NKR?"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrTokenInfoOpen(true); }}
+                  style={{ width: 22, height: 22, fontSize: 13, fontWeight: 900 }}
+                >
+                  i
+                </button>
+              </div>
+              <div className="muted" style={{ marginTop: 6, fontSize: 12, lineHeight: 1.45 }}>
+                NKR is the Nexus token. Trading fees stay in a locked Uniswap pool — the circle cannot be withdrawn by anyone.
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                try {
+                  window.open(
+                    "https://app.uniswap.org/explore/tokens/ethereum/0xaa120cFc79C79830B13728a6ebdd379a572880C8",
+                    "_blank",
+                    "noopener,noreferrer"
+                  );
+                } catch (_) {}
+              }}
+              style={{
+                background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
+                border: "1px solid rgba(80,220,160,.45)",
+                fontWeight: 800,
+                whiteSpace: "nowrap",
+              }}
+            >
+              Buy on Uniswap
+            </button>
+          </div>
+        </section>
+        {nkrTokenInfoOpen ? (
+          <div
+            className="modalBackdrop"
+            onClick={() => setNkrTokenInfoOpen(false)}
+            style={{ zIndex: 99999 }}
+          >
+            <div className="modal modalHelp" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+              <div className="modalHead">
+                <div className="cardTitle">NKR Token</div>
+                <button className="iconBtn" type="button" onClick={() => setNkrTokenInfoOpen(false)}>×</button>
+              </div>
+              <div className="helpBody">
+                <Help
+                  de={
+                    <>
+                      <p><b>NKR</b> ist der Token von Nexus Analyt. Du kaufst ihn auf Uniswap (Pool NKR/WETH auf Ethereum).</p>
+                      <p><b>Geschlossener Kreis:</b> Ein Teil der System-Gebühren (2 % vom Gewinn) geht in den Liquidity-Vault. Ab ca. 100–1000 $ wird daraus wieder Liquidität in denselben, gesperrten Pool gelegt.</p>
+                      <p>Die Uniswap-Position (NFT) liegt im Vault. Niemand kann die LP abziehen — auch der Owner nicht.</p>
+                      <p>Nexus Core / Strategist zahlst du vorerst in USDC/USDT. NKR als Zahlung kommt erst, wenn der Token-Preis dafür reicht.</p>
+                      <p>NKR der Token ist nicht dasselbe wie Nexus NKR der Trader. Der Trader verwaltet Sessions. Der Token trägt den Kreis.</p>
+                    </>
+                  }
+                  en={
+                    <>
+                      <p><b>NKR</b> is the Nexus Analyt token. You buy it on Uniswap (NKR/WETH pool on Ethereum).</p>
+                      <p><b>Closed loop:</b> Part of system fees (2% of profit) goes to the liquidity vault. From about $100–$1000 it is added back into the same locked pool.</p>
+                      <p>The Uniswap position NFT sits in the vault. Nobody can pull the LP — including the owner.</p>
+                      <p>Nexus Core / Strategist is paid in USDC/USDT for now. Paying with NKR comes later, once the price supports it.</p>
+                      <p>The NKR token is not the Nexus NKR trader. The trader runs sessions. The token funds the loop.</p>
+                    </>
+                  }
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
         {/* Compare */}
         <section className={`card section-compare dashboardPanel ${activePanel === "compare" ? "panelActive" : ""}`} onClick={handlePanelActivate("compare")}>
           <div className="cardHead">

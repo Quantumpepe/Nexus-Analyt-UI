@@ -304,7 +304,7 @@ function _parseAiConclusionSections(aiExplainData = {}) {
     ];
     labels.forEach(([key, label], idx) => {
       if (base[key]) return;
-      const nextLabels = labels.slice(idx + 1).map(([, l]) => l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+      const nextLabels = labels.slice(idx + 1).map(([, l]) => l.replace(/[.*+?^${}()|[\]\\]/g, "\$&")).join("|");
       const re = nextLabels
         ? new RegExp(`${label}:\\s*([\\s\\S]*?)(?=\\s*(?:${nextLabels}):|$)`, "i")
         : new RegExp(`${label}:\\s*([\\s\\S]*)$`, "i");
@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.25-BUILD473-BUY-NKR-CLICK-OUTSIDE";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD474-WEEKLY-USDC-NKR-GATE";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7523,11 +7523,7 @@ const byChain = {};
     subPlan === "strategist_weekly" ? "Strategist Weekly" :
     subPlan === "strategist_monthly" ? "Strategist Monthly" :
     "Nexus Core";
-  const selectedSubPaymentAssets = subPlan === "strategist_weekly" ? ["NKR"] : ["USDT", "USDC"];
-  useEffect(() => {
-    if (subPlan === "strategist_weekly") setSubToken("NKR");
-    else if (subToken === "NKR") setSubToken("USDT");
-  }, [subPlan]);
+  const selectedSubPaymentAssets = ["USDT", "USDC"];
   const [subBusy, setSubBusy] = useState(false);
   const [subMsg, setSubMsg] = useState("");
   const [nkrPresale, setNkrPresale] = useState(null);
@@ -17169,7 +17165,7 @@ useInterval(fetchGridOrders, 30000, false);
     ].map((x) => String(x || "").toUpperCase().trim()).filter(Boolean)));
 
     const upper = text.toUpperCase();
-    const escapeRegExp = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escapeRegExp = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\$&");
     const fromKnown = known.find((sym) => sym && new RegExp(`\\b${escapeRegExp(sym)}\\b`).test(upper));
     if (fromKnown) return fromKnown;
 
@@ -21366,7 +21362,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 ) : (
                   <div>
                                         <div className="hint" style={{ marginBottom: 8 }}>
-                      Select <b>Nexus Core</b> or the separate <b>Strategist</b> add-on. Core and Monthly use <b>USDC/USDT</b>; Strategist Weekly uses <b>NKR only</b>.
+                      Select <b>Nexus Core</b> or the separate <b>Strategist</b> add-on. All plans use <b>USDC/USDT</b>. NKR payment unlocks later at $0.000009 live price.
                     </div>
 
                     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 10 }}>
@@ -21397,42 +21393,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
 
                     {subPlan === "strategist_weekly" ? (
-                      <div
-                        style={{
-                          marginBottom: 12,
-                          padding: 10,
-                          borderRadius: 12,
-                          border: "1px solid rgba(120,180,255,.4)",
-                          background: "rgba(20,40,70,.5)",
-                        }}
-                      >
-                        <div style={{ fontWeight: 800, fontSize: 13 }}>First: get NKR</div>
-                        <div className="muted tiny" style={{ marginTop: 6, lineHeight: 1.4 }}>
-                          Strategist Weekly is paid in <b>NKR only</b> (40,000 NKR).
-                          {nkrPresale?.presale_active !== false ? (
-                            <> Buy the <b>$20 Billing Pack</b> (~44,000 NKR with +10% bonus), then pay the plan.</>
-                          ) : (
-                            <> Buy NKR on the market, then return here to pay the plan.</>
-                          )}
-                        </div>
-                        {nkrPresale?.presale_active !== false ? (
-                          <button
-                            className="btn"
-                            type="button"
-                            disabled={billingPackBusy || !wallet}
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              buyNkrBillingPack();
-                            }}
-                            style={{ marginTop: 10, width: "100%" }}
-                          >
-                            {billingPackBusy ? "Confirm in wallet…" : "Buy $20 NKR Billing Pack (+10%)"}
-                          </button>
-                        ) : null}
-                        {billingPackMsg ? (
-                          <div className="muted tiny" style={{ marginTop: 8, wordBreak: "break-word" }}>{billingPackMsg}</div>
-                        ) : null}
+                      <div className="muted tiny" style={{ marginBottom: 10, lineHeight: 1.4 }}>
+                        Weekly is paid in <b>USDC/USDT</b> ($20 / 7 days). NKR payment unlocks only when the live NKR price reaches $0.000009.
                       </div>
                     ) : null}
 

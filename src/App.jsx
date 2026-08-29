@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD495-ACCESSREF-FIX";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD496-NKR-ENGINE-HISTORY";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9358,6 +9358,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // Existing sessions are preserved; new Trading/NKR sessions get their own session_id.
   const [tradingSessions, setTradingSessions] = useState([]);
   const [gridEventHistory, setGridEventHistory] = useState([]);
+  const [nkrEventHistory, setNkrEventHistory] = useState([]);
   const [traderEventHistory, setTraderEventHistory] = useState([]);
   const [activeTradingSessionId, setActiveTradingSessionId] = useState("");
   const [rotationSessions, setRotationSessions] = useState([]);
@@ -13323,15 +13324,17 @@ useEffect(() => {
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
   const loadEngineHistory = useCallback(async (engine) => {
     const upper = String(engine || "").toUpperCase();
-    if (!resolveWalletAddress(wallet) || !["GRID","TRADER"].includes(upper)) return;
+    if (!resolveWalletAddress(wallet) || !["GRID","NKR","TRADER"].includes(upper)) return;
     try {
       const r = await api(`/api/nexus/engine-history?engine=${upper}&limit=2000`, { wallet, token });
       const rows = Array.isArray(r?.events) ? r.events : [];
-      if (upper === "GRID") setGridEventHistory(rows); else setTraderEventHistory(rows);
+      if (upper === "GRID") setGridEventHistory(rows);
+      else if (upper === "NKR") setNkrEventHistory(rows);
+      else setTraderEventHistory(rows);
     } catch {}
   }, [wallet, token]);
 
-  useEffect(() => { loadEngineHistory("GRID"); loadEngineHistory("TRADER"); }, [loadEngineHistory]);
+  useEffect(() => { loadEngineHistory("GRID"); loadEngineHistory("NKR"); loadEngineHistory("TRADER"); }, [loadEngineHistory]);
 
   const [gridOrders, setGridOrders] = useState([]);
   const [gridOrdersOpen, setGridOrdersOpen] = useState(false);
@@ -13382,6 +13385,36 @@ useEffect(() => {
     const t=setTimeout(async () => { try { await api('/api/nexus/engine-history/sync', { method:'POST', wallet, token, body:{ engine:'TRADER', events } }); await loadEngineHistory('TRADER'); } catch {} }, 1100);
     return () => clearTimeout(t);
   }, [tradingSessions, wallet, token, loadEngineHistory]);
+
+  useEffect(() => {
+    const wa = resolveWalletAddress(wallet); if (!wa || !Array.isArray(rotationSessions)) return;
+    const events=[];
+    rotationSessions.forEach((s, si) => {
+      const slots=Array.isArray(s?.slots) ? s.slots : [s];
+      slots.forEach((slot, idx) => {
+        const meta=slot?.meta && typeof slot.meta === 'object' ? slot.meta : (s?.meta && typeof s.meta === 'object' ? s.meta : {});
+        const ts=Number(slot?.updated_ts || slot?.updatedTs || slot?.closed_at || slot?.opened_at || s?.updated_ts || s?.created_ts || Date.now());
+        const status=String(slot?.status || slot?.state || s?.status || 'SESSION').toUpperCase();
+        events.push({
+          eventKey:`NKR:${s?.id || s?.session_id || si}:${slot?.id || slot?.slot_id || idx}:${status}:${ts}`,
+          eventType:status,status,ts,
+          chain:slot?.chain || s?.chain || meta?.chain || '',
+          asset:slot?.symbol || slot?.asset || s?.symbol || s?.asset || meta?.symbol || '',
+          side:slot?.side || slot?.action || meta?.side || '',
+          priceUsd:Number(slot?.exit_price_usd || slot?.entry_price_usd || slot?.paper_mark_price || meta?.paper_mark_price || 0),
+          quantity:Number(slot?.quantity || slot?.qty || meta?.quantity || 0),
+          budgetUsd:Number(slot?.amountUsd || slot?.reserved_capital_usd || s?.budgetUsd || s?.budget || 0),
+          grossUsd:Number(slot?.grossUsd || slot?.gross_profit_usd || meta?.grossUsd || 0),
+          costsUsd:Number(slot?.costsUsd || slot?.fees_usd || meta?.costsUsd || 0),
+          netUsd:Number(slot?.netUsd || slot?.profitUsd || slot?.pnlUsd || meta?.netUsd || 0),
+          reason:slot?.reason || meta?.reason || s?.reason || '',
+          txHash:slot?.txHash || slot?.tx_hash || meta?.txHash || '',
+        });
+      });
+    });
+    const t=setTimeout(async () => { try { await api('/api/nexus/engine-history/sync', { method:'POST', wallet, token, body:{ engine:'NKR', events } }); await loadEngineHistory('NKR'); } catch {} }, 1000);
+    return () => clearTimeout(t);
+  }, [rotationSessions, wallet, token, loadEngineHistory]);
   const [gridSetupOpen, setGridSetupOpen] = useState(false);
   const [gridVaultStats, setGridVaultStats] = useState({ vault: 0, reserved: 0, free: 0 });
   // Helper: extract order id from different backend schemas
@@ -25930,6 +25963,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
                             </div>
                             <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                              <EngineEventHistory engine="NKR" events={nkrEventHistory} />
                               <b style={{ color: rotationShadowSnapshot?.status === "error" ? "#ff8a8a" : "#86efac" }}>Runtime: {rotationShadowRuntimeStatus}</b>
                               <b style={{ color: rotationShadowWorkStatus === "RUNNING" ? "#86efac" : "#ffd166" }}>Status: {rotationShadowWorkStatus}</b>
                               <b style={{ color: "#8bdcff" }}>Readiness: {rotationShadowReadiness}</b>

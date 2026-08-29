@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD494-ACCESS-NO-FLICKER";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD495-ACCESSREF-FIX";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7640,6 +7640,7 @@ const byChain = {};
   const accessRefreshBusyRef = useRef(false);
   const accessRefreshQueuedRef = useRef(false);
   const accessRequestSeqRef = useRef(0);
+  const accessRef = useRef(null);
   const [accessLoading, setAccessLoading] = useState(false);
   const [accessLastError, setAccessLastError] = useState("");
 

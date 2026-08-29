@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD491-BANNER-NO-FLICKER";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD493-WALLET-COLLAPSE";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3753,7 +3753,7 @@ const [errorMsg, setErrorMsg] = useState("");
   useEffect(() => {
     const t = setInterval(() => {
       setMarketBannerIndex((i) => (marketBannerItems.length ? (i + 1) % marketBannerItems.length : 0));
-    }, 8000);
+    }, 45000);
     return () => clearInterval(t);
   }, [marketBannerItems.length]);
 
@@ -21796,17 +21796,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         />
                       )}
                     </InfoButton>
-                    {walletPanelTab === "WALLET" && (
-                      <span
-                        className="muted"
-                        style={{ fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" }}
-                      >
-                        Only EVM-Chain
-                      </span>
-                    )}
-                  </div>
-                  <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
-                    {walletPanelTab === "WALLET" ? "Assets held in your personal embedded wallet" : "Protected capital and secured profit inside Nexus"}
                   </div>
                 </div>
                 <button className="iconBtn" type="button" onClick={() => setWalletModalOpen(false)} aria-label="Close">×</button>
@@ -21857,14 +21846,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     )}
                   </div>
 
-                  {balError ? <div style={{ marginTop: 8, color: "#ffb3b3", fontSize: 12 }}>Some network balances could not be loaded.</div> : null}
 
-                  <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
-
-                    {/* BUILD467: Privy Wallet Swap UI removed — user deferred wallet swap */}
-
-                                        <div style={{ fontWeight: 900, fontSize: 13 }}>Send asset</div>
-                    <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>Directly from your Privy Wallet to another wallet. No Vault approval is required.</div>
+                  <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
+                    <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer", listStyle: "none" }}>Send asset</summary>
                     <select className="input" value={walletSendAssetKey} onChange={(e) => { setWalletSendAssetKey(e.target.value); setWalletSendMsg(""); }} disabled={walletSendBusy || !walletAssetRows.length} style={{ width: "100%", height: 42, marginTop: 9 }}>
                       {walletAssetRows.map((row) => <option key={row.key} value={row.key}>{row.symbol} · {walletChainDisplayName(row.chain)} · {fmtQty(row.amount)}</option>)}
                     </select>
@@ -21877,7 +21861,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       {walletSendBusy ? "Sending…" : "Send from Privy Wallet"}
                     </button>
                     {walletSendMsg && <div className="muted" style={{ fontSize: 11, marginTop: 7, wordBreak: "break-word" }}>{walletSendMsg}</div>}
-                  </div>
+                  </details>
 
                   <button type="button" className="btnGhost" onClick={() => { setWalletAssetSecurityByKey({}); refreshBalances(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 10 }}>
                     {balLoading ? "Refreshing…" : "Refresh Wallet Assets"}
@@ -21927,7 +21911,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                       <div>
                         <div style={{ fontWeight: 900, fontSize: 12 }}>EVM Vault Network</div>
-                        <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>The five primary EVM networks are always visible. A network becomes live automatically when its V5 Vault is configured.</div>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 900, color: "#86efac" }}>{String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()}</span>
                     </div>
@@ -21962,14 +21945,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                   <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: coreVaultOverview.isShadow ? "rgba(255,193,7,0.10)" : "rgba(0,255,166,0.08)", border: coreVaultOverview.isShadow ? "1px solid rgba(255,193,7,0.32)" : "1px solid rgba(0,255,166,0.25)" }}>
                     <div style={{ fontWeight: 900 }}>Mode: {coreVaultOverview.mode}</div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>{coreVaultOverview.note || (coreVaultOverview.isShadow ? "Simulated funds only." : "Live Vault accounting starts at zero until a real deposit is confirmed.")}</div>
                   </div>
 
                   {hasCoreAccess ? (
                     <div style={{ marginTop: 9, padding: "9px 10px", borderRadius: 12, border: "1px solid rgba(139,220,255,.18)", background: "rgba(64,196,255,.045)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                       <div>
                         <div style={{ fontWeight: 900, fontSize: 12 }}>Shadow Mode</div>
-                        <div className="muted" style={{ fontSize: 10 }}>Show or hide all Shadow simulation controls. Core funds are never affected.</div>
                       </div>
                       <button type="button" className={shadowUiEnabled ? "btn" : "btnGhost"} onClick={() => setShadowVisibilityForWallet(!shadowUiEnabled)} style={{ minWidth: 82, height: 34 }}>
                         {shadowUiEnabled ? "ON" : "OFF"}
@@ -21977,16 +21958,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                   ) : null}
 
-                  <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                      <div>
-                        <div style={{ fontWeight: 900, fontSize: 13 }}>Live Core Vault</div>
-                        <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{`Real on-chain funds · ${CHAIN_LABELS?.[String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()] || String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()}`}</div>
-                      </div>
+                  <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
+                    <summary style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, cursor: "pointer", listStyle: "none" }}>
+                      <span style={{ fontWeight: 900, fontSize: 13 }}>Live Core Vault</span>
                       <span style={{ fontSize: 10, fontWeight: 900, color: coreVaultOnchain?.connected ? "#86efac" : "#ffb3b3" }}>
                         {coreVaultOnchainLoading ? "REFRESHING" : coreVaultOnchain?.connected ? "CONNECTED" : "UNAVAILABLE"}
                       </span>
-                    </div>
+                    </summary>
                     {(() => {
                       const tokenEntries = Object.entries(coreVaultOnchain?.tokens || {})
                         .map(([symbol, tokenState]) => {
@@ -22036,10 +22014,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       );
                     })()}
                     <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                      <span className="muted" style={{ fontSize: 10 }}>{shadowUiEnabled ? "This balance is separate from the Shadow values below." : "Shadow simulation is hidden. Enable Shadow Mode to display simulated accounting."}</span>
-                      <button type="button" className="miniBtn" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading || !wallet}>Refresh</button>
+                      <span />                      <button type="button" className="miniBtn" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading || !wallet}>Refresh</button>
                     </div>
-                  </div>
+                  </details>
 
                   {shadowUiEnabled ? (
                     <>
@@ -22074,9 +22051,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
                     </>
                   ) : null}
-                  <div style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
-                    <div style={{ fontWeight: 900, fontSize: 13 }}>Deposit to Vault</div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{`${CHAIN_LABELS?.[String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()] || String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()} · all assets detected in the connected wallet`}</div>
+                  <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
+                    <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer", listStyle: "none" }}>Deposit to Vault</summary>
                     <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr) 1fr", gap: 8, marginTop: 9 }}>
                       <select className="input" value={coreDepositAsset} onChange={(e) => { setCoreDepositAsset(e.target.value); setCoreDepositMsg(""); }} disabled={coreDepositBusy || !coreDepositWalletAssets.length} style={{ height: 42 }}>
                         {!coreDepositWalletAssets.length ? <option value="">No wallet assets found</option> : null}
@@ -22097,7 +22073,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       {coreDepositBusy ? "Processing…" : "Deposit to Vault"}
                     </button>
                     {coreDepositMsg && <div className="muted" style={{ fontSize: 11, marginTop: 7, wordBreak: "break-word" }}>{coreDepositMsg}</div>}
-                  </div>
+                  </details>
                   <button type="button" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
                   <button type="button" className="btnGhost" onClick={() => { refreshBalances(); refreshCoreVaultOnchain(); refreshCoreVaultAccounting(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
                 </>

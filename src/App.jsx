@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD478-NKR-TOKEN-STRIP";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD479-NKR-STRIP-CLEAN";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -22365,58 +22365,30 @@ const handlePanelActivate = useCallback((name) => (e) => {
             padding: "12px 14px",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
-            <div style={{ minWidth: 220, flex: "1 1 280px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <b style={{ fontSize: 15 }}>NKR Token</b>
-                {nkrSpot && nkrSpot.price > 0 ? (
-                  <span style={{ fontWeight: 800 }}>
-                    ${formatNkrUsd(nkrSpot.price)}
-                    <span style={{
-                      marginLeft: 8,
-                      color: nkrSpot.change24h >= 0 ? "#8dffd0" : "#ff9b9b",
-                    }}>
-                      {nkrSpot.change24h >= 0 ? "+" : ""}{Number(nkrSpot.change24h).toFixed(1)}%
-                    </span>
-                    <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>24h</span>
-                  </span>
-                ) : (
-                  <span className="muted">Uniswap NKR/WETH</span>
-                )}
-                <button
-                  type="button"
-                  className="iconBtn"
-                  title="What is NKR?"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrTokenInfoOpen(true); }}
-                  style={{ width: 22, height: 22, fontSize: 13, fontWeight: 900 }}
-                >
-                  i
-                </button>
-              </div>
-              <div className="muted" style={{ marginTop: 6, fontSize: 12, lineHeight: 1.45 }}>
-                NKR is the Nexus token. Trading fees stay in a locked Uniswap pool — the circle cannot be withdrawn by anyone.
-              </div>
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <b style={{ fontSize: 15 }}>NKR Token</b>
+            {nkrSpot && nkrSpot.price > 0 ? (
+              <span style={{ fontWeight: 800 }}>
+                ${formatNkrUsd(nkrSpot.price)}
+                <span style={{
+                  marginLeft: 8,
+                  color: nkrSpot.change24h >= 0 ? "#8dffd0" : "#ff9b9b",
+                }}>
+                  {nkrSpot.change24h >= 0 ? "+" : ""}{Number(nkrSpot.change24h).toFixed(1)}%
+                </span>
+                <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>24h</span>
+              </span>
+            ) : (
+              <span className="muted">Uniswap NKR/WETH</span>
+            )}
             <button
               type="button"
-              className="btn"
-              onClick={() => {
-                try {
-                  window.open(
-                    "https://app.uniswap.org/explore/tokens/ethereum/0xaa120cFc79C79830B13728a6ebdd379a572880C8",
-                    "_blank",
-                    "noopener,noreferrer"
-                  );
-                } catch (_) {}
-              }}
-              style={{
-                background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
-                border: "1px solid rgba(80,220,160,.45)",
-                fontWeight: 800,
-                whiteSpace: "nowrap",
-              }}
+              className="iconBtn"
+              title="What is NKR?"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrTokenInfoOpen(true); }}
+              style={{ width: 22, height: 22, fontSize: 13, fontWeight: 900 }}
             >
-              Buy on Uniswap
+              i
             </button>
           </div>
         </section>
@@ -22426,7 +22398,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
             onClick={() => setNkrTokenInfoOpen(false)}
             style={{ zIndex: 99999 }}
           >
-            <div className="modal modalHelp" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <div
+              className="modal modalHelp"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+                maxHeight: "82vh",
+                overflowY: "auto",
+                maxWidth: 560,
+              }}
+            >
               <div className="modalHead">
                 <div className="cardTitle">NKR Token</div>
                 <button className="iconBtn" type="button" onClick={() => setNkrTokenInfoOpen(false)}>×</button>

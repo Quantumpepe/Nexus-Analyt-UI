@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD485-NKR-STRIP-CHART";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD486-NKR-STRIP-STICKY";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -22409,13 +22409,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
 </header>
 
       <main className="main mobileStack">
-        <div className={`dashboardGrid ${activePanel ? `hasFocus focus-${activePanel}` : ""}`}>
         <section
           className="card nkrTokenStrip"
           style={{
-            gridColumn: "1 / -1",
             minHeight: "auto",
             padding: "12px 14px",
+            marginBottom: 14,
+            position: "sticky",
+            top: 8,
+            zIndex: 40,
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
@@ -22498,6 +22500,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
         ) : null}
+        <div className={`dashboardGrid ${activePanel ? `hasFocus focus-${activePanel}` : ""}`}>
         {/* Compare */}
         <section className={`card section-compare dashboardPanel ${activePanel === "compare" ? "panelActive" : ""}`} onClick={handlePanelActivate("compare")}>
           <div className="cardHead">

@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD479-NKR-STRIP-CLEAN";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD485-NKR-STRIP-CHART";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -1447,6 +1447,14 @@ function formatNkrUsd(price) {
   let s = p.toFixed(10);
   s = s.replace(/0+$/, "").replace(/\.$/, "");
   return s;
+}
+
+function formatNkrMoney(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return "—";
+  if (v >= 1000) return `$${Math.round(v).toLocaleString("en-US")}`;
+  if (v >= 100) return `$${v.toFixed(0)}`;
+  return `$${v.toFixed(0)}`;
 }
 
 function Help({ de, en }) {
@@ -7613,6 +7621,9 @@ const byChain = {};
         setNkrSpot({
           price: Number.isFinite(px) ? px : 0,
           change24h: Number.isFinite(ch) ? ch : 0,
+          liq: Number(pair?.liquidity?.usd || 0),
+          vol: Number(pair?.volume?.h24 || 0),
+          mcap: Number(pair?.fdv || pair?.marketCap || 0),
         });
       } catch (_) {}
     };
@@ -20861,11 +20872,53 @@ const handlePanelActivate = useCallback((name) => (e) => {
 `}</style>
 <header className="topbar">
         <div className="brand">
-          <div className="logoBox" title="Logo placeholder">
-            <svg viewBox="0 0 64 64" className="logoSvg" aria-hidden="true">
-              <path d="M32 6 54 18v28L32 58 10 46V18L32 6Z" className="logoHex" />
-              <path d="M32 14 46 22v20L32 50 18 42V22l14-8Z" className="logoInner" />
-              <circle cx="32" cy="32" r="4" className="logoDot" />
+          <div
+            className="logoBox"
+            title="Nexus-Analyt"
+            style={{
+              width: 58,
+              height: 58,
+              borderRadius: "50%",
+              overflow: "visible",
+              background: "transparent",
+              border: "none",
+              boxShadow: "none",
+              padding: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <svg viewBox="0 0 80 80" className="logoSvg" aria-hidden="true" width="58" height="58">
+              <defs>
+                <filter id="nkrLogoSoftGlow" x="-45%" y="-45%" width="190%" height="190%">
+                  <feGaussianBlur stdDeviation="1.35" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <path id="nkrLogoTextPath" d="M40,40 m-29.5,0 a29.5,29.5 0 1,1 59,0 a29.5,29.5 0 1,1 -59,0" />
+              </defs>
+              <circle cx="40" cy="40" r="39" fill="#071512" />
+              <circle cx="40" cy="40" r="33.6" fill="none" stroke="#7dffc2" strokeWidth="1.6" opacity="0.55" filter="url(#nkrLogoSoftGlow)" />
+              <text
+                fill="#7dffc2"
+                fontSize="6.05"
+                fontWeight="800"
+                letterSpacing="1.35"
+                fontFamily="Orbitron, Rajdhani, Segoe UI, sans-serif"
+                filter="url(#nkrLogoSoftGlow)"
+              >
+                <textPath href="#nkrLogoTextPath" startOffset="0%">
+                  NEXUS-ANALYT · NEXUS-ANALYT ·
+                </textPath>
+              </text>
+              <path
+                d="M27 56V24h8.4L42.8 43.6V24H53v32h-8.4L38.8 36.4V56H27Z"
+                fill="#7dffc2"
+                filter="url(#nkrLogoSoftGlow)"
+              />
             </svg>
           </div>
           <div>
@@ -22365,28 +22418,36 @@ const handlePanelActivate = useCallback((name) => (e) => {
             padding: "12px 14px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <b style={{ fontSize: 15 }}>NKR Token</b>
-            {nkrSpot && nkrSpot.price > 0 ? (
-              <span style={{ fontWeight: 800 }}>
-                ${formatNkrUsd(nkrSpot.price)}
-                <span style={{
-                  marginLeft: 8,
-                  color: nkrSpot.change24h >= 0 ? "#8dffd0" : "#ff9b9b",
-                }}>
-                  {nkrSpot.change24h >= 0 ? "+" : ""}{Number(nkrSpot.change24h).toFixed(1)}%
+          <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
+            <b style={{ fontSize: 15, flex: "0 0 auto", minWidth: 92 }}>NKR Token</b>
+            <div style={{ flex: "1 1 auto", textAlign: "center" }}>
+              {nkrSpot && nkrSpot.price > 0 ? (
+                <span style={{ fontWeight: 800, fontSize: 15 }}>
+                  ${formatNkrUsd(nkrSpot.price)}
+                  <span style={{
+                    marginLeft: 8,
+                    color: nkrSpot.change24h >= 0 ? "#8dffd0" : "#ff9b9b",
+                  }}>
+                    {nkrSpot.change24h >= 0 ? "+" : ""}{Number(nkrSpot.change24h).toFixed(1)}%
+                  </span>
+                  <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>24h</span>
                 </span>
-                <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>24h</span>
-              </span>
-            ) : (
-              <span className="muted">Uniswap NKR/WETH</span>
-            )}
+              ) : (
+                <span className="muted">Uniswap NKR/WETH</span>
+              )}
+            </div>
+            <div style={{ flex: "0 0 168px", height: 34, display: "flex", alignItems: "center" }} title="NKR chart placeholder — live feed later">
+              <svg viewBox="0 0 168 34" width="168" height="34" aria-hidden="true">
+                <path d="M0 22 C18 22 22 10 36 14 C50 18 58 8 72 11 C86 14 96 24 110 16 C124 8 136 6 148 12 L168 18" fill="none" stroke="rgba(125,255,194,0.85)" strokeWidth="1.7" strokeLinejoin="round" />
+                <path d="M0 22 C18 22 22 10 36 14 C50 18 58 8 72 11 C86 14 96 24 110 16 C124 8 136 6 148 12 L168 18 L168 34 L0 34 Z" fill="rgba(125,255,194,0.10)" />
+              </svg>
+            </div>
             <button
               type="button"
               className="iconBtn"
               title="What is NKR?"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrTokenInfoOpen(true); }}
-              style={{ width: 22, height: 22, fontSize: 13, fontWeight: 900 }}
+              style={{ width: 22, height: 22, fontSize: 13, fontWeight: 900, flex: "0 0 auto" }}
             >
               i
             </button>

@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD474-WEEKLY-USDC-NKR-GATE";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD475-BUY-NKR-UNISWAP";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -21157,11 +21157,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setPresalePanelOpen((v) => !v);
                     setBillingMenuOpen(false);
-                    try { refreshNkrPresale(true); } catch (_) {}
+                    setPresalePanelOpen(false);
+                    try {
+                      window.open(
+                        "https://app.uniswap.org/explore/tokens/ethereum/0xaa120cFc79C79830B13728a6ebdd379a572880C8",
+                        "_blank",
+                        "noopener,noreferrer"
+                      );
+                    } catch (_) {}
                   }}
-                  title="Buy NKR in presale (0.0005 USD, no bonus)"
+                  title="Buy NKR on Uniswap (NKR/WETH pool)"
                   style={{
                     marginLeft: 4,
                     background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",

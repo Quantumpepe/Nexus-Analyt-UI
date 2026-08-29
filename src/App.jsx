@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD493-WALLET-COLLAPSE";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD494-ACCESS-NO-FLICKER";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7674,7 +7674,7 @@ const byChain = {};
     const requestSeq = ++accessRequestSeqRef.current;
     accessRefreshBusyRef.current = true;
     accessRefreshQueuedRef.current = false;
-    setAccessLoading(true);
+    if (force || !accessRef.current) setAccessLoading(true);
     setAccessLastError("");
 
     try {
@@ -7743,6 +7743,7 @@ const byChain = {};
   }, [accessWalletKey, refreshAccess]);
 
   // Pro access: subscription or redeem code
+  accessRef.current = access;
   const isPro = !!(access?.active);
   const strategistActive = !!(access?.strategist_active || access?.strategist_access?.active);
   const canUseStrategist = !!(access?.can_use_strategist || strategistActive || access?.is_demo || access?.mode === "DEMO" || access?.mode === "EXPIRED" || (access && !access?.active && !access?.is_live));
@@ -21399,12 +21400,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 {isPro ? (
                   <>
                     Access: <span className="pillOn">ACTIVE</span>
-                    {accessLoading ? <span style={{ marginLeft: 6, opacity: 0.65 }}>syncing…</span> : null}
-                    {access?.until ? (
-                      <span style={{ marginLeft: 6 }}>
-                        until {new Date(access.until).toLocaleDateString()}
-                      </span>
-                    ) : null}
                   </>
                 ) : accessLoading && !access ? (
                   <>

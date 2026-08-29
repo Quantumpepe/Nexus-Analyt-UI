@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD489-NKR-IN-BANNER";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD490-BILLING-CLEAN";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7549,6 +7549,7 @@ const byChain = {};
   const [presalePanelOpen, setPresalePanelOpen] = useState(false);
   const [nkrSpot, setNkrSpot] = useState(null);
   const [nkrTokenInfoOpen, setNkrTokenInfoOpen] = useState(false);
+  const [accessHelpOpen, setAccessHelpOpen] = useState(false);
   const [presaleUsd, setPresaleUsd] = useState(20);
   const [presaleQuote, setPresaleQuote] = useState(null);
   const [billingPackBusy, setBillingPackBusy] = useState(false);
@@ -21457,7 +21458,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <div className="cardTitle" style={{ margin: 0 }}>Access</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div className="cardTitle" style={{ margin: 0 }}>Access</div>
+                    <button
+                      type="button"
+                      className="iconBtn"
+                      title="Access info"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAccessHelpOpen(true); }}
+                      style={{ width: 22, height: 22, fontSize: 13, fontWeight: 900 }}
+                    >
+                      i
+                    </button>
+                  </div>
                   <button
                     className="iconBtn"
                     type="button"
@@ -21471,18 +21483,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ×
                   </button>
                 </div>
-
-                <div className="muted" style={{ marginTop: 8 }}>
-                Redeem a permanent code, or subscribe to unlock <b>Trading + AI</b>.
-                </div>
-
-                {nkrPresale && nkrPresale.phase_label === "market" ? (
-                  <div className="muted tiny" style={{ marginTop: 10 }}>
-                    NKR presale ended — buy NKR on the open market for Strategist plans.
-                  </div>
-                ) : null}
-
-                <div className="hr" style={{ margin: "12px 0" }} />
 
 {accessTab === "redeem" ? (
                   <div>
@@ -21502,42 +21502,24 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : (
                   <div>
-                                        <div className="hint" style={{ marginBottom: 8 }}>
-                      Select <b>Nexus Core</b> or the separate <b>Strategist</b> add-on. All plans use <b>USDC/USDT</b>. NKR payment unlocks later at $0.000009 live price.
+                                        <div
+                      className="btnGhost active"
+                      style={{
+                        textAlign: "left",
+                        marginBottom: 12,
+                        borderColor: "rgba(57,217,138,0.45)",
+                        background: "rgba(57,217,138,0.10)",
+                        cursor: "default",
+                      }}
+                    >
+                      {subPlan === "strategist_weekly" ? (
+                        <b>Strategist Weekly · ${STRATEGIST_WEEKLY_PRICE_USD}/7 days</b>
+                      ) : subPlan === "strategist_monthly" ? (
+                        <b>Strategist Monthly · ${STRATEGIST_MONTHLY_PRICE_USD}/30 days</b>
+                      ) : (
+                        <b>Nexus Core · ${SUB_PRICE_USD}/30 days</b>
+                      )}
                     </div>
-
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8, marginBottom: 10 }}>
-                      <button
-                        type="button"
-                        className={`btnGhost ${subPlan === "core" ? "active" : ""}`}
-                        onClick={() => { setSubPlan("core"); setSubMsg(""); }}
-                        style={{ textAlign: "left", borderColor: subPlan === "core" ? "rgba(57,217,138,0.45)" : undefined, background: subPlan === "core" ? "rgba(57,217,138,0.10)" : undefined }}
-                      >
-                        <b>Nexus Core</b> · ${SUB_PRICE_USD}/30 days · AI Insight included
-                      </button>
-                      <button
-                        type="button"
-                        className={`btnGhost ${subPlan === "strategist_weekly" ? "active" : ""}`}
-                        onClick={() => { setSubPlan("strategist_weekly"); setSubMsg(""); }}
-                        style={{ textAlign: "left", borderColor: subPlan === "strategist_weekly" ? "rgba(57,217,138,0.45)" : undefined, background: subPlan === "strategist_weekly" ? "rgba(57,217,138,0.10)" : undefined }}
-                      >
-                        <b>Strategist Weekly</b> · ${STRATEGIST_WEEKLY_PRICE_USD}/7 days
-                      </button>
-                      <button
-                        type="button"
-                        className={`btnGhost ${subPlan === "strategist_monthly" ? "active" : ""}`}
-                        onClick={() => { setSubPlan("strategist_monthly"); setSubMsg(""); }}
-                        style={{ textAlign: "left", borderColor: subPlan === "strategist_monthly" ? "rgba(57,217,138,0.45)" : undefined, background: subPlan === "strategist_monthly" ? "rgba(57,217,138,0.10)" : undefined }}
-                      >
-                        <b>Strategist Monthly</b> · ${STRATEGIST_MONTHLY_PRICE_USD}/30 days · best value
-                      </button>
-                    </div>
-
-                    {subPlan === "strategist_weekly" ? (
-                      <div className="muted tiny" style={{ marginBottom: 10, lineHeight: 1.4 }}>
-                        Weekly is paid in <b>USDC/USDT</b> ($20 / 7 days). NKR payment unlocks only when the live NKR price reaches $0.000009.
-                      </div>
-                    ) : null}
 
                     <div className="formRow" style={{ marginBottom: 10 }}>
                       <label className="label">Billing email (optional)</label>
@@ -21632,9 +21614,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     {subMsg ? <div className="hint" style={{ marginTop: 8 }}>{subMsg}</div> : null}
 
-                    <div className="hint" style={{ marginTop: 10, opacity: 0.8 }}>
-                      Note: You must have enough funds for the plan amount plus <b>{subChain}</b> gas.
-                    </div>
                   </div>
                 )}
 
@@ -21690,24 +21669,49 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : null}
 
-                <div className="hint" style={{ marginTop: 14 }}>
-                  Status: {isPro ? "ACTIVE" : "OFF"}
-                  {access?.source ? ` • via ${access.source}` : ""}
-                </div>
-                {!isPro ? (
-                  <div className="hint" style={{ marginTop: 8, opacity: 0.86 }}>
-                    Demo AI: {demoAiUsedToday}/{demoAiDailyLimit} today · {demoAiMonthDaysUsed}/{demoAiMonthDaysLimit} days this month. Simulation only.
-                  </div>
-                ) : (
-                  <div className="hint" style={{ marginTop: 8, opacity: 0.86 }}>
-                    Core active. AI Insight included. Strategist: {strategistActive ? "ACTIVE" : "separate add-on ($20/7d or $50/30d)"}.
-                  </div>
-                )}
               </div>
             </>
           )}
             </div>
           )}
+
+
+          {accessHelpOpen ? (
+            <div className="modalBackdrop" onClick={() => setAccessHelpOpen(false)} style={{ zIndex: 99999 }}>
+              <div
+                className="modal modalHelp"
+                onClick={(e) => e.stopPropagation()}
+                style={{ background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))", maxHeight: "82vh", overflowY: "auto", maxWidth: 560 }}
+              >
+                <div className="modalHead">
+                  <div className="cardTitle">Access</div>
+                  <button className="iconBtn" type="button" onClick={() => setAccessHelpOpen(false)}>×</button>
+                </div>
+                <div className="helpBody">
+                  <Help
+                    de={
+                      <>
+                        <p>Pläne wählst du oben unter <b>Billing</b>. Das Fenster zeigt nur den gewählten Plan.</p>
+                        <p><b>Nexus Core</b> — 30 Tage Trading + AI Insight, Zahlung USDC/USDT.</p>
+                        <p><b>Strategist</b> — Extra für den Strategisten, 7 oder 30 Tage, Zahlung USDC/USDT.</p>
+                        <p>Zahlen mit NKR kommt erst, wenn der Live-Preis 0,000009 $ erreicht.</p>
+                        <p>Redeem-Code schaltet dauerhaft frei. Im Wallet muss der Planbetrag plus Gas liegen.</p>
+                      </>
+                    }
+                    en={
+                      <>
+                        <p>Pick a plan under <b>Billing</b>. This window only shows the plan you selected.</p>
+                        <p><b>Nexus Core</b> — 30 days trading + AI Insight, paid in USDC/USDT.</p>
+                        <p><b>Strategist</b> — add-on for Strategist, 7 or 30 days, paid in USDC/USDT.</p>
+                        <p>Paying with NKR unlocks when the live price reaches $0.000009.</p>
+                        <p>A redeem code unlocks permanently. Keep the plan amount plus gas in the wallet.</p>
+                      </>
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+          ) : null}
 
 {/* Nexus Core Vault wallet panel (top-right dropdown) */}
           {walletModalOpen && (

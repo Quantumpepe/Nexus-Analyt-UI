@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD488-NKR-STRIP-COMPACT";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD489-NKR-IN-BANNER";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -19632,13 +19632,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
         .desktopMarketDeskPanel {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 185px;
+          grid-template-columns: minmax(0, 1fr) auto 185px;
           align-items: center;
-          gap: 16px;
+          gap: 12px;
           height: 74px;
           min-height: 74px;
-          flex: 1 1 720px;
-          max-width: 820px;
+          flex: 1 1 760px;
+          max-width: 980px;
           min-width: 360px;
           margin: 0 18px 0 28px;
           padding: 0;
@@ -20939,6 +20939,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="marketDeskKicker">{activeMarketBanner?.label || "Nexus Market Desk"}</div>
             <div className="marketDeskHeadline">{activeMarketBanner?.value || "Loading liquidity, volatility and risk…"}</div>
             <div className="marketDeskDetail">{activeMarketBanner?.detail || "Smart global market intelligence rotates every 8 seconds."}</div>
+          </div>
+          <div
+            className="nkrBannerChip"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              minWidth: 0,
+              padding: "6px 8px 6px 10px",
+              borderRadius: 12,
+              border: "1px solid rgba(125,255,194,0.22)",
+              background: "rgba(7,21,18,0.55)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 800, color: "rgba(221,255,247,0.78)" }}>NKR</span>
+            {nkrSpot && nkrSpot.price > 0 ? (
+              <span style={{ fontWeight: 800, fontSize: 12, color: "#d9fff0" }}>
+                ${formatNkrUsd(nkrSpot.price)}
+                <span style={{ marginLeft: 6, color: nkrSpot.change24h >= 0 ? "#8dffd0" : "#ff9b9b" }}>
+                  {nkrSpot.change24h >= 0 ? "+" : ""}{Number(nkrSpot.change24h).toFixed(1)}%
+                </span>
+              </span>
+            ) : (
+              <span className="muted" style={{ fontSize: 11 }}>Uniswap</span>
+            )}
+            <svg viewBox="0 0 72 20" width="72" height="18" aria-hidden="true">
+              <path d="M0 13 C8 13 10 6 16 8 C22 10 26 5 32 6 C38 7 42 14 50 9 C58 4 64 4 72 10" fill="none" stroke="rgba(125,255,194,0.9)" strokeWidth="1.5" />
+            </svg>
+            <button
+              type="button"
+              className="iconBtn"
+              title="What is NKR?"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrTokenInfoOpen(true); }}
+              style={{ width: 18, height: 18, fontSize: 11, fontWeight: 900 }}
+            >
+              i
+            </button>
           </div>
           <div className="marketDeskChartBox">
             <div className="marketDeskMetric">{activeMarketBanner?.metric || "—"}</div>
@@ -22409,57 +22447,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 </header>
 
       <main className="main mobileStack">
-        <section
-          className="card nkrTokenStrip"
-          style={{
-            minHeight: 42,
-            height: 42,
-            width: "min(720px, calc(100% - 48px))",
-            maxWidth: 720,
-            padding: "0 16px",
-            margin: "0 auto 14px",
-            position: "sticky",
-            top: 8,
-            zIndex: 40,
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", height: "100%", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
-            <b style={{ fontSize: 14, flex: "0 0 auto" }}>NKR Token</b>
-            <div style={{ flex: "1 1 auto", textAlign: "center", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {nkrSpot && nkrSpot.price > 0 ? (
-                <span style={{ fontWeight: 800, fontSize: 14 }}>
-                  ${formatNkrUsd(nkrSpot.price)}
-                  <span style={{
-                    marginLeft: 8,
-                    color: nkrSpot.change24h >= 0 ? "#8dffd0" : "#ff9b9b",
-                  }}>
-                    {nkrSpot.change24h >= 0 ? "+" : ""}{Number(nkrSpot.change24h).toFixed(1)}%
-                  </span>
-                  <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>24h</span>
-                </span>
-              ) : (
-                <span className="muted">Uniswap NKR/WETH</span>
-              )}
-            </div>
-            <div style={{ flex: "0 0 120px", height: 22, display: "flex", alignItems: "center" }} title="NKR chart placeholder — live feed later">
-              <svg viewBox="0 0 168 34" width="120" height="22" aria-hidden="true">
-                <path d="M0 22 C18 22 22 10 36 14 C50 18 58 8 72 11 C86 14 96 24 110 16 C124 8 136 6 148 12 L168 18" fill="none" stroke="rgba(125,255,194,0.85)" strokeWidth="1.7" strokeLinejoin="round" />
-                <path d="M0 22 C18 22 22 10 36 14 C50 18 58 8 72 11 C86 14 96 24 110 16 C124 8 136 6 148 12 L168 18 L168 34 L0 34 Z" fill="rgba(125,255,194,0.10)" />
-              </svg>
-            </div>
-            <button
-              type="button"
-              className="iconBtn"
-              title="What is NKR?"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrTokenInfoOpen(true); }}
-              style={{ width: 22, height: 22, fontSize: 13, fontWeight: 900, flex: "0 0 auto" }}
-            >
-              i
-            </button>
-          </div>
-        </section>
-        {nkrTokenInfoOpen ? (
+{nkrTokenInfoOpen ? (
           <div
             className="modalBackdrop"
             onClick={() => setNkrTokenInfoOpen(false)}

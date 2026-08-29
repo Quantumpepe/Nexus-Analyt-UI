@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD475-BUY-NKR-UNISWAP";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD477-BUY-NKR-TICKER";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7530,6 +7530,7 @@ const byChain = {};
   const [presaleBusy, setPresaleBusy] = useState(false);
   const [presaleMsg, setPresaleMsg] = useState("");
   const [presalePanelOpen, setPresalePanelOpen] = useState(false);
+  const [nkrSpot, setNkrSpot] = useState(null);
   const [presaleUsd, setPresaleUsd] = useState(20);
   const [presaleQuote, setPresaleQuote] = useState(null);
   const [billingPackBusy, setBillingPackBusy] = useState(false);
@@ -7585,6 +7586,30 @@ const byChain = {};
     }, 60000);
     return () => clearInterval(id);
   }, [wallet, refreshNkrPresale]);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await fetch(
+          "https://api.dexscreener.com/latest/dex/pairs/ethereum/0x099d9a4626137572fbc0fa49cd73d78c554558f5",
+          { cache: "no-store" }
+        );
+        const j = await r.json();
+        const pair = j?.pair || (Array.isArray(j?.pairs) ? j.pairs[0] : null);
+        if (!alive || !pair) return;
+        const px = Number(pair.priceUsd || pair.priceNative || 0);
+        const ch = Number(pair?.priceChange?.h24 ?? pair?.priceChange?.h6 ?? pair?.priceChange?.h1 ?? 0);
+        setNkrSpot({
+          price: Number.isFinite(px) ? px : 0,
+          change24h: Number.isFinite(ch) ? ch : 0,
+        });
+      } catch (_) {}
+    };
+    load();
+    const id = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
 
   const [autoRenewMsg, setAutoRenewMsg] = useState("");
 
@@ -21177,6 +21202,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   }}
                 >
                   Buy NKR
+                  {nkrSpot && nkrSpot.price > 0 ? (
+                    <span style={{ marginLeft: 6, fontWeight: 700, opacity: 0.95 }}>
+                      ${nkrSpot.price >= 0.0001 ? nkrSpot.price.toFixed(6) : nkrSpot.price.toPrecision(3)}
+                      <span style={{
+                        marginLeft: 5,
+                        color: nkrSpot.change24h >= 0 ? "#b8ffd4" : "#ffb3b3",
+                      }}>
+                        {nkrSpot.change24h >= 0 ? "+" : ""}{nkrSpot.change24h.toFixed(1)}%
+                      </span>
+                    </span>
+                  ) : null}
                 </button>
                 {presalePanelOpen ? (
                   <div
@@ -31332,20 +31368,6 @@ export default function App() {
                   </div>
                 </details>
 
-                <div style={{ gridColumn: "span 4", marginTop: 2, border: "1px solid rgba(68,255,180,0.22)", borderRadius: 10, padding: 10, background: "rgba(0,255,140,0.045)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <b>NKR Liquidity Vault</b>
-                    <span style={{ color: systemInfoStatus?.nkrLiquidityVault?.status === "READY" ? "#8dffd0" : "#ffe08a", fontWeight: 900 }}>{systemInfoStatus?.nkrLiquidityVault?.status || "PREP ONLY"}</span>
-                  </div>
-                  <div className="muted" style={{ marginTop: 5, fontSize: 11 }}>200M NKR permanent liquidity reserve · Ethereum · official NKR/USDT pool only.</div>
-                  <div className="muted" style={{ marginTop: 4, fontSize: 10, wordBreak: "break-all" }}>Vault: {systemInfoStatus?.nkrLiquidityVault?.contractAddress || "Not deployed"}</div>
-                  <div className="muted" style={{ marginTop: 2, fontSize: 10, wordBreak: "break-all" }}>Pool: {systemInfoStatus?.nkrLiquidityVault?.poolAddress || "Not configured"}</div>
-                  <div style={{ display: "flex", gap: 7, marginTop: 8, flexWrap: "wrap" }}>
-                    <button type="button" className="miniBtn" disabled={!systemInfoStatus?.nkrLiquidityVault?.usdtFundingEnabled}>Add USDT</button>
-                    <button type="button" className="miniBtn" disabled={!systemInfoStatus?.nkrLiquidityVault?.executeLiquidityEnabled}>Execute Liquidity</button>
-                  </div>
-                  <div className="muted" style={{ marginTop: 6, fontSize: 10 }}>{systemInfoStatus?.nkrLiquidityVault?.note || "Contract not connected. Controls remain locked until the dedicated audited contract is connected."}</div>
-                </div>
 
                 <details style={{ gridColumn: "span 8", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 10, padding: 10 }}>
                   <summary style={{ cursor: "pointer", fontWeight: 800, opacity: 0.82 }}>Raw Build Payload (debug)</summary>

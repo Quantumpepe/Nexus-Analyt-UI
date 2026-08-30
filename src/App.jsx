@@ -431,7 +431,8 @@ function toUserFacingMessage(raw, fallback = "") {
   if (/aborted|aborterror|timeout/i.test(s)) return "Request timed out. Please try again.";
   // Strip long stack-ish or code-ish
   if (s.length > 160 || /traceback|exception|stack|typeerror|referenceerror/i.test(s)) {
-    return String(fallback || "Something went wrong. Please try again.");
+    const short = s.replace(/\s+/g, " ").slice(0, 140);
+    return String(fallback || "Something went wrong.") + (short ? " · " + short : "");
   }
   // Soft cleanup of underscores from enum-like tokens
   if (/^[A-Z0-9_]{3,}$/.test(s)) {
@@ -586,7 +587,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD505-SYSINFO-REASON";
+const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD506-START-ERROR-TEXT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {

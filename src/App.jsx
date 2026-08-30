@@ -393,6 +393,10 @@ const cloneNexusDefaultWatchItems = () => NEXUS_DEFAULT_WATCH_ITEMS.map((x) => (
 
 /** BUILD396: map internal/backend text to short user-facing copy. System Info stays raw. */
 function toUserFacingMessage(raw, fallback = "") {
+  if (raw && typeof raw === "object") {
+    raw = raw.reason || raw.message || raw.detail || raw.error || raw.status || raw.text || "";
+    if (raw && typeof raw === "object") raw = "";
+  }
   const s = String(raw ?? "").trim();
   if (!s) return String(fallback || "");
   const lower = s.toLowerCase();
@@ -540,7 +544,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD500-MOBILE-HEADER-ROW";;
+const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD501-REASON-OBJECT-SAFE";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3238,7 +3242,7 @@ function EngineEventHistory({ engine, events = [] }) {
             <div><b style={{ color: net > 0 ? "#86efac" : net < 0 ? "#ff8a8a" : "#8bdcff" }}>{ts ? new Date(ts * (ts < 1000000000000 ? 1000 : 1)).toLocaleString() : "—"} · {ev?.asset || ev?.symbol || "ASSET"} · {status}</b></div>
             <div>{ev?.chain || "—"} · {ev?.side || ev?.action || "—"}{Number(ev?.priceUsd || 0) > 0 ? ` @ ${fmtUsd(Number(ev.priceUsd))}` : ""}{Number(ev?.quantity || 0) > 0 ? ` · Qty ${fmtQty(Number(ev.quantity))}` : ""}</div>
             <div>Budget {fmtUsd(Number(ev?.budgetUsd || ev?.amountUsd || 0))} · Gross {fmtUsd(Number(ev?.grossUsd || 0))} · Costs {fmtUsd(Number(ev?.costsUsd || 0))} · Net {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
-            {ev?.reason ? <div>Reason: {ev.reason}</div> : null}{ev?.txHash ? <div className="mono">Tx: {ev.txHash}</div> : null}
+            {ev?.reason ? <div>Reason: {toUserFacingReason(ev.reason)}</div> : null}{ev?.txHash ? <div className="mono">Tx: {ev.txHash}</div> : null}
           </div>;
         }) : <div className="muted tiny">No saved {engine.toLowerCase()} events yet.</div>}
       </div>
@@ -21867,7 +21871,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             </div>
                           </div>
                           <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                            <span title={row.security?.reason || "Vault admission status"} style={{ color: tone, fontSize: 10, fontWeight: 900 }}>● {row.vaultLabel}</span>
+                            <span title={toUserFacingMessage(row.security?.reason, "Vault admission status")} style={{ color: tone, fontSize: 10, fontWeight: 900 }}>● {row.vaultLabel}</span>
                             {row.address && row.address !== "native" ? <span className="muted" style={{ fontFamily: "monospace", fontSize: 9 }}>{row.address.slice(0, 8)}…{row.address.slice(-6)}</span> : null}
                           </div>
                         </div>
@@ -26161,7 +26165,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           ) : (
                                             <>
                                               <div style={{ color: "rgba(232,242,240,.78)" }}>
-                                                {ev.text || ev.reason || ev.detail || "Status / monitor tick — not an on-chain buy."}
+                                                {toUserFacingMessage(ev.text || ev.reason || ev.detail, "Status / monitor tick — not an on-chain buy.")}
                                               </div>
                                               <div>Event {ev.event_id || ev.id || "—"} · no on-chain trade</div>
                                             </>
@@ -26587,7 +26591,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         return (
                                           <div key={`${sid}-log-${idx}`} className="muted tiny" style={{ border: "1px solid rgba(139,220,255,.10)", borderRadius: 8, padding: "6px 8px", background: "rgba(0,0,0,.12)" }}>
                                             <b style={{ color: st === "ACTIVE" ? "#7cf7a2" : st === "READY" ? "#8bdcff" : "#ffd166" }}>Slot #{slot?.slot || slot?.slot_id || idx + 1} · {st}</b> · score {Number.isFinite(score) ? Math.round(score) : 0}<br />
-                                            {slot?.condition || slot?.reason || slot?.message || slot?.note || "No detailed decision reason recorded yet."}
+                                            {toUserFacingMessage(slot?.condition || slot?.reason || slot?.message || slot?.note, "No detailed decision reason recorded yet.")}
                                           </div>
                                         );
                                       })}
@@ -26975,7 +26979,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   }}
                                 >{String(slot.status || "WAIT").toUpperCase()} · priority {Math.round(Number(slot.priority || 0))}</span>
                               </div>
-                              <div className="muted tiny">{slot.symbol || slot.asset || "asset pending"} · {slot.riskMode} · {slot.confidence} · {slot.condition || slot.reason}</div>
+                              <div className="muted tiny">{slot.symbol || slot.asset || "asset pending"} · {slot.riskMode} · {slot.confidence} · {toUserFacingMessage(slot.condition || slot.reason, "")}</div>
                               {(() => {
                                 const meta = slot?.meta && typeof slot.meta === "object" ? slot.meta : {};
                                 const pnlPct = Number(slot.paper_pnl_pct ?? meta.paper_pnl_pct);
@@ -27310,7 +27314,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           <b style={{ color: "#eafff5" }}>Slot {slot.slot || slot.slot_id || idx + 1} · {fmtUsd(getTradingSlotAmountUsd(slot))}</b>
                                           <span className="tiny" style={{ color: isActive || isReady ? "#7cf7a2" : isWait ? "#ffc107" : isExit ? "#8bdcff" : "rgba(235,255,247,.72)", fontWeight: 950 }}>{st}</span>
                                         </div>
-                                        <div className="muted tiny">{slot.symbol || slot.asset || sessionAsset} · {slot.reason || slot.message || slot.note || "Strategist slot state"}</div>
+                                        <div className="muted tiny">{slot.symbol || slot.asset || sessionAsset} · {toUserFacingMessage(slot.reason || slot.message || slot.note, "Strategist slot state")}</div>
                                         <div className="tiny" style={{ fontWeight: 900, display: "flex", gap: 6, flexWrap: "wrap" }}>
                                           <span style={{ color: gross >= 0 ? "#7cf7a2" : "#ff8a8a" }}>gross {gross >= 0 ? "+" : "-"}{fmtUsd(Math.abs(gross))}</span>
                                           <span style={{ color: "rgba(216,255,241,.68)" }}>·</span>
@@ -30889,7 +30893,7 @@ export default function App() {
                           Gate: {e?.gate_status || "—"}<br />
                           Decision: {e?.decision || "—"}<br />
                           Decision detail: {e?.decision_detail || "—"}<br />
-                          Reason: {e?.reason || "—"}<br />
+                          Reason: {toUserFacingMessage(e?.reason, "—")}<br />
                           Active asset: {e?.active_asset || "—"}<br />
                           Position: {e?.position_state || "—"}<br />
                           Position value: {Number(e?.position_value_usd || 0) > 0 ? fmtUsd(Number(e.position_value_usd)) : "—"}<br />

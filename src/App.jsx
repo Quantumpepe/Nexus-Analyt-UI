@@ -456,6 +456,24 @@ function toUserFacingMessage(raw, fallback = "") {
   return s;
 }
 
+
+function isGateObject(v) {
+  return !!(v && typeof v === "object" && !Array.isArray(v) && ("allowed" in v) && ("reason" in v) && (("sessionChain" in v) || ("resolvedChain" in v) || ("tokenContract" in v)));
+}
+function stripGateObjects(v) {
+  if (isGateObject(v)) {
+    const reason = v.reason || v.message || v.detail || "";
+    return typeof reason === "object" ? "" : String(reason || "");
+  }
+  if (Array.isArray(v)) return v.map(stripGateObjects);
+  if (v && typeof v === "object") {
+    const out = Array.isArray(v) ? [] : { ...v };
+    Object.keys(v).forEach((k) => { out[k] = stripGateObjects(v[k]); });
+    return out;
+  }
+  return v;
+}
+
 function toUserFacingReason(raw) {
   return toUserFacingMessage(raw, "Watching market for entry.");
 }
@@ -544,7 +562,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD501-REASON-OBJECT-SAFE";;
+const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD502-GATE-OBJECT-STRIP";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -14035,7 +14053,7 @@ useEffect(() => {
       }
       // Strategist snapshot for the public NKR panel (English only).
       if (r?.strategist && typeof r.strategist === "object") {
-        setNkrStrategistStatus(r.strategist);
+        setNkrStrategistStatus(stripGateObjects(r.strategist));
       }
     } catch (e) {
       console.warn("rotation session sync failed", e);

@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD497-LOGO-CUBES-NEXUS";;
+const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD498-HEADER-COMPACT";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7503,6 +7503,7 @@ const byChain = {};
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [accessTab, setAccessTab] = useState("redeem"); // 'redeem' | 'subscribe'
   const [billingMenuOpen, setBillingMenuOpen] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportCategory, setSupportCategory] = useState("General");
   const [supportSubject, setSupportSubject] = useState("");
@@ -21022,82 +21023,106 @@ const handlePanelActivate = useCallback((name) => (e) => {
               aria-label="Open wallet details"
               title="Open wallet details"
             >
-              {wallet
-                ? `Wallet: ${wallet.slice(0, 6)}…${wallet.slice(-4)}`
-                : authenticated
-                  ? "Wallet: loading…"
-                  : "Wallet not connected"}
+              {wallet || authenticated ? "Wallet" : "Wallet"}
             </button>
 
-            {wallet && (
+
+            <button
+              id="nkr-presale-buy-btn"
+              className="btn"
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setBillingMenuOpen(false);
+                setHeaderMenuOpen(false);
+                setPresalePanelOpen(false);
+                try {
+                  window.open(
+                    "https://app.uniswap.org/explore/tokens/ethereum/0xaa120cFc79C79830B13728a6ebdd379a572880C8",
+                    "_blank",
+                    "noopener,noreferrer"
+                  );
+                } catch (_) {}
+              }}
+              title="Buy NKR on Uniswap (NKR/WETH pool)"
+              style={{
+                height: 30,
+                padding: "0 10px",
+                fontSize: 12,
+                lineHeight: "30px",
+                background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
+                border: "1px solid rgba(80,220,160,.45)",
+                fontWeight: 800,
+                whiteSpace: "nowrap",
+                flex: "0 0 auto",
+              }}
+            >
+              Buy NKR
+              {nkrSpot && Number.isFinite(nkrSpot.change24h) ? (
+                <span style={{
+                  marginLeft: 6,
+                  fontWeight: 800,
+                  color: nkrSpot.change24h >= 0 ? "#b8ffd4" : "#ffb3b3",
+                }}>
+                  {nkrSpot.change24h >= 0 ? "+" : ""}{Number(nkrSpot.change24h).toFixed(1)}%
+                </span>
+              ) : null}
+            </button>
+            <div style={{ position: "relative", flex: "0 0 auto" }}>
               <button
                 type="button"
-                style={{
-                  cursor: "pointer",
-                  background: "transparent",
-                  color: "rgba(255,255,255,0.92)",
-                  border: "none",
-                  boxShadow: "none",
-                  padding: isCompactMobile ? "1px 2px" : "0 2px",
-                  margin: 0,
-                  fontSize: isCompactMobile ? 10 : 11,
-                  lineHeight: 1.08,
-                  fontWeight: 800,
-                  display: "inline-flex",
-                  flexDirection: "column",
-                  alignItems: "flex-start",
-                  justifyContent: "center",
-                  gap: 2,
-                  whiteSpace: "nowrap",
-                  minWidth: 0,
-                  maxWidth: isCompactMobile ? 132 : 190,
-                  overflow: "hidden",
-                  flex: "0 1 auto",
-                }}
-                data-nexus-wallet-trigger="1"
+                className="btnGhost"
+                aria-label="More"
+                title="More"
+                onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setWalletModalOpen((v) => !v);
+                  setHeaderMenuOpen((v) => !v);
+                  setBillingMenuOpen(false);
                 }}
-                title="Wallet value"
+                style={{ height: 30, minWidth: 34, padding: "0 10px", fontWeight: 900 }}
               >
-                <span style={{ display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  Value: {walletUsdLoading ? "Loading…" : fmtUsd(walletUsd?.total)}
-                </span>
+                ⋯
               </button>
-            )}
-
-            {/* External connect is EXPLICIT: only this button may open MetaMask */}
-            <button
-              type="button"
-              className="btn"
-              onMouseDown={(e) => {
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                // Use Privy auth state (wallet can be briefly empty while Privy initializes)
-                if (authenticated) disconnectWallet();
-                else connectWallet();
-              }}
-            >
-              {authenticated ? "Disconnect" : "Connect"}
-            </button>
-            <button
-              type="button"
-              className="btnGhost"
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setSupportOpen(true);
-                setSupportMsg("");
-              }}
-            >
-              Support
-            </button>
+              {headerMenuOpen ? (
+                <>
+                  <button type="button" aria-label="Close menu" onClick={() => setHeaderMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 3497, border: 0, background: "transparent", padding: 0 }} />
+                  <div
+                    role="menu"
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 6px)",
+                      right: 0,
+                      minWidth: 210,
+                      padding: 8,
+                      borderRadius: 12,
+                      zIndex: 3500,
+                      background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
+                      border: "1px solid rgba(255,255,255,0.10)",
+                      boxShadow: "0 14px 40px rgba(0,0,0,0.45)",
+                    }}
+                  >
+                    {wallet ? (
+                      <button className="btnGhost" type="button" role="menuitem" style={{ width: "100%", textAlign: "left", marginBottom: 6 }} onClick={() => { setHeaderMenuOpen(false); setBillingMenuOpen(true); }}>
+                        Billing
+                      </button>
+                    ) : null}
+                    <button className="btnGhost" type="button" role="menuitem" style={{ width: "100%", textAlign: "left", marginBottom: 6 }} onClick={() => { setHeaderMenuOpen(false); setSupportOpen(true); setSupportMsg(""); }}>
+                      Support
+                    </button>
+                    <button className="btnGhost" type="button" role="menuitem" style={{ width: "100%", textAlign: "left", marginBottom: 6 }} onClick={() => { setHeaderMenuOpen(false); if (authenticated) disconnectWallet(); else connectWallet(); }}>
+                      {authenticated ? "Disconnect" : "Connect"}
+                    </button>
+                    <div className="muted" style={{ fontSize: 11, padding: "6px 4px 2px" }}>
+                      Access: {isPro ? "ACTIVE" : accessLoading && !access ? "…" : "OFF"}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+            </div>
           </div>
 
           {supportOpen && (
@@ -21180,21 +21205,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           {wallet && (
             <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
               <div style={{ position: "relative" }}>
-                <button
-                  className="btnGhost"
-                  type="button"
-                  aria-haspopup="menu"
-                  aria-expanded={billingMenuOpen}
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setBillingMenuOpen((v) => !v);
-                  }}
-                  title="Billing and access"
-                >
-                  Billing {billingMenuOpen ? "▲" : "▼"}
-                </button>
+                {null}
 
                 {billingMenuOpen && (
                   <>
@@ -21286,44 +21297,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
               {/* BUILD469: Buy NKR as flex sibling — always visible when wallet connected */}
               <div style={{ position: "relative" }}>
-                <button
-                  id="nkr-presale-buy-btn"
-                  className="btn"
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setBillingMenuOpen(false);
-                    setPresalePanelOpen(false);
-                    try {
-                      window.open(
-                        "https://app.uniswap.org/explore/tokens/ethereum/0xaa120cFc79C79830B13728a6ebdd379a572880C8",
-                        "_blank",
-                        "noopener,noreferrer"
-                      );
-                    } catch (_) {}
-                  }}
-                  title="Buy NKR on Uniswap (NKR/WETH pool)"
-                  style={{
-                    marginLeft: 4,
-                    background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
-                    border: "1px solid rgba(80,220,160,.45)",
-                    fontWeight: 800,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  Buy NKR
-                  {nkrSpot && Number.isFinite(nkrSpot.change24h) ? (
-                    <span style={{
-                      marginLeft: 8,
-                      fontWeight: 800,
-                      color: nkrSpot.change24h >= 0 ? "#b8ffd4" : "#ffb3b3",
-                    }}>
-                      {nkrSpot.change24h >= 0 ? "+" : ""}{nkrSpot.change24h.toFixed(1)}%
-                    </span>
-                  ) : null}
-                </button>
                 {presalePanelOpen ? (
                   <div
                     id="nkr-presale-panel-root"
@@ -21406,26 +21379,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
 
 
-              <div className="text-xs" style={{ opacity: 0.75, marginLeft: 6 }}>
-                {isPro ? (
-                  <>
-                    Access: <span className="pillOn">ACTIVE</span>
-                  </>
-                ) : accessLoading && !access ? (
-                  <>
-                    Access: <span className="pill" style={{ opacity: 0.8 }}>LOADING…</span>
-                  </>
-                ) : (
-                  <>
-                    Access: <span className="pillOff">OFF</span>
-                    {accessLastError ? (
-                      <button type="button" className="miniBtn" onClick={() => refreshAccess({ retries: 3 })} style={{ marginLeft: 6 }}>
-                        Retry
-                      </button>
-                    ) : null}
-                  </>
-                )}
-              </div>
 
               {/* Access modal */}
               
@@ -21737,7 +21690,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                    <div className="cardTitle" style={{ margin: 0 }}>{walletPanelTab === "WALLET" ? "Privy Wallet" : "Nexus Core Vault"}</div>
+                    <div className="cardTitle" style={{ margin: 0 }}>{walletPanelTab === "WALLET" ? "Wallet" : "Core Vault"}</div>
+                    {walletPanelTab === "WALLET" ? (
+                      <span style={{ fontSize: 12, fontWeight: 800, color: "#d9fff0" }}>
+                        {walletUsdLoading ? "…" : fmtUsd(Number(walletUsd?.total || 0))}
+                      </span>
+                    ) : null}
                     <InfoButton title={walletPanelTab === "WALLET" ? "Privy Wallet explained" : "Nexus Core Vault explained"}>
                       {walletPanelTab === "WALLET" ? (
                         <Help
@@ -21807,7 +21765,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 12 }}>
-                <button type="button" className={walletPanelTab === "WALLET" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("WALLET")}>Privy Wallet</button>
+                <button type="button" className={walletPanelTab === "WALLET" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("WALLET")}>Wallet</button>
                 <button type="button" className={walletPanelTab === "VAULT" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("VAULT")}>Core Vault</button>
               </div>
 

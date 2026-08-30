@@ -586,7 +586,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD504-DETAILS-REASON";
+const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD505-SYSINFO-REASON";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -30941,7 +30941,7 @@ export default function App() {
                           Position value: {Number(e?.position_value_usd || 0) > 0 ? fmtUsd(Number(e.position_value_usd)) : "—"}<br />
                           Tx: {e?.tx_hash ? `${String(e.tx_hash).slice(0, 10)}…${String(e.tx_hash).slice(-8)}` : "—"}<br />
                           Pending tx: {e?.pending_tx || "—"}<br />
-                          Last error: {e?.last_error || "—"}
+                          Last error: {toUserFacingMessage(e?.last_error, "—")}
                         </div>
                       </div>;
                     })}
@@ -31176,7 +31176,7 @@ export default function App() {
                         <div key={keyBase} style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 9, padding: 8, display: "grid", gridTemplateColumns: "minmax(130px,0.8fr) minmax(220px,1.6fr) minmax(210px,1.4fr) auto", gap: 8, alignItems: "center", fontSize: 10 }}>
                           <div><b>{token?.symbol || "?"}</b> · {token?.chain_key || token?.chain_id}<div className="muted">{token?.name || ""}</div></div>
                           <div style={{ wordBreak: "break-all" }}>{token?.token_address}<div className="muted">GoPlus: {risk?.rawAvailable ? "checked" : "pending"} · sell tax {risk?.sellTax == null ? "—" : `${(Number(risk.sellTax) * 100).toFixed(2)}%`}</div></div>
-                          <div><span style={{ color: blockedRow ? "#ffb4b4" : "#ffe08a", fontWeight: 900 }}>{token?.status}</span><div className="muted">{token?.decision_reason || ""}</div><div className="muted">Router {route?.routerConfigured ? "bereit" : "fehlt"} · Markt {route?.quoteVerified ? "geprüft" : "noch unklar"}</div></div>
+                          <div><span style={{ color: blockedRow ? "#ffb4b4" : "#ffe08a", fontWeight: 900 }}>{token?.status}</span><div className="muted">{toUserFacingMessage(token?.decision_reason, "")}</div><div className="muted">Router {route?.routerConfigured ? "bereit" : "fehlt"} · Markt {route?.quoteVerified ? "geprüft" : "noch unklar"}</div></div>
                           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
                             {!blockedRow ? <button type="button" className="miniBtn" disabled={!!evmRegistryBusy} onClick={() => _decideEvmToken(token, "APPROVE")}>{evmRegistryBusy === `APPROVE-${keyBase}` ? "Saving..." : "OK / Freigeben"}</button> : null}
                             <button type="button" className="miniBtn" disabled={!!evmRegistryBusy} onClick={() => _decideEvmToken(token, "RECHECK")}>Recheck</button>
@@ -31288,7 +31288,7 @@ export default function App() {
                                       Assets {Number(row?.assets || 0).toLocaleString(undefined, { maximumFractionDigits: 8 })} · Obligations {Number(row?.obligations || 0).toLocaleString(undefined, { maximumFractionDigits: 8 })} · Surplus {Number(row?.surplus || 0).toLocaleString(undefined, { maximumFractionDigits: 8 })}
                                     </div>
                                   ) : (
-                                    <div className="muted" style={{ marginTop: 3, wordBreak: "break-word" }}>{row?.error || "No valid solvency response"}</div>
+                                    <div className="muted" style={{ marginTop: 3, wordBreak: "break-word" }}>{toUserFacingMessage(row?.error, "No valid solvency response")}</div>
                                   )}
                                 </div>
                               ))}

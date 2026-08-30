@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.29-BUILD498-HEADER-COMPACT";;
+const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD499-MOBILE-NKR-ROW";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -19829,6 +19829,26 @@ const handlePanelActivate = useCallback((name) => (e) => {
           header.topbar .brandSub {
             margin-top: 1px !important;
           }
+
+        @media (max-width: 1180px) {
+          .desktopMarketDeskPanel {
+            grid-template-columns: minmax(0, 1fr) auto !important;
+            height: auto !important;
+            min-height: 58px !important;
+          }
+          .desktopMarketDeskPanel .marketDeskChartBox {
+            display: none !important;
+          }
+          .nkrBannerChip svg {
+            display: none !important;
+          }
+          header.topbar .logoBox,
+          header.topbar .logoBox img {
+            width: 46px !important;
+            height: 46px !important;
+          }
+        }
+
           .desktopMarketDeskPanel {
             display: none !important;
           }
@@ -20985,7 +21005,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               className="iconBtn"
               title="What is NKR?"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrTokenInfoOpen(true); }}
-              style={{ width: 18, height: 18, fontSize: 11, fontWeight: 900 }}
+              style={{ width: 22, height: 22, minWidth: 22, fontSize: 12, fontWeight: 900, flex: "0 0 auto" }}
             >
               i
             </button>
@@ -21014,7 +21034,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               type="button"
               className="pill silver"
               data-nexus-wallet-trigger="1"
-              style={{ cursor: "pointer" }}
+              style={{ cursor: "pointer", flex: "0 0 auto" }}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -21124,6 +21144,42 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ) : null}
             </div>
           </div>
+
+          <div className="nkrMobileRow" style={{
+            display: isCompactMobile ? "flex" : "none",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            width: "100%",
+            marginTop: 4,
+            padding: "5px 8px",
+            borderRadius: 12,
+            border: "1px solid rgba(125,255,194,0.22)",
+            background: "rgba(7,21,18,0.72)",
+            minHeight: 34,
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: "rgba(221,255,247,0.78)" }}>NKR</span>
+            <span style={{ fontWeight: 800, fontSize: 13, color: "#d9fff0", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {nkrSpot && nkrSpot.price > 0 ? (
+                <>
+                  ${formatNkrUsd(nkrSpot.price)}
+                  <span style={{ marginLeft: 8, color: nkrSpot.change24h >= 0 ? "#8dffd0" : "#ff9b9b" }}>
+                    {nkrSpot.change24h >= 0 ? "+" : ""}{Number(nkrSpot.change24h).toFixed(1)}%
+                  </span>
+                </>
+              ) : "Uniswap"}
+            </span>
+            <button
+              type="button"
+              className="iconBtn"
+              title="What is NKR?"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrTokenInfoOpen(true); }}
+              style={{ width: 26, height: 26, minWidth: 26, fontSize: 13, fontWeight: 900 }}
+            >
+              i
+            </button>
+          </div>
+
 
           {supportOpen && (
             <>

@@ -540,7 +540,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD499-MOBILE-NKR-ROW";;
+const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD500-MOBILE-HEADER-ROW";;
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -19805,18 +19805,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
         @media (max-width: 820px) {
           header.topbar {
-            flex-direction: column !important;
-            flex-wrap: nowrap !important;
-            justify-content: flex-start !important;
-            align-items: stretch !important;
+            flex-direction: row !important;
+            flex-wrap: wrap !important;
+            justify-content: space-between !important;
+            align-items: center !important;
             row-gap: 4px !important;
-            column-gap: 4px !important;
+            column-gap: 8px !important;
             padding-top: 4px !important;
             padding-bottom: 4px !important;
             min-height: 0 !important;
           }
           header.topbar .brand {
-            flex: 0 0 auto !important;
+            flex: 1 1 auto !important;
             min-width: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
@@ -19853,16 +19853,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
             display: none !important;
           }
           header.topbar .walletBox {
-            order: 3 !important;
+            order: 2 !important;
             flex: 0 0 auto !important;
-            width: 100% !important;
+            width: auto !important;
+            max-width: calc(100% - 8px) !important;
             display: flex !important;
             flex-direction: column !important;
             flex-wrap: nowrap !important;
-            justify-content: flex-start !important;
-            gap: 4px !important;
+            align-items: flex-end !important;
+            justify-content: center !important;
+            gap: 0 !important;
             margin-top: 0 !important;
             padding-top: 0 !important;
+          }
+          header.topbar .walletRow {
+            flex-wrap: nowrap !important;
+            justify-content: flex-end !important;
+            width: auto !important;
+          }
+          header.topbar .nkrMobileRow {
+            order: 5 !important;
+            width: 100% !important;
+            margin-top: 2px !important;
           }
           header.topbar .walletBox > * {
             flex: 0 0 auto;
@@ -21151,7 +21163,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             justifyContent: "space-between",
             gap: 8,
             width: "100%",
-            marginTop: 4,
+            marginTop: 0,
             padding: "5px 8px",
             borderRadius: 12,
             border: "1px solid rgba(125,255,194,0.22)",

@@ -523,7 +523,34 @@ function _clearTombstone(key) {
 }
 
 
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as JsxRuntime from "react/jsx-runtime";
+(function installNexusJsxGuard() {
+  const fix = (c) => {
+    if (c && typeof c === "object" && !Array.isArray(c) && !(c && c.$$typeof) && ("allowed" in c) && ("reason" in c)) {
+      const r = c.reason;
+      return typeof r === "string" ? r : "blocked";
+    }
+    if (Array.isArray(c)) return c.map(fix);
+    return c;
+  };
+  const wrap = (fn) => {
+    if (typeof fn !== "function") return fn;
+    return function(type, props, key) {
+      if (props && props.children != null) {
+        props = { ...props, children: fix(props.children) };
+      }
+      return fn(type, props, key);
+    };
+  };
+  try {
+    JsxRuntime.jsx = wrap(JsxRuntime.jsx);
+    JsxRuntime.jsxs = wrap(JsxRuntime.jsxs);
+    JsxRuntime.jsxDEV = wrap(JsxRuntime.jsxDEV);
+  } catch (_e) {}
+})();
+
 (function installNexusSafeChildren() {
   if (React.__nexusSafeChildren) return;
   const orig = React.createElement.bind(React);
@@ -587,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD506-START-ERROR-TEXT";
+const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD507-SYSINFO-STRIP";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -29876,7 +29903,7 @@ export default function App() {
         const engineRuntimeStatus = valueAt(4);
         if (health) setShadowHealth(health);
         if (statusPanel || liveExecutorStatus || engineRuntimeStatus) {
-          setSystemInfoStatus((prev) => ({ ...(prev || {}), ...(statusPanel || {}), liveExecutorStatus: liveExecutorStatus || prev?.liveExecutorStatus || null, engineRuntimeStatus: engineRuntimeStatus || prev?.engineRuntimeStatus || null }));
+          setSystemInfoStatus((prev) => stripGateObjects({ ...(prev || {}), ...(statusPanel || {}), liveExecutorStatus: liveExecutorStatus || prev?.liveExecutorStatus || null, engineRuntimeStatus: engineRuntimeStatus || prev?.engineRuntimeStatus || null }));
         }
         if (readiness) setShadowReadiness(readiness);
       } finally {
@@ -30344,7 +30371,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/api/nexus/system-info-owner-panel${walletParam}`, { cache: "no-store", credentials: "include", headers: _authHeaders() });
       const data = await res.json().catch(() => null);
-      if (res.ok && data) setSystemInfoStatus(data);
+      if (res.ok && data) setSystemInfoStatus(stripGateObjects(data));
     } catch {}
   };
 
@@ -30693,7 +30720,7 @@ export default function App() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || data?.message || `Diagnostics failed (${res.status})`);
-      setEngineDiagnostics(data);
+      setEngineDiagnostics(stripGateObjects(data));
     } catch (error) {
       setEngineDiagnosticsError(String(error?.message || error || "Diagnostics failed"));
       setEngineDiagnostics((prev) => ({ ...(prev || {}), overall: "ERROR" }));

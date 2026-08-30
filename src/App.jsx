@@ -521,7 +521,31 @@ function _clearTombstone(key) {
   }
 }
 
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+(function installNexusSafeChildren() {
+  if (React.__nexusSafeChildren) return;
+  const orig = React.createElement.bind(React);
+  const fixChild = (c) => {
+    if (c && typeof c === "object" && !Array.isArray(c) && !React.isValidElement(c)) {
+      if ("$$typeof" in c) return c;
+      if (c.allowed !== undefined && (c.reason !== undefined || c.sessionChain !== undefined || c.resolvedChain !== undefined)) {
+        const r = c.reason || c.detail || c.message || "";
+        return typeof r === "string" ? r : "blocked";
+      }
+      if (c.reason !== undefined && c.symbol !== undefined && (c.sessionChain !== undefined || c.tokenContract !== undefined)) {
+        return String(c.reason || "");
+      }
+    }
+    return c;
+  };
+  React.createElement = function(type, props, ...children) {
+    const next = children.map((ch) => (Array.isArray(ch) ? ch.map(fixChild) : fixChild(ch)));
+    return orig(type, props, ...next);
+  };
+  React.__nexusSafeChildren = true;
+})();
+
 import { usePrivy, useWallets, useSigners } from "@privy-io/react-auth";
 
 import { Alchemy, Network, Utils } from "alchemy-sdk";
@@ -562,7 +586,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD502-GATE-OBJECT-STRIP";;
+const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD504-DETAILS-REASON";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -27046,7 +27070,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <details style={{ border: "1px solid rgba(139,220,255,.18)", borderRadius: 8, padding: "4px 6px", background: "rgba(64,196,255,.045)" }}>
                                     <summary style={{ cursor: "pointer", color: "#8bdcff", fontWeight: 900 }}>Observe info</summary>
                                     <div style={{ marginTop: 4, lineHeight: 1.45 }}>
-                                      {slot.observeReason || slot.condition || "The Strategist is still observing market structure, liquidity, RVOL and risk. Capital will not be reallocated until market quality is clean."}
+                                      {toUserFacingMessage(slot.observeReason || slot.condition, "The Strategist is still observing market structure, liquidity, RVOL and risk. Capital will not be reallocated until market quality is clean.")}
                                     </div>
                                   </details>
                                 </div>
@@ -30909,8 +30933,8 @@ export default function App() {
                           Momentum 24h: {Number(e?.candidate_momentum_24h || 0) >= 0 ? "+" : ""}{Number(e?.candidate_momentum_24h || 0).toFixed(2)}%<br />
                           Candidate price: {Number(e?.candidate_price || 0) > 0 ? `$${Number(e.candidate_price).toLocaleString(undefined, { maximumFractionDigits: 8 })}` : "—"}<br />
                           Gate: {e?.gate_status || "—"}<br />
-                          Decision: {e?.decision || "—"}<br />
-                          Decision detail: {e?.decision_detail || "—"}<br />
+                          Decision: {toUserFacingMessage(e?.decision, "—")}<br />
+                          Decision detail: {toUserFacingMessage(e?.decision_detail, "—")}<br />
                           Reason: {toUserFacingMessage(e?.reason, "—")}<br />
                           Active asset: {e?.active_asset || "—"}<br />
                           Position: {e?.position_state || "—"}<br />

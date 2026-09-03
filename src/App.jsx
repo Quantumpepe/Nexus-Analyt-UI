@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD511-TRADER-START-CLICK";
+const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD512-TRADER-ETH-ERROR";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -27443,6 +27443,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {selectedTradingSessionLabel === "ARMED" ? (
                           <button className="btn" type="button" onClick={handleTradingStartSession} disabled={!tradingCanStart} title="Start the Trader worker with the central Strategist" style={{ height: 30, paddingInline: 10 }}>{tradingStartBusy ? "Starting…" : "Start Trading"}</button>
                         ) : null}
+                        {errorMsg ? <div style={{ width: "100%", marginTop: 8, padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(245,193,108,.30)", background: "rgba(245,193,108,.08)", color: "#f5c16c", fontSize: 12 }}>{errorMsg}</div> : null}
                         {(String(tradingBudgetUsd || "").trim() || String(tradingBudgetSplitInput || "").trim()) ? (
                           <button
                             className="miniBtn"
@@ -27473,6 +27474,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         >
                           Start Trading
                         </button>
+                        {errorMsg ? <div style={{ width: "100%", marginTop: 8, padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(245,193,108,.30)", background: "rgba(245,193,108,.08)", color: "#f5c16c", fontSize: 12 }}>{errorMsg}</div> : null}
                         {(String(tradingBudgetUsd || "").trim() || String(tradingBudgetSplitInput || "").trim()) ? (
                           <button className="miniBtn" type="button" onClick={() => { resetAggressiveDraftSelection(); setTradingBudgetUsd(""); setTradingBudgetSplitInput(""); }} style={{ height: 34, paddingInline: 10 }}>Clear</button>
                         ) : null}

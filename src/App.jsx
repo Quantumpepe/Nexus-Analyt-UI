@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD514-NKR-MODE-STAMP";
+const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD515-TRADER-ETH-ONCHAIN";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -12554,11 +12554,12 @@ useEffect(() => {
     const sessionOnSelectedChain = openTraderSessions.find((s) => {
       const ch = normalizeTraderChain(s?.chain || s?.chainKey || s?.meta?.chain || s?.meta?.chain_key || "")
         || chainFromSessionId(s?.id || s?.session_id || s?.sessionId || "");
-      return ch === selectedTraderChain;
+      const oid = Number(s?.onchainSessionId || s?.onchain_session_id || s?.meta?.onchain_session_id || s?.coreVaultSessionId || 0);
+      return ch === selectedTraderChain && oid > 0;
     });
 
-    // Multi-chain: if selected chain already has a Trader session, start/resume that one.
-    // If not, always create a NEW session for this chain — even when ETH/BNB already runs elsewhere.
+    // Only reuse a session that already exists ON-CHAIN on this chain.
+    // Local TRD-…:ETH ids without a vault sessionId are ghosts — they must create again.
     let sid = sessionOnSelectedChain
       ? String(sessionOnSelectedChain?.id || sessionOnSelectedChain?.session_id || "").trim()
       : "";
@@ -12595,7 +12596,7 @@ useEffect(() => {
       setAggressiveRiskAcceptedForDraft(false);
       setAggressiveRiskPendingValue("");
       setAggressiveRiskConsentOpen(false);
-      setErrorMsg(`Trading started on ${selectedTraderChain}: ${sid}`);
+      setErrorMsg(`Trading started on ${selectedTraderChain}: ${sid}` + (sessionOnSelectedChain ? " (existing on-chain session)" : " — new CoreVault session"));
     } catch (e) {
       setErrorMsg(`Start Trading failed: ${e?.message || e}`);
     } finally {

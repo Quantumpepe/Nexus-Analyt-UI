@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD513-TRADER-CHAIN-MATCH";
+const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD514-NKR-MODE-STAMP";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -13964,8 +13964,29 @@ useEffect(() => {
       const raw = s?.onchainSessionId || s?.onchain_session_id || meta?.onchain_session_id || meta?.onchainSessionId || "";
       if (/^\d+$/.test(String(raw || "")) && Number(raw) > 0) return String(raw);
       const sid = String(s?.id || s?.session_id || "");
-      const m = sid.match(/^NKR-LIVE-(\d+)$/i);
+      const m = sid.match(/^NKR-LIVE-(?:ETH|BNB|POL)-(\d+)$/i) || sid.match(/^NKR-LIVE-(\d+)$/i);
       return m ? m[1] : "";
+    };
+    const stampNkrStartMode = (row = {}) => {
+      const meta = row?.meta && typeof row.meta === "object" ? row.meta : {};
+      const oid = getOnchainId(row);
+      const chain = String(row?.chain || row?.chainKey || meta?.chain || meta?.chain_key || "").toUpperCase();
+      const sid = String(row?.id || row?.session_id || "").toUpperCase();
+      const cache = nkrStartSettingsCacheRef.current || {};
+      const cached = (oid && cache[`OID:${oid}`]) || (chain && cache[`CHAIN:${chain}`]) || (sid && cache[sid]) || cache[`ID:${sid}`] || {};
+      const mode = String(
+        row?.nkrCapitalMode || row?.capitalMode || meta?.nkr_capital_mode || meta?.capital_mode ||
+        cached?.nkrCapitalMode || cached?.capitalMode || ""
+      ).toUpperCase();
+      if (!mode) return row;
+      if (oid) cache[`OID:${oid}`] = { ...(cache[`OID:${oid}`] || {}), ...cached, nkrCapitalMode: mode, capitalMode: mode };
+      if (chain && oid) cache[`NKR-LIVE-${chain}-${oid}`] = cache[`OID:${oid}`];
+      return {
+        ...row,
+        nkrCapitalMode: mode,
+        capitalMode: mode,
+        meta: { ...meta, nkr_capital_mode: mode, capital_mode: mode },
+      };
     };
     const richness = (s = {}) => {
       const meta = s?.meta && typeof s.meta === "object" ? s.meta : {};
@@ -14008,9 +14029,10 @@ useEffect(() => {
       const chainKey = normalizeNkrChainKey(s?.chain || s?.chainKey || s?.meta?.chain || s?.chainId || s?.meta?.chain_id || "");
       const key = oid ? `ONCHAIN:${chainKey}:${oid}` : `LOCAL:${sid}`;
       const current = map.get(key);
-      if (!current || isRicher(s, current)) map.set(key, s);
+      const stamped = stampNkrStartMode(s);
+      if (!current || isRicher(stamped, current)) map.set(key, stamped);
     }
-    return Array.from(map.values());
+    return Array.from(map.values()).map(stampNkrStartMode);
   }, []);
 
   const syncRotationSessionsFromServer = useCallback(async () => {
@@ -25201,14 +25223,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 // while the user has already chosen Aggressive/Dynamic/Tactical/Defensive.
                                 const sessionCapitalMode = String(
                                   immutableSessionSnapshot?.capitalMode ||
-                                  legacyPersistedActiveMode ||
                                   sess?.nkrCapitalMode ||
                                   sess?.meta?.nkr_capital_mode ||
                                   sess?.capitalMode ||
                                   sess?.meta?.capital_mode ||
                                   cachedStart.nkrCapitalMode ||
-                                  "DYNAMIC"
-                                ).toUpperCase() || "DYNAMIC";
+                                  (nkrStartSettingsCacheRef.current[`CHAIN:${String(chain || "").toUpperCase()}`] || {}).nkrCapitalMode ||
+                                  legacyPersistedActiveMode ||
+                                  "—"
+                                ).toUpperCase() || "—";
                                 // ENGINE-242: The amount confirmed by the user is the complete session budget.
                                 // Never inflate 20 USDC to 22.22 USDC from the capital-mode percentage.
                                 // A reserve is displayed only when the backend/session explicitly reports one.

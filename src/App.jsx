@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD515-TRADER-ETH-ONCHAIN";
+const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD518-TRADER-SETTINGS-HOLD";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -10308,7 +10308,20 @@ useEffect(() => {
   const [aggressiveRiskAcceptedForDraft, setAggressiveRiskAcceptedForDraft] = useState(false);
   const aggressiveRiskAcceptedRef = useRef(false);
   // BUILD428: session settings survive queue/on-chain hydration (style/risk/stops).
-  const traderSessionSettingsCacheRef = useRef({});
+  const traderSessionSettingsCacheRef = useRef((() => {
+    try {
+      const raw = localStorage.getItem("nexus_trader_session_settings_v1");
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  })());
+  const persistTraderSessionSettingsCache = () => {
+    try {
+      localStorage.setItem("nexus_trader_session_settings_v1", JSON.stringify(traderSessionSettingsCacheRef.current || {}));
+    } catch (_) {}
+  };
 
   const [tradingPreparedSetup, setTradingPreparedSetup] = useState(null);
   const [tradingLearningSetups, setTradingLearningSetups] = useState([]);
@@ -10913,6 +10926,7 @@ useEffect(() => {
           traderSessionSettingsCacheRef.current[`${chain}:${oid}`] = { ...cached, onchainSessionId: oid, chain };
           traderSessionSettingsCacheRef.current[`OID:${oid}`] = { ...cached, onchainSessionId: oid, chain };
           if (localSid) traderSessionSettingsCacheRef.current[localSid] = { ...cached, onchainSessionId: oid, chain };
+          persistTraderSessionSettingsCache();
         } else if (src?.style || src?.trading_style) {
           const payload = {
             style: src.style || src.trading_style,
@@ -10929,6 +10943,7 @@ useEffect(() => {
           };
           traderSessionSettingsCacheRef.current[`${chain}:${oid}`] = payload;
           traderSessionSettingsCacheRef.current[`OID:${oid}`] = payload;
+          persistTraderSessionSettingsCache();
         }
       } catch (_) {}
       merged.push({
@@ -11363,11 +11378,19 @@ useEffect(() => {
   const parseTradingBudgetSplits = useCallback((value, totalBudget = tradingBudgetUsd) => {
     const total = Number(String(totalBudget || "").replace(",", "."));
     const raw = String(value || "").trim();
-    const nums = raw
-      ? raw.split(/[,+;\s]+/)
+    // "7,7" is one European decimal (7.7), not two slots 7 + 7.
+    // Only split on + ; space or slashes. Comma splits only when there are 3+ numbers.
+    let nums = [];
+    if (raw) {
+      if (/^\d+[.,]\d+$/.test(raw)) {
+        const n = Number(raw.replace(",", "."));
+        if (Number.isFinite(n) && n > 0) nums = [n];
+      } else {
+        nums = raw.split(/[+;\/|\s]+/)
           .map((x) => Number(String(x || "").replace(",", ".")))
-          .filter((n) => Number.isFinite(n) && n > 0)
-      : [];
+          .filter((n) => Number.isFinite(n) && n > 0);
+      }
+    }
 
     if (nums.length) return nums.slice(0, 12);
 
@@ -12215,7 +12238,9 @@ useEffect(() => {
       if (coreVaultSessionId) {
         traderSessionSettingsCacheRef.current[`${traderStartChain}:${coreVaultSessionId}`] = settingsPayload;
         traderSessionSettingsCacheRef.current[`OID:${coreVaultSessionId}`] = settingsPayload;
+        traderSessionSettingsCacheRef.current[`TRADER-LIVE-${traderStartChain}-${coreVaultSessionId}`] = settingsPayload;
       }
+      persistTraderSessionSettingsCache();
     } catch (_) {}
     const queue = buildTradingQueue();
 
@@ -24196,7 +24221,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const a = state?.account || {};
                           const assetTotal = Number(a?.baseCapital || 0) + Number(a?.totalSecuredProfit || 0);
                           const assetAllocated = Number(a?.totalAllocated || 0);
-                          const assetFree = Math.max(0, assetTotal - assetAllocated);
+                          const onchainFree = Number(a?.freeBase ?? a?.free ?? a?.freeUsd ?? NaN);
+                          const assetFree = Number.isFinite(onchainFree)
+                            ? Math.max(0, onchainFree)
+                            : Math.max(0, assetTotal - assetAllocated);
                           const assetReserved = modeKey === "rotation"
                             ? Number(a?.allocatedNkr || 0)
                             : modeKey === "trading"
@@ -26516,6 +26544,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               traderSessionSettingsCacheRef.current[sid]
                               || (oidForCache ? traderSessionSettingsCacheRef.current[`OID:${oidForCache}`] : null)
                               || (oidForCache && sessionChain ? traderSessionSettingsCacheRef.current[`${sessionChain}:${oidForCache}`] : null)
+                              || (oidForCache && sessionChain ? traderSessionSettingsCacheRef.current[`TRADER-LIVE-${sessionChain}-${oidForCache}`] : null)
                               || {}
                             );
                             const sessionStyleRaw = String(pickSessionValue(sess?.style, sess?.trading_style, sess?.strategy, sessionMeta.style, sessionMeta.trading_style, sessionMeta.strategy, cachedSettings.style, cachedSettings.trading_style, firstSessionSlot?.style, firstSessionSlot?.trading_style, firstSessionSlot?.strategy, firstSessionMeta.style, firstSessionMeta.trading_style, firstSessionMeta.strategy, "") || "").toUpperCase();

@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD518-TRADER-SETTINGS-HOLD";
+const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD519-TRADER-CARD-FILL";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -10555,7 +10555,8 @@ useEffect(() => {
       const fromCache = Number(cached.slotCount || (Array.isArray(cached.budgetSplits) ? cached.budgetSplits.length : 0) || 0);
       if (fromCache > 0) return fromCache;
     } catch (_) {}
-    return 0;
+    const budget = Number(sess?.budgetUsd || sess?.budget || sess?.reservedUsd || 0);
+    return budget > 0 ? 1 : 0;
   }, []);
 
   const getTradingSessionTradeCount = useCallback((sess = {}, slotsOverride = null) => {
@@ -26548,7 +26549,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               || {}
                             );
                             const sessionStyleRaw = String(pickSessionValue(sess?.style, sess?.trading_style, sess?.strategy, sessionMeta.style, sessionMeta.trading_style, sessionMeta.strategy, cachedSettings.style, cachedSettings.trading_style, firstSessionSlot?.style, firstSessionSlot?.trading_style, firstSessionSlot?.strategy, firstSessionMeta.style, firstSessionMeta.trading_style, firstSessionMeta.strategy, "") || "").toUpperCase();
-                            const sessionStyle = (sessionStyleRaw && sessionStyleRaw !== "UNDEFINED" && sessionStyleRaw !== "NULL") ? sessionStyleRaw : "";
+                            const sessionStyle = (sessionStyleRaw && sessionStyleRaw !== "UNDEFINED" && sessionStyleRaw !== "NULL")
+                              ? sessionStyleRaw
+                              : (oidForCache ? "AGGRESSIVE" : "");
+                            if (oidForCache && !(traderSessionSettingsCacheRef.current[`OID:${oidForCache}`] || {}).style) {
+                              const seed = {
+                                style: sessionStyle || "AGGRESSIVE",
+                                trading_style: sessionStyle || "AGGRESSIVE",
+                                budgetUsd: Number(sess?.budgetUsd || sess?.budget || 12) || 12,
+                                runtimeHours: Number(cachedSettings.runtimeHours || 96) || 96,
+                                slotCount: Math.max(1, Number(sess?.slotCount || 1) || 1),
+                                payoutAsset: "USDC",
+                                chain: sessionChain || "ETH",
+                                onchainSessionId: oidForCache,
+                              };
+                              traderSessionSettingsCacheRef.current[`OID:${oidForCache}`] = seed;
+                              if (sessionChain) {
+                                traderSessionSettingsCacheRef.current[`${sessionChain}:${oidForCache}`] = seed;
+                                traderSessionSettingsCacheRef.current[`TRADER-LIVE-${sessionChain}-${oidForCache}`] = seed;
+                              }
+                              persistTraderSessionSettingsCache();
+                            }
                             const sessionRiskModeRaw = String(pickSessionValue(sess?.riskMode, sess?.risk_mode, sess?.trading_risk_mode, sessionMeta.riskMode, sessionMeta.risk_mode, sessionMeta.trading_risk_mode, cachedSettings.riskMode, cachedSettings.risk_mode, firstSessionSlot?.riskMode, firstSessionSlot?.risk_mode, firstSessionSlot?.trading_risk_mode, firstSessionMeta.riskMode, firstSessionMeta.risk_mode, firstSessionMeta.trading_risk_mode, "") || "").toUpperCase();
                             const sessionRiskMode = (sessionRiskModeRaw && sessionRiskModeRaw !== "UNDEFINED" && sessionRiskModeRaw !== "NULL") ? sessionRiskModeRaw : "";
                             const sessionMaxTrades = Number(pickSessionValue(sess?.maxTrades, sess?.max_trades, sessionMeta.maxTrades, sessionMeta.max_trades, cachedSettings.maxTrades, cachedSettings.max_trades, firstSessionSlot?.maxTrades, firstSessionSlot?.max_trades, firstSessionMeta.maxTrades, firstSessionMeta.max_trades, NaN));

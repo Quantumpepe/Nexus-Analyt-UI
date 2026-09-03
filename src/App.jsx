@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.08.30-BUILD507-SYSINFO-STRIP";
+const FRONTEND_BUILD_ID = "F-2026.09.01-BUILD510-NKR-SPOT-BACKEND";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7685,22 +7685,21 @@ const byChain = {};
     let alive = true;
     const load = async () => {
       try {
-        const r = await fetch(
-          "https://api.dexscreener.com/latest/dex/pairs/ethereum/0x099d9a4626137572fbc0fa49cd73d78c554558f5",
-          { cache: "no-store" }
-        );
-        const j = await r.json();
-        const pair = j?.pair || (Array.isArray(j?.pairs) ? j.pairs[0] : null);
-        if (!alive || !pair) return;
-        const px = Number(pair.priceUsd || pair.priceNative || 0);
-        const ch = Number(pair?.priceChange?.h24 ?? pair?.priceChange?.h6 ?? pair?.priceChange?.h1 ?? 0);
-        setNkrSpot({
-          price: Number.isFinite(px) ? px : 0,
-          change24h: Number.isFinite(ch) ? ch : 0,
-          liq: Number(pair?.liquidity?.usd || 0),
-          vol: Number(pair?.volume?.h24 || 0),
-          mcap: Number(pair?.fdv || pair?.marketCap || 0),
-        });
+        const r = await fetch(`${API_BASE}/api/nexus/nkr-spot`, { cache: "no-store", credentials: "include" });
+        const j = await r.json().catch(() => null);
+        const spot = j?.spot;
+        const px = Number(spot?.price || 0);
+        if (!alive) return;
+        if (px > 0) {
+          setNkrSpot({
+            price: px,
+            change24h: Number(spot?.change24h || 0),
+            liq: Number(spot?.liq || 0),
+            vol: Number(spot?.vol || 0),
+            mcap: Number(spot?.mcap || 0),
+          });
+        }
+        // keep previous nkrSpot if backend has no fresh pair
       } catch (_) {}
     };
     load();
@@ -30703,11 +30702,13 @@ export default function App() {
     setEngineDiagnosticsError("");
     setEngineDiagnostics({ engine, reports: [], overall: "LOADING" });
     try {
-      const states = Array.isArray(engineState?.session_states) ? engineState.session_states : [];
-      const selected = states.find((s) => String(s?.status || "").toUpperCase() === "ACTIVE") || states[0] || null;
+      const rawStates = engineState?.session_states;
+      const states = Array.isArray(rawStates) ? rawStates : [];
+      const selected = states.find((s) => s && typeof s === "object" && String(s?.status || "").toUpperCase() === "ACTIVE") || states.find((s) => s && typeof s === "object") || null;
       const chainMap = { ETH: 1, BNB: 56, POL: 137, MATIC: 137, BASE: 8453, ARB: 42161, ARBITRUM: 42161, OP: 10, OPTIMISM: 10, AVAX: 43114, AVALANCHE: 43114 };
-      const chainId = Number(selected?.chainId || selected?.chain_id || chainMap[String(selected?.chain || "").toUpperCase()] || 0);
-      const sessionId = selected?.sessionId ?? selected?.session_id ?? "";
+      const chainFromState = String((selected && selected.chain) || engineState?.working_chain || engineState?.chain || "").toUpperCase();
+      const chainId = Number(selected?.chainId || selected?.chain_id || engineState?.chain_id || chainMap[chainFromState] || (engine === "TRADER" ? 56 : engine === "NKR" ? 1 : 0) || 0);
+      const sessionId = (selected && (selected.sessionId ?? selected.session_id)) ?? engineState?.session_id ?? "";
       const params = new URLSearchParams({ engine });
       const ownerWallet = String(footerWallet || ownerAdminWalletStatus?.selected || "").trim();
       if (ownerWallet) params.set("wallet", ownerWallet);

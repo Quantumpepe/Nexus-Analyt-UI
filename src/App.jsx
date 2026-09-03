@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD512-TRADER-ETH-ERROR";
+const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD513-TRADER-CHAIN-MATCH";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -12432,7 +12432,7 @@ useEffect(() => {
       await Promise.allSettled(activeQueue.map((slot, idx) => {
         const slotId = String(slot?.slot_id || slot?.slot || idx + 1);
         const symbol = String(slot?.symbol || slot?.asset || "").toUpperCase();
-        const chain = String(slot?.chain || slot?.chain_key || activeGridChainKey || "").toUpperCase();
+        const chain = String(slot?.chain || slot?.chain_key || traderStartChain || liveVaultChainByMode?.trading || "").toUpperCase();
         const state = String(slot?.status || slot?.state || "WAIT").toUpperCase();
         return api(`/api/nexus/trading/queue`, {
           method: "POST",
@@ -12538,15 +12538,22 @@ useEffect(() => {
       if (k === "ETHEREUM" || k === "1") return "ETH";
       if (k === "BSC" || k === "56") return "BNB";
       if (k === "POLYGON" || k === "MATIC" || k === "137") return "POL";
-      return k || "ETH";
+      if (k === "ETH" || k === "BNB" || k === "POL") return k;
+      return "";
     };
-    const selectedTraderChain = normalizeTraderChain(liveVaultChainByMode?.trading || activeGridChainKey || "ETH");
+    const chainFromSessionId = (raw) => {
+      const id = String(raw || "").trim().toUpperCase();
+      const m = id.match(/(?:[:_-])(ETH|BNB|POL|MATIC|ETHEREUM|BSC|POLYGON)$/);
+      return normalizeTraderChain(m ? m[1] : "");
+    };
+    const selectedTraderChain = normalizeTraderChain(liveVaultChainByMode?.trading || activeGridChainKey || "ETH") || "ETH";
     const openTraderSessions = (Array.isArray(tradingSessions) ? tradingSessions : []).filter((s) => {
       const st = String(s?.status || "").toUpperCase();
       return s && !["STOPPED", "CLOSED", "EXPIRED", "CANCELLED", "RELEASED", "FINALIZED"].includes(st);
     });
     const sessionOnSelectedChain = openTraderSessions.find((s) => {
-      const ch = normalizeTraderChain(s?.chain || s?.chainKey || s?.meta?.chain || s?.meta?.chain_key || "");
+      const ch = normalizeTraderChain(s?.chain || s?.chainKey || s?.meta?.chain || s?.meta?.chain_key || "")
+        || chainFromSessionId(s?.id || s?.session_id || s?.sessionId || "");
       return ch === selectedTraderChain;
     });
 

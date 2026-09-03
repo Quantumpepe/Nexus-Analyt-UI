@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.01-BUILD510-NKR-SPOT-BACKEND";
+const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD511-TRADER-START-CLICK";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -11567,6 +11567,7 @@ useEffect(() => {
     tradingBudgetSplitInput,
     tradingAllowedAssets,
     tradingAllowedChains,
+    liveVaultChainByMode,
     tradingStyle,
     tradingRiskMode,
     tradingConfidenceMin,
@@ -11599,7 +11600,7 @@ useEffect(() => {
     ).trim().toUpperCase();
     const assets = rawAssets.length ? rawAssets : normalizeTradingCsv(fallbackAsset);
 
-    const chains = [String(activeGridChainKey || "ETH").trim().toUpperCase()].filter(Boolean);
+    const chains = [String(liveVaultChainByMode?.trading || activeGridChainKey || "ETH").trim().toUpperCase()].filter(Boolean);
     const budgetSplits = parseTradingBudgetSplits(tradingBudgetSplitInput, tradingBudgetUsd);
     const splitTotal = budgetSplits.reduce((sum, n) => sum + (Number(n) || 0), 0);
     const knownChains = new Set([...(gridWalletChains || []), "POL", "BNB", "ETH"].map((x) => String(x || "").toUpperCase()));
@@ -11663,10 +11664,7 @@ useEffect(() => {
   const tradingCanApprove = !!tradingPreflight.ok;
   // One-click Trader flow: the same Start Trading action creates/reserves the
   // CoreVault V5 budget first and starts the backend worker after confirmation.
-  const tradingCanStart = !tradingStartBusy && !!wallet && (
-    !!tradingPreflight.ok ||
-    !!String(selectedTradingSessionId || activeTradingSessionId || "").trim()
-  );
+  const tradingCanStart = !tradingStartBusy && !!wallet;
 
   // Controls must be based on the selected Trading session first, not only on
   // temporary Shadow slot states. A Shadow run can promote slots or keep cards
@@ -12529,6 +12527,10 @@ useEffect(() => {
   const handleTradingStartSession = useCallback(async () => {
     if (tradingStartBusy) return;
     if (!wallet) { setErrorMsg("Connect the wallet before starting Trading."); return; }
+    if (!tradingPreflight.ok && !String(selectedTradingSessionId || activeTradingSessionId || "").trim()) {
+      setErrorMsg(tradingPreflight.title || "Complete the Trading setup before starting.");
+      return;
+    }
     setTradingStartBusy(true);
 
     const normalizeTraderChain = (value) => {

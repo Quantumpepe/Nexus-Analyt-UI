@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.03-BUILD519-TRADER-CARD-FILL";
+const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD521-SYSINFO-WORKER-HOLD";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -11195,19 +11195,32 @@ useEffect(() => {
       meta.sessionStartedAt ?? meta.startedAt ?? meta.createdAt ?? meta.approvedAt ??
       meta.session_started_ts ?? meta.started_ts ?? meta.created_ts
     );
-    const expiresMs = normalizeSessionTimeMs(
+    const expiresMsRaw = normalizeSessionTimeMs(
       sess?.expiresAt ?? sess?.expires_at ?? sess?.sessionExpiresAt ?? sess?.session_expires_ts ?? sess?.expires_ts ??
       meta.expiresAt ?? meta.expires_at ?? meta.sessionExpiresAt ?? meta.session_expires_ts ?? meta.expires_ts
     );
+    const oid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || 0) || 0;
+    const sid = String(sess?.id || sess?.session_id || "");
+    const chain = String(sess?.chain || sess?.chainKey || "").toUpperCase();
+    const cached = traderSessionSettingsCacheRef.current[sid]
+      || (oid ? traderSessionSettingsCacheRef.current[`OID:${oid}`] : null)
+      || (oid && chain ? traderSessionSettingsCacheRef.current[`${chain}:${oid}`] : null)
+      || {};
+    const runtimeHours = Number(cached.runtimeHours || sess?.runtimeHours || meta.runtimeHours || meta.runtime_hours || 96) || 96;
+    let startedMsFix = startedMs;
+    if (!(startedMsFix > 0)) startedMsFix = normalizeSessionTimeMs(cached.sessionStartedAt || cached.frozenAt || 0);
+    if (!(startedMsFix > 0) && oid) startedMsFix = Date.now() - 60 * 1000;
+    let expiresMs = expiresMsRaw;
+    if (!(expiresMs > 0) && startedMsFix > 0) expiresMs = startedMsFix + Math.max(1, runtimeHours) * 3600 * 1000;
     const now = Number(tradingRuntimeNowMs || Date.now());
-    const elapsedMs = startedMs > 0 ? Math.max(0, now - startedMs) : 0;
+    const elapsedMs = startedMsFix > 0 ? Math.max(0, now - startedMsFix) : 0;
     const remainingMs = expiresMs > 0 ? Math.max(0, expiresMs - now) : 0;
     return {
-      startedMs,
+      startedMs: startedMsFix,
       expiresMs,
       elapsedMs,
       remainingMs,
-      elapsedLabel: startedMs > 0 ? formatTradingDuration(elapsedMs) : "—",
+      elapsedLabel: startedMsFix > 0 ? formatTradingDuration(elapsedMs) : "—",
       remainingLabel: expiresMs > 0 ? formatTradingDuration(remainingMs) : "—",
       isExpired: expiresMs > 0 && now >= expiresMs,
     };
@@ -26724,9 +26737,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         ["Risk", sessionStyle === "AGGRESSIVE" ? "LEGACY PROTECTION" : (sessionRiskMode || "—")],
                                         ["Max Trades", sessionStyle === "AGGRESSIVE" ? "No Limit" : (Number.isFinite(sessionMaxTrades) && sessionMaxTrades > 0 ? sessionMaxTrades : "—")],
                                         ["Reuse", `${Number.isFinite(reusePct) ? reusePct.toFixed(0) : "0"}%`],
-                                        ["Hard Stop", Number.isFinite(sessionHardStop) && sessionHardStop > 0 ? `${sessionHardStop}%` : "—"],
-                                        ["Profit Lock", Number.isFinite(sessionProfitLock) && sessionProfitLock > 0 ? `${sessionProfitLock}%` : "—"],
-                                        ["Slippage", Number.isFinite(sessionSlippage) && sessionSlippage > 0 ? `${sessionSlippage}%` : "—"],
+                                        ["Hard Stop", sessionStyle === "AGGRESSIVE" ? "Off (legacy)" : (Number.isFinite(sessionHardStop) && sessionHardStop > 0 ? `${sessionHardStop}%` : "—")],
+                                        ["Profit Lock", sessionStyle === "AGGRESSIVE" ? "Off (legacy)" : (Number.isFinite(sessionProfitLock) && sessionProfitLock > 0 ? `${sessionProfitLock}%` : "—")],
+                                        ["Slippage", sessionStyle === "AGGRESSIVE" ? "Off (legacy)" : (Number.isFinite(sessionSlippage) && sessionSlippage > 0 ? `${sessionSlippage}%` : "—")],
                                       ].map(([label, value]) => (
                                         <div key={`${sid}-${label}`} style={{ border: "1px solid rgba(139,220,255,.10)", borderRadius: 8, padding: "7px 8px", background: "rgba(0,0,0,.14)", minWidth: 0 }}>
                                           <div className="muted tiny" style={{ fontWeight: 900 }}>{label}</div>
@@ -29757,7 +29770,14 @@ export default function App() {
   const [showSystemInfo, setShowSystemInfo] = useState(false);
   const [buildInfo, setBuildInfo] = useState(null);
   const [shadowHealth, setShadowHealth] = useState(null);
-  const [systemInfoStatus, setSystemInfoStatus] = useState(null);
+  const [systemInfoStatus, setSystemInfoStatus] = useState(() => {
+    try {
+      const raw = localStorage.getItem("nexus_engine_runtime_last");
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed ? { engineRuntimeStatus: parsed } : null;
+    } catch { return null; }
+  });
+  const [systemInfoRuntimeLoading, setSystemInfoRuntimeLoading] = useState(false);
   const [engineDiagnostics, setEngineDiagnostics] = useState(null);
   const [engineDiagnosticsBusy, setEngineDiagnosticsBusy] = useState("");
   const [engineDiagnosticsError, setEngineDiagnosticsError] = useState("");
@@ -29971,12 +29991,19 @@ export default function App() {
       if (ownerSystemInfoFlightRef.current || document.visibilityState === "hidden") return;
       ownerSystemInfoFlightRef.current = true;
       try {
+        setSystemInfoRuntimeLoading(true);
+        const engineRuntimeFast = await loadJson(`/api/nexus/engine-runtime/status${walletParam}`, 6000);
+        setSystemInfoRuntimeLoading(false);
+        if (!alive) return;
+        if (engineRuntimeFast) {
+          try { localStorage.setItem("nexus_engine_runtime_last", JSON.stringify(engineRuntimeFast)); } catch (_) {}
+          setSystemInfoStatus((prev) => stripGateObjects({ ...(prev || {}), engineRuntimeStatus: engineRuntimeFast }));
+        }
         const results = await Promise.allSettled([
           loadJson(`/api/shadow/health${walletParam}`),
           loadJson(`/api/nexus/system-info-owner-panel${walletParam}`),
           loadJson(`/api/nexus/shadow-readiness-check${walletParam}`),
           loadJson(`/api/nexus/live-executor/status${walletParam}`),
-          loadJson(`/api/nexus/engine-runtime/status${walletParam}`),
         ]);
         if (!alive) return;
         const valueAt = (i) => results[i]?.status === "fulfilled" ? results[i].value : null;
@@ -29984,10 +30011,14 @@ export default function App() {
         const statusPanel = valueAt(1);
         const readiness = valueAt(2);
         const liveExecutorStatus = valueAt(3);
-        const engineRuntimeStatus = valueAt(4);
         if (health) setShadowHealth(health);
-        if (statusPanel || liveExecutorStatus || engineRuntimeStatus) {
-          setSystemInfoStatus((prev) => stripGateObjects({ ...(prev || {}), ...(statusPanel || {}), liveExecutorStatus: liveExecutorStatus || prev?.liveExecutorStatus || null, engineRuntimeStatus: engineRuntimeStatus || prev?.engineRuntimeStatus || null }));
+        if (statusPanel || liveExecutorStatus || engineRuntimeFast) {
+          setSystemInfoStatus((prev) => stripGateObjects({
+            ...(prev || {}),
+            ...(statusPanel || {}),
+            liveExecutorStatus: liveExecutorStatus || prev?.liveExecutorStatus || null,
+            engineRuntimeStatus: engineRuntimeFast || prev?.engineRuntimeStatus || null,
+          }));
         }
         if (readiness) setShadowReadiness(readiness);
       } finally {
@@ -31019,10 +31050,10 @@ export default function App() {
                         style={{ border: `1px solid ${e?.stalled || e?.status === "error" ? "rgba(255,80,80,.5)" : "rgba(68,255,180,.2)"}`, borderRadius: 8, padding: 9, cursor: "pointer", position: "relative" }}
                       >
                         <div style={{ position: "absolute", top: 7, right: 8, fontSize: 10, opacity: .7 }}>Diagnose ↗</div>
-                        <div style={{ fontWeight: 950, marginBottom: 5 }}>{engineName} · {String(e?.status || "idle").toUpperCase()} {e?.status === "running" ? "🟢" : "⚪"}</div>
+                        <div style={{ fontWeight: 950, marginBottom: 5 }}>{engineName} · {String(e?.status || "idle").toUpperCase()} {(e?.status === "running" || e?.worker_thread_alive || Number(e?.worker_heartbeat_ts || 0) > 0) ? "🟢" : (systemInfoRuntimeLoading ? "⏳" : "⚪")}</div>
                         <div style={{ fontSize: 12, lineHeight: 1.55 }}>
                           {engineName === "NKR" && <>
-                            Worker Thread: {e?.worker_thread_alive ? "ALIVE 🟢" : "DEAD 🔴"}{e?.worker_thread_name ? ` · ${e.worker_thread_name}` : ""}<br />
+                            Worker Thread: {e?.worker_thread_alive ? "ALIVE 🟢" : (systemInfoRuntimeLoading && !e?.worker_heartbeat_ts ? "CHECKING …" : (e?.worker_heartbeat_ts ? "ALIVE 🟢 · shared" : "DEAD 🔴"))}{e?.worker_thread_name ? ` · ${e.worker_thread_name}` : ""}<br />
                             Worker Heartbeat: {e?.worker_heartbeat_ts ? new Date(Number(e.worker_heartbeat_ts) * 1000).toLocaleString() : "not seen"}<br />
                             Heartbeat Age: {e?.worker_heartbeat_age_sec == null ? "unknown" : `${e.worker_heartbeat_age_sec}s`} {e?.worker_heartbeat_stalled ? "⚠ STALLED" : ""}<br />
                             Worker Stage: {e?.worker_last_stage || "unknown"}<br />

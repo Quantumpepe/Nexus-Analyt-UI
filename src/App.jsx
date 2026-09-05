@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD523-HEALTH-HOLD-MERGE";
+const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD524-WORKER-ALWAYS-ON";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -29969,6 +29969,37 @@ export default function App() {
   const canOpenSystemInfo = String(footerWallet || "").toLowerCase() === DEV_SYSTEM_INFO_WALLET;
 
   useEffect(() => {
+    // Light worker heartbeat must keep running even when System Info is closed.
+    // Otherwise the panel looks like the engines only live while it is open.
+    if (!canOpenSystemInfo) return;
+    let alive = true;
+    const walletParam = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";
+    const ping = async () => {
+      try {
+        const bearer = String(localStorage.getItem("nexus_token") || localStorage.getItem("nexus_privy_jwt") || "").trim();
+        const headers = { Accept: "application/json" };
+        if (bearer) headers.Authorization = `Bearer ${bearer}`;
+        if (footerWallet) headers["X-Wallet-Address"] = footerWallet;
+        const res = await fetch(`${API_BASE}/api/nexus/engine-runtime/status${walletParam}`, { cache: "no-store", credentials: "include", headers });
+        if (!alive || !res.ok) return;
+        const data = await res.json();
+        if (!data || typeof data !== "object") return;
+        const engines = data.engines || {};
+        const hollow = ["NKR", "GRID", "TRADER"].every((name) => {
+          const e = engines[name] || {};
+          return !(e.worker_thread_alive || Number(e.worker_heartbeat_ts || 0) > 0 || Number(e.last_tick_ts || 0) > 0 || String(e.status || "").toLowerCase() === "running" || (Array.isArray(e.core_vault_sessions) && e.core_vault_sessions.length));
+        });
+        if (hollow) return;
+        try { localStorage.setItem("nexus_engine_runtime_last", JSON.stringify(data)); } catch (_) {}
+        setSystemInfoStatus((prev) => ({ ...(prev || {}), engineRuntimeStatus: data }));
+      } catch (_) {}
+    };
+    ping();
+    const id = setInterval(ping, 15000);
+    return () => { alive = false; clearInterval(id); };
+  }, [canOpenSystemInfo, footerWallet]);
+
+  useEffect(() => {
     // Heavy owner diagnostics read several chains and must run only while the
     // System Info modal is actually open. Running them permanently in the
     // footer caused background RPC storms and pending/cancelled preflights.
@@ -30020,7 +30051,7 @@ export default function App() {
         if (!alive) return;
         if (engineRuntimeFast && !isHollowEngineRuntime(engineRuntimeFast)) {
           try { localStorage.setItem("nexus_engine_runtime_last", JSON.stringify(engineRuntimeFast)); } catch (_) {}
-          setSystemInfoStatus((prev) => stripGateObjects({ ...(prev || {}), engineRuntimeStatus: engineRuntimeFast }));
+          setSystemInfoStatus((prev) => ({ ...(prev || {}), engineRuntimeStatus: engineRuntimeFast }));
         }
         const results = await Promise.allSettled([
           loadJson(`/api/shadow/health${walletParam}`),

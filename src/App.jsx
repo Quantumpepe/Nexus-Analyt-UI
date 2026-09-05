@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD524-WORKER-ALWAYS-ON";
+const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD525-HISTORY-AND-CARD";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -26147,7 +26147,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const arr = Array.isArray(sess?.rotationEvents) ? sess.rotationEvents : [];
                                 return arr.map((ev) => ({ ...ev, sessionSymbol: sess?.targetAsset || sess?.symbol || ev?.targetAsset || "" }));
                               });
-                              const localEvents = (Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []).map((ev) => ({ ...ev, localOnly: true }));
+                              const engineFillEvents = (Array.isArray(nkrEventHistory) ? nkrEventHistory : []).map((ev) => {
+                                const action = String(ev?.eventType || ev?.action || ev?.side || "EVENT").toUpperCase();
+                                const tx = String(ev?.txHash || ev?.tx_hash || ev?.hash || "").trim();
+                                return {
+                                  ...ev,
+                                  action,
+                                  status: action,
+                                  eventType: action,
+                                  eventKind: tx ? "ON_CHAIN" : "MONITOR",
+                                  onChain: !!tx,
+                                  text: tx
+                                    ? `${action} ${ev?.asset || ev?.symbol || ""} @ ${ev?.priceUsd || ev?.price || ""}`.trim()
+                                    : `${action} ${ev?.asset || ev?.symbol || ""}`.trim(),
+                                  ts: Number(ev?.ts || ev?.event_ts || 0) * (Number(ev?.ts || 0) > 10_000_000_000 ? 1 : 1000),
+                                  targetAsset: ev?.asset || ev?.symbol || "",
+                                };
+                              });
+                              const localEvents = [
+                                ...(Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []).map((ev) => ({ ...ev, localOnly: true })),
+                                ...engineFillEvents,
+                              ];
                               const classifyEventKind = (ev) => {
                                 const explicit = String(ev?.eventKind || ev?.event_kind || "").toUpperCase();
                                 if (["ON_CHAIN", "ONCHAIN", "SHADOW", "MONITOR"].includes(explicit)) {
@@ -26158,6 +26178,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const st = String(ev?.status || ev?.action || "").toUpperCase();
                                 const hasBuySell = ["BUY", "SELL", "OPEN", "CLOSE", "ADD", "REDUCE", "OPEN_POSITION", "BUY_OPEN", "CLOSED_PROFIT", "CLOSED_LOSS"].some((k) => st.includes(k));
                                 if (tx && hasBuySell) return "ON_CHAIN";
+                                if (["ENTRY","EXIT","BUY","SELL","OPEN","CLOSE"].includes(st) && (tx || ev?.priceUsd || ev?.price)) return "ON_CHAIN";
                                 if (mode === "live" && hasBuySell) return "ON_CHAIN";
                                 if (["WAIT", "HOLD", "MONITOR", "TICK", "WAITING_ENTRY", "POSITION_TRACKING", "READY_DISPATCHED"].some((k) => st.includes(k))) return "MONITOR";
                                 if (ev?.localOnly || mode === "shadow") return "SHADOW";

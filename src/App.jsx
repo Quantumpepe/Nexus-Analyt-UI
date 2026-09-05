@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD529-CARD-FLAT-AFTER-EXIT";
+const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD530-SHOW-REALIZED-PNL";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -25511,6 +25511,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                         <div><b style={{ color: gross >= 0 ? "#86efac" : "#ff8a8a" }}>Gross:</b> <span style={{ fontWeight: 850, color: gross >= 0 ? "#86efac" : "#ff8a8a" }}>{gross >= 0 ? "+" : ""}{fmtUsd(gross)}</span></div>
                                         <div><b style={{ color: "#ffd166" }}>Costs:</b> <span style={{ fontWeight: 850, color: "#ffd166" }}>{costs > 0 ? "-" : ""}{fmtUsd(Math.abs(costs))}</span></div>
                                         <div><b style={{ color: net >= 0 ? "#86efac" : "#ff8a8a" }}>Net:</b> <span style={{ fontSize: 15, fontWeight: 950, color: net >= 0 ? "#86efac" : "#ff8a8a" }}>{net >= 0 ? "+" : ""}{fmtUsd(net)}</span></div>
+                                        {(() => {
+                                          const realized = Number(sess?.collectedProfitUsd ?? sess?.rotationProfitUsd ?? sess?.profitUsd ?? sess?.meta?.collectedProfitUsd ?? sess?.meta?.last_exit_net_usd ?? 0) || 0;
+                                          const lastExit = Number(sess?.meta?.last_exit_net_usd ?? 0) || 0;
+                                          if (!realized && !lastExit) return null;
+                                          return (
+                                            <div>
+                                              <b style={{ color: (lastExit || realized) >= 0 ? "#86efac" : "#ff8a8a" }}>Realized:</b>{" "}
+                                              <span style={{ fontWeight: 950, color: (lastExit || realized) >= 0 ? "#86efac" : "#ff8a8a" }}>
+                                                {(lastExit || realized) >= 0 ? "+" : ""}{fmtUsd(lastExit || realized)}
+                                              </span>
+                                            </div>
+                                          );
+                                        })()}
                                         <div><b style={{ color: ["REQUESTED","PENDING","EXITING"].includes(String(nkrExitUiState[nkrSessionControlKey(sess)] || "").toUpperCase()) ? "#8bdcff" : ((sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "#86efac" : "#ffd166") }}>Exit:</b> {(() => { const k=nkrSessionControlKey(sess); const ui=String(nkrExitUiState[k] || "").toUpperCase(); const st=String(sess?.status || sess?.statusLabel || "").toUpperCase(); if (ui === "REQUESTED") return "REQUESTED"; if (ui === "PENDING" || ["CLOSING","STOPPING","EXITING","EXIT_PENDING"].includes(st)) return "PENDING"; if (ui === "FAILED" || st === "EXIT_FAILED") return "FAILED"; return (sess?.exitReady ?? sess?.meta?.nkr_exit_ready) ? "READY / WAITING" : "WAITING"; })()}</div>
                                       </div>
 

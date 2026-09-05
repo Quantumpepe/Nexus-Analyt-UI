@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD527-CARD-REASON-PER-CHAIN";
+const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD528-CARD-ZERO-COLLECTED";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -24677,6 +24677,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           sess?.profitUsd,
                           sess?.sessionProfitUsd,
                           sess?.rotationProfitUsd,
+                          sess?.__displayCollected,
                           sess?.collectedProfitUsd,
                           sess?.meta?.profitUsd,
                           sess?.meta?.sessionProfitUsd,
@@ -25334,10 +25335,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const markValue = positionValue > 0 ? positionValue : markFromQty;
                                 // BUILD460: while position is open, ALWAYS recompute Gross/Net from mark − invested
                                 // when we have both sides — ignore stale backend grossProfitUsd (was showing −$7 while +34%).
+                                const nkrRtCard = (typeof systemInfoStatus !== "undefined" && systemInfoStatus?.engineRuntimeStatus?.engines?.NKR) || {};
+                                const workerWaitingCard = String(nkrRtCard.position || "").toUpperCase() === "WAITING" || !String(nkrRtCard.active_asset || nkrRtCard.activeAsset || "").trim();
                                 let gross = Number(sess?.grossProfitUsd ?? sess?.liveGrossProfitUsd ?? sess?.meta?.nkr_live_gross_profit_usd ?? sess?.meta?.grossProfitUsd ?? 0) || 0;
                                 let costs = Number(sess?.costsUsd ?? sess?.liveCostsUsd ?? sess?.meta?.nkr_live_costs_usd ?? sess?.meta?.costsUsd ?? 0) || 0;
                                 let net = Number(sess?.netProfitUsd ?? sess?.liveNetProfitUsd ?? sess?.meta?.nkr_live_net_profit_usd ?? sess?.meta?.netProfitUsd ?? 0) || 0;
-                                if (hasOpenPosition && investedLive > 0 && markValue > 0) {
+                                if (workerWaitingCard) {
+                                  const realized = Number(sess?.collectedProfitUsd || sess?.meta?.collectedProfitUsd || 0);
+                                  sess.__displayCollected = realized > 0 ? realized : Number(net || (gross - costs) || 0);
+                                  gross = 0;
+                                  costs = 0;
+                                  net = 0;
+                                }
+                                if (!workerWaitingCard && hasOpenPosition && investedLive > 0 && markValue > 0) {
                                   gross = markValue - investedLive;
                                   if (costs <= 0) {
                                     costs = Math.max(0.01, Math.min(1.5, investedLive * 0.0035));

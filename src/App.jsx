@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD521-SYSINFO-WORKER-HOLD";
+const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD523-HEALTH-HOLD-MERGE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3308,9 +3308,12 @@ function EngineEventHistory({ engine, events = [] }) {
           const ts = Number(ev?.ts || ev?.updatedTs || ev?.createdTs || 0);
           const status = String(ev?.status || ev?.eventType || ev?.action || "EVENT").toUpperCase();
           const net = Number(ev?.netUsd ?? ev?.profitUsd ?? ev?.pnlUsd ?? 0);
+          const whenMs = ts ? (ts < 1000000000000 ? ts * 1000 : ts) : 0;
+          const when = ev?.date || (whenMs ? new Date(whenMs).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—");
+          const px = Number(ev?.priceUsd || ev?.price || ev?.fillPrice || 0);
           return <div key={ev?.eventKey || `${engine}-${ts}-${i}`} className="muted tiny" style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 6 }}>
-            <div><b style={{ color: net > 0 ? "#86efac" : net < 0 ? "#ff8a8a" : "#8bdcff" }}>{ts ? new Date(ts * (ts < 1000000000000 ? 1000 : 1)).toLocaleString() : "—"} · {ev?.asset || ev?.symbol || "ASSET"} · {status}</b></div>
-            <div>{ev?.chain || "—"} · {ev?.side || ev?.action || "—"}{Number(ev?.priceUsd || 0) > 0 ? ` @ ${fmtUsd(Number(ev.priceUsd))}` : ""}{Number(ev?.quantity || 0) > 0 ? ` · Qty ${fmtQty(Number(ev.quantity))}` : ""}</div>
+            <div><b style={{ color: net > 0 ? "#86efac" : net < 0 ? "#ff8a8a" : "#8bdcff" }}>{when} · {ev?.asset || ev?.symbol || "ASSET"} · {status}</b></div>
+            <div>{ev?.chain || "—"} · {ev?.side || ev?.action || "—"}{px > 0 ? ` · Entry/Exit ${fmtUsd(px)}` : " · Preis —"}{Number(ev?.quantity || 0) > 0 ? ` · Qty ${fmtQty(Number(ev.quantity))}` : ""}</div>
             <div>Budget {fmtUsd(Number(ev?.budgetUsd || ev?.amountUsd || 0))} · Gross {fmtUsd(Number(ev?.grossUsd || 0))} · Costs {fmtUsd(Number(ev?.costsUsd || 0))} · Net {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
             {ev?.reason ? <div>Reason: {toUserFacingReason(ev.reason)}</div> : null}{ev?.txHash ? <div className="mono">Tx: {ev.txHash}</div> : null}
           </div>;
@@ -13457,7 +13460,13 @@ useEffect(() => {
     } catch {}
   }, [wallet, token]);
 
-  useEffect(() => { loadEngineHistory("GRID"); loadEngineHistory("NKR"); loadEngineHistory("TRADER"); }, [loadEngineHistory]);
+  useEffect(() => {
+    loadEngineHistory("GRID"); loadEngineHistory("NKR"); loadEngineHistory("TRADER");
+    const id = setInterval(() => {
+      loadEngineHistory("GRID"); loadEngineHistory("NKR"); loadEngineHistory("TRADER");
+    }, 20000);
+    return () => clearInterval(id);
+  }, [loadEngineHistory]);
 
   const [gridOrders, setGridOrders] = useState([]);
   const [gridOrdersOpen, setGridOrdersOpen] = useState(false);
@@ -29987,6 +29996,20 @@ export default function App() {
       }
     };
 
+    const isHollowEngineRuntime = (payload) => {
+      const engines = payload?.engines || payload;
+      if (!engines || typeof engines !== "object") return true;
+      const names = ["NKR", "GRID", "TRADER"];
+      let any = false;
+      for (const name of names) {
+        const e = engines[name] || engines[name.toLowerCase()] || {};
+        if (e.worker_thread_alive || Number(e.worker_heartbeat_ts || 0) > 0 || Number(e.last_tick_ts || 0) > 0 || String(e.status || "").toLowerCase() === "running" || (Array.isArray(e.core_vault_sessions) && e.core_vault_sessions.length)) {
+          any = true;
+        }
+      }
+      return !any;
+    };
+
     const loadOwnerSystemInfo = async () => {
       if (ownerSystemInfoFlightRef.current || document.visibilityState === "hidden") return;
       ownerSystemInfoFlightRef.current = true;
@@ -29995,7 +30018,7 @@ export default function App() {
         const engineRuntimeFast = await loadJson(`/api/nexus/engine-runtime/status${walletParam}`, 6000);
         setSystemInfoRuntimeLoading(false);
         if (!alive) return;
-        if (engineRuntimeFast) {
+        if (engineRuntimeFast && !isHollowEngineRuntime(engineRuntimeFast)) {
           try { localStorage.setItem("nexus_engine_runtime_last", JSON.stringify(engineRuntimeFast)); } catch (_) {}
           setSystemInfoStatus((prev) => stripGateObjects({ ...(prev || {}), engineRuntimeStatus: engineRuntimeFast }));
         }
@@ -30017,7 +30040,7 @@ export default function App() {
             ...(prev || {}),
             ...(statusPanel || {}),
             liveExecutorStatus: liveExecutorStatus || prev?.liveExecutorStatus || null,
-            engineRuntimeStatus: engineRuntimeFast || prev?.engineRuntimeStatus || null,
+            engineRuntimeStatus: (!isHollowEngineRuntime(engineRuntimeFast) && engineRuntimeFast) || prev?.engineRuntimeStatus || null,
           }));
         }
         if (readiness) setShadowReadiness(readiness);

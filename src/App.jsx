@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD525-HISTORY-AND-CARD";
+const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD526-HISTORY-ONCHAIN-ONLY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -25453,11 +25453,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                               whyNoBuy = `Why no buy: no open position on ${sessChain || "this chain"} yet.`;
                                             }
                                           }
+                                          const nkrRt = (typeof systemInfoStatus !== "undefined" && systemInfoStatus?.engineRuntimeStatus?.engines?.NKR) || {};
+                                          const workerWaiting = String(nkrRt.position || "").toUpperCase() === "WAITING" || (String(nkrRt.active_asset || nkrRt.activeAsset || "").trim() === "" && String(nkrRt.position || "").toUpperCase() !== "OPEN");
                                           const rawReason = String(
                                             sess?.exitReason
                                             || sess?.meta?.nkr_exit_reason
-                                            || (Number(positionValue) <= 0
-                                              ? (whyNoBuy || nkrStrategistStatus?.summary || "No open position yet — strategist is waiting for entry conditions.")
+                                            || (Number(positionValue) <= 0 || workerWaiting
+                                              ? (whyNoBuy || nkrStrategistStatus?.summary || "Position closed — waiting for next entry.")
                                               : "Tracking live position.")
                                           );
                                           const reasonText = toUserFacingReason(rawReason);
@@ -26150,13 +26152,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               const engineFillEvents = (Array.isArray(nkrEventHistory) ? nkrEventHistory : []).map((ev) => {
                                 const action = String(ev?.eventType || ev?.action || ev?.side || "EVENT").toUpperCase();
                                 const tx = String(ev?.txHash || ev?.tx_hash || ev?.hash || "").trim();
+                                const fill = ["ENTRY","EXIT","BUY","SELL","OPEN","CLOSE"].includes(action);
                                 return {
                                   ...ev,
                                   action,
                                   status: action,
                                   eventType: action,
-                                  eventKind: tx ? "ON_CHAIN" : "MONITOR",
-                                  onChain: !!tx,
+                                  eventKind: (tx || fill) ? "ON_CHAIN" : "MONITOR",
+                                  onChain: !!(tx || fill),
                                   text: tx
                                     ? `${action} ${ev?.asset || ev?.symbol || ""} @ ${ev?.priceUsd || ev?.price || ""}`.trim()
                                     : `${action} ${ev?.asset || ev?.symbol || ""}`.trim(),
@@ -26213,8 +26216,16 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const key = String(ev?.event_id || `${ev?.trade_id || "EV"}-${ev?.status || ev?.action || "EVENT"}-${ev?.ts || Math.random()}`);
                                 if (!byId.has(key)) byId.set(key, ev);
                               });
-                              const allEvents = Array.from(byId.values()).sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
-                              const onChainCount = allEvents.filter((ev) => ev.eventKind === "ON_CHAIN").length;
+                              const allEventsRaw = Array.from(byId.values()).sort((a, b) => Number(b?.ts || 0) - Number(a?.ts || 0));
+                              const allEvents = allEventsRaw.filter((ev) => {
+                                const st = String(ev?.status || ev?.action || ev?.eventType || "").toUpperCase();
+                                const kind = String(ev?.eventKind || "").toUpperCase();
+                                if (kind === "ON_CHAIN" || ["ENTRY","EXIT","BUY","SELL","OPEN","CLOSE"].includes(st)) return true;
+                                if (["ACTIVE","WAIT","HOLD","TICK","POSITION_TRACKING","READY_DISPATCHED","WAITING_ENTRY"].includes(st)) return false;
+                                if (st.endsWith(" ACTIVE") || st.includes(" ACTIVE")) return false;
+                                return kind !== "MONITOR" || String(ev?.text || "").toLowerCase().includes("sold") || String(ev?.text || "").toLowerCase().includes("bought");
+                              });
+                              const onChainCount = allEvents.filter((ev) => ev.eventKind === "ON_CHAIN" || ["ENTRY","EXIT","BUY","SELL","CLOSE","OPEN"].includes(String(ev?.status || ev?.action || "").toUpperCase())).length;
                               const filter = String(rotationShadowEventsFilter || "ALL").toUpperCase();
                               const filteredEvents = allEvents.filter((ev) => {
                                 const st = String(ev?.status || ev?.action || "").toUpperCase();

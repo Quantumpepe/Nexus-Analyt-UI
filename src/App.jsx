@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD528-CARD-ZERO-COLLECTED";
+const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD529-CARD-FLAT-AFTER-EXIT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -24747,7 +24747,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         rotationSelectedPick?.source ||
                         "waiting"
                       ).toUpperCase();
-                      const nkrOpenPositionRows = rotationVisibleActiveRows.filter((sess) => {
+                      const nkrRtOverview = (typeof systemInfoStatus !== "undefined" && systemInfoStatus?.engineRuntimeStatus?.engines?.NKR) || {};
+                      const nkrWorkerFlat = String(nkrRtOverview.position || "").toUpperCase() === "WAITING" || !String(nkrRtOverview.active_asset || nkrRtOverview.activeAsset || "").trim();
+                      const nkrOpenPositionRows = nkrWorkerFlat ? [] : rotationVisibleActiveRows.filter((sess) => {
                         const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
                         const op = sess?.openRotation && typeof sess.openRotation === "object" ? sess.openRotation : {};
                         const asset = String(sess?.positionAsset || op?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || meta?.nkr_active_asset || "").toUpperCase();
@@ -26328,7 +26330,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     </div>
                                     {!visibleEvents.length ? (
                                       <div className="muted tiny" style={{ padding: "8px 4px" }}>
-                                        No NKR events saved yet. History will appear here independently of Shadow.
+                                        No fills in history yet. On-chain trades show here after the worker writes ENTRY/EXIT.
                                       </div>
                                     ) : null}
                                     {visibleEvents.map((ev) => {

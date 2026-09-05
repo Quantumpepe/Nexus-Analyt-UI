@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD526-HISTORY-ONCHAIN-ONLY";
+const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD527-CARD-REASON-PER-CHAIN";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -25455,12 +25455,28 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           }
                                           const nkrRt = (typeof systemInfoStatus !== "undefined" && systemInfoStatus?.engineRuntimeStatus?.engines?.NKR) || {};
                                           const workerWaiting = String(nkrRt.position || "").toUpperCase() === "WAITING" || (String(nkrRt.active_asset || nkrRt.activeAsset || "").trim() === "" && String(nkrRt.position || "").toUpperCase() !== "OPEN");
-                                          const rawReason = String(
-                                            sess?.exitReason
-                                            || sess?.meta?.nkr_exit_reason
-                                            || (Number(positionValue) <= 0 || workerWaiting
-                                              ? (whyNoBuy || nkrStrategistStatus?.summary || "Position closed — waiting for next entry.")
-                                              : "Tracking live position.")
+                                          const chainU = String(sessChain || sess?.chain || sess?.chainKey || "").toUpperCase();
+                                          const pickReason = (...cands) => {
+                                            for (const c of cands) {
+                                              const s = String(c || "").trim();
+                                              if (!s) continue;
+                                              const up = s.toUpperCase();
+                                              if (up.includes("UNI") && chainU && !up.includes(chainU)) continue;
+                                              if (up.includes("BNB") && chainU === "ETH") continue;
+                                              if (up.includes("ETH") && chainU === "BNB" && up.includes("UNI")) continue;
+                                              if (up.includes("ASSET_NOT_CONFIGURED") && chainU && !up.includes(chainU)) continue;
+                                              if (up.includes("NO CROSS-CHAIN") && workerWaiting) continue;
+                                              return s;
+                                            }
+                                            return "";
+                                          };
+                                          const rawReason = pickReason(
+                                            workerWaiting ? `Waiting for next entry on ${chainU || "this chain"}.` : "",
+                                            Number(positionValue) > 0 && !workerWaiting ? "Tracking live position." : "",
+                                            sess?.exitReason,
+                                            sess?.meta?.nkr_exit_reason,
+                                            whyNoBuy,
+                                            "Waiting for next entry."
                                           );
                                           const reasonText = toUserFacingReason(rawReason);
                                           const whyClean = whyNoBuy ? toUserFacingMessage(whyNoBuy.replace(/^Why no buy:\s*/i, ""), "") : "";

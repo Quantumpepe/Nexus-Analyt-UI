@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.06-BUILD531-REASON-FOLLOWS-ASSET";
+const FRONTEND_BUILD_ID = "F-2026.09.06-BUILD535-DISCLAIMER-PLAN-FEE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -31893,6 +31893,12 @@ export default function App() {
                 Cryptocurrency trading involves risk and users are fully
                 responsible for their own decisions. No profits are guaranteed.
               </p>
+              <p>
+                Please note: Nexus Core is $25 and Strategist is $50, each for
+                30 days ($75 together). From $100 profit, a 3% fee applies.
+                Investing under $1,000 therefore only makes sense in a very
+                strong market. There is no minimum budget.
+              </p>
 
               <h3>DE</h3>
               <p>
@@ -31901,6 +31907,12 @@ export default function App() {
                 Finanzberatung. Der Handel mit Kryptowährungen ist risikoreich.
                 Nutzer handeln eigenverantwortlich. Gewinne werden nicht
                 garantiert.
+              </p>
+              <p>
+                Bitte beachten: Nexus Core kostet 25 $ und der Strategist 50 $ —
+                jeweils für 30 Tage (75 $ zusammen). Ab 100 $ Gewinn kommen 3 %
+                Fee dazu. Eine Investition unter 1.000 $ macht daher nur bei
+                einem sehr guten Markt Sinn. Es gibt kein Mindestbudget.
               </p>
             </div>
 

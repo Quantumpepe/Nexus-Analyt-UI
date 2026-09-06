@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.06-BUILD538-REASON-ROTATE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.09.06-BUILD539-REASON-ROTATE-APPINNER";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3364,6 +3364,11 @@ useEffect(() => {
 
   
   const [watchErr, setWatchErr] = useState("");
+  const [nkrReasonPulse, setNkrReasonPulse] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setNkrReasonPulse((n) => n + 1), 5000);
+    return () => window.clearInterval(id);
+  }, []);
 const [errorMsg, setErrorMsg] = useState("");
 
   const isDesktopWide = typeof window !== "undefined" ? window.innerWidth >= 981 : true;
@@ -29865,7 +29870,6 @@ export default function App() {
   const [liveSetupBusy, setLiveSetupBusy] = useState("");
   const [liveSetupMsg, setLiveSetupMsg] = useState("");
   const [showDisclaimer, setShowDisclaimer] = useState(false);
-  const [nkrReasonPulse, setNkrReasonPulse] = useState(0);
   const [showSystemInfo, setShowSystemInfo] = useState(false);
   const [buildInfo, setBuildInfo] = useState(null);
   const [shadowHealth, setShadowHealth] = useState(null);
@@ -29946,7 +29950,6 @@ export default function App() {
 
 
   useEffect(() => {
-    const reasonTimer = window.setInterval(() => setNkrReasonPulse((n) => n + 1), 5000);
     const timer = window.setInterval(() => setOwnerAdminNow(Math.floor(Date.now() / 1000)), 1000);
     try {
       const tokenPending = JSON.parse(window.localStorage.getItem("nexus_owner_admin_token_pending_v1") || "null");
@@ -29999,7 +30002,7 @@ export default function App() {
         }
       }
     } catch {}
-    return () => { window.clearInterval(reasonTimer); window.clearInterval(timer); };
+    return () => window.clearInterval(timer);
   }, []);
 
   const _formatOwnerAdminCountdown = (executeAfter) => {

@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.06-BUILD537-REASON-ROTATE-5S";
+const FRONTEND_BUILD_ID = "F-2026.09.06-BUILD538-REASON-ROTATE-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7816,7 +7816,7 @@ const byChain = {};
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
-      window.clearInterval(reasonTimer); clearInterval(timer);
+      window.clearInterval(timer);
     };
   }, [accessWalletKey, refreshAccess]);
 
@@ -29999,7 +29999,7 @@ export default function App() {
         }
       }
     } catch {}
-    return () => window.clearInterval(timer);
+    return () => { window.clearInterval(reasonTimer); window.clearInterval(timer); };
   }, []);
 
   const _formatOwnerAdminCountdown = (executeAfter) => {

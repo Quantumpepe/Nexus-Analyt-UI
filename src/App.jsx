@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.06-BUILD535-DISCLAIMER-PLAN-FEE";
+const FRONTEND_BUILD_ID = "F-2026.09.06-BUILD537-REASON-ROTATE-5S";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7816,7 +7816,7 @@ const byChain = {};
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
-      window.clearInterval(timer);
+      window.clearInterval(reasonTimer); clearInterval(timer);
     };
   }, [accessWalletKey, refreshAccess]);
 
@@ -25484,15 +25484,29 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           };
                                           const cardAsset = String(sess?.positionAsset || sess?.targetAsset || sess?.asset || sess?.symbol || sess?.meta?.nkr_active_asset || "").toUpperCase();
                                           const cardHasTrade = !!(cardAsset && !["", "USDC", "USDT", "WAITING", "NONE", "ASSET"].includes(cardAsset));
+                                          const decU = String(nkrStrategistStatus?.decision || nkrRt.decision || nkrRt.gate || "").toUpperCase();
+                                          const astU = String(nkrRt.active_asset || nkrRt.activeAsset || nkrStrategistStatus?.best || nkrStrategistStatus?.symbol || cardAsset || "").toUpperCase();
+                                          const sameChainHint = !String(nkrStrategistStatus?.summary || nkrRt.reason || "").toUpperCase().includes("BNB") || chainU === "BNB";
+                                          let stratHint = "";
+                                          if (cardHasTrade) stratHint = cardAsset ? `HOLD ${cardAsset}` : "HOLD";
+                                          else if (/EXIT|CLOSE|SELL/.test(decU)) stratHint = astU ? `EXIT ${astU}` : "EXIT";
+                                          else if (/OPEN|ENTRY|BUY|SUBMIT/.test(decU)) stratHint = astU ? `ENTRY ${astU}` : "ENTRY";
+                                          else if (/BLOCK|SKIP|NOT_CONFIG/.test(decU)) stratHint = astU ? `SKIP ${astU}` : "SKIP";
+                                          else if (/WAIT|WATCH|SCAN|DISCOVER|IDLE/.test(decU)) stratHint = astU && sameChainHint ? `WATCH ${astU}` : "WAIT ENTRY";
+                                          else stratHint = astU && !cardHasTrade ? `WATCH ${astU}` : "WAIT ENTRY";
+                                          stratHint = String(stratHint || "WAIT ENTRY").replace(/\s+/g, " ").trim().slice(0, 50);
+                                          const trackHint = cardHasTrade ? "Tracking live position" : "";
+                                          const rotateHint = (cardHasTrade && trackHint)
+                                            ? ((nkrReasonPulse % 2) === 0 ? stratHint : trackHint)
+                                            : stratHint;
                                           const rawReason = pickReason(
-                                            cardHasTrade ? "Tracking live position." : `Waiting for next entry on ${chainU || "this chain"}.`,
-                                            Number(positionValue) > 0 ? "Tracking live position." : "",
+                                            rotateHint,
                                             sess?.exitReason,
                                             sess?.meta?.nkr_exit_reason,
                                             whyNoBuy,
                                             "Waiting for next entry."
                                           );
-                                          const reasonText = toUserFacingReason(rawReason);
+                                          const reasonText = String(toUserFacingReason(rawReason) || stratHint || "").replace(/\s+/g, " ").trim().slice(0, 50);
                                           const whyClean = whyNoBuy ? toUserFacingMessage(whyNoBuy.replace(/^Why no buy:\s*/i, ""), "") : "";
                                           return (
                                             <>
@@ -29851,6 +29865,7 @@ export default function App() {
   const [liveSetupBusy, setLiveSetupBusy] = useState("");
   const [liveSetupMsg, setLiveSetupMsg] = useState("");
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [nkrReasonPulse, setNkrReasonPulse] = useState(0);
   const [showSystemInfo, setShowSystemInfo] = useState(false);
   const [buildInfo, setBuildInfo] = useState(null);
   const [shadowHealth, setShadowHealth] = useState(null);
@@ -29931,6 +29946,7 @@ export default function App() {
 
 
   useEffect(() => {
+    const reasonTimer = window.setInterval(() => setNkrReasonPulse((n) => n + 1), 5000);
     const timer = window.setInterval(() => setOwnerAdminNow(Math.floor(Date.now() / 1000)), 1000);
     try {
       const tokenPending = JSON.parse(window.localStorage.getItem("nexus_owner_admin_token_pending_v1") || "null");

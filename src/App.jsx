@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.05-BUILD530-SHOW-REALIZED-PNL";
+const FRONTEND_BUILD_ID = "F-2026.09.06-BUILD531-REASON-FOLLOWS-ASSET";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -24749,7 +24749,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       ).toUpperCase();
                       const nkrRtOverview = (typeof systemInfoStatus !== "undefined" && systemInfoStatus?.engineRuntimeStatus?.engines?.NKR) || {};
                       const nkrWorkerFlat = String(nkrRtOverview.position || "").toUpperCase() === "WAITING" || !String(nkrRtOverview.active_asset || nkrRtOverview.activeAsset || "").trim();
-                      const nkrOpenPositionRows = nkrWorkerFlat ? [] : rotationVisibleActiveRows.filter((sess) => {
+                      const nkrOpenPositionRows = rotationVisibleActiveRows.filter((sess) => {
                         const meta = sess?.meta && typeof sess.meta === "object" ? sess.meta : {};
                         const op = sess?.openRotation && typeof sess.openRotation === "object" ? sess.openRotation : {};
                         const asset = String(sess?.positionAsset || op?.asset || sess?.targetAsset || sess?.asset || sess?.symbol || meta?.nkr_active_asset || "").toUpperCase();
@@ -25482,9 +25482,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             }
                                             return "";
                                           };
+                                          const cardAsset = String(sess?.positionAsset || sess?.targetAsset || sess?.asset || sess?.symbol || sess?.meta?.nkr_active_asset || "").toUpperCase();
+                                          const cardHasTrade = !!(cardAsset && !["", "USDC", "USDT", "WAITING", "NONE", "ASSET"].includes(cardAsset));
                                           const rawReason = pickReason(
-                                            workerWaiting ? `Waiting for next entry on ${chainU || "this chain"}.` : "",
-                                            Number(positionValue) > 0 && !workerWaiting ? "Tracking live position." : "",
+                                            cardHasTrade ? "Tracking live position." : `Waiting for next entry on ${chainU || "this chain"}.`,
+                                            Number(positionValue) > 0 ? "Tracking live position." : "",
                                             sess?.exitReason,
                                             sess?.meta?.nkr_exit_reason,
                                             whyNoBuy,

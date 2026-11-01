@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD547-NEXUS-HELP-ANIMATED-CURSOR";
+const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD548-NEXUS-HELP-AUTO-CONTEXT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3761,13 +3761,25 @@ function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, o
   const [helpPosition, setHelpPosition] = useState(null);
   const title = (NEXUS_SUPPORT_TOPICS[topic] || NEXUS_SUPPORT_TOPICS.overview)[language === "en" ? 1 : 0];
 
+  // BUILD548: Switching the visible Nexus area updates the Help topic without
+  // erasing the previous conversation or the user's unfinished question.
+  // Closing the whole Help panel (as before) starts a fresh chat next time.
+  const previousHelpTopicRef = useRef({ open: false, topic: null, language: null });
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open) {
+      previousHelpTopicRef.current = { open: false, topic: null, language: null };
+      return undefined;
+    }
+    const previous = previousHelpTopicRef.current;
+    const keepConversation = previous.open && previous.language === language && previous.topic !== topic;
+    previousHelpTopicRef.current = { open: true, topic, language };
     const controller = new AbortController();
     if (pendingRef.current) pendingRef.current.abort();
     pendingRef.current = controller;
-    setDraft("");
-    setMessages([]);
+    if (!keepConversation) {
+      setDraft("");
+      setMessages([]);
+    }
     setError("");
     setBusy(true);
     const question = language === "de"
@@ -3779,13 +3791,15 @@ function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, o
       if (!controller.signal.aborted) {
         const answer = String(res?.answer || "").trim();
         if (!answer) throw new Error(language === "de" ? "Keine Antwort erhalten." : "No response received.");
-        setMessages([{ role: "assistant", text: answer }]);
+        const area = (NEXUS_SUPPORT_TOPICS[topic] || NEXUS_SUPPORT_TOPICS.overview)[language === "en" ? 1 : 0];
+        setMessages((current) => keepConversation
+          ? [...current, { role: "assistant", text: `${area}\n\n${answer}` }]
+          : [{ role: "assistant", text: answer }]);
       }
     }).catch((e) => {
       if (!controller.signal.aborted) setError(String(e?.message || e || "Support AI unavailable"));
     }).finally(() => { if (!controller.signal.aborted) setBusy(false); });
     return () => { controller.abort(); };
-  // Changing the trading view must not erase a conversation in the minimized chat.
   }, [open, topic, language]);
 
   useEffect(() => {
@@ -10881,6 +10895,33 @@ useEffect(() => {
 
   const [gridAutoPath, setGridAutoPath] = useState(true); // V2 -> V3 fallback (EVM)
   const [gridMode, setGridMode] = useState("normal");
+
+  // BUILD548: Nexus Help follows the actual visible dashboard section.
+  // After Skip/Finish, switching Trader -> NKR (or GRID) no longer requires
+  // closing/reopening Help. This only changes the explanation and guide UI.
+  const nexusCurrentHelpArea = activePanel === "vault"
+    ? (gridMode === "rotation" ? "nkr" : gridMode === "trading" ? "trading" : "grid")
+    : activePanel === "ai" ? "ai_analyst"
+    : activePanel === "watchlist" ? "watchlist"
+    : activePanel === "compare" ? "compare" : "overview";
+  const previousNexusHelpAreaRef = useRef(nexusCurrentHelpArea);
+  useEffect(() => {
+    const previousArea = previousNexusHelpAreaRef.current;
+    previousNexusHelpAreaRef.current = nexusCurrentHelpArea;
+    if (previousArea === nexusCurrentHelpArea) return;
+    if (nexusAiSupportOpen) setNexusAiSupportTopic(nexusCurrentHelpArea);
+
+    // If the user changes a trading mode while a tour is running, follow the
+    // new visible controls instead of continuing to point at hidden controls.
+    const oldGuideMode = NEXUS_VISUAL_TOURS[nexusVisualGuide]?.mode;
+    const newGuideMode = NEXUS_VISUAL_TOURS[nexusCurrentHelpArea]?.mode;
+    if (["normal", "rotation", "trading"].includes(oldGuideMode)
+        && ["normal", "rotation", "trading"].includes(newGuideMode)
+        && oldGuideMode !== newGuideMode) {
+      setNexusVisualGuide(nexusCurrentHelpArea);
+      setNexusVisualStep(0);
+    }
+  }, [nexusCurrentHelpArea, nexusAiSupportOpen, nexusVisualGuide]);
 
   const [tradingBudgetUsd, setTradingBudgetUsd] = useState("");
   const [tradingBudgetSplitInput, setTradingBudgetSplitInput] = useState("");

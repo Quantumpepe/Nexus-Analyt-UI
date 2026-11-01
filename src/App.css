@@ -2748,3 +2748,90 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   .nexusTourRoot *, .nexusTourRoot *::before, .nexusTourRoot *::after { animation: none !important; transition: none !important; }
 }
+
+
+/* ===== BUILD547: A moving visual mouse pointer, NOT a static instruction list ===== */
+.nexusTourRoot { pointer-events: none; }
+.nexusTourCursor {
+  position: fixed;
+  z-index: 4;
+  width: 34px;
+  height: 44px;
+  pointer-events: none;
+  /* The white, simulated mouse pointer travels from target to target. */
+  transition: left .82s cubic-bezier(.20,.76,.28,1), top .82s cubic-bezier(.20,.76,.28,1);
+  filter: drop-shadow(0 4px 7px rgba(0,0,0,.68));
+}
+.nexusTourCursor svg { position: relative; z-index: 2; display: block; }
+.nexusTourCursorPulse {
+  position: absolute;
+  z-index: 1;
+  top: -14px;
+  left: -14px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(77,214,255,.3);
+  border: 2px solid rgba(125,234,255,.9);
+  animation: nexusTourPointerPulse 1.6s ease-out infinite;
+}
+@keyframes nexusTourPointerPulse {
+  0% { transform: scale(.8); opacity: .92; }
+  85%,100% { transform: scale(1.9); opacity: 0; }
+}
+.nexusTourCursorLabel {
+  position: absolute;
+  z-index: 3;
+  left: 25px;
+  top: 29px;
+  min-width: 20px;
+  height: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 900;
+  color: #051b21;
+  background: #86e4ff;
+  border: 1px solid #e7fbff;
+  border-radius: 99px;
+}
+.nexusTourCallout {
+  z-index: 6;
+  padding: 10px 12px !important;
+  max-height: min(245px, calc(100dvh - 20px));
+  overflow-y: auto;
+  gap: 5px !important;
+  border-width: 2px;
+  /* Move the compact explanation to the actual highlighted element. */
+  transition: left .76s cubic-bezier(.20,.76,.28,1), top .76s cubic-bezier(.20,.76,.28,1);
+  animation: none !important;
+}
+.nexusTourCallout .nexusTourTitle { font-size: 14px; }
+.nexusTourCallout .nexusTourText { font-size: 12px; line-height: 1.42; }
+.nexusTourCallout .nexusTourProgress { color: #9ceeff; }
+.nexusTourCallout .nexusTourKicker { font-size: 10px; }
+.nexusTourCallout .nexusTourActions { margin-top: 4px; align-items: center; gap: 4px; }
+.nexusTourCallout .nexusTourActions button { font-size: 11px; padding: 7px 8px; }
+.nexusTourCallout .nexusTourActions .nexusTourSkip { color: #ffddaf; border-color: rgba(231,187,106,.55); }
+.nexusTourAwait {
+  background: rgba(132, 211, 255, .10);
+  border-left: 3px solid #84d3ff;
+  border-radius: 5px;
+  padding: 6px 8px;
+  color: #e9f7ff;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.nexusTourAwait div { margin-top: 4px; }
+.nexusTourMissing { font-size: 11px; }
+@media (max-width: 560px) {
+  .nexusTourCallout { padding: 9px !important; }
+  .nexusTourCursorLabel { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nexusTourCursor, .nexusTourCallout { transition: none !important; }
+  .nexusTourCursorPulse { animation: none !important; }
+}

@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD543-NEXUS-HELP-DRAG-MINIMIZE";
+const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD544-NEXUS-HELP-SINGLE-TOGGLE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3380,7 +3380,7 @@ function NexusHelpButton({ topic, onHelp }) {
   );
 }
 
-function NexusAiSupport({ open, minimized = false, onOpen, onMinimize, onRestore, onClose, topic, onTopicChange, contextMode = "normal" }) {
+function NexusAiSupport({ open, minimized = false, onClose, topic, onTopicChange, contextMode = "normal" }) {
   const [language, setLanguage] = useState("de");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState([]);
@@ -3451,7 +3451,7 @@ function NexusAiSupport({ open, minimized = false, onOpen, onMinimize, onRestore
     }
   };
   // Pointer events support mouse, touch, and pen. Only the title bar drags;
-  // language/minimize/close controls remain clickable. Never move off-screen.
+  // language/close controls remain clickable. Never move off-screen.
   const startHelpDrag = (e) => {
     if (e.button != null && e.button !== 0) return;
     if (e.target?.closest?.("button,select,input,textarea,a,[role='button']")) return;
@@ -3516,12 +3516,6 @@ function NexusAiSupport({ open, minimized = false, onOpen, onMinimize, onRestore
         .nexusAiSupportWindow button,.nexusAiSupportWindow select,.nexusAiSupportWindow textarea{font-family:inherit}
         .nexusAiSupportDragBar{cursor:grab;touch-action:none;user-select:none}
         .nexusAiSupportDragBar:active{cursor:grabbing}
-        .nexusAiSupportMinimized{position:absolute;right:16px;bottom:72px;pointer-events:auto;
-          display:flex;align-items:center;gap:10px;justify-content:space-between;min-width:186px;
-          padding:7px 9px 7px 13px;border:1px solid rgba(95,224,177,.42);border-radius:12px;
-          background:#10382c;color:#fff;box-shadow:0 12px 38px rgba(0,0,0,.55)}
-        .nexusAiSupportMinimized button{background:#245b49;color:white;border:1px solid #438a6e;
-          border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:800}
         .nexusAiSupportHeader{padding:12px;border-bottom:1px solid rgba(255,255,255,.12);background:#10382c;display:grid;gap:8px}
         .nexusAiSupportTop{display:flex;align-items:center;justify-content:space-between;gap:9px}
         .nexusAiSupportChoose{width:100%;border:1px solid rgba(255,255,255,.16);background:#153e33;color:white;
@@ -3537,15 +3531,8 @@ function NexusAiSupport({ open, minimized = false, onOpen, onMinimize, onRestore
         .nexusAiSupportBottom button:disabled{opacity:.4;cursor:not-allowed}
         @media(max-width:540px){.nexusAiSupportWindow{right:12px;bottom:min(68px,8vh);height:min(570px,calc(100dvh - 86px))}}
       `}</style>
-      {open && minimized ? (
-        <div className="nexusAiSupportMinimized"
-          style={helpPosition ? { left: helpPosition.x, top: helpPosition.y, right: "auto", bottom: "auto" } : undefined}>
-          <strong style={{ fontSize: 12 }}>Nexus Help</strong>
-          <button type="button" onClick={onRestore}
-            aria-label={language === "de" ? "Nexus Help wiederherstellen" : "Restore Nexus Help"}
-            title={language === "de" ? "Chat fortsetzen" : "Continue chat"}>□</button>
-        </div>
-      ) : open ? (
+      {/* Minimiert: Fenster ist unsichtbar, der einzige Nexus Help-Button im Header oeffnet es erneut. */}
+      {open && !minimized ? (
         <section ref={helpWindowRef} className="nexusAiSupportWindow" role="dialog" aria-label="Nexus AI Support" aria-modal="false"
           style={helpPosition ? { left: helpPosition.x, top: helpPosition.y, right: "auto", bottom: "auto" } : undefined}>
           <div className="nexusAiSupportHeader">
@@ -3558,10 +3545,6 @@ function NexusAiSupport({ open, minimized = false, onOpen, onMinimize, onRestore
               <div style={{ display: "flex", gap: 6 }}>
                 <button type="button" onClick={() => setLanguage((v) => v === "de" ? "en" : "de")}
                   style={{ background: "#245b49", color: "#fff", border: "1px solid #438a6e", borderRadius: 8, padding: "4px 9px", cursor: "pointer" }}>{language.toUpperCase()}</button>
-                <button type="button" aria-label={language === "de" ? "Minimieren" : "Minimize"}
-                  title={language === "de" ? "Chat minimieren (Verlauf bleibt erhalten)" : "Minimize (keep chat history)"}
-                  onClick={onMinimize}
-                  style={{ background: "transparent", color: "#fff", border: 0, fontSize: 20, cursor: "pointer", minWidth: 26 }}>−</button>
                 <button type="button" aria-label="Close" onClick={close}
                   style={{ background: "transparent", color: "#fff", border: 0, fontSize: 19, cursor: "pointer" }}>×</button>
               </div>
@@ -21546,14 +21529,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
               type="button"
               className="btn"
               aria-label="Nexus Help"
-              aria-expanded={nexusAiSupportOpen}
-              title="Nexus Help"
+              aria-expanded={nexusAiSupportOpen && !nexusAiSupportMinimized}
+              title={nexusAiSupportOpen && !nexusAiSupportMinimized ? "Nexus Help minimieren" : nexusAiSupportOpen ? "Nexus Help fortsetzen" : "Nexus Help oeffnen"}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (nexusAiSupportOpen) {
-                  // The header button collapses/restores, rather than closing the chat.
+                  // Der einzige Nexus-Help-Button minimiert/stellt wieder her; Verlauf bleibt im State.
                   setNexusAiSupportMinimized((v) => !v);
                 } else {
                   openNexusAiHelp(activePanel === "vault" ? (gridMode === "rotation" ? "nkr" : gridMode === "trading" ? "trading" : "grid") : activePanel === "ai" ? "ai_analyst" : activePanel === "watchlist" ? "watchlist" : activePanel === "compare" ? "compare" : "overview");
@@ -30183,9 +30166,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
       <NexusAiSupport
         open={nexusAiSupportOpen}
         minimized={nexusAiSupportMinimized}
-        onMinimize={() => setNexusAiSupportMinimized(true)}
-        onRestore={() => setNexusAiSupportMinimized(false)}
-        onOpen={() => openNexusAiHelp(activePanel === "vault" ? (gridMode === "rotation" ? "nkr" : gridMode === "trading" ? "trading" : "grid") : activePanel === "ai" ? "ai_analyst" : activePanel === "watchlist" ? "watchlist" : activePanel === "compare" ? "compare" : "overview")}
         onClose={() => { setNexusAiSupportOpen(false); setNexusAiSupportMinimized(false); }}
         topic={nexusAiSupportTopic}
         onTopicChange={setNexusAiSupportTopic}

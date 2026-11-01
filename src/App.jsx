@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD544-NEXUS-HELP-SINGLE-TOGGLE";
+const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD545-NEXUS-HELP-MINIMIZE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3380,7 +3380,7 @@ function NexusHelpButton({ topic, onHelp }) {
   );
 }
 
-function NexusAiSupport({ open, minimized = false, onClose, topic, onTopicChange, contextMode = "normal" }) {
+function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, onTopicChange, contextMode = "normal" }) {
   const [language, setLanguage] = useState("de");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState([]);
@@ -3545,6 +3545,13 @@ function NexusAiSupport({ open, minimized = false, onClose, topic, onTopicChange
               <div style={{ display: "flex", gap: 6 }}>
                 <button type="button" onClick={() => setLanguage((v) => v === "de" ? "en" : "de")}
                   style={{ background: "#245b49", color: "#fff", border: "1px solid #438a6e", borderRadius: 8, padding: "4px 9px", cursor: "pointer" }}>{language.toUpperCase()}</button>
+                {/* Minimize only hides the chat window. The same Nexus Help button in the header restores it. */}
+                <button type="button" aria-label={language === "de" ? "Chat minimieren" : "Minimize chat"}
+                  title={language === "de" ? "Minimieren - Chat bleibt erhalten" : "Minimize - keep chat history"}
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (typeof onMinimize === "function") onMinimize(); }}
+                  style={{ background: "transparent", color: "#fff", border: 0, fontSize: 22, cursor: "pointer", minWidth: 28, height: 27, lineHeight: 1 }}>
+                  −
+                </button>
                 <button type="button" aria-label="Close" onClick={close}
                   style={{ background: "transparent", color: "#fff", border: 0, fontSize: 19, cursor: "pointer" }}>×</button>
               </div>
@@ -21556,7 +21563,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 cursor: "pointer",
               }}
             >
-              Nexus Help
+              Nexus Help{nexusAiSupportOpen && !nexusAiSupportMinimized ? <span aria-hidden="true" style={{ marginLeft: 6, fontWeight: 900 }}>−</span> : null}
             </button>
             </div>
             <div style={{ position: "relative", flex: "0 0 auto" }}>
@@ -30167,6 +30174,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         open={nexusAiSupportOpen}
         minimized={nexusAiSupportMinimized}
         onClose={() => { setNexusAiSupportOpen(false); setNexusAiSupportMinimized(false); }}
+        onMinimize={() => setNexusAiSupportMinimized(true)}
         topic={nexusAiSupportTopic}
         onTopicChange={setNexusAiSupportTopic}
         contextMode={gridMode}

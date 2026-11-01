@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD546-NEXUS-HELP-VISUAL-GUIDES";
+const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD547-NEXUS-HELP-ANIMATED-CURSOR";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3443,6 +3443,7 @@ const NEXUS_VISUAL_TOURS = Object.freeze({
     de: 'NKR Strategist einrichten', en: 'Set up NKR Strategist', mode: 'rotation',
     steps: [
       NEXUS_VISUAL_TOUR_STEP('nkr', '.section-grid .gridModeSwitcher, [data-nexus-tour="mobile-grid-switcher"]', 'Nexus NKR wählen', 'Wähle im Umschalter «Nexus NKR». Diese Anleitung stellt nur die Ansicht um und startet keine Session.', 'Choose Nexus NKR', 'Select Nexus NKR in the mode switcher. The tour only changes the visible panel; it never starts a session.'),
+      NEXUS_VISUAL_TOUR_STEP('nkr', '[data-nexus-tour="nkr-setup-open"]', 'NKR Setup aufklappen', 'Klicke auf «Nexus NKR Setup – Show ▼». Erst dann werden die Kapital-, Laufzeit- und Budgetfelder sichtbar. Es wird kein Handel gestartet.', 'Expand NKR setup', 'Click Nexus NKR Setup – Show. The capital, runtime and budget fields then appear. No trade starts.'),
       NEXUS_VISUAL_TOUR_STEP('nkr_mode', '[data-nexus-help-topic="nkr_mode"]', 'Kapitalmodus', 'Hier wählst du den NKR-Kapitalmodus. Dynamisch, Taktisch, Aggressiv und Defensiv unterscheiden sich in Risikoprofil und Kapitalfreigabe.', 'Capital mode', 'Choose the NKR capital mode. Dynamic, Tactical, Aggressive and Defensive differ in risk and capital allocation.'),
       NEXUS_VISUAL_TOUR_STEP('nkr_observation', '[data-nexus-help-topic="nkr_observation"]', 'Beobachtungsfenster', 'Lege fest, wie lange Nexus Marktsignale beobachtet, bevor eine Handelsentscheidung überhaupt in Betracht kommt.', 'Observation window', 'Set how long Nexus monitors market signals before considering an entry.'),
       NEXUS_VISUAL_TOUR_STEP('nkr_profit', '[data-nexus-help-topic="nkr_profit"]', 'Gewinnmodus', 'Du kannst etwa Reinvestieren oder Auszahlungsmodi wählen. Prüfe die Wirkung auf verfügbare Mittel.', 'Profit mode', 'Choose reinvestment or payout behaviour. Check how it affects available capital.'),
@@ -3467,6 +3468,7 @@ const NEXUS_VISUAL_TOURS = Object.freeze({
     de: 'Trader einrichten', en: 'Set up Trader', mode: 'trading',
     steps: [
       NEXUS_VISUAL_TOUR_STEP('trading', '.section-grid .gridModeSwitcher, [data-nexus-tour="mobile-grid-switcher"]', 'Nexus Trading wählen', 'Wechsle zur Trader-Ansicht. Die eigentliche Ausführung bleibt in deiner Kontrolle.', 'Choose Nexus Trading', 'Switch to the Trader view. Execution always remains under your control.'),
+      NEXUS_VISUAL_TOUR_STEP('trading', '[data-nexus-tour="trading-setup-open"]', 'Trading Setup öffnen', 'Klicke auf «Trading Setup & Presets – Show ▼», um Budget, Slots und Risikoeinstellungen einzublenden.', 'Expand Trading setup', 'Click Trading Setup & Presets – Show to reveal budget, slots and risk controls.'),
       NEXUS_VISUAL_TOUR_STEP('trading_budget', '[data-nexus-help-topic="trading_budget"]', 'Handelsbudget', 'Hier legst du das Handelsbudget fest. Prüfe vorher das freie Guthaben im Vault.', 'Trading budget', 'Set your trading budget and first check the free vault balance.'),
       NEXUS_VISUAL_TOUR_STEP('trading_slots', '[data-nexus-help-topic="trading_slots"]', 'Trading-Slots', 'Slots beschreiben parallel nutzbare Handelsplätze innerhalb einer Session.', 'Trading slots', 'Slots define concurrent positions supported within a session.'),
       NEXUS_VISUAL_TOUR_STEP('trading_runtime', '[data-nexus-help-topic="trading_runtime"]', 'Laufzeit', 'Die Laufzeit legt fest, wie lange der Trader aktiv sein darf.', 'Runtime', 'Runtime limits how long the Trader is configured to operate.'),
@@ -3521,30 +3523,95 @@ function nexusVisualGuideForTopic(topic) {
   if (t === 'ai_insight') return 'compare';
   return 'overview';
 }
+// BUILD547: A guided cursor moves to the actual element on the page.
+// A missing/closed destination can never be mistaken for the next visible step.
 function nexusTourVisibleTarget(selector) {
   if (!selector || typeof document === 'undefined') return null;
   try {
     const nodes = document.querySelectorAll(selector);
     for (const node of nodes) {
-      if (!node || !node.isConnected || !node.getClientRects().length) continue;
+      if (!node?.isConnected || !node.getClientRects().length) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 2 || rect.height < 2) continue;
       const style = window.getComputedStyle(node);
       if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) continue;
-      // Do not highlight controls inside collapsed, invisible parent panels.
-      const collapsed = node.closest('.dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .panelScroll');
-      if (collapsed) continue;
+      // Inactive dashboard rails contain controls that cannot currently be used.
+      if (node.closest('.dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .panelScroll')) continue;
+      // Skip elements inside an explicitly hidden or inert parent.
+      if (node.closest('[hidden],[inert],[aria-hidden="true"]')) continue;
+      if (node.hasAttribute('data-nexus-help-topic')) {
+        const form = node.closest('.formRow');
+        const control = form?.querySelector('select, input, textarea');
+        if (control?.getClientRects()?.length && control.getBoundingClientRect().width >= 2) {
+          const controlStyle = window.getComputedStyle(control);
+          if (controlStyle.display !== 'none' && controlStyle.visibility !== 'hidden') return control;
+        }
+      }
       return node;
     }
-  } catch (_) { /* CSS lookup can fail on unavailable browser features. */ }
+  } catch (_) { /* Ignore invalid selectors, not the rest of the page. */ }
   return null;
+}
+function nexusTourCursorPoint(rect, viewportW, viewportH) {
+  // Put the mouse at the actionable center of a small control. For a large
+  // section, point near the title/controls instead of the empty middle.
+  const px = rect.w > 360 ? rect.x + Math.min(140, rect.w * .22) : rect.x + rect.w * .5;
+  const py = rect.h > 220 ? rect.y + Math.min(64, rect.h * .17) : rect.y + rect.h * .5;
+  return {
+    x: Math.min(viewportW - 20, Math.max(12, Math.round(px))),
+    y: Math.min(viewportH - 28, Math.max(12, Math.round(py))),
+  };
+}
+function nexusTourCalloutPosition(rect, pointer, viewportW, viewportH) {
+  const margin = 10;
+  const gap = 30;
+  const w = Math.min(300, Math.max(186, viewportW - margin * 2));
+  const h = Math.min(245, Math.max(160, viewportH - margin * 2));
+  const clampX = (v) => Math.max(margin, Math.min(viewportW - w - margin, v));
+  const clampY = (v) => Math.max(margin, Math.min(viewportH - h - margin, v));
+  if (!rect) return {left: clampX((viewportW - w) / 2), top: clampY((viewportH - h) / 2), width: w};
+  // Choose a nearby position that does not cover the marked control.
+  // For wide/full-screen panels, use the cursor instead of their full bounds.
+  const anchorX = rect.w > viewportW * .46 ? pointer.x : rect.x + rect.w / 2;
+  const anchorY = rect.h > viewportH * .60 ? pointer.y : rect.y + rect.h / 2;
+  const candidates = [
+    {left: rect.x + rect.w + gap, top: anchorY - h * .35, fits: viewportW - (rect.x + rect.w + gap) >= w + margin},
+    {left: rect.x - w - gap, top: anchorY - h * .35, fits: rect.x - gap >= w + margin},
+    {left: anchorX - w * .5, top: rect.y + rect.h + gap, fits: viewportH - (rect.y + rect.h + gap) >= h + margin},
+    {left: anchorX - w * .5, top: rect.y - h - gap, fits: rect.y - gap >= h + margin},
+  ];
+  const fit = candidates.find((candidate) => candidate.fits);
+  if (fit) return {left: clampX(fit.left), top: clampY(fit.top), width: w};
+  // In cramped layouts, place the small explanation next to the animated
+  // cursor, avoiding the cursor's immediate location when possible.
+  const right = viewportW - pointer.x >= w + 46;
+  const left = pointer.x >= w + 46;
+  const leftPos = right ? pointer.x + 30 : left ? pointer.x - w - 30 : (pointer.x < viewportW/2 ? viewportW - w - margin : margin);
+  const topPos = pointer.y < viewportH * .55 ? pointer.y + 42 : pointer.y - h - 28;
+  return {left: clampX(leftPos), top: clampY(topPos), width: w};
 }
 function NexusHelpVisualTour({ guideKey, stepIndex, onStepChange, onClose, language = 'de' }) {
   const [targetRect, setTargetRect] = useState(null);
   const [targetFound, setTargetFound] = useState(false);
+  const [waitingFor, setWaitingFor] = useState(null);
+  const [viewport, setViewport] = useState(() => ({
+    w: typeof window === 'undefined' ? 1200 : window.innerWidth,
+    h: typeof window === 'undefined' ? 800 : window.innerHeight,
+  }));
+  const [cursor, setCursor] = useState(() => {
+    if (typeof window === 'undefined') return {x: 800, y: 100};
+    const origin = document.querySelector('[aria-label="Nexus Help"]')?.getBoundingClientRect();
+    return origin ? {x: Math.round(origin.left + origin.width/2), y: Math.round(origin.top + origin.height/2)}
+      : {x: Math.max(24, window.innerWidth-90), y: 70};
+  });
+  const [cursorReady, setCursorReady] = useState(false);
   const scrollKeyRef = useRef('');
   const guide = NEXUS_VISUAL_TOURS[guideKey];
   const total = guide?.steps?.length || 0;
-  const step = total ? guide.steps[Math.min(Math.max(0, stepIndex), total - 1)] : null;
+  const step = total ? guide.steps[Math.min(Math.max(0, stepIndex), total-1)] : null;
   const english = language === 'en';
+
+  useEffect(() => { setWaitingFor(null); scrollKeyRef.current = ''; }, [guideKey, stepIndex]);
   useEffect(() => {
     if (!step) return undefined;
     let raf = 0;
@@ -3552,79 +3619,128 @@ function NexusHelpVisualTour({ guideKey, stepIndex, onStepChange, onClose, langu
     const update = () => {
       raf = 0;
       if (!alive) return;
-      const el = nexusTourVisibleTarget(step.target);
-      if (!el) {
-        setTargetFound(false);
-        setTargetRect(null);
-        return;
-      }
-      const rect = el.getBoundingClientRect();
-      const viewportH = window.innerHeight || 800;
       const viewportW = window.innerWidth || 1200;
-      const key = `${guideKey}-${stepIndex}`;
-      if ((rect.bottom < 48 || rect.top > viewportH - 48 || rect.right < 10 || rect.left > viewportW - 10) && scrollKeyRef.current !== key) {
-        scrollKeyRef.current = key;
-        try { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' }); } catch (_) {}
+      const viewportH = window.innerHeight || 800;
+      setViewport((previous) => previous.w === viewportW && previous.h === viewportH ? previous : {w: viewportW, h: viewportH});
+      const el = nexusTourVisibleTarget(step.target);
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const key = `${guideKey}-${stepIndex}`;
+        const outside = rect.bottom < 48 || rect.top > viewportH - 48 || rect.right < 8 || rect.left > viewportW - 8;
+        if (outside && scrollKeyRef.current !== key) {
+          scrollKeyRef.current = key;
+          try { el.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'nearest'}); } catch (_) {}
+        }
+        const next = {x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height)};
+        setTargetRect((old) => old && Object.keys(next).every((k) => old[k] === next[k]) ? old : next);
+        setTargetFound(true);
+        if (!outside) {
+          const point = nexusTourCursorPoint(next, viewportW, viewportH);
+          setCursor((old) => old.x === point.x && old.y === point.y ? old : point);
+          setCursorReady(true);
+        }
+      } else {
+        setTargetRect(null);
+        setTargetFound(false);
       }
-      const next = { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) };
-      setTargetRect((prev) => prev && Object.keys(next).every((k) => prev[k] === next[k]) ? prev : next);
-      setTargetFound(true);
+      // When the user opens an actual sub-window, move there automatically.
+      // No programmatic click, trade, signature, withdrawal or form submit.
+      if (waitingFor !== null && waitingFor < total && nexusTourVisibleTarget(guide.steps[waitingFor]?.target)) {
+        setWaitingFor(null);
+        onStepChange(waitingFor);
+      }
     };
     const schedule = () => { if (!raf && alive) raf = window.requestAnimationFrame(update); };
     schedule();
     const observer = new MutationObserver(schedule);
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style','class','open','aria-expanded'] });
+    observer.observe(document.body, {childList: true, subtree: true, attributes: true, attributeFilter: ['style','class','open','aria-expanded']});
     window.addEventListener('resize', schedule);
-    document.addEventListener('scroll', schedule, true);
+    window.addEventListener('scroll', schedule, true);
     return () => {
       alive = false;
       if (raf) window.cancelAnimationFrame(raf);
       observer.disconnect();
       window.removeEventListener('resize', schedule);
-      document.removeEventListener('scroll', schedule, true);
+      window.removeEventListener('scroll', schedule, true);
     };
-  }, [guideKey, stepIndex, step]);
+  }, [guideKey, stepIndex, step, waitingFor, guide, total, onStepChange]);
   useEffect(() => {
     const escape = (event) => { if (event.key === 'Escape') onClose(); };
     window.addEventListener('keydown', escape);
     return () => window.removeEventListener('keydown', escape);
   }, [onClose]);
   if (!guide || !step) return null;
-  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
-  const boxW = Math.min(340, Math.max(190, vw - 24));
-  const x = targetRect ? Math.max(8, Math.min(vw - boxW - 8, targetRect.x + targetRect.w + 18)) : Math.max(8, (vw - boxW) / 2);
-  const leftSpace = targetRect && targetRect.x > boxW + 28;
-  const cardX = targetRect && targetRect.x + targetRect.w + boxW + 24 > vw && leftSpace
-    ? Math.max(8, targetRect.x - boxW - 18) : x;
-  const cardY = targetRect ? Math.min(Math.max(12, targetRect.y), Math.max(12, vh - 290)) : Math.max(18, Math.min(vh - 290, vh * 0.22));
-  const nextStep = () => { if (stepIndex + 1 < total) onStepChange(stepIndex + 1); else onClose(); };
+
+  const pointer = cursor;
+  const layout = nexusTourCalloutPosition(targetFound ? targetRect : null, pointer, viewport.w, viewport.h);
+  const goBack = () => { setWaitingFor(null); onStepChange(Math.max(0, stepIndex-1)); };
+  const goNext = () => {
+    if (stepIndex + 1 >= total) { onClose(); return; }
+    const nextIndex = stepIndex+1;
+    // Do not advance the explanation without its real, visible destination.
+    if (!nexusTourVisibleTarget(guide.steps[nextIndex]?.target)) { setWaitingFor(nextIndex); return; }
+    setWaitingFor(null);
+    onStepChange(nextIndex);
+  };
+  const skipUnseen = () => {
+    // Optional controls (e.g. session cards without active sessions) may not
+    // exist. Skip directly to the next *visible* destination, never to a ghost.
+    for (let i = (waitingFor ?? stepIndex+1) + 1; i < total; i += 1) {
+      if (nexusTourVisibleTarget(guide.steps[i]?.target)) { setWaitingFor(null); onStepChange(i); return; }
+    }
+    onClose();
+  };
+  const missingText = targetFound ? null : (english
+    ? 'This element is not currently visible. Return to the previous step or open its panel. You can also finish the tour.'
+    : 'Diese Position ist momentan nicht sichtbar. Öffne den entsprechenden Bereich oder gehe einen Schritt zurück.');
+
   return (
-    <div className="nexusTourRoot" aria-live="polite">
-      {targetRect && targetFound && targetRect.w > 0 && targetRect.h > 0 ? (
+    <div className="nexusTourRoot" aria-live="off">
+      {targetRect && targetFound ? (
         <div className="nexusTourFocus" aria-hidden="true" style={{
-          left: Math.max(0,targetRect.x - 5), top: Math.max(0,targetRect.y - 5),
-          width: targetRect.w + 10, height: targetRect.h + 10,
+          left: Math.max(0, targetRect.x-5), top: Math.max(0, targetRect.y-5),
+          width: targetRect.w+10, height: targetRect.h+10,
         }}><span className="nexusTourFocusCorner" /></div>
       ) : null}
-      <section className="nexusTourCard" role="dialog" aria-modal="false"
-        aria-label={english ? 'Nexus interactive guide' : 'Nexus interaktive Anleitung'}
-        style={{ left: cardX, top: cardY, width: boxW }}>
-        <div className="nexusTourCardHead">
-          <div className="nexusTourKicker">{english ? guide.en : guide.de}</div>
-          <button type="button" className="nexusTourClose" onClick={onClose} aria-label={english ? 'End guide' : 'Anleitung beenden'}>×</button>
+      {cursorReady && targetFound ? (
+        <div className="nexusTourCursor" aria-hidden="true" style={{left: pointer.x, top: pointer.y}}>
+          <span className="nexusTourCursorPulse" />
+          <svg viewBox="0 0 34 44" width="34" height="44" aria-hidden="true">
+            <path d="M3 2 L3 33 L11.4 25.4 L17.8 40 L24.8 36.7 L18.3 22.8 L29.4 22.8 Z"
+              fill="#fff" stroke="#062e2a" strokeWidth="2.6" strokeLinejoin="round" />
+          </svg>
+          <span className="nexusTourCursorLabel">{stepIndex+1}</span>
         </div>
-        <div className="nexusTourProgress">{english ? 'Step' : 'Schritt'} {stepIndex + 1} / {total}</div>
-        <div className="nexusTourProgressTrack"><span style={{ width: `${((stepIndex + 1) / total) * 100}%` }} /></div>
+      ) : null}
+      <section key={guideKey} className="nexusTourCard nexusTourCallout" role="dialog" aria-modal="false"
+        aria-label={english ? 'Guide for current website element' : 'Erklärung zum markierten Element'}
+        aria-live="polite" style={{left: layout.left, top: layout.top, width: layout.width}}>
+        <div className="nexusTourCardHead">
+          <span className="nexusTourKicker">{english ? guide.en : guide.de}</span>
+          <button type="button" className="nexusTourClose" onClick={onClose}
+            aria-label={english ? 'Close guide' : 'Anleitung schliessen'}>×</button>
+        </div>
+        <div className="nexusTourProgress">{english ? 'Position' : 'Position'} {stepIndex+1} / {total}</div>
         <div className="nexusTourTitle">{english ? step.enTitle : step.deTitle}</div>
         <div className="nexusTourText">{english ? step.enText : step.deText}</div>
-        {!targetFound ? <div className="nexusTourMissing">{english
-          ? 'This element is not visible yet. Open the relevant panel or dialog using the previous step.'
-          : 'Dieses Element ist noch nicht sichtbar. Öffne den betreffenden Bereich oder das Unterfenster im vorherigen Schritt.'}</div> : null}
-        <div className="nexusTourNotice">{english ? 'Guide only – no transactions are executed.' : 'Nur eine Anleitung – keine Transaktionen werden ausgeführt.'}</div>
+        {missingText ? <div className="nexusTourMissing">{missingText}</div> : null}
+        {waitingFor !== null ? (
+          <div className="nexusTourAwait" role="status">
+            <strong>{english ? 'Open this on the website:' : 'Jetzt auf der Website öffnen:'}</strong>{' '}
+            {english ? guide.steps[waitingFor]?.enTitle : guide.steps[waitingFor]?.deTitle}
+            <div>{english
+              ? 'Click the highlighted control yourself. The cursor and explanation will move to the opened window automatically.'
+              : 'Klicke selbst auf die markierte Schaltfläche. Sobald das Fenster sichtbar ist, wandern Mauszeiger und Erklärung automatisch dorthin.'}</div>
+          </div>
+        ) : null}
         <div className="nexusTourActions">
-          <button type="button" onClick={() => onStepChange(Math.max(0, stepIndex - 1))} disabled={stepIndex === 0}>{english ? 'Back' : 'Zurück'}</button>
-          <button type="button" className="nexusTourNext" onClick={nextStep}>{stepIndex + 1 === total ? (english ? 'Done' : 'Fertig') : (english ? 'Next' : 'Weiter')}</button>
+          <button type="button" onClick={goBack} disabled={stepIndex===0}>{english ? 'Back' : 'Zurück'}</button>
+          {waitingFor !== null ? (
+            <button type="button" className="nexusTourSkip" onClick={skipUnseen}>{english ? 'Skip / Finish' : 'Überspringen'}</button>
+          ) : null}
+          <button type="button" className="nexusTourNext" onClick={goNext}>
+            {stepIndex+1 === total ? (english ? 'Done' : 'Fertig') : (english ? 'Next position' : 'Nächste Position')}
+          </button>
         </div>
       </section>
     </div>
@@ -26323,7 +26439,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               overflow: "hidden",
                             }}
                           >
-                            <summary
+                            <summary data-nexus-tour="nkr-setup-open"
                               onMouseDown={(e) => { e.stopPropagation(); }}
                               onClick={(e) => { e.stopPropagation(); }}
                               style={{
@@ -27524,6 +27640,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <button
                       type="button"
                       className="tradingSetupToggle"
+                      data-nexus-tour="trading-setup-open"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();

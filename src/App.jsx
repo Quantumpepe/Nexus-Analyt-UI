@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD545-NEXUS-HELP-MINIMIZE";
+const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD546-NEXUS-HELP-VISUAL-GUIDES";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3369,6 +3369,7 @@ function NexusHelpButton({ topic, onHelp }) {
   return (
     <button
       type="button"
+      data-nexus-help-topic={topic}
       aria-label={`Nexus AI Hilfe: ${NEXUS_SUPPORT_TOPICS[topic]?.[0] || topic}`}
       title={`Nexus AI Hilfe: ${NEXUS_SUPPORT_TOPICS[topic]?.[0] || topic}`}
       onMouseDown={(e) => e.stopPropagation()}
@@ -3380,7 +3381,257 @@ function NexusHelpButton({ topic, onHelp }) {
   );
 }
 
-function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, onTopicChange, contextMode = "normal" }) {
+
+// BUILD546: NEXUS HELP VISUAL TOURS - passive, read-only UI guidance.
+// DOM targets intentionally refer to existing user interface elements. The tour NEVER
+// invokes the action behind a button. Only the user can initiate financial actions.
+const NEXUS_VISUAL_TOUR_STEP = (topic, target, deTitle, deText, enTitle, enText) => ({
+  topic, target, deTitle, deText, enTitle, enText,
+});
+const NEXUS_VISUAL_TOURS = Object.freeze({
+  overview: {
+    de: 'Nexus kennenlernen', en: 'Explore Nexus', mode: null,
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('overview', '.topbar', 'Willkommen bei Nexus', 'Oben findest du Wallet, Nexus Help und weitere Einstellungen. Diese Tour zeigt dir die wichtigsten Bereiche, ohne etwas auszuführen.', 'Welcome to Nexus', 'The header contains your wallet, Nexus Help and settings. This tour shows the main areas without executing anything.'),
+      NEXUS_VISUAL_TOUR_STEP('wallet', '[data-nexus-wallet-trigger="1"]', 'Deine Wallet', 'Hier öffnest du die Privy Wallet und den Core Vault. Der Klick öffnet nur die Ansicht; Überweisungen bestätigst ausschliesslich du.', 'Your wallet', 'Open your Privy wallet and Core Vault here. Viewing does not transfer any funds.'),
+      NEXUS_VISUAL_TOUR_STEP('compare', '.section-compare', 'Compare', 'Hier kannst du Kryptowährungen vergleichen und Kursbewegungen beobachten.', 'Compare', 'Compare crypto assets and inspect market movements here.'),
+      NEXUS_VISUAL_TOUR_STEP('watchlist', '.section-watch', 'Watchlist', 'In der Watchlist verwaltest du die Coins, die du beobachten möchtest.', 'Watchlist', 'Manage the assets you want to monitor.'),
+      NEXUS_VISUAL_TOUR_STEP('grid', '.section-grid .gridModeSwitcher, [data-nexus-tour="mobile-grid-switcher"]', 'GRID, NKR und Trading', 'Über diese drei Schaltflächen wechselst du zwischen den Handelssystemen. Ein Ansichtswechsel startet keinen Handel.', 'GRID, NKR and Trading', 'These controls switch between trading systems. Switching views does not start trading.'),
+      NEXUS_VISUAL_TOUR_STEP('ai_analyst', '.section-ai', 'Nexus AI Analyst', 'Der Analyst unterstützt bei der Auswertung von Krypto- und Marktinformationen.', 'Nexus AI Analyst', 'The analyst helps you understand crypto assets and market data.'),
+      NEXUS_VISUAL_TOUR_STEP('overview', '[aria-label="Nexus Help"]', 'Nexus Help', 'Über diese Schaltfläche kannst du jederzeit zum Hilfe-Chat zurückkehren.', 'Nexus Help', 'Use this button any time to return to the help chat.'),
+    ],
+  },
+  wallet: {
+    de: 'Wallet und Core Vault', en: 'Wallet and Core Vault', mode: null,
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('wallet', '[data-nexus-wallet-trigger="1"]', 'Wallet-Fenster öffnen', 'Klicke auf Wallet oben rechts. Es erscheint das separate Wallet-Fenster.', 'Open the wallet window', 'Select Wallet in the header. A separate wallet window opens.'),
+      NEXUS_VISUAL_TOUR_STEP('wallet', '[role="dialog"][aria-label="Privy Wallet and Nexus Core Vault"]', 'Dein Wallet-Fenster', 'Dieses Fenster zeigt Guthaben und die verfügbaren Vault-Bereiche. Falls es noch nicht sichtbar ist, öffne zuerst Wallet.', 'Wallet window', 'View your balances and vault areas. If the window is not visible, open Wallet first.'),
+      NEXUS_VISUAL_TOUR_STEP('wallet', '[data-nexus-tour="wallet-tabs"]', 'Wallet oder Core Vault', 'Wechsle zwischen Wallet und Core Vault. Geld in der Wallet ist nicht automatisch für eine Vault-Session reserviert.', 'Wallet or Core Vault', 'Switch between Wallet and Core Vault. Wallet assets are not automatically assigned to a vault session.'),
+      NEXUS_VISUAL_TOUR_STEP('core_vault', '[data-nexus-tour="wallet-tabs"]', 'Core Vault auswählen', 'Wähle im geöffneten Wallet-Fenster Core Vault, um Einzahlungs- und Vault-Informationen zu sehen.', 'Choose Core Vault', 'In the open wallet window, select Core Vault to view deposit and vault information.'),
+      NEXUS_VISUAL_TOUR_STEP('deposit', '[data-nexus-tour="vault-deposit"]', 'Einzahlung vorbereiten', 'Öffne «Deposit to Vault» und kontrolliere Netzwerk, Asset und Betrag. Die Tour nimmt keine Einzahlung vor.', 'Prepare a deposit', 'Expand Deposit to Vault and check network, asset and amount. This tour never makes a deposit.'),
+      NEXUS_VISUAL_TOUR_STEP('withdraw', '[data-nexus-tour="vault-withdraw-open"]', 'Auszahlung ansehen', 'Mit «Open Withdraw & Payout» erreichst du das separate Auszahlungsfenster. Bitte niemals einen Betrag nur wegen einer Tour bestätigen.', 'View withdrawals', 'Open Withdraw & Payout opens a separate withdrawal window. Never confirm funds just because a tour asks.'),
+      NEXUS_VISUAL_TOUR_STEP('withdraw', '[role="dialog"][aria-label="Nexus Core Vault Withdraw and Payout"]', 'Auszahlungsfenster', 'Hier kontrollierst du Quelle, Asset, Empfänger und Gebühren. Die endgültige Bestätigung bleibt bei dir.', 'Withdrawal dialog', 'Check source, asset, recipient and costs. Final confirmation always belongs to you.'),
+    ],
+  },
+  subscription: {
+    de: 'Zugang und Abonnements', en: 'Access and subscriptions', mode: null,
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('subscription', '[data-nexus-tour="header-more"]', 'Menü öffnen', 'Öffne das Menü «⋯» oben rechts. Die verfügbaren Menüpunkte hängen vom Anmeldestatus ab.', 'Open menu', 'Open the ⋯ menu in the header. Available items depend on sign-in status.'),
+      NEXUS_VISUAL_TOUR_STEP('subscription', '[data-nexus-tour="header-billing"]', 'Billing auswählen', 'Wähle «Billing», wenn du angemeldet bist. Falls der Punkt nicht sichtbar ist, öffne zuerst das Menü und verbinde deine Wallet.', 'Select Billing', 'Select Billing when signed in. If missing, open the menu and connect your wallet first.'),
+      NEXUS_VISUAL_TOUR_STEP('subscription', '[role="menu"][data-nexus-tour="billing-menu"], [role="dialog"][aria-label="Access / Redeem"]', 'Zugang und Pläne', 'Prüfe Laufzeit, Freischaltungen und Zahlungsmittel sorgfältig. Die Tour führt keine Zahlung aus.', 'Plans and access', 'Review plan period, entitlements and payment asset carefully. The tour never submits a payment.'),
+    ],
+  },
+  compare: {
+    de: 'Compare verstehen', en: 'Using Compare', mode: 'compare',
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('compare', '.section-compare', 'Compare-Bereich', 'Hier konzentrierst du dich auf den Vergleich von Marktwerten und Kursverläufen.', 'Compare panel', 'Use this panel to compare market data and price movements.'),
+      NEXUS_VISUAL_TOUR_STEP('compare', '.section-compare .compareGrid', 'Vergleichsansicht', 'Die Vergleichsansicht verbindet eine Coin-Auswahl mit den Marktdaten. Du kannst die Auswahl selbst verändern.', 'Comparison layout', 'The comparison view links coin selection to market data. You control the selection.'),
+      NEXUS_VISUAL_TOUR_STEP('compare', '.section-compare .pairsScroll', 'Coin-Paare und Kennzahlen', 'Hier siehst du die berechneten Vergleichspaare. Ein Signal ist keine garantierte Rendite.', 'Pairs and indicators', 'View computed pairs here. Indicators never guarantee a return.'),
+      NEXUS_VISUAL_TOUR_STEP('compare', '[data-nexus-help-topic="compare"]', 'Mehr Erklärungen', 'Das kleine Fragezeichen öffnet die KI-Hilfe genau zu Compare.', 'More help', 'The question-mark icon opens AI help for Compare.'),
+    ],
+  },
+  watchlist: {
+    de: 'Watchlist bedienen', en: 'Using Watchlist', mode: 'watchlist',
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('watchlist', '.section-watch', 'Watchlist', 'Hier beobachtest du die selbst ausgewählten Kryptowährungen.', 'Watchlist', 'Monitor your chosen crypto assets here.'),
+      NEXUS_VISUAL_TOUR_STEP('watchlist', '[data-nexus-tour="watch-add"]', 'Coin hinzufügen', 'Klicke auf «+ Add», wenn du das separate Fenster zur Coin-Auswahl öffnen möchtest.', 'Add a coin', 'Select + Add to open the separate coin selection window.'),
+      NEXUS_VISUAL_TOUR_STEP('watchlist', '[data-nexus-tour="watch-add-dialog"]', 'Coin-Auswahlfenster', 'Wähle Market/CEX oder DEX/Contract und prüfe den richtigen Token. Das Fenster ist nur sichtbar, wenn du zuvor «+ Add» gewählt hast.', 'Coin selection dialog', 'Choose Market/CEX or DEX/Contract and verify the exact asset. The dialog appears after selecting + Add.'),
+      NEXUS_VISUAL_TOUR_STEP('watchlist', '.section-watch .watchScroll', 'Watchlist-Einträge', 'Hier werden beobachtete Coins und ihre Werte angezeigt. Entfernen oder Sortieren erfolgt nur per Nutzereingabe.', 'Watchlist entries', 'Your monitored coins and values appear here. Sorting and removal require your own input.'),
+    ],
+  },
+  nkr: {
+    de: 'NKR Strategist einrichten', en: 'Set up NKR Strategist', mode: 'rotation',
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('nkr', '.section-grid .gridModeSwitcher, [data-nexus-tour="mobile-grid-switcher"]', 'Nexus NKR wählen', 'Wähle im Umschalter «Nexus NKR». Diese Anleitung stellt nur die Ansicht um und startet keine Session.', 'Choose Nexus NKR', 'Select Nexus NKR in the mode switcher. The tour only changes the visible panel; it never starts a session.'),
+      NEXUS_VISUAL_TOUR_STEP('nkr_mode', '[data-nexus-help-topic="nkr_mode"]', 'Kapitalmodus', 'Hier wählst du den NKR-Kapitalmodus. Dynamisch, Taktisch, Aggressiv und Defensiv unterscheiden sich in Risikoprofil und Kapitalfreigabe.', 'Capital mode', 'Choose the NKR capital mode. Dynamic, Tactical, Aggressive and Defensive differ in risk and capital allocation.'),
+      NEXUS_VISUAL_TOUR_STEP('nkr_observation', '[data-nexus-help-topic="nkr_observation"]', 'Beobachtungsfenster', 'Lege fest, wie lange Nexus Marktsignale beobachtet, bevor eine Handelsentscheidung überhaupt in Betracht kommt.', 'Observation window', 'Set how long Nexus monitors market signals before considering an entry.'),
+      NEXUS_VISUAL_TOUR_STEP('nkr_profit', '[data-nexus-help-topic="nkr_profit"]', 'Gewinnmodus', 'Du kannst etwa Reinvestieren oder Auszahlungsmodi wählen. Prüfe die Wirkung auf verfügbare Mittel.', 'Profit mode', 'Choose reinvestment or payout behaviour. Check how it affects available capital.'),
+      NEXUS_VISUAL_TOUR_STEP('nkr_period', '[data-nexus-help-topic="nkr_period"]', 'Laufzeit', 'Hier wählst du den Zeitraum einer NKR-Session. Achte auf die Einheit Stunden oder Tage.', 'Duration', 'Set the session period and check whether you selected hours or days.'),
+      NEXUS_VISUAL_TOUR_STEP('nkr_budget', '[data-nexus-help-topic="nkr_budget"]', 'Budget', 'Hier bestimmst du, wie viel Vault-Kapital die Session nutzen darf. Das Budget ist nicht automatisch dein vollständiges Guthaben.', 'Budget', 'Choose the vault capital assigned to this session. This need not be your full balance.'),
+      NEXUS_VISUAL_TOUR_STEP('nkr_sessions', '.section-grid .rotationSessionCard, .section-grid [data-nexus-tour="nkr-session"]', 'NKR-Sessions', 'In der Session-Karte siehst du Status und Ausführungen. Eine solche Karte erscheint erst, wenn eine Session vorhanden ist.', 'NKR sessions', 'Session cards show status and activity. They appear only when a session exists.'),
+    ],
+  },
+  grid: {
+    de: 'GRID einrichten', en: 'Set up GRID', mode: 'normal',
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('grid', '.section-grid .gridModeSwitcher, [data-nexus-tour="mobile-grid-switcher"]', 'Nexus Grid wählen', 'Wechsle zu «Nexus Grid». Alle Schritte sind reine Erklärungen.', 'Choose Nexus Grid', 'Switch to Nexus Grid. Every step is instructional only.'),
+      NEXUS_VISUAL_TOUR_STEP('grid_coin', '[data-nexus-help-topic="grid_coin"]', 'Coin im Vault', 'Wähle den Coin aus, der im Vault für den Grid-Handel zur Verfügung steht.', 'Vault coin', 'Select the asset available for GRID in your vault.'),
+      NEXUS_VISUAL_TOUR_STEP('grid_amount', '[data-nexus-help-topic="grid_amount"]', 'Menge', 'Hier bestimmst du die Menge, die eine Grid-Session höchstens einsetzen darf.', 'Amount', 'Set the amount the grid session may use.'),
+      NEXUS_VISUAL_TOUR_STEP('grid_target', '[data-nexus-help-topic="grid_target"]', 'Verkaufsziel', 'Das Verkaufsziel bestimmt eine gewünschte Preisbewegung; es ist keine Garantie für einen Verkauf.', 'Sell target', 'The sell target defines a desired price move; it does not guarantee execution.'),
+      NEXUS_VISUAL_TOUR_STEP('grid_loss', '[data-nexus-help-topic="grid_loss"]', 'Verlustgrenze', 'Prüfe die maximal tolerierte Verlustgrenze und berücksichtige Netzwerkgebühren.', 'Maximum loss', 'Review the loss tolerance and account for network fees.'),
+      NEXUS_VISUAL_TOUR_STEP('grid_payout', '[data-nexus-help-topic="grid_payout"]', 'Auszahlungs-Asset', 'Wähle das Vault-Abrechnungsasset USDC oder USDT gemäss den angezeigten Optionen.', 'Payout asset', 'Choose USDC or USDT according to the available vault settlement options.'),
+      NEXUS_VISUAL_TOUR_STEP('sessions', '.section-grid .ordersList', 'Orders und Status', 'Hier erscheinen vorhandene Orders und ihre Zustände. Keine Order wird durch die Tour ausgelöst.', 'Orders and status', 'Existing orders and their status appear here. The tour does not place orders.'),
+    ],
+  },
+  trading: {
+    de: 'Trader einrichten', en: 'Set up Trader', mode: 'trading',
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('trading', '.section-grid .gridModeSwitcher, [data-nexus-tour="mobile-grid-switcher"]', 'Nexus Trading wählen', 'Wechsle zur Trader-Ansicht. Die eigentliche Ausführung bleibt in deiner Kontrolle.', 'Choose Nexus Trading', 'Switch to the Trader view. Execution always remains under your control.'),
+      NEXUS_VISUAL_TOUR_STEP('trading_budget', '[data-nexus-help-topic="trading_budget"]', 'Handelsbudget', 'Hier legst du das Handelsbudget fest. Prüfe vorher das freie Guthaben im Vault.', 'Trading budget', 'Set your trading budget and first check the free vault balance.'),
+      NEXUS_VISUAL_TOUR_STEP('trading_slots', '[data-nexus-help-topic="trading_slots"]', 'Trading-Slots', 'Slots beschreiben parallel nutzbare Handelsplätze innerhalb einer Session.', 'Trading slots', 'Slots define concurrent positions supported within a session.'),
+      NEXUS_VISUAL_TOUR_STEP('trading_runtime', '[data-nexus-help-topic="trading_runtime"]', 'Laufzeit', 'Die Laufzeit legt fest, wie lange der Trader aktiv sein darf.', 'Runtime', 'Runtime limits how long the Trader is configured to operate.'),
+      NEXUS_VISUAL_TOUR_STEP('trading_reuse', '[data-nexus-help-topic="trading_reuse"]', 'Gewinne erneut verwenden', 'Hier regelst du, ob und in welchem Umfang realisierte Gewinne wieder eingesetzt werden dürfen.', 'Reuse profit', 'Set whether and how realized profits may be reused.'),
+      NEXUS_VISUAL_TOUR_STEP('trading_hold', '[data-nexus-help-topic="trading_hold"]', 'Capital HOLD', 'Der HOLD-Wert beeinflusst die zeitliche Kapitalbindung. Prüfe die Auswirkungen vor dem Start.', 'Capital HOLD', 'The HOLD setting affects capital retention. Check its effect before starting.'),
+      NEXUS_VISUAL_TOUR_STEP('trading_risk', '[data-nexus-help-topic="trading_risk"]', 'Risiko-Modus', 'Definiere Risikoprofil und Verlustgrenzen bewusst; riskante Einstellungen können zu Verlusten führen.', 'Risk mode', 'Set risk and loss limits carefully. High-risk settings can lead to losses.'),
+      NEXUS_VISUAL_TOUR_STEP('trading_profit_lock', '[data-nexus-help-topic="trading_profit_lock"]', 'Profit Lock', 'Diese Einstellung gehört zum Schutz bereits erzielter Gewinne, ist aber keine Renditegarantie.', 'Profit Lock', 'This is intended to protect profits, not to guarantee returns.'),
+      NEXUS_VISUAL_TOUR_STEP('trading_slippage', '[data-nexus-help-topic="trading_slippage"]', 'Slippage', 'Begrenze die akzeptierte Abweichung zwischen erwartetem und tatsächlichem Ausführungspreis.', 'Slippage', 'Set the tolerated difference between quoted and executed prices.'),
+      NEXUS_VISUAL_TOUR_STEP('trading_max_trades', '[data-nexus-help-topic="trading_max_trades"]', 'Maximale Trades', 'Bestimme, wie viele Handelsausführungen innerhalb der gewählten Regeln zulässig sind.', 'Maximum trades', 'Set the maximum allowed trade executions under the selected policy.'),
+    ],
+  },
+  ai_analyst: {
+    de: 'AI Analyst bedienen', en: 'Using AI Analyst', mode: 'ai',
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('ai_analyst', '.section-ai', 'Nexus AI Analyst', 'Hier findest du die KI-gestützte Marktanalyse. Sie ist vom Hilfe-Chat getrennt.', 'Nexus AI Analyst', 'The AI market analyst lives here and is separate from Nexus Help.'),
+      NEXUS_VISUAL_TOUR_STEP('ai_analyst', '.section-ai .aiWrap', 'Analyse-Aufgabe', 'Wähle die passende Analyseart und stelle deine Frage. Angaben zu aktuellen Kursen müssen aus den verfügbaren Daten stammen.', 'Analysis task', 'Choose the analysis type and enter a question. Current prices must come from available data.'),
+      NEXUS_VISUAL_TOUR_STEP('ai_analyst', '.section-ai .aiPanel', 'Ergebnisse', 'Die Antwort erscheint im Ergebnisbereich. Prüfe Annahmen und Risiken vor finanziellen Entscheidungen.', 'Results', 'Responses appear in this panel. Check assumptions and risks before financial decisions.'),
+    ],
+  },
+  nkr_token: {
+    de: 'NKR Token', en: 'NKR token', mode: null,
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('nkr_token', '.nkrBannerChip', 'NKR Token-Anzeige', 'Hier stehen Token-Informationen. Über das Info-Symbol öffnest du eine zusätzliche Erklärung.', 'NKR token display', 'See token information here and open the information window with the info icon.'),
+      NEXUS_VISUAL_TOUR_STEP('nkr_token', '[data-nexus-tour="nkr-info"]', 'Token-Informationen öffnen', 'Klicke auf «i», um das eigene NKR-Informationsfenster zu öffnen.', 'Open token information', 'Select i to open the separate NKR information window.'),
+      NEXUS_VISUAL_TOUR_STEP('nkr_token', '[data-nexus-tour="nkr-info-dialog"]', 'NKR-Informationen lesen', 'Das Fenster enthält Informationen zum Token. Tokenangaben und Liquiditätsregeln sollten anhand der Smart Contracts verifiziert werden.', 'Read NKR information', 'The window contains token information. Token allocation and liquidity rules should be verified on-chain.'),
+    ],
+  },
+  sessions: {
+    de: 'Sessions und Status', en: 'Sessions and status', mode: 'rotation',
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('sessions', '.section-grid .gridModeSwitcher, [data-nexus-tour="mobile-grid-switcher"]', 'System wählen', 'Wähle NKR, GRID oder Trading und öffne den jeweiligen Bereich.', 'Choose a system', 'Select NKR, GRID or Trading and open its panel.'),
+      NEXUS_VISUAL_TOUR_STEP('sessions', '.section-grid .panelScroll', 'Session-Übersicht', 'Status, Laufzeit und Kapital werden im jeweiligen System angezeigt. Nicht alle Karten sind ohne aktive Session sichtbar.', 'Session overview', 'See statuses, runtime and capital in the selected system. Some cards appear only with active sessions.'),
+      NEXUS_VISUAL_TOUR_STEP('sessions', '[data-nexus-help-topic="nkr_sessions"]', 'Session-Hilfe', 'Mit dem Fragezeichen erhältst du die genaue Erklärung zu NKR-Sessions.', 'Session help', 'Open the question mark for detailed NKR session guidance.'),
+    ],
+  },
+  security: {
+    de: 'Sicherer Einstieg', en: 'Safe onboarding', mode: null,
+    steps: [
+      NEXUS_VISUAL_TOUR_STEP('security', '[data-nexus-wallet-trigger="1"]', 'Wallet prüfen', 'Kontrolliere immer deine Wallet und das Netzwerk. Gib niemals Seedphrases oder Private Keys in den Chat ein.', 'Check your wallet', 'Always verify the wallet and network. Never enter seed phrases or private keys in chat.'),
+      NEXUS_VISUAL_TOUR_STEP('security', '[data-nexus-tour="header-more"]', 'Sichere Kontoaktionen', 'Kontoeinstellungen findest du im Menü oben rechts. Nutze nur offizielle Nexus-Seiten.', 'Account security', 'Account controls live in the top-right menu. Only use official Nexus pages.'),
+      NEXUS_VISUAL_TOUR_STEP('security', '[aria-label="Nexus Help"]', 'Hilfe holen', 'Nexus Help erklärt Funktionen, führt aber niemals Wallet-Signaturen, Einzahlungen oder Trades selbst aus.', 'Get help', 'Nexus Help explains functions; it never signs wallet transactions, deposits or trades.'),
+    ],
+  },
+});
+function nexusVisualGuideForTopic(topic) {
+  const t = String(topic || 'overview');
+  if (NEXUS_VISUAL_TOURS[t]) return t;
+  if (t.startsWith('nkr_')) return 'nkr';
+  if (t.startsWith('grid_')) return 'grid';
+  if (t.startsWith('trading_')) return 'trading';
+  if (['core_vault','deposit','withdraw','registration'].includes(t)) return 'wallet';
+  if (t === 'ai_insight') return 'compare';
+  return 'overview';
+}
+function nexusTourVisibleTarget(selector) {
+  if (!selector || typeof document === 'undefined') return null;
+  try {
+    const nodes = document.querySelectorAll(selector);
+    for (const node of nodes) {
+      if (!node || !node.isConnected || !node.getClientRects().length) continue;
+      const style = window.getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) continue;
+      // Do not highlight controls inside collapsed, invisible parent panels.
+      const collapsed = node.closest('.dashboardGrid.hasFocus .dashboardPanel:not(.panelActive) .panelScroll');
+      if (collapsed) continue;
+      return node;
+    }
+  } catch (_) { /* CSS lookup can fail on unavailable browser features. */ }
+  return null;
+}
+function NexusHelpVisualTour({ guideKey, stepIndex, onStepChange, onClose, language = 'de' }) {
+  const [targetRect, setTargetRect] = useState(null);
+  const [targetFound, setTargetFound] = useState(false);
+  const scrollKeyRef = useRef('');
+  const guide = NEXUS_VISUAL_TOURS[guideKey];
+  const total = guide?.steps?.length || 0;
+  const step = total ? guide.steps[Math.min(Math.max(0, stepIndex), total - 1)] : null;
+  const english = language === 'en';
+  useEffect(() => {
+    if (!step) return undefined;
+    let raf = 0;
+    let alive = true;
+    const update = () => {
+      raf = 0;
+      if (!alive) return;
+      const el = nexusTourVisibleTarget(step.target);
+      if (!el) {
+        setTargetFound(false);
+        setTargetRect(null);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const viewportH = window.innerHeight || 800;
+      const viewportW = window.innerWidth || 1200;
+      const key = `${guideKey}-${stepIndex}`;
+      if ((rect.bottom < 48 || rect.top > viewportH - 48 || rect.right < 10 || rect.left > viewportW - 10) && scrollKeyRef.current !== key) {
+        scrollKeyRef.current = key;
+        try { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' }); } catch (_) {}
+      }
+      const next = { x: Math.round(rect.left), y: Math.round(rect.top), w: Math.round(rect.width), h: Math.round(rect.height) };
+      setTargetRect((prev) => prev && Object.keys(next).every((k) => prev[k] === next[k]) ? prev : next);
+      setTargetFound(true);
+    };
+    const schedule = () => { if (!raf && alive) raf = window.requestAnimationFrame(update); };
+    schedule();
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style','class','open','aria-expanded'] });
+    window.addEventListener('resize', schedule);
+    document.addEventListener('scroll', schedule, true);
+    return () => {
+      alive = false;
+      if (raf) window.cancelAnimationFrame(raf);
+      observer.disconnect();
+      window.removeEventListener('resize', schedule);
+      document.removeEventListener('scroll', schedule, true);
+    };
+  }, [guideKey, stepIndex, step]);
+  useEffect(() => {
+    const escape = (event) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [onClose]);
+  if (!guide || !step) return null;
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const boxW = Math.min(340, Math.max(190, vw - 24));
+  const x = targetRect ? Math.max(8, Math.min(vw - boxW - 8, targetRect.x + targetRect.w + 18)) : Math.max(8, (vw - boxW) / 2);
+  const leftSpace = targetRect && targetRect.x > boxW + 28;
+  const cardX = targetRect && targetRect.x + targetRect.w + boxW + 24 > vw && leftSpace
+    ? Math.max(8, targetRect.x - boxW - 18) : x;
+  const cardY = targetRect ? Math.min(Math.max(12, targetRect.y), Math.max(12, vh - 290)) : Math.max(18, Math.min(vh - 290, vh * 0.22));
+  const nextStep = () => { if (stepIndex + 1 < total) onStepChange(stepIndex + 1); else onClose(); };
+  return (
+    <div className="nexusTourRoot" aria-live="polite">
+      {targetRect && targetFound && targetRect.w > 0 && targetRect.h > 0 ? (
+        <div className="nexusTourFocus" aria-hidden="true" style={{
+          left: Math.max(0,targetRect.x - 5), top: Math.max(0,targetRect.y - 5),
+          width: targetRect.w + 10, height: targetRect.h + 10,
+        }}><span className="nexusTourFocusCorner" /></div>
+      ) : null}
+      <section className="nexusTourCard" role="dialog" aria-modal="false"
+        aria-label={english ? 'Nexus interactive guide' : 'Nexus interaktive Anleitung'}
+        style={{ left: cardX, top: cardY, width: boxW }}>
+        <div className="nexusTourCardHead">
+          <div className="nexusTourKicker">{english ? guide.en : guide.de}</div>
+          <button type="button" className="nexusTourClose" onClick={onClose} aria-label={english ? 'End guide' : 'Anleitung beenden'}>×</button>
+        </div>
+        <div className="nexusTourProgress">{english ? 'Step' : 'Schritt'} {stepIndex + 1} / {total}</div>
+        <div className="nexusTourProgressTrack"><span style={{ width: `${((stepIndex + 1) / total) * 100}%` }} /></div>
+        <div className="nexusTourTitle">{english ? step.enTitle : step.deTitle}</div>
+        <div className="nexusTourText">{english ? step.enText : step.deText}</div>
+        {!targetFound ? <div className="nexusTourMissing">{english
+          ? 'This element is not visible yet. Open the relevant panel or dialog using the previous step.'
+          : 'Dieses Element ist noch nicht sichtbar. Öffne den betreffenden Bereich oder das Unterfenster im vorherigen Schritt.'}</div> : null}
+        <div className="nexusTourNotice">{english ? 'Guide only – no transactions are executed.' : 'Nur eine Anleitung – keine Transaktionen werden ausgeführt.'}</div>
+        <div className="nexusTourActions">
+          <button type="button" onClick={() => onStepChange(Math.max(0, stepIndex - 1))} disabled={stepIndex === 0}>{english ? 'Back' : 'Zurück'}</button>
+          <button type="button" className="nexusTourNext" onClick={nextStep}>{stepIndex + 1 === total ? (english ? 'Done' : 'Fertig') : (english ? 'Next' : 'Weiter')}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, onTopicChange, contextMode = "normal", onStartTour, desktopTourAvailable = true, onEnableTour, onTourLanguageChange }) {
   const [language, setLanguage] = useState("de");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState([]);
@@ -3543,7 +3794,7 @@ function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, o
               title={language === "de" ? "Hier ziehen, um das Fenster zu verschieben" : "Drag here to move the window"}>
               <strong style={{ fontSize: 14, userSelect: "none" }}>NEXUS AI SUPPORT</strong>
               <div style={{ display: "flex", gap: 6 }}>
-                <button type="button" onClick={() => setLanguage((v) => v === "de" ? "en" : "de")}
+                <button type="button" onClick={() => { const next = language === "de" ? "en" : "de"; setLanguage(next); if (typeof onTourLanguageChange === "function") onTourLanguageChange(next); }}
                   style={{ background: "#245b49", color: "#fff", border: "1px solid #438a6e", borderRadius: 8, padding: "4px 9px", cursor: "pointer" }}>{language.toUpperCase()}</button>
                 {/* Minimize only hides the chat window. The same Nexus Help button in the header restores it. */}
                 <button type="button" aria-label={language === "de" ? "Chat minimieren" : "Minimize chat"}
@@ -3560,6 +3811,16 @@ function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, o
               onChange={(e) => onTopicChange(e.target.value)} aria-label="Help topic">
               {Object.entries(NEXUS_SUPPORT_TOPICS).map(([k, names]) => <option key={k} value={k}>{names[language === "en" ? 1 : 0]}</option>)}
             </select>
+            {desktopTourAvailable ? (
+              <button type="button" className="nexusHelpVisualStart"
+                onClick={() => { if (typeof onStartTour === "function") onStartTour(nexusVisualGuideForTopic(topic)); }}>
+                {language === "de" ? "▶ Animierte Anleitung auf der Website" : "▶ Animated guide on website"}
+              </button>
+            ) : (
+              <button type="button" className="nexusHelpVisualEnable" onClick={() => { if (typeof onEnableTour === "function") onEnableTour(); }}>
+                {language === "de" ? "Desktop-Anleitungen optional einschalten" : "Enable optional desktop guides"}
+              </button>
+            )}
             <span style={{ fontSize: 11, color: "#a9dccc" }}>{language === "de" ? `Hilfe zu: ${title} · Nur Information, keine Transaktionen` : `Help: ${title} · Information only, no transactions`}</span>
             <span style={{ fontSize: 10, color: "#f0d4a2" }}>{language === "de" ? "Niemals Seedphrase, Private Key oder Passwort eingeben." : "Never enter a seed phrase, private key or password."}</span>
           </div>
@@ -3637,6 +3898,33 @@ const [errorMsg, setErrorMsg] = useState("");
   const [nexusAiSupportOpen, setNexusAiSupportOpen] = useState(false);
   const [nexusAiSupportMinimized, setNexusAiSupportMinimized] = useState(false);
   const [nexusAiSupportTopic, setNexusAiSupportTopic] = useState("overview");
+  const [nexusVisualGuide, setNexusVisualGuide] = useState(null);
+  const [nexusVisualStep, setNexusVisualStep] = useState(0);
+  const [nexusVisualLanguage, setNexusVisualLanguage] = useState("de");
+  const [nexusTourCompactOptIn, setNexusTourCompactOptIn] = useState(false);
+  const [nexusTourViewportWidth, setNexusTourViewportWidth] = useState(() => typeof window === "undefined" ? 1200 : window.innerWidth);
+  useEffect(() => {
+    const updateWidth = () => setNexusTourViewportWidth(window.innerWidth);
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
+  // Browser-requested desktop mode on tablets/phones often reports a wide viewport.
+  // Compact mode can also opt into the same guides without requiring a separate device.
+  const nexusDesktopTourAvailable = nexusTourViewportWidth >= 981 || nexusTourCompactOptIn;
+  const startNexusVisualTour = (guideKey) => {
+    if (!nexusDesktopTourAvailable) return;
+    const key = NEXUS_VISUAL_TOURS[guideKey] ? guideKey : "overview";
+    const guideMode = NEXUS_VISUAL_TOURS[key]?.mode;
+    if (["normal", "rotation", "trading"].includes(guideMode)) {
+      setActivePanel("vault");
+      setGridMode(guideMode); // UI mode only; no session/trade action.
+    } else if (["compare", "watchlist", "ai"].includes(guideMode)) {
+      setActivePanel(guideMode);
+    }
+    setNexusVisualGuide(key);
+    setNexusVisualStep(0);
+    setNexusAiSupportMinimized(true); // Tour doesn't erase the existing help chat.
+  };
   const openNexusAiHelp = useCallback((topicKey = "overview") => {
     setNexusAiSupportTopic(NEXUS_SUPPORT_TOPICS[topicKey] ? topicKey : "overview");
     setNexusAiSupportOpen(true);
@@ -21444,6 +21732,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               type="button"
               className="iconBtn"
               title="What is NKR?"
+              data-nexus-tour="nkr-info"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrTokenInfoOpen(true); }}
               style={{ width: 22, height: 22, minWidth: 22, fontSize: 12, fontWeight: 900, flex: "0 0 auto" }}
             >
@@ -21474,6 +21763,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               type="button"
               className="pill silver"
               data-nexus-wallet-trigger="1"
+              data-nexus-tour="wallet-open"
               style={{ cursor: "pointer", flex: "0 0 auto" }}
               onClick={(e) => {
                 e.preventDefault();
@@ -21571,6 +21861,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 type="button"
                 className="btnGhost"
                 aria-label="More"
+                data-nexus-tour="header-more"
                 title="More"
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
@@ -21602,7 +21893,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     }}
                   >
                     {wallet ? (
-                      <button className="btnGhost" type="button" role="menuitem" style={{ width: "100%", textAlign: "left", marginBottom: 6 }} onClick={() => { setHeaderMenuOpen(false); setBillingMenuOpen(true); }}>
+                      <button className="btnGhost" data-nexus-tour="header-billing" type="button" role="menuitem" style={{ width: "100%", textAlign: "left", marginBottom: 6 }} onClick={() => { setHeaderMenuOpen(false); setBillingMenuOpen(true); }}>
                         Billing
                       </button>
                     ) : null}
@@ -21649,6 +21940,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               type="button"
               className="iconBtn"
               title="What is NKR?"
+              data-nexus-tour="nkr-info"
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNkrTokenInfoOpen(true); }}
               style={{ width: 26, height: 26, minWidth: 26, fontSize: 13, fontWeight: 900 }}
             >
@@ -21749,6 +22041,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     />
                     <div
                       role="menu"
+                      data-nexus-tour="billing-menu"
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => e.stopPropagation()}
                       style={{
@@ -22209,6 +22502,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               ref={walletPanelRef}
               role="dialog"
               aria-label="Privy Wallet and Nexus Core Vault"
+              data-nexus-tour="wallet-dialog"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
               style={{
@@ -22298,7 +22592,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <button className="iconBtn" type="button" onClick={() => setWalletModalOpen(false)} aria-label="Close">×</button>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 12 }}>
+              <div data-nexus-tour="wallet-tabs" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 12 }}>
                 <button type="button" className={walletPanelTab === "WALLET" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("WALLET")}>Wallet</button>
                 <button type="button" className={walletPanelTab === "VAULT" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("VAULT")}>Core Vault</button>
               </div>
@@ -22548,7 +22842,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
                     </>
                   ) : null}
-                  <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
+                  <details data-nexus-tour="vault-deposit" style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
                     <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer", listStyle: "none" }}>Deposit to Vault</summary>
                     <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr) 1fr", gap: 8, marginTop: 9 }}>
                       <select className="input" value={coreDepositAsset} onChange={(e) => { setCoreDepositAsset(e.target.value); setCoreDepositMsg(""); }} disabled={coreDepositBusy || !coreDepositWalletAssets.length} style={{ height: 42 }}>
@@ -22571,7 +22865,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </button>
                     {coreDepositMsg && <div className="muted" style={{ fontSize: 11, marginTop: 7, wordBreak: "break-word" }}>{coreDepositMsg}</div>}
                   </details>
-                  <button type="button" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
+                  <button type="button" data-nexus-tour="vault-withdraw-open" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
                   <button type="button" className="btnGhost" onClick={() => { refreshBalances(); refreshCoreVaultOnchain(); refreshCoreVaultAccounting(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
                 </>
               )}
@@ -22932,6 +23226,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           >
             <div
               className="modal modalHelp"
+              data-nexus-tour="nkr-info-dialog"
               onClick={(e) => e.stopPropagation()}
               style={{
                 background: "linear-gradient(180deg, rgba(10,32,28,1), rgba(7,24,22,1))",
@@ -24261,6 +24556,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             {!isCompactMobile && (
               <div
                 className="gridModeSwitcher"
+              data-nexus-tour="grid-mode"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "1fr 1fr 1fr",
@@ -24375,7 +24671,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           <div className="panelScroll"><div className={`gridLayout ${String(gridMode || "normal") === "trading" ? "tradingDesktopLayout" : String(gridMode || "normal") === "rotation" ? "rotationDesktopLayout" : "gridDesktopLayout"}`}>
             <div className="gridLeft">
               {isCompactMobile && (
-              <div
+              <div data-nexus-tour="mobile-grid-switcher"
                 style={{
                   display: "grid",
                   gridTemplateColumns: "1fr 1fr 1fr",
@@ -25692,6 +25988,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 return (
                                   <div
                                     key={sess?.id || `rotation-${idx}-${sym}-${chain}`}
+                                    data-nexus-tour="nkr-session"
                                     style={{
                                       border: `1px solid ${statusTone.border}`,
                                       borderRadius: 14,
@@ -28232,7 +28529,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                   </div>
             <div className="cardActions" style={{ alignItems: "center" }}>
-              <button className="btn" onClick={() => setAddOpen(true)}>+ Add</button>
+              <button className="btn" data-nexus-tour="watch-add" onClick={() => setAddOpen(true)}>+ Add</button>
               <button
                 type="button"
                 className={String(watchSortMode || "manual") === "winner" ? "btn" : "btnGhost"}
@@ -29312,7 +29609,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             {addOpen && (
   <div className="modalBackdrop" onClick={resetAddModal}>
-    <div className="modal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal" data-nexus-tour="watch-add-dialog" onClick={(e) => e.stopPropagation()}>
       <div className="modalHead">
         <div className="cardTitle">{addTab === "dex" ? "Add token (Contract)" : "Select token (CoinGecko)"}</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -30178,7 +30475,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
         topic={nexusAiSupportTopic}
         onTopicChange={setNexusAiSupportTopic}
         contextMode={gridMode}
+        onStartTour={startNexusVisualTour}
+        onTourLanguageChange={setNexusVisualLanguage}
+        desktopTourAvailable={nexusDesktopTourAvailable}
+        onEnableTour={() => setNexusTourCompactOptIn(true)}
       />
+      {nexusVisualGuide ? (
+        <NexusHelpVisualTour
+          guideKey={nexusVisualGuide}
+          stepIndex={nexusVisualStep}
+          onStepChange={setNexusVisualStep}
+          onClose={() => setNexusVisualGuide(null)}
+          language={nexusVisualLanguage}
+        />
+      ) : null}
     </div>
   );
 }

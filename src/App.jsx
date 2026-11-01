@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.09.06-BUILD539-REASON-ROTATE-APPINNER";
+const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD540-NEXUS-AI-SUPPORT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3323,6 +3323,202 @@ function EngineEventHistory({ engine, events = [] }) {
   );
 }
 
+// BUILD540: Nexus AI Support is a read-only, separate onboarding/help channel.
+// It does not access or modify NKR/Grid/Trader/Vault actions or AI Analyst memory.
+const NEXUS_SUPPORT_TOPICS = Object.freeze({
+  overview: ["Nexus Analyt", "Nexus Analyt"],
+  registration: ["Registrierung", "Registration"],
+  wallet: ["Privy Wallet", "Privy Wallet"],
+  core_vault: ["Core Vault", "Core Vault"],
+  deposit: ["Einzahlung", "Deposit"],
+  withdraw: ["Auszahlung", "Withdrawal"],
+  subscription: ["Abonnement", "Subscription"],
+  compare: ["Compare", "Compare"],
+  watchlist: ["Watchlist", "Watchlist"],
+  ai_analyst: ["Nexus Strategist AI", "Nexus Strategist AI"],
+  ai_insight: ["AI Insight", "AI Insight"],
+  nkr: ["Nexus NKR", "Nexus NKR"],
+  nkr_mode: ["NKR Kapitalmodus", "NKR Capital Mode"],
+  nkr_observation: ["NKR Beobachtungsfenster", "NKR Observation Window"],
+  nkr_profit: ["NKR Gewinnmodus", "NKR Profit Mode"],
+  nkr_period: ["NKR Laufzeit", "NKR Period"],
+  nkr_budget: ["NKR Budget", "NKR Budget"],
+  nkr_sessions: ["NKR Sessions", "NKR Sessions"],
+  grid: ["Nexus Grid", "Nexus Grid"],
+  grid_coin: ["Grid Coin im Vault", "Grid Coin in Vault"],
+  grid_amount: ["Grid Menge", "Grid Amount"],
+  grid_target: ["Grid Verkaufsziel", "Grid Sell Target"],
+  grid_loss: ["Grid Verlustgrenze", "Grid Maximum Loss"],
+  grid_payout: ["Grid Auszahlungs-Asset", "Grid Payout Asset"],
+  trading: ["Nexus Trading", "Nexus Trading"],
+  trading_budget: ["Trading Budget", "Trading Budget"],
+  trading_slots: ["Trading Slots", "Trading Slots"],
+  trading_runtime: ["Trading Laufzeit", "Trading Runtime"],
+  trading_reuse: ["Gewinne erneut einsetzen", "Reuse Profit"],
+  trading_hold: ["Capital HOLD", "Capital HOLD"],
+  trading_risk: ["Trading Risikomodus", "Trading Risk Mode"],
+  trading_profit_lock: ["Profit Lock", "Profit Lock"],
+  trading_slippage: ["Slippage", "Slippage"],
+  trading_max_trades: ["Maximale Trades", "Maximum Trades"],
+  sessions: ["Sessions und Status", "Sessions and Status"],
+  nkr_token: ["NKR Token", "NKR Token"],
+  security: ["Sicherheit", "Security"],
+});
+
+function NexusHelpButton({ topic, onHelp }) {
+  return (
+    <button
+      type="button"
+      aria-label={`Nexus AI Hilfe: ${NEXUS_SUPPORT_TOPICS[topic]?.[0] || topic}`}
+      title={`Nexus AI Hilfe: ${NEXUS_SUPPORT_TOPICS[topic]?.[0] || topic}`}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (typeof onHelp === "function") onHelp(topic); }}
+      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 0, width: 22, height: 22,
+        minWidth: 22, borderRadius: "50%", border: "1px solid rgba(96,220,191,.52)", background: "rgba(26,78,64,.52)",
+        color: "#b0ffe2", cursor: "pointer", fontSize: 13, lineHeight: 1, fontWeight: 900, verticalAlign: "middle", flexShrink: 0 }}
+    >?</button>
+  );
+}
+
+function NexusAiSupport({ open, onOpen, onClose, topic, onTopicChange, contextMode = "normal" }) {
+  const [language, setLanguage] = useState("de");
+  const [draft, setDraft] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const pendingRef = useRef(null);
+  const threadRef = useRef(null);
+  const title = (NEXUS_SUPPORT_TOPICS[topic] || NEXUS_SUPPORT_TOPICS.overview)[language === "en" ? 1 : 0];
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const controller = new AbortController();
+    if (pendingRef.current) pendingRef.current.abort();
+    pendingRef.current = controller;
+    setDraft("");
+    setMessages([]);
+    setError("");
+    setBusy(true);
+    const question = language === "de"
+      ? "Erkläre diese Funktion Schritt für Schritt, wozu sie dient und worauf ich achten muss."
+      : "Explain this feature step by step, what it is for, and what I should be careful about.";
+    api("/api/ai/support", { method: "POST", signal: controller.signal,
+      body: { topic: NEXUS_SUPPORT_TOPICS[topic] ? topic : "overview", question, language, context_mode: contextMode, history: [] }
+    }).then((res) => {
+      if (!controller.signal.aborted) {
+        const answer = String(res?.answer || "").trim();
+        if (!answer) throw new Error(language === "de" ? "Keine Antwort erhalten." : "No response received.");
+        setMessages([{ role: "assistant", text: answer }]);
+      }
+    }).catch((e) => {
+      if (!controller.signal.aborted) setError(String(e?.message || e || "Support AI unavailable"));
+    }).finally(() => { if (!controller.signal.aborted) setBusy(false); });
+    return () => { controller.abort(); };
+  }, [open, topic, language, contextMode]);
+
+  useEffect(() => {
+    if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
+  }, [messages, busy, error]);
+
+  const sendQuestion = async (e) => {
+    if (e && typeof e.preventDefault === "function") e.preventDefault();
+    const question = String(draft || "").trim();
+    if (!question || busy) return;
+    const history = messages.slice(-6).map((m) => ({ role: m.role, content: m.text }));
+    setDraft("");
+    setError("");
+    setMessages((prev) => [...prev, { role: "user", text: question }]);
+    setBusy(true);
+    const controller = new AbortController();
+    pendingRef.current = controller;
+    try {
+      const res = await api("/api/ai/support", { method: "POST", signal: controller.signal,
+        body: { topic: NEXUS_SUPPORT_TOPICS[topic] ? topic : "overview", question, language, context_mode: contextMode, history }
+      });
+      if (controller.signal.aborted) return;
+      const answer = String(res?.answer || "").trim();
+      if (!answer) throw new Error(language === "de" ? "Keine Antwort erhalten." : "No response received.");
+      setMessages((prev) => [...prev, { role: "assistant", text: answer }]);
+    } catch (e2) {
+      if (!controller.signal.aborted) setError(String(e2?.message || e2 || "Support AI unavailable"));
+    } finally {
+      if (!controller.signal.aborted) setBusy(false);
+    }
+  };
+  const close = () => { if (pendingRef.current) pendingRef.current.abort(); onClose(); };
+
+  return (
+    <div className="nexusAiSupportRoot" onClick={(e) => e.stopPropagation()}>
+      <style>{`
+        .nexusAiSupportRoot{position:fixed;inset:0;z-index:8500;pointer-events:none}
+        .nexusAiSupportRoot *{box-sizing:border-box}
+        .nexusAiSupportLauncher{position:absolute;right:16px;bottom:16px;pointer-events:auto;border:1px solid rgba(107,255,197,.5);
+          background:linear-gradient(135deg,#176e51,#104235);color:#fff;border-radius:26px;padding:11px 16px;
+          box-shadow:0 8px 28px rgba(0,0,0,.5);font-size:13px;font-weight:900;cursor:pointer}
+        .nexusAiSupportWindow{position:absolute;right:16px;bottom:72px;width:min(430px,calc(100vw - 24px));
+          height:min(635px,calc(100dvh - 98px));min-height:290px;pointer-events:auto;display:flex;flex-direction:column;
+          border:1px solid rgba(95,224,177,.42);background:#0b211c;color:#e8fff4;border-radius:17px;
+          box-shadow:0 16px 60px rgba(0,0,0,.66);overflow:hidden}
+        .nexusAiSupportWindow button,.nexusAiSupportWindow select,.nexusAiSupportWindow textarea{font-family:inherit}
+        .nexusAiSupportHeader{padding:12px;border-bottom:1px solid rgba(255,255,255,.12);background:#10382c;display:grid;gap:8px}
+        .nexusAiSupportTop{display:flex;align-items:center;justify-content:space-between;gap:9px}
+        .nexusAiSupportChoose{width:100%;border:1px solid rgba(255,255,255,.16);background:#153e33;color:white;
+          border-radius:8px;padding:7px;font-size:12px}
+        .nexusAiSupportThread{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0}
+        .nexusAiSupportBubble{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;padding:10px 12px;
+          border-radius:12px;font-size:13px;max-width:95%;background:#163b30;color:#e9fff4;align-self:flex-start}
+        .nexusAiSupportBubble.user{background:#285e50;align-self:flex-end}
+        .nexusAiSupportBottom{display:flex;gap:7px;padding:10px;border-top:1px solid rgba(255,255,255,.12)}
+        .nexusAiSupportBottom textarea{resize:none;flex:1;min-width:0;max-height:95px;border:1px solid rgba(255,255,255,.2);
+          border-radius:9px;padding:9px;font-size:13px;line-height:1.4;color:white;background:#13392e}
+        .nexusAiSupportBottom button{border:0;border-radius:9px;background:#3aca8a;color:#052119;font-weight:900;padding:8px 12px;cursor:pointer}
+        .nexusAiSupportBottom button:disabled{opacity:.4;cursor:not-allowed}
+        @media(max-width:540px){.nexusAiSupportWindow{right:12px;bottom:68px;height:min(570px,calc(100dvh - 86px))}}
+      `}</style>
+      <button type="button" className="nexusAiSupportLauncher" onClick={() => open ? close() : onOpen()}
+        aria-label={open ? "Close Nexus AI Support" : "Open Nexus AI Support"}>
+        {open ? "✕" : "? Nexus AI Hilfe"}
+      </button>
+      {open ? (
+        <section className="nexusAiSupportWindow" role="dialog" aria-label="Nexus AI Support" aria-modal="false">
+          <div className="nexusAiSupportHeader">
+            <div className="nexusAiSupportTop">
+              <strong style={{ fontSize: 14 }}>NEXUS AI SUPPORT</strong>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button type="button" onClick={() => setLanguage((v) => v === "de" ? "en" : "de")}
+                  style={{ background: "#245b49", color: "#fff", border: "1px solid #438a6e", borderRadius: 8, padding: "4px 9px", cursor: "pointer" }}>{language.toUpperCase()}</button>
+                <button type="button" aria-label="Close" onClick={close}
+                  style={{ background: "transparent", color: "#fff", border: 0, fontSize: 19, cursor: "pointer" }}>×</button>
+              </div>
+            </div>
+            <select className="nexusAiSupportChoose" value={NEXUS_SUPPORT_TOPICS[topic] ? topic : "overview"}
+              onChange={(e) => onTopicChange(e.target.value)} aria-label="Help topic">
+              {Object.entries(NEXUS_SUPPORT_TOPICS).map(([k, names]) => <option key={k} value={k}>{names[language === "en" ? 1 : 0]}</option>)}
+            </select>
+            <span style={{ fontSize: 11, color: "#a9dccc" }}>{language === "de" ? `Hilfe zu: ${title} · Nur Information, keine Transaktionen` : `Help: ${title} · Information only, no transactions`}</span>
+            <span style={{ fontSize: 10, color: "#f0d4a2" }}>{language === "de" ? "Niemals Seedphrase, Private Key oder Passwort eingeben." : "Never enter a seed phrase, private key or password."}</span>
+          </div>
+          <div className="nexusAiSupportThread" ref={threadRef} aria-live="polite" aria-busy={busy}>
+            {messages.map((m, i) => <div key={`${i}-${m.role}`} className={`nexusAiSupportBubble ${m.role === "user" ? "user" : ""}`}>{m.text}</div>)}
+            {busy && <div className="nexusAiSupportBubble">{language === "de" ? "Nexus erklärt …" : "Nexus is explaining …"}</div>}
+            {error && <div role="alert" style={{ color: "#ffb9a9", fontSize: 12 }}>
+              {language === "de" ? "Die Hilfe-KI ist gerade nicht erreichbar. Bitte später erneut versuchen. " : "AI help is currently unavailable. Please try again later. "}{error}
+            </div>}
+          </div>
+          <form className="nexusAiSupportBottom" onSubmit={sendQuestion}>
+            <textarea value={draft} maxLength={1200} rows={2} disabled={busy}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendQuestion(); } }}
+              placeholder={language === "de" ? "Frage zu Nexus stellen …" : "Ask about Nexus …"}
+              aria-label="Your Nexus help question" />
+            <button type="submit" disabled={busy || !draft.trim()}>{language === "de" ? "Senden" : "Send"}</button>
+          </form>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
 function AppInner({ coreVaultSessionPreview = null, coreVaultRecoveryJobs: coreVaultRecoveryJobsProp = null, onRecoverExactCoreVaultSession = null, exactOrphanRecoveryBusyKey = "" , refreshOnchainSessionsSilent = null }) {
   const coreVaultRecoveryJobs = (coreVaultRecoveryJobsProp && typeof coreVaultRecoveryJobsProp === 'object') ? coreVaultRecoveryJobsProp : {};
 
@@ -3373,6 +3569,13 @@ const [errorMsg, setErrorMsg] = useState("");
 
   const isDesktopWide = typeof window !== "undefined" ? window.innerWidth >= 981 : true;
   const [activePanel, setActivePanel] = useState(null);
+  const [nexusAiSupportOpen, setNexusAiSupportOpen] = useState(false);
+  const [nexusAiSupportTopic, setNexusAiSupportTopic] = useState("overview");
+  const openNexusAiHelp = useCallback((topicKey = "overview") => {
+    setNexusAiSupportTopic(NEXUS_SUPPORT_TOPICS[topicKey] ? topicKey : "overview");
+    setNexusAiSupportOpen(true);
+  }, []);
+
 
   const isCompactMobile = typeof window !== "undefined" && window.innerWidth <= 768;
   const isCompactWatchNumbers = typeof window !== "undefined" && window.innerWidth <= 1280;
@@ -21868,6 +22071,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               >
                 <div className="modalHead">
                   <div className="cardTitle">Access</div>
+                  <NexusHelpButton topic="subscription" onHelp={openNexusAiHelp} />
                   <button className="iconBtn" type="button" onClick={() => setAccessHelpOpen(false)}>×</button>
                 </div>
                 <div className="helpBody">
@@ -21917,6 +22121,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     <div className="cardTitle" style={{ margin: 0 }}>{walletPanelTab === "WALLET" ? "Wallet" : "Core Vault"}</div>
+                    <NexusHelpButton topic={walletPanelTab === "WALLET" ? "wallet" : "core_vault"} onHelp={openNexusAiHelp} />
                     {walletPanelTab === "WALLET" ? (
                       <span style={{ fontSize: 12, fontWeight: 800, color: "#d9fff0" }}>
                         {walletUsdLoading ? "…" : fmtUsd(Number(walletUsd?.total || 0))}
@@ -22297,6 +22502,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <div>
                     <div className="cardTitle" style={{ margin: 0 }}>Nexus Core Vault</div>
+                    <NexusHelpButton topic="withdraw" onHelp={openNexusAiHelp} />
                     <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>Withdraw &amp; secured-profit payout</div>
                   </div>
                   <button className="iconBtn" type="button" onClick={() => setWithdrawSendOpen(false)} aria-label="Close">×</button>
@@ -22665,6 +22871,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         <section className={`card section-compare dashboardPanel ${activePanel === "compare" ? "panelActive" : ""}`} onClick={handlePanelActivate("compare")}>
           <div className="cardHead">
             <div className="cardTitle">Compare (user-defined)</div>
+            <NexusHelpButton topic="compare" onHelp={openNexusAiHelp} />
             <div className="cardActions">
               {TIMEFRAMES.map((tf) => {
                 const k = String(tf.key || "").toUpperCase();
@@ -23946,6 +24153,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         <section className={`card section-grid dashboardPanel ${activePanel === "vault" ? "panelActive" : ""}`} onClick={handlePanelActivate("vault")}>
           <div className="cardHead" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
             <div className="cardTitle" style={{ flex: "0 0 auto" }}>{gridMode === "rotation" ? "Nexus NKR" : gridMode === "trading" ? "Nexus Trading" : "Nexus Grid"}</div>
+            <NexusHelpButton topic={gridMode === "rotation" ? "nkr" : gridMode === "trading" ? "trading" : "grid"} onHelp={openNexusAiHelp} />
 
             {!isCompactMobile && (
               <div
@@ -24184,7 +24392,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="liveCoreVaultBlock" style={{ display: modeKey === "normal" ? "none" : "block", marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)", minWidth: 0, maxWidth: "100%", overflow: "hidden", boxSizing: "border-box" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <div>
-                        <div style={{ fontWeight: 950, fontSize: 12 }}>Live Core Vault Capital</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ fontWeight: 950, fontSize: 12 }}>Live Core Vault Capital</div><NexusHelpButton topic="core_vault" onHelp={openNexusAiHelp} /></div>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 900, color: chainConnected ? "#86efac" : "#ffd166" }}>
                         {coreVaultAllChainsLoading ? "REFRESHING ALL CHAINS" : chainConnected ? "LIVE CONNECTED" : "VAULT NOT AVAILABLE"}
@@ -25742,7 +25950,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }}
                     >
                       <div className="formRow">
-                        <label>Nexus NKR Capital Mode</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Nexus NKR Capital Mode <NexusHelpButton topic="nkr_mode" onHelp={openNexusAiHelp} /></label>
                         <select value={nkrCapitalMode} onFocus={() => { nkrModeEditingRef.current = true; }} onBlur={() => { setTimeout(() => { nkrModeEditingRef.current = false; }, 500); }} onChange={(e) => { nkrModeEditingRef.current = true; handleNkrCapitalModeChange(e.target.value); }}>
                           <option value="DYNAMIC">Dynamic</option>
                           <option value="TACTICAL">Tactical</option>
@@ -25751,7 +25959,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </select>
                       </div>
                       <div className="formRow">
-                        <label>Observation Window</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Observation Window <NexusHelpButton topic="nkr_observation" onHelp={openNexusAiHelp} /></label>
                         <select value={nkrObservationWindow} onChange={(e) => { setNkrObservationWindow(e.target.value); setRotationBudgetReleased(false); }}>
                           <option value="15m">15m</option>
                           <option value="1h">1h</option>
@@ -25761,7 +25969,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </select>
                       </div>
                       <div className="formRow">
-                        <label>Profit Mode</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Profit Mode <NexusHelpButton topic="nkr_profit" onHelp={openNexusAiHelp} /></label>
                         <select value={nkrProfitMode} onChange={(e) => { setNkrProfitMode(e.target.value); setRotationBudgetReleased(false); }}>
                           <option value="REINVEST">Reinvest</option>
                           <option value="PAYOUT">Payout</option>
@@ -25770,7 +25978,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </select>
                       </div>
                       <div className="formRow">
-                        <label>NKR Period</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>NKR Period <NexusHelpButton topic="nkr_period" onHelp={openNexusAiHelp} /></label>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 8 }}>
                           <input
                             type="number"
@@ -25844,7 +26052,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               : "NKR Budget ($)";
                           return (
                             <>
-                              <label>{label}</label>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{label} <NexusHelpButton topic="nkr_budget" onHelp={openNexusAiHelp} /></label>
                               <input
                                 value={rotationBudgetRelease}
                                 onChange={(e) => handleNkrBudgetInputChange(e.target.value)}
@@ -26932,11 +27140,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div className={`tradingSetupBody ${!tradingSetupExpanded ? "isCollapsed" : ""}`}>
                     <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10, alignItems: "end" }}>
                       <div className="formRow">
-                        <label>{Array.isArray(openTradingSessions) && openTradingSessions.length ? "Next Budget ($)" : "Budget ($)"}</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{Array.isArray(openTradingSessions) && openTradingSessions.length ? "Next Budget ($)" : "Budget ($)"} <NexusHelpButton topic="trading_budget" onHelp={openNexusAiHelp} /></label>
                         <input value={tradingBudgetUsd} onChange={(e) => handleTradingBudgetInputChange(e.target.value)} placeholder={Array.isArray(openTradingSessions) && openTradingSessions.length ? "e.g. next 300" : "e.g. 300"} />
                       </div>
                       <div className="formRow">
-                        <label>Budget slots</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Budget slots <NexusHelpButton topic="trading_slots" onHelp={openNexusAiHelp} /></label>
                         <input
                           value={tradingBudgetSplitInput}
                           onChange={(e) => {
@@ -26948,7 +27156,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         />
                       </div>
                       <div className="formRow">
-                        <label>Runtime (h)</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Runtime (h) <NexusHelpButton topic="trading_runtime" onHelp={openNexusAiHelp} /></label>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 6 }}>
                           <input
                             type="number"
@@ -26987,7 +27195,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       </div>
                       <div className="formRow">
-                        <label>Reuse Profit %</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Reuse Profit % <NexusHelpButton topic="trading_reuse" onHelp={openNexusAiHelp} /></label>
                         <input
                           value={tradingReuseProfitPct}
                           onChange={(e) => setTradingReuseProfitPct(e.target.value)}
@@ -26997,7 +27205,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         />
                       </div>
                       <div className="formRow">
-                        <label>Max Combined Slots</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Max Combined Slots <NexusHelpButton topic="trading_slots" onHelp={openNexusAiHelp} /></label>
                         <select
                           value={tradingMaxCombinedSlots}
                           onChange={(e) => setTradingMaxCombinedSlots(e.target.value)}
@@ -27010,7 +27218,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </select>
                       </div>
                       <div className="formRow">
-                        <label>Capital HOLD (1-12h)</label>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Capital HOLD (1-12h) <NexusHelpButton topic="trading_hold" onHelp={openNexusAiHelp} /></label>
                         <input
                           value={tradingHoldHours}
                           onChange={(e) => setTradingHoldHours(e.target.value)}
@@ -27149,7 +27357,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div style={{ padding: "0 10px 10px 10px", display: "grid", gap: 8 }}>
                           <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "1fr 1fr 1fr", gap: isCompactMobile ? 8 : 10 }}>
                             <div className="formRow">
-                              <label>Risk mode</label>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Risk mode <NexusHelpButton topic="trading_risk" onHelp={openNexusAiHelp} /></label>
                               <select value={tradingRiskMode} onChange={(e) => handleTradingRiskModeChange(e.target.value)}>
                                 <option value="DEFENSIVE">Defensive</option>
                                 <option value="BALANCED">Balanced</option>
@@ -27157,23 +27365,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </select>
                             </div>
                             <div className="formRow">
-                              <label>Caution DD %</label>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Caution DD % <NexusHelpButton topic="trading_risk" onHelp={openNexusAiHelp} /></label>
                               <input value={tradingCautionDrawdownPct} onChange={(e) => setTradingCautionDrawdownPct(e.target.value)} placeholder="3" />
                             </div>
                             <div className="formRow">
-                              <label>Hard stop %</label>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Hard stop % <NexusHelpButton topic="trading_risk" onHelp={openNexusAiHelp} /></label>
                               <input value={tradingHardStopPct} onChange={(e) => setTradingHardStopPct(e.target.value)} placeholder="12" />
                             </div>
                             <div className="formRow">
-                              <label>Profit lock %</label>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Profit lock % <NexusHelpButton topic="trading_profit_lock" onHelp={openNexusAiHelp} /></label>
                               <input value={tradingProfitLockPct} onChange={(e) => setTradingProfitLockPct(e.target.value)} placeholder="20" />
                             </div>
                             <div className="formRow">
-                              <label>Max slippage %</label>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Max slippage % <NexusHelpButton topic="trading_slippage" onHelp={openNexusAiHelp} /></label>
                               <input value={tradingMaxSlippagePct} onChange={(e) => setTradingMaxSlippagePct(e.target.value)} placeholder="1.2" />
                             </div>
                             <div className="formRow">
-                              <label>Max trades</label>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Max trades <NexusHelpButton topic="trading_max_trades" onHelp={openNexusAiHelp} /></label>
                               <input value={tradingMaxTrades} onChange={(e) => setTradingMaxTrades(e.target.value)} placeholder="6" />
                             </div>
                           </div>
@@ -27834,7 +28042,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </select>
                   </div>
                   <div className="formRow">
-                    <label>Coin in Vault</label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Coin in Vault <NexusHelpButton topic="grid_coin" onHelp={openNexusAiHelp} /></label>
                     <select value={gridItem} onChange={(e) => setGridItem(e.target.value)}>
                       {gridWalletCoins.filter((c) => !["USDC","USDT","DAI","FRAX","FDUSD","TUSD","PYUSD","USDP","LUSD","GUSD"].includes(String(c || "").toUpperCase())).map((c) => (
                         <option key={`${activeGridChainKey}:${c}`} value={c}>{c}</option>
@@ -27851,7 +28059,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10, alignItems: "end" }}>
                   <div className="formRow">
-                    <label>Amount to Use</label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Amount to Use <NexusHelpButton topic="grid_amount" onHelp={openNexusAiHelp} /></label>
                     <input value={manualQty} onChange={(e) => setManualQty(e.target.value)} placeholder="e.g. 500" />
                   </div>
                   <div className="formRow">
@@ -27861,18 +28069,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                   </div>
                   <div className="formRow">
-                    <label>Sell Target</label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Sell Target <NexusHelpButton topic="grid_target" onHelp={openNexusAiHelp} /></label>
                     <input value={manualPrice} onChange={(e) => setManualPrice(e.target.value)} placeholder="e.g. 0.45" />
                   </div>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: isCompactMobile ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10, alignItems: "end" }}>
                   <div className="formRow">
-                    <label>Maximum Loss (%)</label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Maximum Loss (%) <NexusHelpButton topic="grid_loss" onHelp={openNexusAiHelp} /></label>
                     <input value={manualMaxLossPct} onChange={(e) => setManualMaxLossPct(e.target.value)} placeholder="e.g. 15" />
                   </div>
                   <div className="formRow">
-                    <label>Payout Asset (Vault settlement)</label>
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Payout Asset (Vault settlement) <NexusHelpButton topic="grid_payout" onHelp={openNexusAiHelp} /></label>
                     <select
                       value={normalizeStablePayoutAsset(manualPayoutAsset, "USDC")}
                       onChange={(e) => setManualPayoutAsset(normalizeStablePayoutAsset(e.target.value, "USDC"))}
@@ -27907,6 +28115,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           <div className="cardHead">
                               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
                     <div className="cardTitle">Watchlist</div>
+                    <NexusHelpButton topic="watchlist" onHelp={openNexusAiHelp} />
                     <div
                       className="muted tiny"
                       title={"Market Condition based on Overextension (OE) + Relative Volume (RVOL)\nB = Breakout: volume confirms the move\nW = Weak: move is not volume-confirmed\nE = Early: volume builds before strong price extension\nH = Hot: strongly overextended\nN = Normal: no strong anomaly"}
@@ -28535,6 +28744,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         <section className={`card section-ai dashboardPanel ${activePanel === "ai" ? "panelActive" : ""}`} onClick={handlePanelActivate("ai")}>
           <div className="cardHead">
             <div className="cardTitle">Nexus Strategist</div>
+            <NexusHelpButton topic="ai_analyst" onHelp={openNexusAiHelp} />
             <div className="cardActions" style={{ alignItems: "center" }}>
               <InfoButton title="Nexus Strategist">
                 <Help showClose dismissable
@@ -29857,6 +30067,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
     </div>
   </div>
 )}
+      <NexusAiSupport
+        open={nexusAiSupportOpen}
+        onOpen={() => openNexusAiHelp(activePanel === "vault" ? (gridMode === "rotation" ? "nkr" : gridMode === "trading" ? "trading" : "grid") : activePanel === "ai" ? "ai_analyst" : activePanel === "watchlist" ? "watchlist" : activePanel === "compare" ? "compare" : "overview")}
+        onClose={() => setNexusAiSupportOpen(false)}
+        topic={nexusAiSupportTopic}
+        onTopicChange={setNexusAiSupportTopic}
+        contextMode={gridMode}
+      />
     </div>
   );
 }

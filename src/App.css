@@ -2662,3 +2662,89 @@ body::before {
     min-width: 22px !important;
   }
 }
+
+/* ===== BUILD546: Nexus Help visual tour, isolated from trading and wallet UI ===== */
+.nexusHelpVisualStart,
+.nexusHelpVisualEnable {
+  width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid rgba(132, 210, 255, .55);
+  border-radius: 9px;
+  background: linear-gradient(90deg, #174d64, #1e6780);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 850;
+  cursor: pointer;
+  text-align: center;
+}
+.nexusHelpVisualStart:hover,
+.nexusHelpVisualEnable:hover { filter: brightness(1.15); }
+.nexusTourRoot {
+  position: fixed;
+  inset: 0;
+  z-index: 110000;
+  pointer-events: none;
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: #eafff6;
+}
+.nexusTourFocus {
+  position: fixed;
+  pointer-events: none;
+  border: 3px solid #78dbff;
+  border-radius: 13px;
+  box-shadow: 0 0 0 5px rgba(38, 147, 212, .16), 0 0 26px rgba(72, 198, 255, .62);
+  animation: nexusTourPulse 1.8s ease-in-out infinite;
+  transition: left .16s ease, top .16s ease, width .16s ease, height .16s ease;
+}
+.nexusTourFocusCorner {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  right: -8px;
+  top: -8px;
+  border-radius: 50%;
+  background: #a5edff;
+  box-shadow: 0 0 13px rgba(100, 210, 255, .85);
+}
+@keyframes nexusTourPulse {
+  0%,100% { box-shadow: 0 0 0 5px rgba(38,147,212,.10), 0 0 14px rgba(72,198,255,.30); }
+  50% { box-shadow: 0 0 0 10px rgba(38,147,212,.22), 0 0 27px rgba(72,198,255,.70); }
+}
+.nexusTourCard {
+  position: fixed;
+  pointer-events: auto;
+  background: linear-gradient(180deg, #143a32, #09231e);
+  border: 1px solid rgba(123, 224, 255, .64);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 18px 65px rgba(0,0,0,.65);
+  display: grid;
+  gap: 9px;
+  max-height: calc(100dvh - 18px);
+  overflow-y: auto;
+  animation: nexusTourEnter .20s ease-out;
+}
+@keyframes nexusTourEnter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.nexusTourCardHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.nexusTourKicker { color: #91e7ff; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; font-weight: 900; }
+.nexusTourClose { border: 0; background: transparent; color: #fff; font-size: 24px; line-height: 1; cursor: pointer; min-width: 28px; }
+.nexusTourProgress { font-size: 11px; color: rgba(234,255,246,.72); font-weight: 750; }
+.nexusTourProgressTrack { width: 100%; height: 4px; background: rgba(255,255,255,.12); border-radius: 6px; overflow: hidden; }
+.nexusTourProgressTrack span { display: block; height: 100%; background: #78dbff; transition: width .2s ease; }
+.nexusTourTitle { font-size: 16px; font-weight: 900; line-height: 1.3; }
+.nexusTourText { color: rgba(234,255,246,.90); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.nexusTourMissing { border-left: 3px solid #e7bb6a; padding: 7px 9px; background: rgba(231,187,106,.08); font-size: 12px; line-height: 1.45; color: #ffe0ab; }
+.nexusTourNotice { color: #a1d3bd; font-size: 10px; line-height: 1.3; }
+.nexusTourActions { display: flex; justify-content: space-between; gap: 8px; }
+.nexusTourActions button { border: 1px solid rgba(150,221,211,.45); background: rgba(255,255,255,.07); color: #eafff6; border-radius: 9px; padding: 8px 12px; font-size: 12px; font-weight: 800; cursor: pointer; }
+.nexusTourActions button:disabled { opacity: .35; cursor: not-allowed; }
+.nexusTourActions button.nexusTourNext { color: #061d17; background: #78dbff; border-color: #78dbff; }
+@media (max-width: 560px) {
+  .nexusTourCard { padding: 10px; gap: 7px; }
+  .nexusTourText { font-size: 12px; }
+  .nexusTourTitle { font-size: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nexusTourRoot *, .nexusTourRoot *::before, .nexusTourRoot *::after { animation: none !important; transition: none !important; }
+}

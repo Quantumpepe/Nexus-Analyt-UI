@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD542-NEXUS-HELP-WHITE";
+const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD543-NEXUS-HELP-DRAG-MINIMIZE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3380,7 +3380,7 @@ function NexusHelpButton({ topic, onHelp }) {
   );
 }
 
-function NexusAiSupport({ open, onOpen, onClose, topic, onTopicChange, contextMode = "normal" }) {
+function NexusAiSupport({ open, minimized = false, onOpen, onMinimize, onRestore, onClose, topic, onTopicChange, contextMode = "normal" }) {
   const [language, setLanguage] = useState("de");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState([]);
@@ -3388,6 +3388,10 @@ function NexusAiSupport({ open, onOpen, onClose, topic, onTopicChange, contextMo
   const [error, setError] = useState("");
   const pendingRef = useRef(null);
   const threadRef = useRef(null);
+  // UI-only window placement. Minimizing does not unmount/reset the chat.
+  const helpWindowRef = useRef(null);
+  const draggingRef = useRef(null);
+  const [helpPosition, setHelpPosition] = useState(null);
   const title = (NEXUS_SUPPORT_TOPICS[topic] || NEXUS_SUPPORT_TOPICS.overview)[language === "en" ? 1 : 0];
 
   useEffect(() => {
@@ -3414,7 +3418,8 @@ function NexusAiSupport({ open, onOpen, onClose, topic, onTopicChange, contextMo
       if (!controller.signal.aborted) setError(String(e?.message || e || "Support AI unavailable"));
     }).finally(() => { if (!controller.signal.aborted) setBusy(false); });
     return () => { controller.abort(); };
-  }, [open, topic, language, contextMode]);
+  // Changing the trading view must not erase a conversation in the minimized chat.
+  }, [open, topic, language]);
 
   useEffect(() => {
     if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
@@ -3445,6 +3450,58 @@ function NexusAiSupport({ open, onOpen, onClose, topic, onTopicChange, contextMo
       if (!controller.signal.aborted) setBusy(false);
     }
   };
+  // Pointer events support mouse, touch, and pen. Only the title bar drags;
+  // language/minimize/close controls remain clickable. Never move off-screen.
+  const startHelpDrag = (e) => {
+    if (e.button != null && e.button !== 0) return;
+    if (e.target?.closest?.("button,select,input,textarea,a,[role='button']")) return;
+    const node = helpWindowRef.current;
+    if (!node) return;
+    const rect = node.getBoundingClientRect();
+    draggingRef.current = {
+      id: e.pointerId,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+    };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+    e.preventDefault();
+  };
+  const moveHelpDrag = (e) => {
+    const drag = draggingRef.current;
+    if (!drag || drag.id !== e.pointerId) return;
+    const rect = helpWindowRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const maxX = Math.max(0, window.innerWidth - rect.width);
+    const maxY = Math.max(0, window.innerHeight - rect.height);
+    setHelpPosition({
+      x: Math.min(maxX, Math.max(0, e.clientX - drag.offsetX)),
+      y: Math.min(maxY, Math.max(0, e.clientY - drag.offsetY)),
+    });
+  };
+  const endHelpDrag = (e) => {
+    if (!draggingRef.current || draggingRef.current.id !== e.pointerId) return;
+    draggingRef.current = null;
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+  };
+  // Also clamp after viewport resize and when restoring the full-size panel.
+  useEffect(() => {
+    if (!open) return undefined;
+    const keepVisible = () => {
+      const rect = helpWindowRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setHelpPosition((prev) => {
+        if (!prev) return prev; // Keep native bottom-right layout until first drag.
+        const x = Math.min(Math.max(0, window.innerWidth - rect.width), Math.max(0, prev.x));
+        const y = Math.min(Math.max(0, window.innerHeight - rect.height), Math.max(0, prev.y));
+        return x === prev.x && y === prev.y ? prev : { x, y };
+      });
+    };
+    keepVisible();
+    window.addEventListener("resize", keepVisible);
+    return () => window.removeEventListener("resize", keepVisible);
+  }, [open, minimized]);
   const close = () => { if (pendingRef.current) pendingRef.current.abort(); onClose(); };
 
   return (
@@ -3452,11 +3509,19 @@ function NexusAiSupport({ open, onOpen, onClose, topic, onTopicChange, contextMo
       <style>{`
         .nexusAiSupportRoot{position:fixed;inset:0;z-index:8500;pointer-events:none}
         .nexusAiSupportRoot *{box-sizing:border-box}
-        .nexusAiSupportWindow{position:absolute;right:16px;bottom:72px;width:min(430px,calc(100vw - 24px));
-          height:min(635px,calc(100dvh - 98px));min-height:290px;pointer-events:auto;display:flex;flex-direction:column;
+        .nexusAiSupportWindow{position:absolute;right:16px;bottom:min(72px,8vh);width:min(430px,calc(100vw - 24px));
+          height:min(635px,calc(100dvh - 98px));min-height:min(240px,calc(100dvh - 24px));pointer-events:auto;display:flex;flex-direction:column;
           border:1px solid rgba(95,224,177,.42);background:#0b211c;color:#e8fff4;border-radius:17px;
           box-shadow:0 16px 60px rgba(0,0,0,.66);overflow:hidden}
         .nexusAiSupportWindow button,.nexusAiSupportWindow select,.nexusAiSupportWindow textarea{font-family:inherit}
+        .nexusAiSupportDragBar{cursor:grab;touch-action:none;user-select:none}
+        .nexusAiSupportDragBar:active{cursor:grabbing}
+        .nexusAiSupportMinimized{position:absolute;right:16px;bottom:72px;pointer-events:auto;
+          display:flex;align-items:center;gap:10px;justify-content:space-between;min-width:186px;
+          padding:7px 9px 7px 13px;border:1px solid rgba(95,224,177,.42);border-radius:12px;
+          background:#10382c;color:#fff;box-shadow:0 12px 38px rgba(0,0,0,.55)}
+        .nexusAiSupportMinimized button{background:#245b49;color:white;border:1px solid #438a6e;
+          border-radius:8px;padding:6px 10px;cursor:pointer;font-weight:800}
         .nexusAiSupportHeader{padding:12px;border-bottom:1px solid rgba(255,255,255,.12);background:#10382c;display:grid;gap:8px}
         .nexusAiSupportTop{display:flex;align-items:center;justify-content:space-between;gap:9px}
         .nexusAiSupportChoose{width:100%;border:1px solid rgba(255,255,255,.16);background:#153e33;color:white;
@@ -3470,16 +3535,33 @@ function NexusAiSupport({ open, onOpen, onClose, topic, onTopicChange, contextMo
           border-radius:9px;padding:9px;font-size:13px;line-height:1.4;color:white;background:#13392e}
         .nexusAiSupportBottom button{border:0;border-radius:9px;background:#3aca8a;color:#052119;font-weight:900;padding:8px 12px;cursor:pointer}
         .nexusAiSupportBottom button:disabled{opacity:.4;cursor:not-allowed}
-        @media(max-width:540px){.nexusAiSupportWindow{right:12px;bottom:68px;height:min(570px,calc(100dvh - 86px))}}
+        @media(max-width:540px){.nexusAiSupportWindow{right:12px;bottom:min(68px,8vh);height:min(570px,calc(100dvh - 86px))}}
       `}</style>
-      {open ? (
-        <section className="nexusAiSupportWindow" role="dialog" aria-label="Nexus AI Support" aria-modal="false">
+      {open && minimized ? (
+        <div className="nexusAiSupportMinimized"
+          style={helpPosition ? { left: helpPosition.x, top: helpPosition.y, right: "auto", bottom: "auto" } : undefined}>
+          <strong style={{ fontSize: 12 }}>Nexus Help</strong>
+          <button type="button" onClick={onRestore}
+            aria-label={language === "de" ? "Nexus Help wiederherstellen" : "Restore Nexus Help"}
+            title={language === "de" ? "Chat fortsetzen" : "Continue chat"}>□</button>
+        </div>
+      ) : open ? (
+        <section ref={helpWindowRef} className="nexusAiSupportWindow" role="dialog" aria-label="Nexus AI Support" aria-modal="false"
+          style={helpPosition ? { left: helpPosition.x, top: helpPosition.y, right: "auto", bottom: "auto" } : undefined}>
           <div className="nexusAiSupportHeader">
-            <div className="nexusAiSupportTop">
-              <strong style={{ fontSize: 14 }}>NEXUS AI SUPPORT</strong>
+            <div className="nexusAiSupportTop nexusAiSupportDragBar"
+              onPointerDown={startHelpDrag} onPointerMove={moveHelpDrag}
+              onPointerUp={endHelpDrag} onPointerCancel={endHelpDrag}
+              onLostPointerCapture={() => { draggingRef.current = null; }}
+              title={language === "de" ? "Hier ziehen, um das Fenster zu verschieben" : "Drag here to move the window"}>
+              <strong style={{ fontSize: 14, userSelect: "none" }}>NEXUS AI SUPPORT</strong>
               <div style={{ display: "flex", gap: 6 }}>
                 <button type="button" onClick={() => setLanguage((v) => v === "de" ? "en" : "de")}
                   style={{ background: "#245b49", color: "#fff", border: "1px solid #438a6e", borderRadius: 8, padding: "4px 9px", cursor: "pointer" }}>{language.toUpperCase()}</button>
+                <button type="button" aria-label={language === "de" ? "Minimieren" : "Minimize"}
+                  title={language === "de" ? "Chat minimieren (Verlauf bleibt erhalten)" : "Minimize (keep chat history)"}
+                  onClick={onMinimize}
+                  style={{ background: "transparent", color: "#fff", border: 0, fontSize: 20, cursor: "pointer", minWidth: 26 }}>−</button>
                 <button type="button" aria-label="Close" onClick={close}
                   style={{ background: "transparent", color: "#fff", border: 0, fontSize: 19, cursor: "pointer" }}>×</button>
               </div>
@@ -3563,10 +3645,12 @@ const [errorMsg, setErrorMsg] = useState("");
   const isDesktopWide = typeof window !== "undefined" ? window.innerWidth >= 981 : true;
   const [activePanel, setActivePanel] = useState(null);
   const [nexusAiSupportOpen, setNexusAiSupportOpen] = useState(false);
+  const [nexusAiSupportMinimized, setNexusAiSupportMinimized] = useState(false);
   const [nexusAiSupportTopic, setNexusAiSupportTopic] = useState("overview");
   const openNexusAiHelp = useCallback((topicKey = "overview") => {
     setNexusAiSupportTopic(NEXUS_SUPPORT_TOPICS[topicKey] ? topicKey : "overview");
     setNexusAiSupportOpen(true);
+    setNexusAiSupportMinimized(false);
   }, []);
 
 
@@ -21469,7 +21553,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (nexusAiSupportOpen) {
-                  setNexusAiSupportOpen(false);
+                  // The header button collapses/restores, rather than closing the chat.
+                  setNexusAiSupportMinimized((v) => !v);
                 } else {
                   openNexusAiHelp(activePanel === "vault" ? (gridMode === "rotation" ? "nkr" : gridMode === "trading" ? "trading" : "grid") : activePanel === "ai" ? "ai_analyst" : activePanel === "watchlist" ? "watchlist" : activePanel === "compare" ? "compare" : "overview");
                 }
@@ -30097,8 +30182,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
 )}
       <NexusAiSupport
         open={nexusAiSupportOpen}
+        minimized={nexusAiSupportMinimized}
+        onMinimize={() => setNexusAiSupportMinimized(true)}
+        onRestore={() => setNexusAiSupportMinimized(false)}
         onOpen={() => openNexusAiHelp(activePanel === "vault" ? (gridMode === "rotation" ? "nkr" : gridMode === "trading" ? "trading" : "grid") : activePanel === "ai" ? "ai_analyst" : activePanel === "watchlist" ? "watchlist" : activePanel === "compare" ? "compare" : "overview")}
-        onClose={() => setNexusAiSupportOpen(false)}
+        onClose={() => { setNexusAiSupportOpen(false); setNexusAiSupportMinimized(false); }}
         topic={nexusAiSupportTopic}
         onTopicChange={setNexusAiSupportTopic}
         contextMode={gridMode}

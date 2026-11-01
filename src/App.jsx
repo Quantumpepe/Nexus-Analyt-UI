@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD540-NEXUS-AI-SUPPORT";
+const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD541-NEXUS-HELP-HEADER";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3452,9 +3452,6 @@ function NexusAiSupport({ open, onOpen, onClose, topic, onTopicChange, contextMo
       <style>{`
         .nexusAiSupportRoot{position:fixed;inset:0;z-index:8500;pointer-events:none}
         .nexusAiSupportRoot *{box-sizing:border-box}
-        .nexusAiSupportLauncher{position:absolute;right:16px;bottom:16px;pointer-events:auto;border:1px solid rgba(107,255,197,.5);
-          background:linear-gradient(135deg,#176e51,#104235);color:#fff;border-radius:26px;padding:11px 16px;
-          box-shadow:0 8px 28px rgba(0,0,0,.5);font-size:13px;font-weight:900;cursor:pointer}
         .nexusAiSupportWindow{position:absolute;right:16px;bottom:72px;width:min(430px,calc(100vw - 24px));
           height:min(635px,calc(100dvh - 98px));min-height:290px;pointer-events:auto;display:flex;flex-direction:column;
           border:1px solid rgba(95,224,177,.42);background:#0b211c;color:#e8fff4;border-radius:17px;
@@ -3475,10 +3472,6 @@ function NexusAiSupport({ open, onOpen, onClose, topic, onTopicChange, contextMo
         .nexusAiSupportBottom button:disabled{opacity:.4;cursor:not-allowed}
         @media(max-width:540px){.nexusAiSupportWindow{right:12px;bottom:68px;height:min(570px,calc(100dvh - 86px))}}
       `}</style>
-      <button type="button" className="nexusAiSupportLauncher" onClick={() => open ? close() : onOpen()}
-        aria-label={open ? "Close Nexus AI Support" : "Open Nexus AI Support"}>
-        {open ? "✕" : "? Nexus AI Hilfe"}
-      </button>
       {open ? (
         <section className="nexusAiSupportWindow" role="dialog" aria-label="Nexus AI Support" aria-modal="false">
           <div className="nexusAiSupportHeader">
@@ -21420,6 +21413,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </button>
 
 
+            {/* BUILD541: Nexus Help directly below Buy NKR, with matching width and height. */}
+            <div className="nexusHeaderBuyHelp" style={{ display: "grid", gridTemplateColumns: "max-content", rowGap: 4, flex: "0 0 auto" }}>
             <button
               id="nkr-presale-buy-btn"
               className="btn"
@@ -21463,6 +21458,38 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </span>
               ) : null}
             </button>
+            <button
+              type="button"
+              className="btn"
+              aria-label="Nexus Help"
+              aria-expanded={nexusAiSupportOpen}
+              title="Nexus Help"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (nexusAiSupportOpen) {
+                  setNexusAiSupportOpen(false);
+                } else {
+                  openNexusAiHelp(activePanel === "vault" ? (gridMode === "rotation" ? "nkr" : gridMode === "trading" ? "trading" : "grid") : activePanel === "ai" ? "ai_analyst" : activePanel === "watchlist" ? "watchlist" : activePanel === "compare" ? "compare" : "overview");
+                }
+              }}
+              style={{
+                height: 30,
+                width: "100%",
+                padding: "0 10px",
+                fontSize: 12,
+                lineHeight: "30px",
+                background: "linear-gradient(90deg,#174d64,#1e6780)",
+                border: "1px solid rgba(113,204,237,.45)",
+                fontWeight: 800,
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+              }}
+            >
+              Nexus Help
+            </button>
+            </div>
             <div style={{ position: "relative", flex: "0 0 auto" }}>
               <button
                 type="button"

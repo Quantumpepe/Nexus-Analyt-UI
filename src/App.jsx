@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD550-WALLET-TRADING-WALLET-NETWORK-NO-SHADOW";
+const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD551-TRADING-WALLET-CAPITAL-HEADING";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -5547,7 +5547,7 @@ useEffect(() => {
   // Wallet modal state follows the wallet network selector only.
   const [coreVaultOnchain, setCoreVaultOnchain] = useState(null);
   const [coreVaultOnchainLoading, setCoreVaultOnchainLoading] = useState(false);
-  // Live Core Vault Capital is independent from the wallet selector. It keeps a
+  // Trading Wallet is independent from the wallet selector. It keeps a
   // simultaneous on-chain snapshot for every supported EVM chain so Grid, NKR
   // and Trader can select/read any vault without changing the wallet panel.
   const LIVE_CORE_VAULT_CHAINS = ["ETH", "BNB", "POL", "BASE", "ARB"];
@@ -6055,7 +6055,7 @@ useEffect(() => {
     }
     const selectedVaultState = coreVaultOnchainByChain?.[selectedChain] || null;
     if (!selectedVaultState?.connected) {
-      throw new Error(`${selectedChain} CoreVault V5 is not connected. Switch Live Core Vault Capital to ${selectedChain} and wait for LIVE CONNECTED.`);
+      throw new Error(`${selectedChain} CoreVault V5 is not connected. Switch Trading Wallet to ${selectedChain} and wait for LIVE CONNECTED.`);
     }
 
     await ensurePrivyAutomationReady();
@@ -6095,7 +6095,7 @@ useEffect(() => {
         return new Error(
           `Not enough free ${selectedAsset} on ${selectedChain}` +
           (avail != null ? ` (free ~${avail}, need ~${req ?? budget})` : "") +
-          `. Check Live Core Vault Capital → ${selectedChain} → Free. If Free is 0 while Balance looks funded, the USDC contract may differ (native vs bridged) — refresh vault status.`
+          `. Check Trading Wallet → ${selectedChain} → Free. If Free is 0 while Balance looks funded, the USDC contract may differ (native vs bridged) — refresh vault status.`
         );
       }
       if (/privy_live_execution_not_ready|privy_wallet_mapping/i.test(code)) {
@@ -10599,7 +10599,7 @@ useEffect(() => {
       }
       else if (noFree) userMessage = `Not enough free USDC on ${startChainCheck} vault. Deposit USDC on ${startChainCheck}, then start again.`;
       else if (privyBlocked) userMessage = `Privy live execution is not ready for ${startChainCheck}. Check policy / wallet mapping for that chain.`;
-      else if (notConnected) userMessage = `${startChainCheck} CoreVault is not connected. Switch chain in Live Core Vault Capital and wait for LIVE CONNECTED.`;
+      else if (notConnected) userMessage = `${startChainCheck} CoreVault is not connected. Switch chain in Trading Wallet and wait for LIVE CONNECTED.`;
       setRotationBackendMsg(userMessage);
       setErrorMsg(userMessage);
       setRotationBackendLoading(false);
@@ -11013,7 +11013,7 @@ useEffect(() => {
     return Array.from(out).filter(Boolean).sort();
   }, [liveVaultChainByMode?.rotation, activeGridChainKey, watchItems, watchRows]);
 
-  // Trader chain is derived exclusively from Live Core Vault Capital.
+  // Trader chain is derived exclusively from Trading Wallet.
   // There is no second Allowed Chains selector or local chain authority.
   const tradingAllowedChains = String(activeGridChainKey || "ETH").toUpperCase();
   const setTradingAllowedChains = () => {};
@@ -24911,7 +24911,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="liveCoreVaultBlock" style={{ display: modeKey === "normal" ? "none" : "block", marginBottom: 10, padding: 11, borderRadius: 13, border: "1px solid rgba(64,196,255,.22)", background: "rgba(64,196,255,.05)", minWidth: 0, maxWidth: "100%", overflow: "hidden", boxSizing: "border-box" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ fontWeight: 950, fontSize: 12 }}>Live Core Vault Capital</div><NexusHelpButton topic="core_vault" onHelp={openNexusAiHelp} /></div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ fontWeight: 950, fontSize: 12 }}>Trading Wallet</div><NexusHelpButton topic="core_vault" onHelp={openNexusAiHelp} /></div>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 900, color: chainConnected ? "#86efac" : "#ffd166" }}>
                         {coreVaultAllChainsLoading ? "REFRESHING ALL CHAINS" : chainConnected ? "LIVE CONNECTED" : "VAULT NOT AVAILABLE"}

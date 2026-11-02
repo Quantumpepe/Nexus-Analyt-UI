@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD555-NEXUS-HELP-ANSWERS-FIXED";
+const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD556-NEXUS-HELP-GPT-GUIDED";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3752,7 +3752,53 @@ const NEXUS_MANUAL_VISUAL_GUIDES = (() => {
   }
   return Object.freeze(guides);
 })();
-const NEXUS_ALL_VISUAL_TOURS = Object.freeze({ ...NEXUS_VISUAL_TOURS, ...NEXUS_MANUAL_VISUAL_GUIDES });
+// BUILD556: One actual Compare pair row, not the entire diagram or a generic button.
+// Every sub-step is anchored inside the SAME currently rendered first pair row.
+// Names, RSI figures, spread and score are LIVE UI data; explanation is static.
+const NEXUS_COMPARE_ROW_GUIDE = Object.freeze({
+  de: 'Eine Compare-Zeile verstehen', en: 'Understanding a Compare pair row', mode: 'compare',
+  steps: [
+    {context:'compare',target:'.section-compare .pairsScroll [data-nexus-tour="compare-pair-row"]:first-child',
+     deTitle:'Ein Vergleichspaar',enTitle:'A comparison pair',
+     deText:'Diese Zeile vergleicht zwei Kryptowährungen. Jede Zahl beschreibt eine andere Eigenschaft des Paares. Die Platzierung ist keine Gewinnprognose. Du kannst die Zeile selbst anklicken, um weitere Analysen zu öffnen.',
+     enText:'This row compares two cryptocurrencies. Each number describes a different aspect of the pair. The rank is not a profit forecast. Click the row yourself to open further analysis.'},
+    {context:'compare',target:'.section-compare .pairsScroll [data-nexus-tour="compare-pair-row"]:first-child [data-nexus-tour="compare-pair-name"]',
+     deTitle:'Name des Coin-Paares',enTitle:'Coin pair name',
+     deText:'Zum Beispiel DUAL/ROSE: Nexus vergleicht hier DUAL mit ROSE. Der Schrägstrich bedeutet nicht, dass du dieses Paar kaufen musst.',
+     enText:'For example DUAL/ROSE: Nexus compares DUAL against ROSE. The slash does not mean you must buy this pair.'},
+    {context:'compare',target:'.section-compare .pairsScroll [data-nexus-tour="compare-pair-row"]:first-child [data-nexus-tour="compare-pair-rsi-a"]',
+     deTitle:'RSI des ersten Coins',enTitle:'First coin RSI',
+     deText:'Der RSI zeigt, wie stark der erste Coin zuletzt gekauft oder verkauft wurde. Ein niedriger Wert kann auf starken Verkaufsdruck hinweisen, ein hoher Wert auf starke Käufe. Das ist keine Garantie für eine Kursumkehr.',
+     enText:'RSI measures recent buying and selling pressure for the first coin. Low numbers can suggest heavy selling; high numbers suggest strong buying. Neither guarantees a reversal.'},
+    {context:'compare',target:'.section-compare .pairsScroll [data-nexus-tour="compare-pair-row"]:first-child [data-nexus-tour="compare-pair-rsi-b"]',
+     deTitle:'RSI des zweiten Coins',enTitle:'Second coin RSI',
+     deText:'Dieser RSI gehört zum zweiten Coin. Du kannst beide RSI-Werte vergleichen, um zu erkennen, welcher Coin gerade stärker oder schwächer wirkt.',
+     enText:'This RSI belongs to the second coin. Compare both RSI values to see which coin currently looks stronger or weaker.'},
+    {context:'compare',target:'.section-compare .pairsScroll [data-nexus-tour="compare-pair-row"]:first-child [data-nexus-tour="compare-pair-rsi-gap"]',
+     deTitle:'Delta (Δ): RSI-Unterschied',enTitle:'Delta (Δ): RSI difference',
+     deText:'Delta ist der Abstand zwischen den RSI-Werten. Bei Δ 18 liegen sie 18 Punkte auseinander. Ein grosser Unterschied kann interessant sein, ist aber allein kein Kaufsignal.',
+     enText:'Delta is the gap between the two RSI values. Δ 18 means an 18-point difference. A larger gap can be interesting, but is not a buy signal.'},
+    {context:'compare',target:'.section-compare .pairsScroll [data-nexus-tour="compare-pair-row"]:first-child [data-nexus-tour="compare-pair-spread"]',
+     deTitle:'S: Unterschied der Kursentwicklung',enTitle:'S: performance spread',
+     deText:'S zeigt, wie unterschiedlich die beiden Coins im betrachteten Zeitraum gelaufen sind. Beispielsweise bedeutet S 22 %, dass ihre Kursentwicklungen um rund 22 Prozentpunkte auseinanderliegen. Das ist kein garantierter Gewinn.',
+     enText:'S shows how much the coins’ performance differs over the selected period. S 22% means their performance is roughly 22 percentage points apart. It is not guaranteed profit.'},
+    {context:'compare',target:'.section-compare .pairsScroll [data-nexus-tour="compare-pair-row"]:first-child [data-nexus-tour="compare-pair-score"]',
+     deTitle:'Score: Bewertung der Paar-Eignung',enTitle:'Score: pair assessment',
+     deText:'Die Zahl bewertet, wie interessant das Paar gemäss Nexus-Kriterien für eine Analyse sein könnte. „Strong 82“ ist eine hohe Bewertung, aber keine Erfolgswahrscheinlichkeit von 82 % und keine automatische Handelsentscheidung.',
+     enText:'This score rates how useful a pair may be for further analysis under Nexus criteria. “Strong 82” is not an 82% chance of profit and does not trigger a trade.'},
+    {context:'compare',target:'.section-compare .pairsScroll [data-nexus-tour="compare-pair-row"]:first-child [data-nexus-tour="compare-pair-corr"]',
+     deTitle:'Korrelation: bewegen sich die Coins ähnlich?',enTitle:'Correlation: do the coins move together?',
+     deText:'+1 bedeutet sehr ähnliche Bewegungen, 0 wenig Zusammenhang und -1 gegensätzliche Bewegungen. +0,78 zeigt eine relativ ähnliche Kursbewegung, garantiert aber nichts für morgen.',
+     enText:'+1 means highly similar movements, 0 little connection, and -1 opposite movements. +0.78 indicates relatively similar past movement, not a guarantee for tomorrow.'}
+  ]
+});
+const NEXUS_COMPARE_ROW_FIELD_GUIDES = Object.freeze(Object.fromEntries([
+  ['compare-row-name',[1]], ['compare-row-rsi',[2,3]], ['compare-row-delta',[4]],
+  ['compare-row-spread',[5]], ['compare-row-score',[6]], ['compare-row-correlation',[7]],
+].map(([key,positions]) => [key, {de:NEXUS_COMPARE_ROW_GUIDE.de,en:NEXUS_COMPARE_ROW_GUIDE.en,
+  mode:'compare',steps:positions.map(i=>NEXUS_COMPARE_ROW_GUIDE.steps[i])}])));
+const NEXUS_ALL_VISUAL_TOURS = Object.freeze({ ...NEXUS_VISUAL_TOURS, ...NEXUS_MANUAL_VISUAL_GUIDES,
+  'compare-pair-row': NEXUS_COMPARE_ROW_GUIDE, ...NEXUS_COMPARE_ROW_FIELD_GUIDES });
 function nexusManualGuideForEntry(chapterId, blockIndex) {
   const key = `manual:${chapterId}:${blockIndex}`;
   return NEXUS_MANUAL_VISUAL_GUIDES[key] ? key : null;
@@ -4207,6 +4253,93 @@ function NexusHelpVisualTour({ guideKey, stepIndex, onStepChange, onClose, langu
   );
 }
 
+// BUILD556: GPT-first routing to trusted, read-only visual targets.
+// The language model never receives DOM selectors or executes clicks. It chooses
+// one ID from a small static list; the browser checks that ID before showing it.
+const NEXUS_GUIDED_STOPWORDS = new Set([
+  'was','wie','ist','der','die','das','ein','eine','einem','einen','mir','du','ich','den','dem',
+  'und','oder','für','fur','von','mit','man','kann','bitte','erkläre','erklaere','zeige','zeig','zeigen',
+  'genau','bedeutet','welche','welcher','welches','what','how','is','are','the','a','an','does','do',
+  'me','you','please','show','explain','about','means','mean','tell','can','this','that','to','of',
+  'on','im','in','bei','nexus','analyt','funktion','funktioniert','feature'
+]);
+function nexusGuidedCandidates(question, topic, language) {
+  const lang = language === 'en' ? 'en' : 'de';
+  const t = String(topic || 'overview');
+  const q = nexusManualNormalize(question);
+  const terms = nexusManualTokens(question).filter(word => word.length >= 2 && !NEXUS_GUIDED_STOPWORDS.has(word));
+  const area = nexusManualAreaFromQuestion(question);
+  const compareGridView=t==='compare' && /\bgrid\b/.test(q) && !/\bnexus grid\b/.test(q);
+  const preferredChapter = compareGridView ? '03' : (area?.chapterId || NEXUS_MANUAL_TOPIC_CHAPTER[t] || '00');
+  const compareOverview = /\b(compare|vergleichen|vergleichszeile|vergleichspaar|coin.?paar|paarliste|pair|pairs|comparison)\b/i.test(q) &&
+     !/\b(index|weight|gewicht|slider|extreme|insight|score weighting|zeitraum|timeframe|price|preis|1d|7d|90d|rsi|correlation|korrelation|spread|grid)\b/i.test(q);
+  const candidates = [];
+  const add = (id, title, detail, score) => {
+    if (!NEXUS_ALL_VISUAL_TOURS[id]) return;
+    candidates.push({guide_id:id, title:String(title).slice(0,100),
+      description:String(detail).slice(0,700), score});
+  };
+  const pairGuide=NEXUS_COMPARE_ROW_GUIDE;
+  const pairRowsHint=lang==='de'
+    ? 'In einer echten Zeile der Compare-Paarliste zeigt Nexus zwei Coin-Namen, RSI für beide Coins, Δ als RSI-Abstand, S als Kursentwicklungs-Spread, einen Score für die Eignung zum Vergleich und eine Korrelation zwischen -1 und +1. Die Rangnummer sortiert die Paare, sie ist kein Gewinnversprechen. Ein Klick auf die Zeile öffnet die Detailanalyse.'
+    : 'A real Compare pair row shows two coin names, an RSI for each, Δ as their RSI gap, S as the performance spread, a pair suitability score, and correlation ranging from -1 to +1. Its rank orders the pairs and does not promise profit. Clicking the row opens detailed analysis.';
+  add('compare-pair-row', lang==='de'?'Eine Zeile der Compare-Paarliste':'One row in the Compare pair list',
+    pairRowsHint, compareOverview? 300 : (preferredChapter==='03' || preferredChapter==='05'? 35:0));
+  // Individual indicators are first-class help targets, not a forced eight-step tour.
+  const fieldTerms=[
+    ['compare-row-rsi',/(?:\brsi\b|relative strength index)/i],
+    ['compare-row-delta',/(?:\bdelta\b|\brsi gap\b|\babweichung\b|Δ)/i],
+    ['compare-row-spread',/(?:\bspread\b|kursdifferenz|\bs\s*%)/i],
+    ['compare-row-score',/(?:\bscore\b|bewertung|rating des paares)/i],
+    ['compare-row-correlation',/(?:\bkorrelation\b|\bcorrelation\b)/i],
+    ['compare-row-name',/(?:\bpair name\b|\bpaarname\b|coin.?paar)/i],
+  ];
+  const specializedAnalysis=/\b(weighting|gewichtung|slider|custom weighting|ai insight|extreme|why this score|detailanalyse)\b/i.test(q);
+  if (!specializedAnalysis && (preferredChapter==='03' || t==='compare')) {
+    for (const [id,rx] of fieldTerms) if (rx.test(q)) {
+      const guide=NEXUS_COMPARE_ROW_FIELD_GUIDES[id];
+      add(id,lang==='de'?guide.steps[0].deTitle:guide.steps[0].enTitle,
+        guide.steps.map(step=>lang==='de'?step.deText:step.enText).join(' '),180);
+    }
+  }
+  for (const [id, guide] of Object.entries(NEXUS_MANUAL_VISUAL_GUIDES)) {
+    if (!/^manual:\d{2}:\d+$/.test(id)) continue;
+    const chapterId=id.split(':')[1];
+    const step=guide.steps?.[0];
+    if (!step) continue;
+    const title=lang==='de'?step.deTitle:step.enTitle;
+    const detail=lang==='de'?step.deText:step.enText;
+    const label=nexusManualNormalize(`${step.deTitle} ${step.enTitle}`);
+    const text=nexusManualNormalize(`${step.deText} ${step.enText}`);
+    const hits=terms.filter(s=>label.includes(s)).length;
+    const bodyHits=terms.filter(s=>!label.includes(s) && text.includes(s)).length;
+    let score=(chapterId===preferredChapter? 26 : 0)+hits*26+bodyHits*3;
+    if (terms.length && label.includes(terms.join(' '))) score+=36;
+    if (chapterId!==preferredChapter && hits===0 && bodyHits===0) score-=25;
+    if (compareOverview && chapterId==='03' && id!=='manual:03:10') score-=40;
+    if (compareOverview && id==='manual:03:10') score+=75;
+    if (score>0) add(id,title,detail,score);
+  }
+  if (NEXUS_VISUAL_TOURS[t]) {
+    const guide=NEXUS_VISUAL_TOURS[t];
+    add(t,lang==='de'?guide.de:guide.en,
+      (guide.steps||[]).map(s=>lang==='de'?s.deText:s.enText).join(' ').slice(0,700),
+      compareOverview && t==='compare'?10: 21);
+  }
+  // Additional topic-specific targets if the user asks about a different section.
+  const best = new Map();
+  candidates.forEach(item=>{if (!best.has(item.guide_id)||best.get(item.guide_id).score<item.score) best.set(item.guide_id,item);});
+  return [...best.values()].sort((a,b)=>b.score-a.score).slice(0,16)
+    .map(({guide_id,title,description})=>({guide_id,title,description}));
+}
+function nexusGuidedDefaultForQuestion(question, topic) {
+  const q=nexusManualNormalize(question);
+  if ((/\b(compare|vergleichen|vergleichspaar|paarliste|vergleichszeile|pair list|comparison pair)\b/.test(q) ||
+        (topic==='compare' && /\b(zeile|pair|paar|paarliste|list|liste|row)\b/.test(q))) &&
+      !/\b(index|weight|gewicht|extreme|insight|rsi|score|spread|correlation|korrelation|grid|1d|7d|90d)\b/.test(q))
+    return 'compare-pair-row';
+  return null;
+}
 function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, onTopicChange, contextMode = "normal", onStartTour, desktopTourAvailable = true, onEnableTour, onTourLanguageChange }) {
   const [language, setLanguage] = useState("de");
   const [helpView, setHelpView] = useState("chat"); // chat | manual: read-only modes
@@ -4283,34 +4416,54 @@ function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, o
   }, [messages, busy, error]);
 
   const sendQuestion = async (e) => {
-    if (e && typeof e.preventDefault === "function") e.preventDefault();
-    const question = String(draft || "").trim();
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+    const question=String(draft||'').trim();
     if (!question || busy) return;
-    const history = messages.slice(-6).map((m) => ({ role: m.role, content: m.text }));
-    const fromManual=nexusManualFindAnswer(question,topic,language);
-    setDraft("");
-    setError("");
-    setMessages((prev) => [...prev, { role: "user", text: question }]);
-    if (fromManual) {
-      setMessages((prev)=>[...prev, {role:'assistant',text:fromManual.text,
-        source:'manual',chapterId:fromManual.chapterId,chapterTitle:fromManual.chapterTitle,blockIndex:fromManual.blockIndex}]);
-      return; // precise manual excerpt: avoid unconstrained provider answer
-    }
+    const history=messages.slice(-6).map(m=>({role:m.role,content:m.text}));
+    const candidates=nexusGuidedCandidates(question,topic,language);
+    const fallback=nexusManualFindAnswer(question,topic,language);
+    setDraft(''); setError('');
+    setMessages(prev=>[...prev,{role:'user',text:question}]);
     setBusy(true);
-    const controller = new AbortController();
-    pendingRef.current = controller;
+    const controller=new AbortController();
+    pendingRef.current=controller;
     try {
-      const res = await api("/api/ai/support", { method: "POST", signal: controller.signal,
-        body: { topic: NEXUS_SUPPORT_TOPICS[topic] ? topic : "overview", question, language, context_mode: contextMode, history }
-      });
+      // Backend GPT picks a *registered help guide* and writes a short answer
+      // using the provided official manual excerpts. No live trading access.
+      const res=await api('/api/ai/support/guide', {method:'POST',signal:controller.signal,
+        body:{topic:NEXUS_SUPPORT_TOPICS[topic]?topic:'overview',question,language,
+          context_mode:contextMode,history,guide_candidates:candidates}});
       if (controller.signal.aborted) return;
-      const answer = String(res?.answer || "").trim();
-      if (!answer) throw new Error(language === "de" ? "Keine Antwort erhalten." : "No response received.");
-      setMessages((prev) => [...prev, { role: "assistant", text: answer }]);
-    } catch (e2) {
-      if (!controller.signal.aborted) setError(String(e2?.message || e2 || "Support AI unavailable"));
+      const answer=String(res?.answer||'').trim();
+      if (!answer) throw new Error('empty_guided_answer');
+      const validIds=new Set(candidates.map(c=>c.guide_id));
+      const fromProvider=String(res?.guide_id||'');
+      const guideId=validIds.has(fromProvider) && NEXUS_ALL_VISUAL_TOURS[fromProvider] ? fromProvider : null;
+      const requestedRow=nexusGuidedDefaultForQuestion(question,topic);
+      // A general Compare question is explicitly about how the real pairs work.
+      const selectedGuide=requestedRow && validIds.has(requestedRow) ? requestedRow : guideId;
+      setMessages(prev=>[...prev,{role:'assistant',text:answer,source:'gpt',guideId:selectedGuide}]);
+      // A tour starts only for a question about understanding/seeing the UI,
+      // on desktop. Its implementation is read-only and user-controllable.
+      const show=!!res?.show_tour || !!requestedRow;
+      if (show && selectedGuide && desktopTourAvailable && typeof onStartTour==='function') onStartTour(selectedGuide);
+    } catch(err) {
+      if (controller.signal.aborted) return;
+      // If OpenAI or the backend is unavailable, a documented local answer is
+      // still available. Never claim the fallback was an actual GPT answer.
+      const safeGuide=nexusGuidedDefaultForQuestion(question,topic) ||
+        (fallback?.chapterId ? nexusManualGuideForEntry(fallback.chapterId,fallback.blockIndex) : null);
+      if (fallback) {
+        setMessages(prev=>[...prev,{role:'assistant',text:fallback.text,source:'manual',
+          chapterId:fallback.chapterId,chapterTitle:fallback.chapterTitle,
+          blockIndex:fallback.blockIndex,guideId:NEXUS_ALL_VISUAL_TOURS[safeGuide]?safeGuide:null,
+          fallback:true}]);
+        if (safeGuide==='compare-pair-row' && desktopTourAvailable && typeof onStartTour==='function') onStartTour(safeGuide);
+      } else setError(language==='de'
+        ? 'Die GPT-Hilfe ist momentan nicht erreichbar. Du kannst das Handbuch öffnen.'
+        : 'GPT help is temporarily unavailable. You can read the manual.');
     } finally {
-      if (!controller.signal.aborted) setBusy(false);
+      if (!controller.signal.aborted) {setBusy(false);pendingRef.current=null;}
     }
   };
   // Pointer events support mouse, touch, and pen. Only the title bar drags;
@@ -4477,12 +4630,19 @@ function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, o
           <div className="nexusAiSupportThread" ref={threadRef} aria-live="polite" aria-busy={busy}>
             {messages.map((m, i) => <div key={`${i}-${m.role}`} className={`nexusAiSupportBubble ${m.role === "user" ? "user" : ""}`}>
               {m.text}
+              {m.source === 'gpt' && m.guideId && NEXUS_ALL_VISUAL_TOURS[m.guideId] ?
+                <div className="nexusManualChatActions">
+                  <button type="button" className="nexusAiSupportManualLink"
+                    onClick={()=>desktopTourAvailable ? onStartTour?.(m.guideId) : onEnableTour?.()}>
+                    {language === 'de' ? '▶ Auf der Website zeigen' : '▶ Show on website'}
+                  </button>
+                </div> : null}
               {m.source === 'manual' && m.chapterId ? <div className="nexusManualChatActions">
                 <button type="button" className="nexusAiSupportManualLink" onClick={()=>openManual(m.chapterId)}>
                   {language === 'de' ? 'Im Handbuch anzeigen' : 'Read in manual'} ↗</button>
                 {(nexusManualGuideForEntry(m.chapterId,m.blockIndex) || NEXUS_MANUAL_VISUAL_GUIDES[`manual:${m.chapterId}`]) && (
                   <button type="button" className="nexusAiSupportManualLink"
-                    onClick={()=>desktopTourAvailable ? onStartTour?.(nexusManualGuideForEntry(m.chapterId,m.blockIndex) || `manual:${m.chapterId}`) : onEnableTour?.()}>
+                    onClick={()=>desktopTourAvailable ? onStartTour?.(m.guideId || nexusManualGuideForEntry(m.chapterId,m.blockIndex) || `manual:${m.chapterId}`) : onEnableTour?.()}>
                     {language === 'de' ? '▶ Auf der Website zeigen' : '▶ Show on website'}
                   </button>
                 )}
@@ -4670,6 +4830,7 @@ const [errorMsg, setErrorMsg] = useState("");
   const startNexusVisualTour = (guideKey) => {
     if (!nexusDesktopTourAvailable) return;
     const key = NEXUS_ALL_VISUAL_TOURS[guideKey] ? guideKey : 'overview';
+    if (key === 'compare-pair-row') setMovementPanelOpen(false); // Presentation only: ensure the pair list is visible.
     nexusTourOpenSafeContext(key, 0);
     setNexusVisualGuide(key);
     setNexusVisualStep(0);
@@ -24490,6 +24651,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <div
                           key={p.pair}
                           className="pairRow"
+                          data-nexus-tour="compare-pair-row"
                           style={{
                             gap: 8,
                             cursor: "pointer",
@@ -24520,7 +24682,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             }}
                           >
                             <span
-                              className="pairName"
+                              className="pairName" data-nexus-tour="compare-pair-name"
                               style={{
                                 minWidth: 0,
                                 whiteSpace: "nowrap",
@@ -24535,6 +24697,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                             <span
                               className="pill"
+                              data-nexus-tour="compare-pair-rsi-a"
                               title={`${p.a || p.pair.split("/")[0]} RSI: ${Number.isFinite(p.rsiA) ? p.rsiA.toFixed(0) : "—"} · ${Number.isFinite(p.rsiA) ? (p.rsiA >= 70 ? "Overbought: strong recent buying momentum, may be overextended." : p.rsiA <= 30 ? "Oversold: strong recent selling momentum, possible rebound zone." : "Neutral: balanced momentum.") : "No RSI data available."}`}
                               style={{
                                 width: 120,
@@ -24553,6 +24716,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                             <span
                               className="pill"
+                              data-nexus-tour="compare-pair-rsi-b"
                               title={`${p.b || p.pair.split("/")[1]} RSI: ${Number.isFinite(p.rsiB) ? p.rsiB.toFixed(0) : "—"} · ${Number.isFinite(p.rsiB) ? (p.rsiB >= 70 ? "Overbought: strong recent buying momentum, may be overextended." : p.rsiB <= 30 ? "Oversold: strong recent selling momentum, possible rebound zone." : "Neutral: balanced momentum.") : "No RSI data available."}`}
                               style={{
                                 width: 120,
@@ -24571,6 +24735,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                             <span
                               className="pill"
+                              data-nexus-tour="compare-pair-rsi-gap"
                               title={`RSI gap: ${Number.isFinite(p.rsiGap) ? p.rsiGap.toFixed(0) : "—"} · Difference between both pair RSI values.`}
                               style={{
                                 width: 56,
@@ -24587,6 +24752,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                             <span
                               className="pill"
+                              data-nexus-tour="compare-pair-spread"
                               title={`30D spread: ${Number.isFinite(p.spreadPct) ? p.spreadPct.toFixed(2) + "%" : "—"} · Larger values rank higher when Spread sorting is active.`}
                               style={{
                                 width: 72,
@@ -24604,6 +24770,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                             <span
                               className="pill"
+                              data-nexus-tour="compare-pair-score"
                               title={`Composite score: ${p.score} · Corr ${p.corrScore ?? "—"} · Momentum ${p.momentumScore ?? "—"} · Spread ${p.opportunityScore ?? "—"} · Stability ${p.stabilityScore ?? "—"}`}
                               style={{
                                 justifySelf: "end",
@@ -24630,7 +24797,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 </span>
                               );
                             })() : null}
-                            <span className="pill" title="Correlation of indexed price lines" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
+                            <span className="pill" data-nexus-tour="compare-pair-corr"
+                              title="Correlation of indexed price lines" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                           </div>
                         </div>
                       );

@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.01-BUILD548-NEXUS-HELP-AUTO-CONTEXT";
+const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD549-NKR-TRADER-STABLE-ONLY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -6043,10 +6043,13 @@ useEffect(() => {
     const selectedChain = String(chain || liveVaultChainByMode?.[modeKey] || activeGridChainKey || "ETH").toUpperCase();
     // NKR + Trader + Grid always settle in USDC/USDT (token payout removed, BUILD387).
     // Never fall back to native BNB/ETH/POL — that caused 409s and wrong Grid sessions.
-    let selectedAsset = normalizeStablePayoutAsset(
-      settlementAsset || liveVaultAssetByMode?.[modeKey] || "USDC",
-      "USDC"
-    );
+    const requestedAsset = String(settlementAsset || liveVaultAssetByMode?.[modeKey] || "USDC").toUpperCase().trim();
+    const requestedStableName = requestedAsset.replace(/[^A-Z0-9]/g, "");
+    if ((systemU === "NKR" || systemU === "TRADER") &&
+        !["USDC", "USDT", "USDCNATIVE", "NATIVEUSDC", "USDCE", "USDTE"].includes(requestedStableName)) {
+      throw new Error(`${systemU} accepts only USDC or USDT as CoreVault trading capital. Select or deposit USDC/USDT.`);
+    }
+    let selectedAsset = normalizeStablePayoutAsset(requestedAsset, "USDC");
     if (systemU === "NKR" || systemU === "TRADER" || systemU === "GRID") {
       selectedAsset = normalizeStablePayoutAsset(selectedAsset, "USDC");
     }
@@ -10496,7 +10499,7 @@ useEffect(() => {
     const startedPeriodHours = normalizeNkrPeriodHours();
     const startedPeriodDays = startedPeriodHours / 24;
     const startedMaxAssets = Number(rotationMaxActiveSessions) || 0;
-    const startedPayout = String(liveVaultAssetByMode?.rotation || "USDC").toUpperCase();
+    const startedPayout = normalizeStablePayoutAsset(liveVaultAssetByMode?.rotation || "USDC", "USDC");
     // Aggressive always requires a wallet-bound warning acceptance for this draft.
     if (startedNkrCapitalMode === "AGGRESSIVE" && !nkrAggressiveAcceptedForDraft) {
       setNkrAggressivePendingValue("AGGRESSIVE");
@@ -12910,7 +12913,7 @@ useEffect(() => {
         maxSlippageBps: Math.round((Number(tradingMaxSlippagePct) || 1) * 100),
         maxLossBps: Math.round((Number(tradingHardStopPct) || 15) * 100),
         chain: traderStartChain,
-        settlementAsset: String(liveVaultAssetByMode?.trading || "USDC").toUpperCase(),
+        settlementAsset: normalizeStablePayoutAsset(liveVaultAssetByMode?.trading || "USDC", "USDC"),
       });
       setErrorMsg("");
     } catch (e) {
@@ -24873,7 +24876,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 const modeKey = String(gridMode || "normal");
                 const selectedChain = String(liveVaultChainByMode?.[modeKey] || "ETH").toUpperCase();
                 const selectedVaultState = coreVaultOnchainByChain?.[selectedChain] || null;
-                const tokenEntries = Object.entries(selectedVaultState?.tokens || {}).filter(([, tokenState]) => {
+                const tokenEntries = Object.entries(selectedVaultState?.tokens || {}).filter(([symbol, tokenState]) => {
+                  // BUILD549: NKR/Trader capital can ONLY be funded with USDC/USDT.
+                  // Accept the existing Circle-native and bridged USDC labels on Polygon.
+                  // GRID retains its independent native-coin asset selector.
+                  const stableName = String(symbol || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                  const isUsdcOrUsdt = ["USDC", "USDT", "USDCNATIVE", "NATIVEUSDC", "USDCE", "USDTE"].includes(stableName);
+                  if ((modeKey === "rotation" || modeKey === "trading") && !isUsdcOrUsdt) return false;
                   const account = tokenState?.account || {};
                   const total = Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0);
                   return total > 0;
@@ -25058,7 +25067,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     {!chainConnected ? (
                       <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>Core Vault not available on this chain yet. Live budget approval remains disabled.</div>
                     ) : tokenEntries.length === 0 ? (
-                      <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>No funded Vault asset is available on this chain.</div>
+                      <div style={{ marginTop: 8, color: "#ffd166", fontSize: 11 }}>
+                        {modeKey === "rotation" || modeKey === "trading"
+                          ? "No USDC/USDT available on this chain. Deposit USDC or USDT in the CoreVault to start NKR/Trader. Native ETH/BNB/POL is for GRID only."
+                          : "No funded Vault asset is available on this chain."}
+                      </div>
                     ) : null}
                   </div>
                 );

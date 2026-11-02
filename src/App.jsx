@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD549-NKR-TRADER-STABLE-ONLY";
+const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD550-WALLET-TRADING-WALLET-NETWORK-NO-SHADOW";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3329,7 +3329,7 @@ const NEXUS_SUPPORT_TOPICS = Object.freeze({
   overview: ["Nexus Analyt", "Nexus Analyt"],
   registration: ["Registrierung", "Registration"],
   wallet: ["Privy Wallet", "Privy Wallet"],
-  core_vault: ["Core Vault", "Core Vault"],
+  core_vault: ["Trading Wallet", "Trading Wallet"],
   deposit: ["Einzahlung", "Deposit"],
   withdraw: ["Auszahlung", "Withdrawal"],
   subscription: ["Abonnement", "Subscription"],
@@ -3393,7 +3393,7 @@ const NEXUS_VISUAL_TOURS = Object.freeze({
     de: 'Nexus kennenlernen', en: 'Explore Nexus', mode: null,
     steps: [
       NEXUS_VISUAL_TOUR_STEP('overview', '.topbar', 'Willkommen bei Nexus', 'Oben findest du Wallet, Nexus Help und weitere Einstellungen. Diese Tour zeigt dir die wichtigsten Bereiche, ohne etwas auszuführen.', 'Welcome to Nexus', 'The header contains your wallet, Nexus Help and settings. This tour shows the main areas without executing anything.'),
-      NEXUS_VISUAL_TOUR_STEP('wallet', '[data-nexus-wallet-trigger="1"]', 'Deine Wallet', 'Hier öffnest du die Privy Wallet und den Core Vault. Der Klick öffnet nur die Ansicht; Überweisungen bestätigst ausschliesslich du.', 'Your wallet', 'Open your Privy wallet and Core Vault here. Viewing does not transfer any funds.'),
+      NEXUS_VISUAL_TOUR_STEP('wallet', '[data-nexus-wallet-trigger="1"]', 'Deine Wallet', 'Hier öffnest du die Privy Wallet und das Trading Wallet. Ein Klick öffnet nur die Übersicht; es werden keine Mittel übertragen.', 'Your wallet', 'Open your Privy Wallet and Trading Wallet here. Viewing the overview does not transfer any funds.'),
       NEXUS_VISUAL_TOUR_STEP('compare', '.section-compare', 'Compare', 'Hier kannst du Kryptowährungen vergleichen und Kursbewegungen beobachten.', 'Compare', 'Compare crypto assets and inspect market movements here.'),
       NEXUS_VISUAL_TOUR_STEP('watchlist', '.section-watch', 'Watchlist', 'In der Watchlist verwaltest du die Coins, die du beobachten möchtest.', 'Watchlist', 'Manage the assets you want to monitor.'),
       NEXUS_VISUAL_TOUR_STEP('grid', '.section-grid .gridModeSwitcher, [data-nexus-tour="mobile-grid-switcher"]', 'GRID, NKR und Trading', 'Über diese drei Schaltflächen wechselst du zwischen den Handelssystemen. Ein Ansichtswechsel startet keinen Handel.', 'GRID, NKR and Trading', 'These controls switch between trading systems. Switching views does not start trading.'),
@@ -3402,13 +3402,13 @@ const NEXUS_VISUAL_TOURS = Object.freeze({
     ],
   },
   wallet: {
-    de: 'Wallet und Core Vault', en: 'Wallet and Core Vault', mode: null,
+    de: 'Wallet und Trading Wallet', en: 'Wallet and Trading Wallet', mode: null,
     steps: [
       NEXUS_VISUAL_TOUR_STEP('wallet', '[data-nexus-wallet-trigger="1"]', 'Wallet-Fenster öffnen', 'Klicke auf Wallet oben rechts. Es erscheint das separate Wallet-Fenster.', 'Open the wallet window', 'Select Wallet in the header. A separate wallet window opens.'),
-      NEXUS_VISUAL_TOUR_STEP('wallet', '[role="dialog"][aria-label="Privy Wallet and Nexus Core Vault"]', 'Dein Wallet-Fenster', 'Dieses Fenster zeigt Guthaben und die verfügbaren Vault-Bereiche. Falls es noch nicht sichtbar ist, öffne zuerst Wallet.', 'Wallet window', 'View your balances and vault areas. If the window is not visible, open Wallet first.'),
-      NEXUS_VISUAL_TOUR_STEP('wallet', '[data-nexus-tour="wallet-tabs"]', 'Wallet oder Core Vault', 'Wechsle zwischen Wallet und Core Vault. Geld in der Wallet ist nicht automatisch für eine Vault-Session reserviert.', 'Wallet or Core Vault', 'Switch between Wallet and Core Vault. Wallet assets are not automatically assigned to a vault session.'),
-      NEXUS_VISUAL_TOUR_STEP('core_vault', '[data-nexus-tour="wallet-tabs"]', 'Core Vault auswählen', 'Wähle im geöffneten Wallet-Fenster Core Vault, um Einzahlungs- und Vault-Informationen zu sehen.', 'Choose Core Vault', 'In the open wallet window, select Core Vault to view deposit and vault information.'),
-      NEXUS_VISUAL_TOUR_STEP('deposit', '[data-nexus-tour="vault-deposit"]', 'Einzahlung vorbereiten', 'Öffne «Deposit to Vault» und kontrolliere Netzwerk, Asset und Betrag. Die Tour nimmt keine Einzahlung vor.', 'Prepare a deposit', 'Expand Deposit to Vault and check network, asset and amount. This tour never makes a deposit.'),
+      NEXUS_VISUAL_TOUR_STEP('wallet', '[role="dialog"][aria-label="Privy Wallet and Trading Wallet"]', 'Dein Wallet-Fenster', 'Dieses Fenster zeigt deine Privy Wallet und das Trading Wallet mit den bestätigten On-Chain-Guthaben. Falls es noch nicht sichtbar ist, öffne zuerst Wallet.', 'Wallet window', 'View Privy Wallet and Trading Wallet with confirmed on-chain balances. If this window is not visible, open Wallet first.'),
+      NEXUS_VISUAL_TOUR_STEP('wallet', '[data-nexus-tour="wallet-tabs"]', 'Wallet oder Trading Wallet', 'Wechsle zwischen Privy Wallet und Trading Wallet. Mittel in der Privy Wallet sind nicht automatisch für den Handel im Trading Wallet verfügbar.', 'Wallet or Trading Wallet', 'Switch between Privy Wallet and Trading Wallet. Funds in Privy Wallet are not automatically available for trading in Trading Wallet.'),
+      NEXUS_VISUAL_TOUR_STEP('core_vault', '[data-nexus-tour="wallet-tabs"]', 'Trading Wallet auswählen', 'Wähle Trading Wallet, um Einzahlungen und echte On-Chain-Guthaben zu sehen.', 'Choose Trading Wallet', 'Select Trading Wallet to view deposits and real on-chain balances.'),
+      NEXUS_VISUAL_TOUR_STEP('deposit', '[data-nexus-tour="vault-deposit"]', 'Einzahlung vorbereiten', 'Öffne «Deposit to Trading Wallet» und kontrolliere Netzwerk, Asset und Betrag. Die Tour nimmt keine Einzahlung vor.', 'Prepare a deposit', 'Expand Deposit to Trading Wallet and check network, asset and amount. This tour never makes a deposit.'),
       NEXUS_VISUAL_TOUR_STEP('withdraw', '[data-nexus-tour="vault-withdraw-open"]', 'Auszahlung ansehen', 'Mit «Open Withdraw & Payout» erreichst du das separate Auszahlungsfenster. Bitte niemals einen Betrag nur wegen einer Tour bestätigen.', 'View withdrawals', 'Open Withdraw & Payout opens a separate withdrawal window. Never confirm funds just because a tour asks.'),
       NEXUS_VISUAL_TOUR_STEP('withdraw', '[role="dialog"][aria-label="Nexus Core Vault Withdraw and Payout"]', 'Auszahlungsfenster', 'Hier kontrollierst du Quelle, Asset, Empfänger und Gebühren. Die endgültige Bestätigung bleibt bei dir.', 'Withdrawal dialog', 'Check source, asset, recipient and costs. Final confirmation always belongs to you.'),
     ],
@@ -22661,7 +22661,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div
               ref={walletPanelRef}
               role="dialog"
-              aria-label="Privy Wallet and Nexus Core Vault"
+              aria-label="Privy Wallet and Trading Wallet"
               data-nexus-tour="wallet-dialog"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
@@ -22677,14 +22677,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                    <div className="cardTitle" style={{ margin: 0 }}>{walletPanelTab === "WALLET" ? "Wallet" : "Core Vault"}</div>
+                    <div className="cardTitle" style={{ margin: 0 }}>{walletPanelTab === "WALLET" ? "Wallet" : "Trading Wallet"}</div>
                     <NexusHelpButton topic={walletPanelTab === "WALLET" ? "wallet" : "core_vault"} onHelp={openNexusAiHelp} />
                     {walletPanelTab === "WALLET" ? (
                       <span style={{ fontSize: 12, fontWeight: 800, color: "#d9fff0" }}>
                         {walletUsdLoading ? "…" : fmtUsd(Number(walletUsd?.total || 0))}
                       </span>
                     ) : null}
-                    <InfoButton title={walletPanelTab === "WALLET" ? "Privy Wallet explained" : "Nexus Core Vault explained"}>
+                    <InfoButton title={walletPanelTab === "WALLET" ? "Privy Wallet explained" : "Trading Wallet explained"}>
                       {walletPanelTab === "WALLET" ? (
                         <Help
                           de={
@@ -22693,9 +22693,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <p><b>Nur EVM-kompatible Netzwerke:</b> NKR unterstützt derzeit ausschliesslich EVM-kompatible Netzwerke.</p>
                               <p><b>Native Layer-1-Assets:</b> BTC wird als WBTC auf Ethereum verwendet, SOL als Wrapped SOL auf Ethereum und XRP als XRP auf der BNB Chain.</p>
                               <p>Weitere Netzwerke und native Assets können in zukünftigen Versionen unterstützt werden.</p>
-                              <p><b>Wallet und Core Vault sind getrennt:</b> Guthaben in der Privy Wallet ist noch nicht im Core Vault geschützt oder für Nexus-Systeme reserviert.</p>
+                              <p><b>Privy Wallet und Trading Wallet sind getrennt:</b> Guthaben in der Privy Wallet ist noch nicht im Trading Wallet verbucht oder für Nexus-Systeme reserviert.</p>
                               <p><b>Alle Assets bleiben sichtbar:</b> Nexus blendet unbekannte oder riskante Token nicht aus. Nicht bewertbare Assets werden angezeigt, aber nicht in den USD-Gesamtwert eingerechnet.</p>
-                              <p><b>Einzahlung in den Core Vault:</b> Nur der exakte freigegebene Token-Vertrag auf der richtigen Chain darf eingezahlt werden. Symbol, Name oder Logo allein reichen nicht.</p>
+                              <p><b>Einzahlung in das Trading Wallet:</b> Nur der exakte freigegebene Token-Vertrag auf der richtigen Chain darf eingezahlt werden. Symbol, Name oder Logo allein reichen nicht.</p>
                               <p><b>Sicherheitsprüfung:</b> Chain-ID, Contract-Adresse, Owner-Allowlist und Token-Sicherheitsprüfung müssen gemeinsam bestanden werden.</p>
                             </>
                           }
@@ -22705,9 +22705,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <p><b>EVM-compatible networks only:</b> NKR currently supports EVM-compatible networks only.</p>
                               <p><b>Native Layer-1 assets:</b> BTC is used as WBTC on Ethereum, SOL as Wrapped SOL on Ethereum, and XRP as XRP on BNB Chain.</p>
                               <p>Additional networks and native assets may be supported in future updates.</p>
-                              <p><b>Wallet and Core Vault are separate:</b> Funds in the Privy Wallet are not yet protected inside the Core Vault or allocated to Nexus systems.</p>
+                              <p><b>Privy Wallet and Trading Wallet are separate:</b> Funds in the Privy Wallet are not yet recorded in the Trading Wallet or allocated to Nexus systems.</p>
                               <p><b>All assets remain visible:</b> Nexus does not hide unknown or risky tokens. Unpriced assets remain visible but are excluded from the USD total.</p>
-                              <p><b>Core Vault deposits:</b> Only the exact approved token contract on the correct chain can enter the Vault. A symbol, name or logo is never sufficient.</p>
+                              <p><b>Trading Wallet deposits:</b> Only the exact approved token contract on the correct chain can enter the Vault. A symbol, name or logo is never sufficient.</p>
                               <p><b>Security gate:</b> Chain ID, contract address, Owner allowlist and token security checks must all pass.</p>
                             </>
                           }
@@ -22716,31 +22716,33 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         <Help
                           de={
                             <>
-                              <p><b>Nexus Core Vault</b> ist der geschützte Finanzbereich für Basiskapital, System-Zuteilungen, realisierte Gewinne und Auszahlungen.</p>
+                              <p><b>Trading Wallet</b> ist der geschützte On-Chain-Finanzbereich für Basiskapital, System-Zuteilungen, realisierte Gewinne und Auszahlungen.</p>
                               <p><b>Base Capital Protected:</b> Eingezahltes Basiskapital, das im Vault verbucht ist. Offene Marktgewinne zählen nicht als gesichert.</p>
                               <p><b>Total Secured Profit:</b> Nur geschlossene Netto-Ergebnisse von NKR, Trader und Grid werden als gesicherter Gewinn verbucht.</p>
-                              <p><b>Available for Withdraw:</b> Betrag, der nach den Vault-Regeln aktuell zur Auszahlung verfügbar ist. Im Shadow-Modus bleibt dieser Wert null.</p>
+                              <p><b>Available for Withdraw:</b> Betrag, der nach den Vault-Regeln aktuell zur Auszahlung verfügbar ist. Massgebend sind die bestätigten On-Chain-Guthaben und die Freigaben des Smart Contracts.</p>
                               <p><b>Auszahlungsgebühr:</b> Insgesamt 3 %. Standardmäßig fließen 2 % in die dauerhafte Liquidität und 1 % in die Vault-Reserve.</p>
-                              <p><b>Selected Core Vault:</b> {coreVaultOnchainLoading ? "Status wird gelesen." : coreVaultOnchain?.connected ? "Der Vertrag ist verbunden." : "Der Vertragsstatus ist derzeit nicht verfügbar."}</p>
+                              <p><b>Ausgewähltes Trading Wallet:</b> {coreVaultOnchainLoading ? "Status wird gelesen." : coreVaultOnchain?.connected ? "Der Vertrag ist verbunden." : "Der Vertragsstatus ist derzeit nicht verfügbar."}</p>
                               <p><b>Contract:</b> {coreVaultOnchain?.contractAddress || "Nicht verfügbar"}</p>
                               <p><b>Status:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.paused ? "Pausiert" : "Aktiv") : "Nicht verbunden"} · <b>Solvenz:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.allConfiguredTokensSolvent ? "OK" : "Prüfen") : "Nicht verfügbar"}</p>
-                              <p><b>Token:</b> USDC und USDT sind für Einzahlungen und Auszahlungen freigegeben. Trading-Ausführung bleibt deaktiviert, bis der geprüfte Executor später ausdrücklich aktiviert wird.</p>
-                              <p><b>Shadow und Live:</b> Shadow verwendet simulierte Werte nach denselben Buchungsregeln. Erst bestätigte On-chain-Einzahlungen erscheinen im Live Vault.</p>
+                              <p><b>Token:</b> USDC und USDT sind für Einzahlungen und Auszahlungen freigegeben. Die Verfügbarkeit des Handels hängt von der jeweiligen Chain-, Token- und Privy-Konfiguration ab.</p>
+                              <p><b>Kontostand:</b> Im Trading Wallet werden ausschliesslich bestätigte On-Chain-Guthaben angezeigt.</p>
+                              <p><b>Network:</b> Wähle das Netzwerk, auf dem deine Mittel im Trading Wallet liegen. NKR und Trader verwenden USDC oder USDT als Handelskapital; GRID kann auch native Coins verwalten.</p>
                               <button type="button" className="btnGhost" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading} style={{ width: "100%", marginTop: 8 }}>{coreVaultOnchainLoading ? "Reading contract…" : "Refresh technical status"}</button>
                             </>
                           }
                           en={
                             <>
-                              <p><b>Nexus Core Vault</b> is the protected financial area for base capital, system allocations, realized profit and withdrawals.</p>
+                              <p><b>Trading Wallet</b> is the protected on-chain financial area for base capital, system allocations, realized profit and withdrawals.</p>
                               <p><b>Base Capital Protected:</b> Deposited base capital recorded inside the Vault. Open market profit is not secured profit.</p>
                               <p><b>Total Secured Profit:</b> Only closed net results from NKR, Trader and Grid become secured profit.</p>
-                              <p><b>Available for Withdraw:</b> Amount currently available under the Vault rules. In Shadow mode this remains zero.</p>
+                              <p><b>Available for Withdraw:</b> Amount currently available under the Vault rules. Confirmed on-chain balances and smart contract withdrawal rules determine availability.</p>
                               <p><b>Withdrawal fee:</b> 3% total. By default, 2% supports permanent liquidity and 1% remains in the Vault reserve.</p>
-                              <p><b>Selected Core Vault:</b> {coreVaultOnchainLoading ? "Reading status." : coreVaultOnchain?.connected ? "The contract is connected." : "The contract status is currently unavailable."}</p>
+                              <p><b>Selected Trading Wallet:</b> {coreVaultOnchainLoading ? "Reading status." : coreVaultOnchain?.connected ? "The contract is connected." : "The contract status is currently unavailable."}</p>
                               <p><b>Contract:</b> {coreVaultOnchain?.contractAddress || "Unavailable"}</p>
                               <p><b>Status:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.paused ? "Paused" : "Active") : "Not connected"} · <b>Solvency:</b> {coreVaultOnchain?.connected ? (coreVaultOnchain?.allConfiguredTokensSolvent ? "OK" : "Check") : "Unavailable"}</p>
-                              <p><b>Tokens:</b> USDC and USDT are enabled for deposits and withdrawals. Trading execution remains disabled until the audited executor is explicitly activated later.</p>
-                              <p><b>Shadow and Live:</b> Shadow uses simulated values with the same accounting rules. Only confirmed on-chain deposits appear in the Live Vault.</p>
+                              <p><b>Tokens:</b> USDC and USDT are enabled for deposits and withdrawals. Trading availability depends on the configured chain, token and Privy authorization.</p>
+                              <p><b>Balances:</b> Only confirmed on-chain balances are shown in the Trading Wallet.</p>
+                              <p><b>Network:</b> Select the blockchain that holds your Trading Wallet funds. NKR and Trader use USDC or USDT as trading capital; GRID can also manage native coins.</p>
                               <button type="button" className="btnGhost" onClick={refreshCoreVaultOnchain} disabled={coreVaultOnchainLoading} style={{ width: "100%", marginTop: 8 }}>{coreVaultOnchainLoading ? "Reading contract…" : "Refresh technical status"}</button>
                             </>
                           }
@@ -22754,7 +22756,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div data-nexus-tour="wallet-tabs" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 12 }}>
                 <button type="button" className={walletPanelTab === "WALLET" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("WALLET")}>Wallet</button>
-                <button type="button" className={walletPanelTab === "VAULT" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("VAULT")}>Core Vault</button>
+                <button type="button" className={walletPanelTab === "VAULT" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("VAULT")}>Trading Wallet</button>
               </div>
 
               {walletPanelTab === "WALLET" ? (
@@ -22861,7 +22863,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: "rgba(64,196,255,0.045)", border: "1px solid rgba(64,196,255,0.20)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                       <div>
-                        <div style={{ fontWeight: 900, fontSize: 12 }}>EVM Vault Network</div>
+                        <div style={{ fontWeight: 900, fontSize: 12 }}>Network</div>
                       </div>
                       <span style={{ fontSize: 10, fontWeight: 900, color: "#86efac" }}>{String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()}</span>
                     </div>
@@ -22894,24 +22896,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       })}
                     </div>
                   </div>
-                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: coreVaultOverview.isShadow ? "rgba(255,193,7,0.10)" : "rgba(0,255,166,0.08)", border: coreVaultOverview.isShadow ? "1px solid rgba(255,193,7,0.32)" : "1px solid rgba(0,255,166,0.25)" }}>
-                    <div style={{ fontWeight: 900 }}>Mode: {coreVaultOverview.mode}</div>
-                  </div>
-
-                  {hasCoreAccess ? (
-                    <div style={{ marginTop: 9, padding: "9px 10px", borderRadius: 12, border: "1px solid rgba(139,220,255,.18)", background: "rgba(64,196,255,.045)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                      <div>
-                        <div style={{ fontWeight: 900, fontSize: 12 }}>Shadow Mode</div>
-                      </div>
-                      <button type="button" className={shadowUiEnabled ? "btn" : "btnGhost"} onClick={() => setShadowVisibilityForWallet(!shadowUiEnabled)} style={{ minWidth: 82, height: 34 }}>
-                        {shadowUiEnabled ? "ON" : "OFF"}
-                      </button>
-                    </div>
-                  ) : null}
-
                   <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
                     <summary style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, cursor: "pointer", listStyle: "none" }}>
-                      <span style={{ fontWeight: 900, fontSize: 13 }}>Live Core Vault</span>
+                      <span style={{ fontWeight: 900, fontSize: 13 }}>Live Trading Wallet</span>
                       <span style={{ fontSize: 10, fontWeight: 900, color: coreVaultOnchain?.connected ? "#86efac" : "#ffb3b3" }}>
                         {coreVaultOnchainLoading ? "REFRESHING" : coreVaultOnchain?.connected ? "CONNECTED" : "UNAVAILABLE"}
                       </span>
@@ -22969,41 +22956,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                   </details>
 
-                  {shadowUiEnabled ? (
-                    <>
-                      <div style={{ marginTop: 10, fontSize: 10, fontWeight: 900, color: "rgba(255,255,255,0.62)", letterSpacing: 0.4, textTransform: "uppercase" }}>Shadow accounting</div>
-                  <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                    {[
-                      ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd, "Simulated USDC / USDT in Shadow accounting"],
-                      ["Base Capital Protected", coreVaultOverview.protectedBaseUsd, "Protected stable capital excluding secured profit"],
-                      ["Total Secured Profit", coreVaultOverview.securedProfitUsd, "Closed net Grid, NKR and Trader profit"],
-                      ["Available for Withdraw", coreVaultOverview.availableForWithdrawUsd, "Based on the selected withdraw source"],
-                    ].map(([label, value, hint]) => (
-                      <div key={label} title={hint} style={{ padding: 10, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
-                        <div className="muted" style={{ fontSize: 11, lineHeight: 1.2 }}>{label}</div>
-                        <div className="mono" style={{ marginTop: 5, fontWeight: 900, fontSize: 15 }}>{fmtUsd(Number(value || 0))}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ marginTop: 9, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Allocated to active systems</span><b>{fmtUsd(coreVaultOverview.allocatedUsd)}</b></div>
-                  <div className="muted" style={{ marginTop: 4, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 5, fontSize: 10 }}>
-                    <span>NKR {fmtUsd(coreVaultOverview.allocationBreakdown.nkrUsd)}</span>
-                    <span>Trader {fmtUsd(coreVaultOverview.allocationBreakdown.traderUsd)}</span>
-                    <span>Grid {fmtUsd(coreVaultOverview.allocationBreakdown.gridUsd)}</span>
-                  </div>
-                  <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Secured profit breakdown</span><b>{fmtUsd(coreVaultOverview.securedProfitUsd)}</b></div>
-                  <div className="muted" style={{ marginTop: 4, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 5, fontSize: 10 }}>
-                    <span>NKR {fmtUsd(coreVaultOverview.profitBreakdown.nkrUsd)}</span>
-                    <span>Trader {fmtUsd(coreVaultOverview.profitBreakdown.traderUsd)}</span>
-                    <span>Grid {fmtUsd(coreVaultOverview.profitBreakdown.gridUsd)}</span>
-                  </div>
-                  <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Realized Net P&amp;L (live changing)</span><b style={{ color: coreVaultOverview.realizedNetBreakdown.totalUsd >= 0 ? "#86efac" : "#ff8a8a" }}>{fmtUsd(coreVaultOverview.realizedNetBreakdown.totalUsd)}</b></div>
-                  <div className="muted" style={{ fontSize: 10, marginTop: 3 }}>NKR {fmtUsd(coreVaultOverview.realizedNetBreakdown.nkrUsd)} · Trader {fmtUsd(coreVaultOverview.realizedNetBreakdown.traderUsd)} · Grid {fmtUsd(coreVaultOverview.realizedNetBreakdown.gridUsd)}</div>
-                  <div style={{ marginTop: 7, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}><span className="muted">Stable reserve</span><b>{fmtUsd(coreVaultOverview.reserveUsd)}</b></div>
-                    </>
-                  ) : null}
                   <details data-nexus-tour="vault-deposit" style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.14)" }}>
-                    <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer", listStyle: "none" }}>Deposit to Vault</summary>
+                    <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer", listStyle: "none" }}>Deposit to Trading Wallet</summary>
                     <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr) 1fr", gap: 8, marginTop: 9 }}>
                       <select className="input" value={coreDepositAsset} onChange={(e) => { setCoreDepositAsset(e.target.value); setCoreDepositMsg(""); }} disabled={coreDepositBusy || !coreDepositWalletAssets.length} style={{ height: 42 }}>
                         {!coreDepositWalletAssets.length ? <option value="">No wallet assets found</option> : null}
@@ -23021,12 +22975,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     ) : null}
                     <button type="button" className="btn" onClick={depositToCoreVault} disabled={!wallet || coreDepositBusy || !coreVaultOnchain?.connected || coreVaultOnchain?.paused} style={{ width: "100%", height: 44, marginTop: 8 }}>
-                      {coreDepositBusy ? "Processing…" : "Deposit to Vault"}
+                      {coreDepositBusy ? "Processing…" : "Deposit to Trading Wallet"}
                     </button>
                     {coreDepositMsg && <div className="muted" style={{ fontSize: 11, marginTop: 7, wordBreak: "break-word" }}>{coreDepositMsg}</div>}
                   </details>
                   <button type="button" data-nexus-tour="vault-withdraw-open" className="btn" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setWalletModalOpen(false); setWithdrawSendOpen(true); }} disabled={!wallet} style={{ height: 44, width: "100%", marginTop: 12, fontSize: 14 }}>Open Withdraw &amp; Payout</button>
-                  <button type="button" className="btnGhost" onClick={() => { refreshBalances(); refreshCoreVaultOnchain(); refreshCoreVaultAccounting(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Vault Overview"}</button>
+                  <button type="button" className="btnGhost" onClick={() => { refreshBalances(); refreshCoreVaultOnchain(); refreshCoreVaultAccounting(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 8 }}>{balLoading ? "Refreshing…" : "Refresh Trading Wallet"}</button>
                 </>
               )}
 

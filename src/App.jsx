@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD554-NEXUS-HELP-INTERACTIVE-GUIDES";
+const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD555-NEXUS-HELP-ANSWERS-FIXED";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3381,40 +3381,142 @@ function nexusManualTokens(value) {
 function nexusManualPlain(value) {
   return String(value || '').replace(/\*\*/g, '').replace(/`/g,'');
 }
+// BUILD555: Match a question's intent before looking for keyword snippets.
+// General questions describe the whole feature; concrete field questions find a field.
+// Never mistake a random matching bullet for a definition of the whole section.
+const NEXUS_MANUAL_AREA_ALIASES = Object.freeze([
+  ['04', ['compare score weighting', 'score weighting', 'custom weighting']],
+  ['05', ['ai insight', 'ai-insight', 'paaranalyse', 'pair analysis']],
+  ['11', ['trading wallet', 'privy wallet']],
+  ['16', ['nkr token']],
+  ['10', ['nexus strategist', 'strategist']],
+  ['07', ['nexus nkr', 'nkr']],
+  ['08', ['nexus trading', 'trader', 'trading']],
+  ['06', ['nexus grid', 'grid']],
+  ['09', ['watchlist', 'beobachtungsliste']],
+  ['03', ['compare', 'coin vergleich', 'coin comparison']],
+  ['12', ['auszahlung', 'withdrawal', 'profit payout']],
+  ['11', ['wallet']],
+]);
+const NEXUS_MANUAL_GENERIC_WORDS = new Set([
+  'nexus','analyt','genau','eigentlich','alles','uberblick','ueberblick',
+  'funktion','funktionen','funktioniert','funktionieren','aufgebaut','macht','machen',
+  'arbeitet','arbeiten','system','bereich','fenster','nutzen','verwenden','bedienen',
+  'tool','feature','features','overview','overall','general','basically',
+  'exactly','purpose','details','simple','simply','working','about',
+  'briefly','explain','erklare','erklaren','erklaerung','erklarung'
+]);
+const NEXUS_MANUAL_AREA_EXTRAS = Object.freeze({
+  de: {
+    '03': 'Wähle bis zu 20 Coins in der Watchlist aus. In Compare stellst du den Zeitraum ein und siehst ihre Kursentwicklung nebeneinander. Wenn du ein Coin-Paar anklickst, öffnet sich die Detailanalyse mit AI Insight.',
+    '04': 'Normalerweise legt Nexus die Gewichtung fest (OFF). Mit ON bestimmst du selbst, wie stark fünf Kriterien in die Paarbewertung eingehen. Zusammen müssen sie 100 % ergeben.',
+    '05': 'Wähle zuerst ein Coin-Paar in Compare. Die Standard-Analyse wartet eher auf bestätigte Signale. Extreme ON zeigt mögliche Kursbewegungen früher, kann sich aber öfter irren. Beide Modi geben keine Gewinngarantie.',
+    '06': 'Wähle Netzwerk, Coin, Menge, Verkaufsziel, Verlustgrenze und USDC oder USDT als Erlöswährung. GRID versucht den Verkauf nach deinen Regeln; der tatsächlich ausgeführte Kurs kann abweichen.',
+    '07': 'Du legst ein USDC- oder USDT-Budget und Regeln fest. Nexus beobachtet den Markt, wählt geeignete Coins und verkauft sie wieder in die gewählte Stablecoin. Verluste bleiben möglich.',
+    '08': 'Du bestimmst ein Budget, mehrere Teilbudgets (Slots), die Laufzeit und die Risikogrenzen. Gekaufte Coins werden beim Verkauf wieder in die gewählte Stablecoin zurückgetauscht.',
+    '09': 'Hier siehst du Preise, Veränderungen, kleine Charts und Marktsignale. Du kannst Coins hinzufügen, entfernen, selbst sortieren und für Compare auswählen. Die Watchlist löst allein keine Trades aus.',
+    '10': 'Du kannst eine Marktfrage stellen, eine Handelsidee untersuchen, einen Backtest auswerten oder einen Bericht erstellen lassen. Wähle dazu den passenden Arbeitsmodus und schreibe deine Frage ins Eingabefeld.',
+    '11': 'Im Wallet liegen deine persönlichen Coins. Im Trading Wallet wird das Kapital verwaltet, das du den Handelssystemen zugeteilt hast. Einzahlungen, Reservierungen und Auszahlungen sind getrennt nachvollziehbar.',
+    '12': 'Nur tatsächlich bestätigte und freie Guthaben können ausgezahlt werden. Früher erzielte Gewinne und offene Positionen sind nicht automatisch heute auszahlbares Geld.',
+    '16': 'Der NKR-Token ist nicht dasselbe wie das NKR-Handelssystem. Token-Bestand und Handelskapital werden getrennt betrachtet.',
+  },
+  en: {
+    '03': 'Choose up to 20 coins in your Watchlist. In Compare, pick a time period to see their performance side by side. Click a coin pair to open the detailed analysis and AI Insight.',
+    '04': 'Normally Nexus chooses the weights (OFF). With ON, you decide how much five criteria contribute to each pair score. The weights must add up to 100%.',
+    '05': 'First select a coin pair in Compare. Standard mode looks for more confirmation. Extreme ON highlights possible movements earlier, but false signals are more likely. Neither mode guarantees profit.',
+    '06': 'Choose a network, coin, amount, sell target, maximum loss, and USDC or USDT as the proceeds currency. GRID attempts a sale under your rules; the actual execution price may differ.',
+    '07': 'Set a USDC or USDT budget and your rules. Nexus monitors the market, selects eligible coins, and sells back into your selected stablecoin. Losses are still possible.',
+    '08': 'Choose a total budget, smaller budget slots, a run time, and risk limits. When a purchased coin is sold, proceeds return to the selected stablecoin.',
+    '09': 'See prices, price changes, small charts, and market signals. Add or remove coins, reorder them, and select coins for Compare. The Watchlist does not trade by itself.',
+    '10': 'Ask a market question, review a strategy idea, analyse backtest results, or request a report. Choose the right mode and type your question into the input field.',
+    '11': 'Your Wallet holds your personal coins. Your Trading Wallet records capital assigned to trading systems. Deposits, reservations, and withdrawals are tracked separately.',
+    '12': 'Only confirmed available balances can be withdrawn. Historical gains and open positions do not automatically mean money is available to withdraw now.',
+    '16': 'The NKR token and the NKR trading engine are separate things. A token holding is not the same as your trading budget.',
+  }
+});
+function nexusManualAreaFromQuestion(question) {
+  const normalized = ` ${nexusManualNormalize(question)} `;
+  for (const [chapterId, aliases] of NEXUS_MANUAL_AREA_ALIASES) {
+    for (const phrase of aliases) {
+      if (normalized.includes(` ${nexusManualNormalize(phrase)} `)) {
+        return {chapterId, aliasTokens:nexusManualTokens(phrase)};
+      }
+    }
+  }
+  return null;
+}
 function nexusManualFindAnswer(question, topic, language) {
   const q=String(question||'').trim();
   if (!q || q.length > 1200) return null;
+  const lang=language === 'en' ? 'en' : 'de';
+  const chapters=NEXUS_MANUAL_CHAPTERS[lang] || [];
   const tokens=nexusManualTokens(q);
   if (!tokens.length) return null;
-  const chapters=NEXUS_MANUAL_CHAPTERS[language === 'en' ? 'en' : 'de'] || [];
-  const preferredId=(tokens.includes('extreme') || (tokens.includes('ai') && tokens.includes('insight')))
-    ? '05' : (NEXUS_MANUAL_TOPIC_CHAPTER[topic] || null);
+  // "Grid" inside Compare means the chart layout, not the GRID trading engine.
+  const compareGridControl=topic==='compare' && tokens.length===1 && tokens[0]==='grid';
+  const area=compareGridControl ? null : nexusManualAreaFromQuestion(q);
+  const preferredId=(compareGridControl ? '03' : area?.chapterId) ||
+    ((tokens.includes('extreme') || (tokens.includes('ai') && tokens.includes('insight')))
+      ? '05' : (NEXUS_MANUAL_TOPIC_CHAPTER[topic] || null));
+
+  // A domain-only question needs an explanation of the whole domain, never a random
+  // field whose sentence happens to mention that domain (e.g. "First 10 ... Compare").
+  const afterArea = area ? tokens.filter((t)=>!area.aliasTokens.includes(t)) : [];
+  const genericAreaQuestion=!!area && afterArea.every((t)=>NEXUS_MANUAL_GENERIC_WORDS.has(t)) &&
+    !(area.chapterId==='04' && /\b(on|off)\b/.test(nexusManualNormalize(q)));
+  if (genericAreaQuestion) {
+    const chapter=chapters.find((item)=>item.id===area.chapterId);
+    if (chapter) {
+      const index=chapter.blocks.findIndex((b,i)=>i>0 && b.type==='paragraph' && b.text.length>=80);
+      const blockIndex=index>=0 ? index : chapter.blocks.findIndex((b)=>b.type==='paragraph');
+      const intro=chapter.blocks[blockIndex]?.text || '';
+      const extra=NEXUS_MANUAL_AREA_EXTRAS[lang]?.[area.chapterId] || '';
+      const overview=[nexusManualPlain(intro),extra].filter(Boolean).join('\n\n');
+      if (overview.trim()) return {text:overview.slice(0,1350),chapterId:chapter.id,
+        chapterTitle:chapter.title,blockIndex:Math.max(0,blockIndex),source:'manual'};
+    }
+  }
+
+  // For detailed questions, remove only the named module from search terms.
+  // This lets "Compare Index 100" match "Index 100" rather than a generic compare bullet.
+  const specificTokens=area && afterArea.length ? afterArea.filter((t)=>!NEXUS_MANUAL_GENERIC_WORDS.has(t)) : [];
+  const requested=specificTokens.length ? specificTokens : tokens;
   let best=null;
   for (const chapter of chapters) {
     for (let i=0;i<chapter.blocks.length;i++) {
       const block=chapter.blocks[i];
       if (block.type === 'heading' || block.text.length < 18) continue;
       const normalized=nexusManualNormalize(block.text);
-      const label=nexusManualNormalize(block.text.split('**')[1] || '').slice(0,120);
-      const hits=tokens.filter((w)=>normalized.split(' ').some((part)=>part === w || (w.length>=5 && part.startsWith(w))));
-      if (!hits.length || (tokens.length >= 3 && hits.length < 2)) continue;
-      let score=hits.length*5 + hits.length/tokens.length*7;
-      if (preferredId === chapter.id) score+=(hits.length===tokens.length ? 35 : 12);
-      if (block.type === 'bullet') score+=2;
-      if (label && tokens.every((w)=>label.includes(w))) score+=9;
-      if (label && tokens.some((w)=>label.split(' ').includes(w))) score+=3;
-      if (normalized.includes(nexusManualNormalize(q)) && q.length>=6) score+=10;
-      if (!best || score > best.score) best={score,chapterId:chapter.id,chapterTitle:chapter.title,block,blockIndex:i};
+      const words=normalized.split(' ');
+      const label=(block.type==='bullet' && block.text.startsWith('**'))
+        ? nexusManualNormalize(block.text.split('**')[1] || '') : '';
+      const labelWords=label.split(' ').filter(Boolean);
+      const hits=requested.filter((t)=>words.some((word)=>word===t || (t.length>=5 && word.startsWith(t))));
+      if (!hits.length || (requested.length>=3 && hits.length < 2)) continue;
+      let score=hits.length*9 + hits.length/requested.length*15;
+      if (preferredId === chapter.id) score+=area ? 24 : 22;
+      if (block.type==='paragraph') score+=1;
+      if (label) {
+        // A quoted field name such as 'Wallet Send', 'Index 100' or 'Why this score'
+        // wins over other, less precise paragraphs containing some of those words.
+        if (label.length>=4 && (` ${nexusManualNormalize(q)} `).includes(` ${label} `)) score+=55;
+        // Keep the module qualifier when distinguishing "Wallet Send" from "Send",
+        // or "Trading Wallet / Chain" from the general glossary entry "Chain".
+        const qualifiedTokens=tokens.filter((t)=>!NEXUS_MANUAL_GENERIC_WORDS.has(t));
+        if (qualifiedTokens.length>=2 && qualifiedTokens.every((t)=>labelWords.includes(t))) score+=43;
+        const exactLabelHits=requested.filter((t)=>labelWords.some((word)=>word===t || (t.length>=5 && word.startsWith(t))));
+        score+=exactLabelHits.length*12;
+        if (exactLabelHits.length===requested.length) score+=26;
+        if (label===requested.join(' ')) score+=18;
+      }
+      if (normalized.includes(nexusManualNormalize(q)) && q.length>=6) score+=6;
+      if (!best || score>best.score) best={score,chapterId:chapter.id,chapterTitle:chapter.title,block,blockIndex:i};
     }
   }
-  if (!best || best.score < 10) return null;
-  const fullText=nexusManualPlain(best.block.text);
-  return {
-    text:fullText.slice(0,1250),
-    chapterId:best.chapterId,
-    chapterTitle:best.chapterTitle,blockIndex:best.blockIndex,
-    source:'manual'
-  };
+  if (!best || best.score < 17) return null;
+  return {text:nexusManualPlain(best.block.text).slice(0,1250),
+    chapterId:best.chapterId,chapterTitle:best.chapterTitle,
+    blockIndex:best.blockIndex,source:'manual'};
 }
 function NexusManualInline({ text }) {
   const parts=String(text||'').split(/(\*\*[^*]+\*\*)/g);

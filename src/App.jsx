@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD551-TRADING-WALLET-CAPITAL-HEADING";
+const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD552-WALLET-ONCHAIN-PROFIT-DISPLAY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3410,7 +3410,7 @@ const NEXUS_VISUAL_TOURS = Object.freeze({
       NEXUS_VISUAL_TOUR_STEP('core_vault', '[data-nexus-tour="wallet-tabs"]', 'Trading Wallet auswählen', 'Wähle Trading Wallet, um Einzahlungen und echte On-Chain-Guthaben zu sehen.', 'Choose Trading Wallet', 'Select Trading Wallet to view deposits and real on-chain balances.'),
       NEXUS_VISUAL_TOUR_STEP('deposit', '[data-nexus-tour="vault-deposit"]', 'Einzahlung vorbereiten', 'Öffne «Deposit to Trading Wallet» und kontrolliere Netzwerk, Asset und Betrag. Die Tour nimmt keine Einzahlung vor.', 'Prepare a deposit', 'Expand Deposit to Trading Wallet and check network, asset and amount. This tour never makes a deposit.'),
       NEXUS_VISUAL_TOUR_STEP('withdraw', '[data-nexus-tour="vault-withdraw-open"]', 'Auszahlung ansehen', 'Mit «Open Withdraw & Payout» erreichst du das separate Auszahlungsfenster. Bitte niemals einen Betrag nur wegen einer Tour bestätigen.', 'View withdrawals', 'Open Withdraw & Payout opens a separate withdrawal window. Never confirm funds just because a tour asks.'),
-      NEXUS_VISUAL_TOUR_STEP('withdraw', '[role="dialog"][aria-label="Nexus Core Vault Withdraw and Payout"]', 'Auszahlungsfenster', 'Hier kontrollierst du Quelle, Asset, Empfänger und Gebühren. Die endgültige Bestätigung bleibt bei dir.', 'Withdrawal dialog', 'Check source, asset, recipient and costs. Final confirmation always belongs to you.'),
+      NEXUS_VISUAL_TOUR_STEP('withdraw', '[role="dialog"][aria-label="Trading Wallet Withdraw and Payout"]', 'Auszahlungsfenster', 'Hier kontrollierst du Quelle, Asset, Empfänger und Gebühren. Die endgültige Bestätigung bleibt bei dir.', 'Withdrawal dialog', 'Check source, asset, recipient and costs. Final confirmation always belongs to you.'),
     ],
   },
   subscription: {
@@ -6525,67 +6525,65 @@ useEffect(() => {
     return 0;
   }, [coreWithdrawAssetRows, coreWithdrawAsset, coreWithdrawSource]);
 
+  // BUILD552: Wallet profit and withdraw panels are LIVE ON-CHAIN ONLY.
+  // The /core-vault/accounting endpoint can contain legacy simulation ledgers.
+  // Never mix that historical accounting with real wallet balances.
   const coreVaultOverview = useMemo(() => {
-    const a = coreVaultAccounting || {};
+    const tokenEntries = Object.entries(coreVaultOnchain?.tokens || {});
+    const isStableSymbol = (sym) => /^USD(?:C|T)(?:$|[_.-])/.test(String(sym || "").toUpperCase());
+    const stableTokenReadFailed = tokenEntries.some(([sym, state]) => isStableSymbol(sym) && (!state || state.status === "error" || !state.account));
+    const hasLiveOnchainState = Boolean(coreVaultOnchain?.connected) && !stableTokenReadFailed;
+    const seenTokens = new Set();
+    const stableTokens = tokenEntries
+      .filter(([symbol, state]) => {
+        const sym = String(symbol || "").toUpperCase();
+        if (!isStableSymbol(sym)) return false;
+        if (!state || state.native || state.status === "error" || !state.account) return false;
+        const addr = String(state.address || "").toLowerCase();
+        const key = /^0x[0-9a-f]{40}$/.test(addr) ? addr : sym;
+        if (seenTokens.has(key)) return false;
+        seenTokens.add(key);
+        return true;
+      })
+      .map(([, state]) => state);
+    const sumAccount = (field) => stableTokens.reduce((sum, token) => {
+      const value = Number(token?.account?.[field]);
+      return sum + (Number.isFinite(value) ? Math.max(0, value) : 0);
+    }, 0);
 
-    // The verified contract is the source of truth for real user funds.
-    // The backend accounting endpoint can briefly remain in SHADOW mode after a
-    // deposit, which previously made Withdraw show $0 even though the contract
-    // already held the user's USDC/USDT. Aggregate both enabled stablecoins here
-    // and use the on-chain values whenever the Core Vault is connected.
-    const onchainAccounts = ["USDC", "USDT"].map((symbol) => coreVaultOnchain?.tokens?.[symbol]?.account || {});
-    const onchainBaseUsd = onchainAccounts.reduce((sum, account) => sum + Math.max(0, Number(account?.baseCapital || 0)), 0);
-    const onchainSecuredUsd = onchainAccounts.reduce((sum, account) => sum + Math.max(0, Number(account?.totalSecuredProfit || 0)), 0);
-    const onchainAllocatedUsd = onchainAccounts.reduce((sum, account) => sum + Math.max(0, Number(account?.totalAllocated || 0)), 0);
-    const onchainStableUsd = onchainBaseUsd + onchainSecuredUsd + onchainAllocatedUsd;
-    const hasLiveOnchainState = !!coreVaultOnchain?.connected;
-
-    const stableBalanceUsd = hasLiveOnchainState
-      ? onchainStableUsd
-      : Math.max(0, Number(a.stableBalanceUsd || 0));
-    const securedProfitUsd = hasLiveOnchainState
-      ? onchainSecuredUsd
-      : Math.max(0, Number(a.securedProfitUsd || 0));
-    const protectedBaseUsd = hasLiveOnchainState
-      ? onchainBaseUsd
-      : Math.max(0, Number(a.baseCapitalUsd || 0));
-    const allocatedUsd = hasLiveOnchainState
-      ? onchainAllocatedUsd
-      : Math.max(0, Number(a.allocatedUsd || 0));
-    const reserveUsd = Math.max(0, Number(a.reserveUsd || 0));
+    // Includes Polygon USDC.e ('USDC') AND Circle native USDC ('USDC_NATIVE').
+    // baseCapital already INCLUDES allocated capital: never add totalAllocated
+    // to baseCapital again or the Wallet displays nonexistent money.
+    const protectedBaseUsd = sumAccount("baseCapital");
+    const securedProfitUsd = sumAccount("totalSecuredProfit");
+    const allocatedUsd = sumAccount("totalAllocated");
+    const stableBalanceUsd = protectedBaseUsd + securedProfitUsd;
     const profitBreakdown = {
-      nkrUsd: Math.max(0, Number(a?.profitBreakdown?.nkrUsd || 0)),
-      traderUsd: Math.max(0, Number(a?.profitBreakdown?.traderUsd || 0)),
-      gridUsd: Math.max(0, Number(a?.profitBreakdown?.gridUsd || 0)),
+      nkrUsd: sumAccount("securedNkrProfit"),
+      traderUsd: sumAccount("securedTraderProfit"),
+      gridUsd: sumAccount("securedGridProfit"),
       totalUsd: securedProfitUsd,
     };
-    const realizedNetBreakdown = {
-      nkrUsd: Number(a?.realizedNetBreakdown?.nkrUsd || 0),
-      traderUsd: Number(a?.realizedNetBreakdown?.traderUsd || 0),
-      gridUsd: Number(a?.realizedNetBreakdown?.gridUsd || 0),
-      totalUsd: Number(a?.realizedNetBreakdown?.totalUsd || 0),
-    };
-    const allocationBreakdown = {
-      nkrUsd: Math.max(0, Number(a?.allocationBreakdown?.nkrUsd || 0)),
-      traderUsd: Math.max(0, Number(a?.allocationBreakdown?.traderUsd || 0)),
-      gridUsd: Math.max(0, Number(a?.allocationBreakdown?.gridUsd || 0)),
-      totalUsd: allocatedUsd,
-    };
-    const isShadow = !hasLiveOnchainState && String(a.mode || "SHADOW").toUpperCase() !== "LIVE";
-    const availableBySource = isShadow ? { SECURED_PROFIT_ONLY: 0, BASE_CAPITAL: 0, ALL_STABLE: 0 } : {
-      SECURED_PROFIT_ONLY: securedProfitUsd,
-      BASE_CAPITAL: protectedBaseUsd,
-      ALL_STABLE: stableBalanceUsd,
-    };
+    // The contract exposes cumulative GROSS booked profits, not live net P&L.
+    // Losses and withdrawals cannot be inferred from this cumulative field.
+    const lifetimeGrossProfitUsd = sumAccount("lifetimeRealizedProfit");
+    const withdrawRow = coreWithdrawAssetRows.find((row) => row.symbol === String(coreWithdrawAsset || "").toUpperCase());
+    const selectedTokenState = coreVaultOnchain?.tokens?.[withdrawRow?.symbol];
+    const withdrawTokenConfirmed = Boolean(selectedTokenState?.account) && selectedTokenState?.status !== "error";
+    const selectedWithdrawUnits = Boolean(coreVaultOnchain?.connected) && withdrawRow && withdrawTokenConfirmed
+      ? Math.max(0, Number(coreWithdrawAvailable || 0))
+      : null;
+
     return {
-      stableBalanceUsd, protectedBaseUsd, securedProfitUsd, allocatedUsd, reserveUsd,
-      profitBreakdown, realizedNetBreakdown, allocationBreakdown,
-      availableForWithdrawUsd: Math.max(0, Number(availableBySource[coreWithdrawSource] || 0)),
-      mode: isShadow ? "SHADOW" : "LIVE",
-      isShadow,
-      note: hasLiveOnchainState ? `Live balances read directly from the verified ${String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()} Core Vault.` : String(a.note || ""),
+      hasLiveOnchainState: hasLiveOnchainState && stableTokens.length > 0,
+      stableBalanceUsd, protectedBaseUsd, securedProfitUsd, allocatedUsd,
+      lifetimeGrossProfitUsd, profitBreakdown,
+      selectedWithdrawUnits,
+      selectedWithdrawAsset: String(withdrawRow?.symbol || ""),
+      selectedWithdrawSource: String(coreWithdrawSource || ""),
+      chain: String(coreVaultOnchain?.chain || "").toUpperCase(),
     };
-  }, [coreVaultAccounting, coreVaultOnchain, coreWithdrawSource]);
+  }, [coreVaultOnchain, coreWithdrawAssetRows, coreWithdrawAsset, coreWithdrawSource, coreWithdrawAvailable]);
 
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
@@ -22718,8 +22716,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <>
                               <p><b>Trading Wallet</b> ist der geschützte On-Chain-Finanzbereich für Basiskapital, System-Zuteilungen, realisierte Gewinne und Auszahlungen.</p>
                               <p><b>Base Capital Protected:</b> Eingezahltes Basiskapital, das im Vault verbucht ist. Offene Marktgewinne zählen nicht als gesichert.</p>
-                              <p><b>Total Secured Profit:</b> Nur geschlossene Netto-Ergebnisse von NKR, Trader und Grid werden als gesicherter Gewinn verbucht.</p>
-                              <p><b>Available for Withdraw:</b> Betrag, der nach den Vault-Regeln aktuell zur Auszahlung verfügbar ist. Massgebend sind die bestätigten On-Chain-Guthaben und die Freigaben des Smart Contracts.</p>
+                              <p><b>Gesicherter Gewinn:</b> Hier siehst du den bestätigten, noch im ausgewählten Trading Wallet vorhandenen Gewinn. Frühere Simulationen und bereits ausgezahlte Gewinne gehören nicht dazu.</p>
+                              <p><b>Auszahlbar:</b> Der Betrag gilt nur für den unten gewählten Coin und die gewählte Auszahlungsquelle. Reserviertes Handelskapital steht nicht frei zur Verfügung.</p>
                               <p><b>Auszahlungsgebühr:</b> Insgesamt 3 %. Standardmäßig fließen 2 % in die dauerhafte Liquidität und 1 % in die Vault-Reserve.</p>
                               <p><b>Ausgewähltes Trading Wallet:</b> {coreVaultOnchainLoading ? "Status wird gelesen." : coreVaultOnchain?.connected ? "Der Vertrag ist verbunden." : "Der Vertragsstatus ist derzeit nicht verfügbar."}</p>
                               <p><b>Contract:</b> {coreVaultOnchain?.contractAddress || "Nicht verfügbar"}</p>
@@ -22734,8 +22732,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <>
                               <p><b>Trading Wallet</b> is the protected on-chain financial area for base capital, system allocations, realized profit and withdrawals.</p>
                               <p><b>Base Capital Protected:</b> Deposited base capital recorded inside the Vault. Open market profit is not secured profit.</p>
-                              <p><b>Total Secured Profit:</b> Only closed net results from NKR, Trader and Grid become secured profit.</p>
-                              <p><b>Available for Withdraw:</b> Amount currently available under the Vault rules. Confirmed on-chain balances and smart contract withdrawal rules determine availability.</p>
+                              <p><b>Secured profit:</b> Confirmed profit still held in the selected Trading Wallet. Historic simulation figures and previously withdrawn profits are not included.</p>
+                              <p><b>Available for withdrawal:</b> The amount refers only to the selected asset and withdrawal source. Capital reserved for trading is not freely withdrawable.</p>
                               <p><b>Withdrawal fee:</b> 3% total. By default, 2% supports permanent liquidity and 1% remains in the Vault reserve.</p>
                               <p><b>Selected Trading Wallet:</b> {coreVaultOnchainLoading ? "Reading status." : coreVaultOnchain?.connected ? "The contract is connected." : "The contract status is currently unavailable."}</p>
                               <p><b>Contract:</b> {coreVaultOnchain?.contractAddress || "Unavailable"}</p>
@@ -22997,7 +22995,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <div
                 className="modal"
                 role="dialog"
-                aria-label="Nexus Core Vault Withdraw and Payout"
+                aria-label="Trading Wallet Withdraw and Payout"
                 onClick={(e) => e.stopPropagation()}
                 style={{
                   width: "min(980px, calc(100vw - 24px))",
@@ -23012,7 +23010,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <div>
-                    <div className="cardTitle" style={{ margin: 0 }}>Nexus Core Vault</div>
+                    <div className="cardTitle" style={{ margin: 0 }}>Trading Wallet</div>
                     <NexusHelpButton topic="withdraw" onHelp={openNexusAiHelp} />
                     <div className="muted" style={{ fontSize: 12, marginTop: 3 }}>Withdraw &amp; secured-profit payout</div>
                   </div>
@@ -23021,30 +23019,48 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
                   {[
-                    ["Vault Stable Balance", coreVaultOverview.stableBalanceUsd],
-                    ["Base Capital Protected", coreVaultOverview.protectedBaseUsd],
-                    ["Total Secured Profit", coreVaultOverview.securedProfitUsd],
-                    ["Available for Withdraw", coreVaultOverview.availableForWithdrawUsd],
+                    ["Stablecoin Balance", coreVaultOverview.stableBalanceUsd],
+                    ["Base Capital (incl. reserved)", coreVaultOverview.protectedBaseUsd],
+                    ["Secured Profit", coreVaultOverview.securedProfitUsd],
                   ].map(([label, value]) => (
                     <div key={label} style={{ padding: 11, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
                       <div className="muted" style={{ fontSize: 11 }}>{label}</div>
-                      <div className="mono" style={{ marginTop: 5, fontWeight: 900 }}>{fmtUsd(Number(value || 0))}</div>
+                      <div className="mono" style={{ marginTop: 5, fontWeight: 900 }}>
+                        {coreVaultOverview.hasLiveOnchainState ? fmtUsd(Number(value || 0)) : "—"}
+                      </div>
                     </div>
                   ))}
+                  <div style={{ padding: 11, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
+                    <div className="muted" style={{ fontSize: 11 }}>Withdrawable (selected source / asset)</div>
+                    <div className="mono" style={{ marginTop: 5, fontWeight: 900 }}>
+                      {coreVaultOverview.selectedWithdrawUnits != null && coreVaultOverview.selectedWithdrawAsset
+                        ? `${coreVaultOverview.selectedWithdrawUnits.toLocaleString("de-CH", { maximumFractionDigits: 6 })} ${coreVaultOverview.selectedWithdrawAsset}`
+                        : "—"}
+                    </div>
+                  </div>
+                </div>
+                <div className="muted" style={{ fontSize: 11, lineHeight: 1.5, marginTop: 6 }}>
+                  {coreVaultOverview.hasLiveOnchainState
+                    ? `Confirmed Trading Wallet funds on ${coreVaultOverview.chain || "the selected network"}. USDC and USDT are valued at approximately $1 each. The withdrawable amount refers only to the asset and funding source selected below.`
+                    : "Trading Wallet balances are not fully confirmed. Old or simulated figures are never shown as withdrawable funds."}
                 </div>
 
                 <div style={{ marginTop: 9, padding: 10, borderRadius: 12, background: "rgba(0,255,166,0.035)", border: "1px solid rgba(0,255,166,0.10)", display: "grid", gap: 6 }}>
-                  <div style={{ fontWeight: 900, fontSize: 12 }}>Secured profit by system</div>
+                  <div style={{ fontWeight: 900, fontSize: 12 }}>Secured Profit by System (on-chain)</div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, fontSize: 12 }}>
-                    <div><span className="muted">NKR</span><br /><b>{fmtUsd(coreVaultOverview.profitBreakdown.nkrUsd)}</b></div>
-                    <div><span className="muted">Trader</span><br /><b>{fmtUsd(coreVaultOverview.profitBreakdown.traderUsd)}</b></div>
-                    <div><span className="muted">Grid</span><br /><b>{fmtUsd(coreVaultOverview.profitBreakdown.gridUsd)}</b></div>
+                    <div><span className="muted">NKR</span><br /><b>{coreVaultOverview.hasLiveOnchainState ? fmtUsd(coreVaultOverview.profitBreakdown.nkrUsd) : "—"}</b></div>
+                    <div><span className="muted">Trader</span><br /><b>{coreVaultOverview.hasLiveOnchainState ? fmtUsd(coreVaultOverview.profitBreakdown.traderUsd) : "—"}</b></div>
+                    <div><span className="muted">GRID</span><br /><b>{coreVaultOverview.hasLiveOnchainState ? fmtUsd(coreVaultOverview.profitBreakdown.gridUsd) : "—"}</b></div>
                   </div>
                   <div style={{ marginTop: 10, padding: 10, borderRadius: 12, border: "1px solid rgba(255,255,255,.10)", background: "rgba(255,255,255,.025)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span className="muted">Realized Net P&amp;L</span><b style={{ color: coreVaultOverview.realizedNetBreakdown.totalUsd >= 0 ? "#86efac" : "#ff8a8a" }}>{fmtUsd(coreVaultOverview.realizedNetBreakdown.totalUsd)}</b></div>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 5 }}>This value updates automatically and may rise or fall. Secured Profit above only increases when a positive closed-net delta is protected.</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span className="muted">Lifetime Booked Profit (gross)</span>
+                      <b style={{ color: "#86efac" }}>{coreVaultOverview.hasLiveOnchainState ? fmtUsd(coreVaultOverview.lifetimeGrossProfitUsd) : "—"}</b>
+                    </div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 5 }}>
+                      Cumulative gross profits booked by this smart contract, NOT your current withdrawable balance. Losses, fees and previous withdrawals are separate. GRID sales paid directly to your Privy Wallet do not count as Trading Wallet profit.
+                    </div>
                   </div>
-                  {coreVaultOverview.isShadow && <div className="muted" style={{ fontSize: 11 }}>Shadow follows the later live accounting rules. Only closed net results count, but nothing is withdrawable.</div>}
                 </div>
 
                 <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, alignItems: "start" }}>
@@ -23169,7 +23185,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
 
                 <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: "rgba(255,193,7,0.07)", border: "1px solid rgba(255,193,7,0.22)", fontSize: 12, lineHeight: 1.45 }}>
-                  <b>Core Vault V3 is connected.</b> Deposits and on-chain balances use the verified V3 interface. Live trades remain locked until USDC execution and the ETH/USDC route are configured and verified.
+                  {coreVaultOnchain?.connected ? (
+                    <><b>Trading Wallet connected.</b> Balances are read directly from the smart contract on {String(coreVaultOnchain?.chain || "the selected network")}. Trade execution also requires valid router routes and Privy authorization.</>
+                  ) : (
+                    <><b>Trading Wallet not confirmed.</b> Check the network and connection. No withdrawable amount is assumed without current on-chain data.</>
+                  )}
                 </div>
 
                 {txMsg ? <div style={{ marginTop: 10, fontSize: 12, padding: "8px 10px", borderRadius: 12, background: "rgba(255,255,255,0.04)" }}>{txMsg}</div> : null}

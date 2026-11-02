@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD556-NEXUS-HELP-GPT-GUIDED";
+const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD557-NEXUS-HELP-AI-INSIGHT-TOUR";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3797,9 +3797,49 @@ const NEXUS_COMPARE_ROW_FIELD_GUIDES = Object.freeze(Object.fromEntries([
   ['compare-row-spread',[5]], ['compare-row-score',[6]], ['compare-row-correlation',[7]],
 ].map(([key,positions]) => [key, {de:NEXUS_COMPARE_ROW_GUIDE.de,en:NEXUS_COMPARE_ROW_GUIDE.en,
   mode:'compare',steps:positions.map(i=>NEXUS_COMPARE_ROW_GUIDE.steps[i])}])));
+// BUILD557: Explain the genuine AI Insight controls inside an opened Compare pair.
+// Opening the pair is display-only; the AI analysis and Extreme switch are NEVER run automatically.
+const NEXUS_AI_INSIGHT_WALKTHROUGH = Object.freeze({
+  de: 'AI Insight verstehen', en: 'Understand AI Insight', mode: 'compare-insight',
+  steps: [
+    {context:'compare-insight',target:'[data-nexus-tour="compare-pair-modal-head"]',
+     deTitle:'Compare-Paar und Detailansicht', enTitle:'Compare pair details',
+     deText:'AI Insight gehört immer zu einem ausgewählten Compare-Paar. Diese Detailansicht wird für die Erklärung geöffnet. Es wird kein Kauf oder Verkauf gestartet.',
+     enText:'AI Insight always belongs to a selected Compare pair. This details view is opened only for the explanation. No buy or sell is started.'},
+    {context:'compare-insight',target:'[data-nexus-tour="compare-ai-insight-button"]',
+     deTitle:'Was macht AI Insight?', enTitle:'What does AI Insight do?',
+     deText:'AI Insight untersucht das ausgewählte Coin-Paar und erklärt Stärke, Schwäche, Kursbewegung und Risiken. Klicke selbst auf „AI Insight“, wenn du eine aktuelle Analyse anfordern möchtest. Das kann eine KI-Anfrage auslösen; die Hilfe tut dies nie selbst.',
+     enText:'AI Insight examines the selected pair and explains strength, weakness, price movements and risks. Click AI Insight yourself to request a fresh analysis. This may call the AI service; the guide never runs it for you.'},
+    {context:'compare-insight',target:'[data-nexus-tour="compare-ai-mode-button"]',
+     deTitle:'Standard oder Extreme ON', enTitle:'Standard versus Extreme ON',
+     deText:'Standard wartet eher auf bestätigte Hinweise. Extreme ON sucht empfindlicher nach frühen Chancen, erzeugt aber öfter Fehlalarme. Dieser Knopf ändert nur auf deinen Klick den Analysemodus.',
+     enText:'Standard looks for stronger confirmation. Extreme ON searches more sensitively for early opportunities but can produce more false alarms. This mode only changes when you click it.'},
+    {context:'compare-insight',target:'[data-nexus-tour="compare-ai-verdict"]',
+     deTitle:'AI Verdict', enTitle:'AI verdict',
+     deText:'Das Urteil beschreibt die momentan erkannte Marktsituation, nicht eine sichere Kursvorhersage. Wenn noch kein Ergebnis da ist, starte AI Insight selbst.',
+     enText:'The verdict describes the currently assessed market situation, not a guaranteed forecast. If no result is shown, run AI Insight yourself.'},
+    {context:'compare-insight',target:'[data-nexus-tour="compare-ai-confidence"]',
+     deTitle:'Confidence', enTitle:'Confidence',
+     deText:'Confidence ist die interne Stärke der Einschätzung. Beispielsweise bedeutet 8 von 10 nicht 80 Prozent Gewinnwahrscheinlichkeit.',
+     enText:'Confidence measures how strongly the analysis supports its conclusion. 8 out of 10 does not mean an 80% chance of profit.'},
+    {context:'compare-insight',target:'[data-nexus-tour="compare-ai-risk"]',
+     deTitle:'Risk', enTitle:'Risk',
+     deText:'Hier fasst Nexus die Risiken des erkannten Setups zusammen. Eine mögliche Chance kann gleichzeitig ein hohes Verlustrisiko haben.',
+     enText:'Here Nexus summarizes the assessed risks. An apparent opportunity can still involve a high risk of loss.'},
+    {context:'compare-insight',target:'[data-nexus-tour="compare-ai-conclusion"]',
+     deTitle:'AI Conclusion', enTitle:'AI conclusion',
+     deText:'Die Schlussfolgerung erklärt die Daten in einfachen Worten: Was spricht für die Entwicklung, was dagegen und wann wäre die Idee nicht mehr gültig? Sie ist keine automatische Handelsanweisung.',
+     enText:'The conclusion explains the data: what supports the interpretation, what contradicts it, and when it may no longer apply. It is not an automatic trading instruction.'}
+  ]
+});
 const NEXUS_ALL_VISUAL_TOURS = Object.freeze({ ...NEXUS_VISUAL_TOURS, ...NEXUS_MANUAL_VISUAL_GUIDES,
-  'compare-pair-row': NEXUS_COMPARE_ROW_GUIDE, ...NEXUS_COMPARE_ROW_FIELD_GUIDES });
+  'compare-pair-row': NEXUS_COMPARE_ROW_GUIDE, ...NEXUS_COMPARE_ROW_FIELD_GUIDES,
+  'ai-insight-walkthrough': NEXUS_AI_INSIGHT_WALKTHROUGH });
 function nexusManualGuideForEntry(chapterId, blockIndex) {
+  // A general AI Insight / Extreme description must open the actual Compare pair
+  // and show its UI, rather than leaving the user staring at an unseen control.
+  if (chapterId === '05' && [0, 1, 15, 31, 32, 33].includes(Number(blockIndex)))
+    return 'ai-insight-walkthrough';
   const key = `manual:${chapterId}:${blockIndex}`;
   return NEXUS_MANUAL_VISUAL_GUIDES[key] ? key : null;
 }
@@ -3811,7 +3851,7 @@ function nexusVisualGuideForTopic(topic) {
   if (t.startsWith('grid_')) return 'grid';
   if (t.startsWith('trading_')) return 'trading';
   if (['core_vault','deposit','withdraw','registration'].includes(t)) return 'wallet';
-  if (t === 'ai_insight') return 'compare';
+  if (t === 'ai_insight') return 'ai-insight-walkthrough';
   return 'overview';
 }
 // BUILD547: A guided cursor moves to the actual element on the page.
@@ -4032,6 +4072,9 @@ function NexusHelpVisualTour({ guideKey, stepIndex, onStepChange, onClose, langu
     onClose();
   };
   const missingText = targetFound ? null : (
+    step?.context === 'compare-insight' ? (english
+      ? 'If the pair has no AI result yet, click the AI Insight button in its details yourself. The guide will not send an AI request or change Standard/Extreme for you. If no pair is listed, choose a Compare pair first.'
+      : 'Wenn noch kein KI-Ergebnis angezeigt wird, klicke selbst auf «AI Insight» im Paarfenster. Die Anleitung startet keine KI-Anfrage und ändert Standard/Extreme nicht. Falls kein Paar vorhanden ist, wähle zuerst eines aus Compare.') :
     step?.context === 'compare-pair' ? (english
       ? 'Select a coin pair in the Compare list first. Its detailed analysis opens there; this tour will then point to the correct indicator.'
       : 'Wähle zuerst ein Coin-Paar in Compare aus. In der geöffneten Detailanalyse zeigt der Cursor dann auf die richtige Kennzahl.') :
@@ -4285,6 +4328,14 @@ function nexusGuidedCandidates(question, topic, language) {
     : 'A real Compare pair row shows two coin names, an RSI for each, Δ as their RSI gap, S as the performance spread, a pair suitability score, and correlation ranging from -1 to +1. Its rank orders the pairs and does not promise profit. Clicking the row opens detailed analysis.';
   add('compare-pair-row', lang==='de'?'Eine Zeile der Compare-Paarliste':'One row in the Compare pair list',
     pairRowsHint, compareOverview? 300 : (preferredChapter==='03' || preferredChapter==='05'? 35:0));
+  const insightQuestion = /\b(ai[ -]?insight|ki[ -]?einschatzung|ki[ -]?analyse|extreme on|extreme mode|extreme modus)\b/i.test(q)
+    || t==='ai_insight';
+  if (insightQuestion) add('ai-insight-walkthrough',
+    lang==='de'?'AI Insight an einem Compare-Paar zeigen':'Show AI Insight on a Compare pair',
+    lang==='de'
+      ? 'Öffnet nur die Detailansicht eines tatsächlich vorhandenen Compare-Paares und zeigt nacheinander die AI Insight-Schaltfläche, Standard/Extreme, AI Verdict, Confidence, Risk und AI Conclusion. Keine automatische KI-Anfrage und kein Trade.'
+      : 'Opens the details of an available Compare pair and points to the AI Insight button, Standard/Extreme, AI Verdict, Confidence, Risk and AI Conclusion. Never starts an AI request or trade.',
+    480);
   // Individual indicators are first-class help targets, not a forced eight-step tour.
   const fieldTerms=[
     ['compare-row-rsi',/(?:\brsi\b|relative strength index)/i],
@@ -4334,6 +4385,8 @@ function nexusGuidedCandidates(question, topic, language) {
 }
 function nexusGuidedDefaultForQuestion(question, topic) {
   const q=nexusManualNormalize(question);
+  if (/\b(ai[ -]?insight|ki[ -]?einschatzung|ki[ -]?analyse|extreme on|extreme mode|extreme modus)\b/.test(q) || topic==='ai_insight')
+    return 'ai-insight-walkthrough';
   if ((/\b(compare|vergleichen|vergleichspaar|paarliste|vergleichszeile|pair list|comparison pair)\b/.test(q) ||
         (topic==='compare' && /\b(zeile|pair|paar|paarliste|list|liste|row)\b/.test(q))) &&
       !/\b(index|weight|gewicht|extreme|insight|rsi|score|spread|correlation|korrelation|grid|1d|7d|90d)\b/.test(q))
@@ -4458,7 +4511,7 @@ function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, o
           chapterId:fallback.chapterId,chapterTitle:fallback.chapterTitle,
           blockIndex:fallback.blockIndex,guideId:NEXUS_ALL_VISUAL_TOURS[safeGuide]?safeGuide:null,
           fallback:true}]);
-        if (safeGuide==='compare-pair-row' && desktopTourAvailable && typeof onStartTour==='function') onStartTour(safeGuide);
+        if (['compare-pair-row','ai-insight-walkthrough'].includes(safeGuide) && desktopTourAvailable && typeof onStartTour==='function') onStartTour(safeGuide);
       } else setError(language==='de'
         ? 'Die GPT-Hilfe ist momentan nicht erreichbar. Du kannst das Handbuch öffnen.'
         : 'GPT help is temporarily unavailable. You can read the manual.');
@@ -4523,7 +4576,7 @@ function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, o
   return (
     <div className="nexusAiSupportRoot" onClick={(e) => e.stopPropagation()}>
       <style>{`
-        .nexusAiSupportRoot{position:fixed;inset:0;z-index:8500;pointer-events:none}
+        .nexusAiSupportRoot{position:fixed;inset:0;z-index:20000;pointer-events:none}
         .nexusAiSupportRoot *{box-sizing:border-box}
         .nexusAiSupportWindow{position:absolute;right:16px;bottom:min(72px,8vh);width:min(430px,calc(100vw - 24px));
           height:min(635px,calc(100dvh - 98px));min-height:min(240px,calc(100dvh - 24px));pointer-events:auto;display:flex;flex-direction:column;
@@ -4810,10 +4863,16 @@ const [errorMsg, setErrorMsg] = useState("");
       if (mode === 'trading' || mode === 'trading-risk') setTradingSetupExpanded(true);
       if (mode === 'trading-risk') setTradingRiskExpanded(true); // Open risk explanation, never alter a setting.
       // Show only the existing setup settings; no budgets, strategies or limits are changed.
-    } else if (['compare','compare-weights','compare-pair','watchlist','ai'].includes(mode)) {
+    } else if (['compare','compare-weights','compare-pair','compare-insight','watchlist','ai'].includes(mode)) {
       setWalletModalOpen(false); setWithdrawSendOpen(false);
       setActivePanel(mode.startsWith('compare') ? 'compare' : mode);
       if (mode === 'compare-weights' && customCompareWeightsOn) setCompareWeightsExpanded(true);
+      if (mode === 'compare-insight' || mode === 'compare-pair') {
+        // Opening an existing pair's explanation is a display-only operation.
+        // Never invoke runAiExplain(), change AI mode, or click trade/wallet controls.
+        setMovementPanelOpen(false);
+        if (!selectedPair && bestPairsToShow.length) openPairExplain(bestPairsToShow[0]);
+      }
     } else if (mode === 'help') {
       setNexusAiSupportOpen(true); setNexusAiSupportMinimized(false);
     } else if (['wallet','wallet-vault','wallet-tx','withdraw'].includes(mode)) {
@@ -24895,7 +24954,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               background: "rgba(0,0,0,0.55)",
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
+              justifyContent: nexusAiSupportOpen && !nexusAiSupportMinimized && !isCompactMobile ? "flex-start" : "center",
               zIndex: 9999,
               padding: 16,
             }}
@@ -24905,14 +24964,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
               className="card"
               style={{
                 maxWidth: 760,
-                width: "100%",
+                width: nexusAiSupportOpen && !nexusAiSupportMinimized && !isCompactMobile
+                  ? "min(760px, calc(100vw - 470px))" : "100%",
                 maxHeight: "80vh",
                 overflow: "auto",
               }}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="cardHead" style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <div>
+                <div data-nexus-tour="compare-pair-modal-head">
                   <div className="cardTitle">Why this score?</div>
                   <div className="muted tiny">
                     {selectedPair.pair} · 30D · Score {selectedPair.score} · Corr{" "}
@@ -25134,6 +25194,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div className="label">AI commentary (optional)</div>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                       <button
+                        data-nexus-tour="compare-ai-mode-button"
                         className={normalizedAiInsightMode === "extreme" ? "btn" : "btnGhost"}
                         type="button"
                         onClick={(e) => {
@@ -25146,6 +25207,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         {normalizedAiInsightMode === "extreme" ? "Extreme ON" : "Standard AI"}
                       </button>
                     <button
+                      data-nexus-tour="compare-ai-insight-button"
                       className="btnGhost"
                       type="button"
                       onClick={(e) => {
@@ -25164,15 +25226,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <div style={{ display: "grid", gap: 8 }}>
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8 }}>
                         <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
-                          <div className="muted tiny">AI Verdict</div>
+                          <div className="muted tiny" data-nexus-tour="compare-ai-verdict">AI Verdict</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.setup}</div>
                         </div>
                         <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
-                          <div className="muted tiny">Confidence</div>
+                          <div className="muted tiny" data-nexus-tour="compare-ai-confidence">Confidence</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.confidenceLabel} ({aiExplainData.confidence}/10)</div>
                         </div>
                         <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 10px", background: "rgba(255,255,255,0.03)" }}>
-                          <div className="muted tiny">Risk</div>
+                          <div className="muted tiny" data-nexus-tour="compare-ai-risk">Risk</div>
                           <div style={{ fontWeight: 900, marginTop: 4 }}>{aiExplainData.risk}</div>
                         </div>
                         <div style={{
@@ -25218,7 +25280,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const hasSections = Object.values(aiSections).some(Boolean);
                         return (
                           <div style={{ display: "grid", gap: 8, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 14, padding: "12px", background: "rgba(255,255,255,0.02)" }}>
-                            <div className="label" style={{ marginBottom: 0 }}>AI Conclusion</div>
+                            <div className="label" data-nexus-tour="compare-ai-conclusion" style={{ marginBottom: 0 }}>AI Conclusion</div>
                             {hasSections ? (
                               <div style={{ display: "grid", gap: 8 }}>
                                 <AiInsightCard title="Market Structure" value={aiSections.market_structure} tone="structure" />

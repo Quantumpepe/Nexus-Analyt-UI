@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD561-SIGNAL-DATA-AUDIT";
+const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD562-SIGNAL-SAFETY-TRACE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -32993,12 +32993,25 @@ export default function App() {
                       <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 9 }}>
                         <b>Signalübergabe (Strategist / NKR / Trader)</b>
                         {(signalDataAudit.signalPipeline || []).map((stage, i) => <div key={i} style={{ marginTop: 6 }}>
-                          <b>{stage.stage}</b> · <span style={{ color: "#ffd088" }}>Noch nicht Ende-zu-Ende nachgewiesen</span>
+                          <b>{stage.stage}</b> · <span style={{ color: stage.state === "OBSERVED" ? "#8be1b2" : "#ffd088" }}>
+                            {stage.state === "OBSERVED" ? `Verarbeitung beobachtet (${stage.ageSec ?? "?"}s alt)` :
+                             stage.state === "OBSERVED_OLD" ? "Letzte Beobachtung veraltet" : "Noch keine Laufzeitbeobachtung"}
+                          </span>
+                          {stage.sample ? <div className="muted tiny">Coin: {stage.sample.symbol || "—"} · Signalfelder: {stage.sample.signalCount ?? 0} · Status: {stage.sample.decision || "—"}</div> : null}
                           <div className="muted tiny">{stage.note}</div>
                         </div>)}
                         <div className="muted tiny" style={{ marginTop: 7 }}>
                           Futures-Coverage im Cache: {signalDataAudit.futuresCoverage?.available ?? 0} / {signalDataAudit.futuresCoverage?.observed ?? 0} Coins.
                           Datenalter und vorhandene Quellen allein beweisen keinen tatsächlich verarbeiteten Trade-Signalvektor.
+                        </div>
+                        <div style={{ marginTop: 8, fontSize: 11 }}>
+                          <b>Letzte beobachtete Signalverarbeitung (nur dieser Backend-Prozess)</b>
+                          {(signalDataAudit.signalTrace || []).length ? <div style={{ maxHeight: 130, overflowY: "auto", marginTop: 5 }}>
+                            {(signalDataAudit.signalTrace || []).slice(0, 12).map((trace, i) => <div key={`${trace.ts}-${trace.stage}-${i}`} style={{ borderTop: "1px solid rgba(255,255,255,.1)", padding: "4px 0" }}>
+                              {new Date((trace.ts || 0) * 1000).toLocaleTimeString()} · {trace.stage} · {trace.symbol || "—"} · {trace.signalCount ?? 0} Felder · {trace.decision || "—"}
+                            </div>)}
+                          </div> : <div className="muted tiny">Noch keine Signalentscheidung in diesem Prozess beobachtet. Keine Aussage über andere Worker.</div>}
+                          <div className="muted tiny" style={{ marginTop: 5 }}>GoPlus neue Trades: {signalDataAudit.goPlusLivePolicy ? "nicht verifizierte ERC20 blockieren" : "unbekannt"} · Whale-Cache: {signalDataAudit.whaleCacheTtlSec ?? "?"}s</div>
                         </div>
                       </div>
                     </>}

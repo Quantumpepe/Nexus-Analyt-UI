@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD560-WATCHLIST-ADD-OPAQUE";
+const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD561-SIGNAL-DATA-AUDIT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -31587,6 +31587,9 @@ export default function App() {
     } catch { return null; }
   });
   const [systemInfoRuntimeLoading, setSystemInfoRuntimeLoading] = useState(false);
+  const [signalDataAudit, setSignalDataAudit] = useState(null);
+  const [signalDataAuditBusy, setSignalDataAuditBusy] = useState(false);
+  const [signalDataAuditError, setSignalDataAuditError] = useState("");
   const [engineDiagnostics, setEngineDiagnostics] = useState(null);
   const [engineDiagnosticsBusy, setEngineDiagnosticsBusy] = useState("");
   const [engineDiagnosticsError, setEngineDiagnosticsError] = useState("");
@@ -31768,6 +31771,32 @@ export default function App() {
   const footerWallet = resolveWalletAddress(typeof window !== "undefined" ? localStorage.getItem("nexus_wallet") : "");
   const canOpenSystemInfo = String(footerWallet || "").toLowerCase() === DEV_SYSTEM_INFO_WALLET;
 
+
+  // BUILD561: owner-only, read-only signal/data audit refresh.
+  const _refreshSignalDataAudit = async () => {
+    if (!canOpenSystemInfo || signalDataAuditBusy) return;
+    setSignalDataAuditBusy(true);
+    setSignalDataAuditError("");
+    try {
+      const bearer = String(localStorage.getItem("nexus_token") || localStorage.getItem("nexus_privy_jwt") || "").trim();
+      const headers = { Accept: "application/json" };
+      if (bearer) headers.Authorization = `Bearer ${bearer}`;
+      if (footerWallet) headers["X-Wallet-Address"] = footerWallet;
+      const qs = footerWallet ? `?wallet=${encodeURIComponent(footerWallet)}&wallet_address=${encodeURIComponent(footerWallet)}` : "";
+      const res = await fetch(`${API_BASE}/api/nexus/system-info/signal-data-quality${qs}`, {
+        cache: "no-store", credentials: "include", headers,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const payload = await res.json();
+      if (payload?.status !== "ok") throw new Error(payload?.error || "Invalid audit payload");
+      setSignalDataAudit(payload);
+    } catch (e) {
+      setSignalDataAuditError(`Audit konnte nicht geladen werden: ${String(e?.message || e)}`);
+    } finally {
+      setSignalDataAuditBusy(false);
+    }
+  };
+
   useEffect(() => {
     // Light worker heartbeat must keep running even when System Info is closed.
     // Otherwise the panel looks like the engines only live while it is open.
@@ -31858,6 +31887,7 @@ export default function App() {
           loadJson(`/api/nexus/system-info-owner-panel${walletParam}`),
           loadJson(`/api/nexus/shadow-readiness-check${walletParam}`),
           loadJson(`/api/nexus/live-executor/status${walletParam}`),
+          loadJson(`/api/nexus/system-info/signal-data-quality${walletParam}`, 6000),
         ]);
         if (!alive) return;
         const valueAt = (i) => results[i]?.status === "fulfilled" ? results[i].value : null;
@@ -31865,6 +31895,13 @@ export default function App() {
         const statusPanel = valueAt(1);
         const readiness = valueAt(2);
         const liveExecutorStatus = valueAt(3);
+        const signalAuditPayload = valueAt(4);
+        if (signalAuditPayload?.status === "ok") {
+          setSignalDataAudit(signalAuditPayload);
+          setSignalDataAuditError("");
+        } else {
+          setSignalDataAuditError("Diagnose-Endpunkt nicht erreichbar (Backend-Build und Berechtigungen prüfen).");
+        }
         if (health) setShadowHealth(health);
         if (statusPanel || liveExecutorStatus || engineRuntimeFast) {
           setSystemInfoStatus((prev) => stripGateObjects({
@@ -32881,6 +32918,92 @@ export default function App() {
                   </div>
                 </details>
 
+
+
+                {/* BUILD561: READ-ONLY, PROCESS-LOCAL DATA QUALITY AUDIT */}
+                <details style={{
+                  gridColumn: "span 12", border: "1px solid rgba(102,210,255,0.35)",
+                  borderRadius: 10, padding: 11, background: "rgba(6,47,52,0.32)",
+                }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900, color: "#b6eaff" }}>
+                    Signal- & Datenqualität · API-Quellen / Marktpreise / Signalkette
+                    {signalDataAudit?.priceSummary?.STALE ? ` · ⚠ ${signalDataAudit.priceSummary.STALE} veraltete Preise` : ""}
+                  </summary>
+                  <div style={{ marginTop: 9, display: "grid", gap: 10, fontSize: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <div>
+                        <b>Nur echte Backend-Cache-Daten</b>
+                        <div className="muted tiny">Kein Trading, keine Vault-Aktion, keine zusätzlichen Provider-Abfragen. Status gilt nur für den antwortenden Backend-Prozess.</div>
+                      </div>
+                      <button type="button" className="miniBtn" disabled={signalDataAuditBusy} onClick={_refreshSignalDataAudit}>
+                        {signalDataAuditBusy ? "Lade ..." : "Diagnose aktualisieren"}
+                      </button>
+                    </div>
+                    {signalDataAuditError ? <div style={{ color: "#ffc28a" }}>⚠ {signalDataAuditError}</div> : null}
+                    {!signalDataAudit ? (
+                      <div className="muted">Noch keine Diagnosedaten verfügbar. Bitte auf „Diagnose aktualisieren“ klicken. Unbekannt bedeutet nicht READY.</div>
+                    ) : <>
+                      <div style={{ fontSize: 11, opacity: .8 }}>
+                        Erfasst: {signalDataAudit.observedAt ? new Date(Number(signalDataAudit.observedAt) * 1000).toLocaleString() : "unbekannt"}
+                        {` · Preis-Snapshots: ${signalDataAudit?.priceSummary?.observed ?? 0} · frisch: ${signalDataAudit?.priceSummary?.FRESH ?? 0} · alt: ${signalDataAudit?.priceSummary?.STALE ?? 0} · ohne Zeitstempel: ${signalDataAudit?.priceSummary?.UNKNOWN_AGE ?? 0}`}
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(205px, 1fr))", gap: 8 }}>
+                        {(signalDataAudit.sources || []).map((s) => {
+                          const good = s?.status === "CACHED_DATA";
+                          const warn = ["STALE", "COOLDOWN"].includes(s?.status);
+                          const col = good ? "#83e5bd" : warn ? "#ffd088" : "#cad8df";
+                          return <div key={s?.name} style={{ padding: 9, borderRadius: 8, border: `1px solid ${good ? "rgba(100,255,175,.25)" : warn ? "rgba(255,190,100,.4)" : "rgba(255,255,255,.16)"}` }}>
+                            <b>{s?.name || "?"}</b>
+                            <div style={{ marginTop: 4, color: col, fontWeight: 800 }}>
+                              {s?.status === "CACHED_DATA" ? "Cache-Daten beobachtet" : s?.status === "DISABLED" ? "Nicht konfiguriert" : s?.status === "UNVERIFIED" ? "Keine Daten beobachtet" : s?.status === "STALE" ? "Daten veraltet" : s?.status === "COOLDOWN" ? "API-Limit / Pause" : "Nicht geprüft"}
+                            </div>
+                            <div className="muted tiny" style={{ marginTop: 4 }}>
+                              {s?.lastSuccessTs ? `Letzte Cache-Daten: ${new Date(s.lastSuccessTs * 1000).toLocaleString()}` : "Letzter erfolgreicher Abruf: unbekannt"}
+                              {s?.ageSec != null ? ` · ${s.ageSec}s alt` : ""}
+                            </div>
+                            <div className="muted tiny">{s?.detail || "—"}</div>
+                          </div>;
+                        })}
+                      </div>
+                      {Array.isArray(signalDataAudit.warnings) && signalDataAudit.warnings.length ? (
+                        <div style={{ border: "1px solid rgba(255,185,80,.38)", padding: 9, borderRadius: 8 }}>
+                          <b style={{ color: "#ffd088" }}>Hinweise / offene Risiken</b>
+                          {signalDataAudit.warnings.map((w, i) => <div key={i} style={{ marginTop: 4 }}>⚠ {w}</div>)}
+                        </div>
+                      ) : <div className="muted tiny">Keine Warnungen im zuletzt beobachteten Cache. Dies ist kein Beweis vollständiger Signalabdeckung.</div>}
+                      <div>
+                        <b>Marktdaten je Coin (nur zuletzt beobachtete, höchstens 50)</b>
+                        <div style={{ maxHeight: 225, overflowY: "auto", border: "1px solid rgba(255,255,255,.13)", borderRadius: 8, marginTop: 5 }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                            <thead><tr style={{ background: "#0b2929", textAlign: "left", position: "sticky", top: 0 }}>
+                              { ["Coin", "Quelle", "Priorität", "Alter", "Grenze", "Bewertung"].map(h => <th key={h} style={{ padding: 7 }}>{h}</th>) }
+                            </tr></thead>
+                            <tbody>{(signalDataAudit.prices || []).map((p) => <tr key={p.symbol} style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                              <td style={{ padding: 7 }}><b>{p.symbol}</b></td><td style={{ padding: 7 }}>{p.source}</td>
+                              <td style={{ padding: 7 }}>{p.tier}</td><td style={{ padding: 7 }}>{p.ageSec == null ? "?" : `${p.ageSec}s`}</td>
+                              <td style={{ padding: 7 }}>{p.ttlSec == null ? "?" : `${p.ttlSec}s`}</td>
+                              <td style={{ padding: 7, fontWeight: 800, color: p.state === "FRESH" ? "#8be1b2" : "#ffd088" }}>
+                                {p.state === "FRESH" ? "Frisch" : p.state === "STALE" ? "Veraltet" : p.state === "MISSING" ? "Kein Preis" : p.state === "UNKNOWN_AGE" ? "Zeit unbekannt" : "Fehler"}
+                              </td>
+                            </tr>)}</tbody>
+                          </table>
+                          {!signalDataAudit.prices?.length ? <div style={{ padding: 8 }}>Keine beobachteten Preise in diesem Backend-Prozess.</div> : null}
+                        </div>
+                      </div>
+                      <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 9 }}>
+                        <b>Signalübergabe (Strategist / NKR / Trader)</b>
+                        {(signalDataAudit.signalPipeline || []).map((stage, i) => <div key={i} style={{ marginTop: 6 }}>
+                          <b>{stage.stage}</b> · <span style={{ color: "#ffd088" }}>Noch nicht Ende-zu-Ende nachgewiesen</span>
+                          <div className="muted tiny">{stage.note}</div>
+                        </div>)}
+                        <div className="muted tiny" style={{ marginTop: 7 }}>
+                          Futures-Coverage im Cache: {signalDataAudit.futuresCoverage?.available ?? 0} / {signalDataAudit.futuresCoverage?.observed ?? 0} Coins.
+                          Datenalter und vorhandene Quellen allein beweisen keinen tatsächlich verarbeiteten Trade-Signalvektor.
+                        </div>
+                      </div>
+                    </>}
+                  </div>
+                </details>
 
                 <details style={{
                   gridColumn: "span 12",

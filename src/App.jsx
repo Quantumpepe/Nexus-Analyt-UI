@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD562-SIGNAL-SAFETY-TRACE";
+const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD564-GLOBAL-NKR-AUDIT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -31583,7 +31583,7 @@ export default function App() {
     try {
       const raw = localStorage.getItem("nexus_engine_runtime_last");
       const parsed = raw ? JSON.parse(raw) : null;
-      return parsed ? { engineRuntimeStatus: parsed } : null;
+      return parsed?.scope === "platform_global" ? { engineRuntimeStatus: parsed } : null;
     } catch { return null; }
   });
   const [systemInfoRuntimeLoading, setSystemInfoRuntimeLoading] = useState(false);
@@ -31809,12 +31809,14 @@ export default function App() {
         const headers = { Accept: "application/json" };
         if (bearer) headers.Authorization = `Bearer ${bearer}`;
         if (footerWallet) headers["X-Wallet-Address"] = footerWallet;
-        const res = await fetch(`${API_BASE}/api/nexus/engine-runtime/status${walletParam}`, { cache: "no-store", credentials: "include", headers });
+        // Preserve existing global worker heartbeat/startup behavior without tying UI data to this wallet.
+        try { await fetch(`${API_BASE}/api/nexus/engine-runtime/status${walletParam}`, { cache: "no-store", credentials: "include", headers }); } catch (_) {}
+        const res = await fetch(`${API_BASE}/api/nexus/system-info/global-overview${walletParam}`, { cache: "no-store", credentials: "include", headers });
         if (!alive || !res.ok) return;
         const data = await res.json();
         if (!data || typeof data !== "object") return;
         const engines = data.engines || {};
-        const hollow = ["NKR", "GRID", "TRADER"].every((name) => {
+        const hollow = data?.scope !== "platform_global" && ["NKR", "GRID", "TRADER"].every((name) => {
           const e = engines[name] || {};
           return !(e.worker_thread_alive || Number(e.worker_heartbeat_ts || 0) > 0 || Number(e.last_tick_ts || 0) > 0 || String(e.status || "").toLowerCase() === "running" || (Array.isArray(e.core_vault_sessions) && e.core_vault_sessions.length));
         });
@@ -31857,6 +31859,7 @@ export default function App() {
     };
 
     const isHollowEngineRuntime = (payload) => {
+      if (payload?.scope === "platform_global") return false;
       const engines = payload?.engines || payload;
       if (!engines || typeof engines !== "object") return true;
       const names = ["NKR", "GRID", "TRADER"];
@@ -31875,7 +31878,7 @@ export default function App() {
       ownerSystemInfoFlightRef.current = true;
       try {
         setSystemInfoRuntimeLoading(true);
-        const engineRuntimeFast = await loadJson(`/api/nexus/engine-runtime/status${walletParam}`, 6000);
+        const engineRuntimeFast = await loadJson(`/api/nexus/system-info/global-overview${walletParam}`, 6000);
         setSystemInfoRuntimeLoading(false);
         if (!alive) return;
         if (engineRuntimeFast && !isHollowEngineRuntime(engineRuntimeFast)) {
@@ -32037,12 +32040,12 @@ export default function App() {
     setNkrSessionAuditBusy(true);
     setNkrSessionAuditError("");
     try {
-      const q = new URLSearchParams({ wallet: footerWallet, wallet_address: footerWallet });
+      // Global owner audit: owner auth stays in headers; do not filter by wallet.
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 20000);
       let res;
       try {
-        res = await fetch(`${API_BASE}/api/nexus/system-info/nkr-session-audit?${q.toString()}`, {
+        res = await fetch(`${API_BASE}/api/nexus/system-info/nkr-session-audit`, {
           method: "GET",
           cache: "no-store",
           credentials: "include",
@@ -32899,6 +32902,41 @@ export default function App() {
                   Exit: {exitMode}
                 </div>
 
+                {/* BUILD563: All-wallet/chain platform aggregates, never a personal account dashboard. */}
+                <details open style={{ gridColumn: "span 12", padding: 11, borderRadius: 10,
+                  background: "rgba(9,53,46,.42)", border: "1px solid rgba(105,240,178,.30)" }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900, color: "#9bf9d0" }}>
+                    Globale Plattformübersicht · Alle Nutzer / Chains / Worker
+                  </summary>
+                  {(() => {
+                    const c = systemInfoStatus?.engineRuntimeStatus?.sessionCounts;
+                    if (!c || c?.status !== "ok") return <div className="muted" style={{ paddingTop: 8 }}>
+                      Globale Sitzungszahlen nicht verfügbar. Keine Nullwerte als bestätigten Status interpretieren.
+                    </div>;
+                    return <div style={{ marginTop: 9, display: "grid", gap: 9 }}>
+                      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontWeight: 700 }}>
+                        <span>Aktiv: {c.activeSessions ?? "?"}</span>
+                        <span>Pausiert: {c.pausedSessions ?? "?"}</span>
+                        <span>Beendigung: {c.closingSessions ?? "?"}</span>
+                        <span>Fehler: {c.errorSessions ?? "?"}</span>
+                        <span>Wallets mit offener Session: {c.affectedWallets ?? "?"}</span>
+                        <span>Chains: {Array.isArray(c.chains) && c.chains.length ? c.chains.join(", ") : "Keine registriert"}</span>
+                      </div>
+                      <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+                        {["NKR", "GRID", "TRADER"].map(n => {
+                          const x = c.perEngine?.[n] || {};
+                          return <div key={n} style={{ border: "1px solid rgba(255,255,255,.13)", borderRadius: 8, padding: 8 }}>
+                            <b>{n}</b>
+                            <div style={{ fontSize: 12 }}>Aktiv: {x.activeSessions ?? "?"} · Pausiert: {x.pausedSessions ?? "?"} · Beendigung: {x.closingSessions ?? "?"}</div>
+                            <div className="muted tiny">Nutzer-Wallets: {x.wallets ?? "?"} · Chains: {x.chains?.length ? x.chains.join(", ") : "—"}</div>
+                          </div>;
+                        })}
+                      </div>
+                      <div className="muted tiny">Globale Werte stammen aus den registrierten Sessions der gemeinsamen Nexus-Datenbank, nicht aus einem vollständigen On-chain-Scan. Worker-Status RUNNING bedeutet nicht, dass ein Nutzer gerade handelt. Keine fremden Wallet-Adressen werden angezeigt.</div>
+                    </div>;
+                  })()}
+                </details>
+
                 <details style={{
                   gridColumn: "span 4",
                   border: `1px solid ${shadowStalled ? "rgba(255,80,80,0.55)" : "rgba(68,255,180,0.22)"}`,
@@ -32932,14 +32970,19 @@ export default function App() {
                   <div style={{ marginTop: 9, display: "grid", gap: 10, fontSize: 12 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                       <div>
-                        <b>Nur echte Backend-Cache-Daten</b>
-                        <div className="muted tiny">Kein Trading, keine Vault-Aktion, keine zusätzlichen Provider-Abfragen. Status gilt nur für den antwortenden Backend-Prozess.</div>
+                        <b>Globale Signalspur · echte Backend-Daten</b>
+                        <div className="muted tiny">Signalbewertungen: alle Worker in der gemeinsamen Datenbank. API-Quellen und Preis-Caches: lokale Stichprobe des antwortenden Workers. Kein Trading und keine zusätzlichen Provider-Abfragen.</div>
                       </div>
                       <button type="button" className="miniBtn" disabled={signalDataAuditBusy} onClick={_refreshSignalDataAudit}>
                         {signalDataAuditBusy ? "Lade ..." : "Diagnose aktualisieren"}
                       </button>
                     </div>
                     {signalDataAuditError ? <div style={{ color: "#ffc28a" }}>⚠ {signalDataAuditError}</div> : null}
+                    {signalDataAudit && signalDataAudit.traceScope !== "shared_db_all_workers" ? (
+                      <div style={{ color: "#ffd088", border: "1px solid rgba(255,185,80,.38)", borderRadius: 8, padding: 8 }}>
+                        ⚠ Globale Signalspur derzeit nicht verfügbar. Die angezeigten Bewertungen können nur aus dem antwortenden Backend-Worker stammen.
+                      </div>
+                    ) : null}
                     {!signalDataAudit ? (
                       <div className="muted">Noch keine Diagnosedaten verfügbar. Bitte auf „Diagnose aktualisieren“ klicken. Unbekannt bedeutet nicht READY.</div>
                     ) : <>
@@ -32972,7 +33015,7 @@ export default function App() {
                         </div>
                       ) : <div className="muted tiny">Keine Warnungen im zuletzt beobachteten Cache. Dies ist kein Beweis vollständiger Signalabdeckung.</div>}
                       <div>
-                        <b>Marktdaten je Coin (nur zuletzt beobachtete, höchstens 50)</b>
+                        <b>Lokale Marktpreis-Stichprobe je Coin (höchstens 50)</b>
                         <div style={{ maxHeight: 225, overflowY: "auto", border: "1px solid rgba(255,255,255,.13)", borderRadius: 8, marginTop: 5 }}>
                           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                             <thead><tr style={{ background: "#0b2929", textAlign: "left", position: "sticky", top: 0 }}>
@@ -32991,7 +33034,7 @@ export default function App() {
                         </div>
                       </div>
                       <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 9 }}>
-                        <b>Signalübergabe (Strategist / NKR / Trader)</b>
+                        <b>Globale Signalübergabe (Strategist / NKR / Trader)</b>
                         {(signalDataAudit.signalPipeline || []).map((stage, i) => <div key={i} style={{ marginTop: 6 }}>
                           <b>{stage.stage}</b> · <span style={{ color: stage.state === "OBSERVED" ? "#8be1b2" : "#ffd088" }}>
                             {stage.state === "OBSERVED" ? `Verarbeitung beobachtet (${stage.ageSec ?? "?"}s alt)` :
@@ -33002,15 +33045,15 @@ export default function App() {
                         </div>)}
                         <div className="muted tiny" style={{ marginTop: 7 }}>
                           Futures-Coverage im Cache: {signalDataAudit.futuresCoverage?.available ?? 0} / {signalDataAudit.futuresCoverage?.observed ?? 0} Coins.
-                          Datenalter und vorhandene Quellen allein beweisen keinen tatsächlich verarbeiteten Trade-Signalvektor.
+                          Lokale Kurs-Caches beweisen keine globale Provider-Abdeckung. Signalbewertungen sind kein Nachweis eines ausgeführten Trades.
                         </div>
                         <div style={{ marginTop: 8, fontSize: 11 }}>
-                          <b>Letzte beobachtete Signalverarbeitung (nur dieser Backend-Prozess)</b>
+                          <b>Letzte Signalverarbeitung (gemeinsame Datenbank, alle Worker)</b>
                           {(signalDataAudit.signalTrace || []).length ? <div style={{ maxHeight: 130, overflowY: "auto", marginTop: 5 }}>
                             {(signalDataAudit.signalTrace || []).slice(0, 12).map((trace, i) => <div key={`${trace.ts}-${trace.stage}-${i}`} style={{ borderTop: "1px solid rgba(255,255,255,.1)", padding: "4px 0" }}>
                               {new Date((trace.ts || 0) * 1000).toLocaleTimeString()} · {trace.stage} · {trace.symbol || "—"} · {trace.signalCount ?? 0} Felder · {trace.decision || "—"}
                             </div>)}
-                          </div> : <div className="muted tiny">Noch keine Signalentscheidung in diesem Prozess beobachtet. Keine Aussage über andere Worker.</div>}
+                          </div> : <div className="muted tiny">Noch keine Signalentscheidung in der gemeinsamen Datenbank nachgewiesen.</div>}
                           <div className="muted tiny" style={{ marginTop: 5 }}>GoPlus neue Trades: {signalDataAudit.goPlusLivePolicy ? "nicht verifizierte ERC20 blockieren" : "unbekannt"} · Whale-Cache: {signalDataAudit.whaleCacheTtlSec ?? "?"}s</div>
                         </div>
                       </div>
@@ -33025,7 +33068,7 @@ export default function App() {
                   padding: 10,
                   background: "rgba(64,196,255,0.045)",
                 }} open>
-                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Live Engine Runtime Health · NKR / Grid / Trader</summary>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Globale Engine Runtime Health · NKR / Grid / Trader</summary>
                   <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 8 }}>
                     {["NKR", "GRID", "TRADER"].map((engineName) => {
                       const e = systemInfoStatus?.engineRuntimeStatus?.engines?.[engineName] || {};
@@ -33042,6 +33085,7 @@ export default function App() {
                         <div style={{ position: "absolute", top: 7, right: 8, fontSize: 10, opacity: .7 }}>Diagnose ↗</div>
                         <div style={{ fontWeight: 950, marginBottom: 5 }}>{engineName} · {String(e?.status || "idle").toUpperCase()} {(e?.status === "running" || e?.worker_thread_alive || Number(e?.worker_heartbeat_ts || 0) > 0) ? "🟢" : (systemInfoRuntimeLoading ? "⏳" : "⚪")}</div>
                         <div style={{ fontSize: 12, lineHeight: 1.55 }}>
+                          <div style={{ color: "#9bf9d0", fontWeight: 700, marginBottom: 4 }}>Registrierte Sessions (alle Nutzer): {e?.registeredSessions?.activeSessions ?? "?"} aktiv · {e?.registeredSessions?.pausedSessions ?? "?"} pausiert</div>
                           {engineName === "NKR" && <>
                             Worker Thread: {e?.worker_thread_alive ? "ALIVE 🟢" : (systemInfoRuntimeLoading && !e?.worker_heartbeat_ts ? "CHECKING …" : (e?.worker_heartbeat_ts ? "ALIVE 🟢 · shared" : "DEAD 🔴"))}{e?.worker_thread_name ? ` · ${e.worker_thread_name}` : ""}<br />
                             Worker Heartbeat: {e?.worker_heartbeat_ts ? new Date(Number(e.worker_heartbeat_ts) * 1000).toLocaleString() : "not seen"}<br />
@@ -33190,47 +33234,54 @@ export default function App() {
                   </details>
                 )}
 
+                {/* BUILD564: Global NKR audit. Owner wallet is used for access only. */}
                 <details style={{
-                  gridColumn: "span 12",
-                  border: "1px solid rgba(64,196,255,0.28)",
-                  borderRadius: 10,
-                  padding: 10,
-                  background: "rgba(64,196,255,0.045)",
+                  gridColumn: "span 12", border: "1px solid rgba(64,196,255,0.28)",
+                  borderRadius: 10, padding: 10, background: "rgba(64,196,255,0.045)",
                 }}>
-                  <summary style={{ cursor: "pointer", fontWeight: 950 }}>NKR Session & Strategist Audit · {nkrSessionAudit?.status ? String(nkrSessionAudit.status).toUpperCase() : "NOT RUN"}</summary>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, marginBottom: 8 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 950 }}>
+                    NKR & Strategist Audit · GLOBAL · {nkrSessionAudit?.status ? String(nkrSessionAudit.status).toUpperCase() : "NICHT GELADEN"}
+                  </summary>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8, marginBottom: 8 }}>
                     <button type="button" className="miniBtn" disabled={nkrSessionAuditBusy} onClick={(ev) => { ev.stopPropagation(); _loadNkrSessionAudit(); }}>
-                      {nkrSessionAuditBusy ? "Checking…" : "Run authenticated audit"}
+                      {nkrSessionAuditBusy ? "Prüfung läuft…" : "Globale NKR-Prüfung aktualisieren"}
                     </button>
-                    <span className="muted tiny">Read-only. Uses the same authenticated Nexus session as System Info.</span>
+                    <span className="muted tiny">Alle Nutzer und Chains in der gemeinsamen Datenbank · nur lesend · keine Wallet-Daten anderer Nutzer.</span>
                   </div>
                   {nkrSessionAuditError ? <div style={{ color: "#ffb4b4", fontWeight: 850, marginBottom: 8 }}>{nkrSessionAuditError}</div> : null}
-                  {nkrSessionAudit ? <div style={{ display: "grid", gap: 8 }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 7 }}>
-                      <div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: 8 }}><b>Sessions</b><br />{nkrSessionAudit.sessionCount ?? 0}</div>
-                      <div style={{ border: `1px solid ${nkrSessionAudit?.modeIsolation?.ok ? "rgba(80,255,180,.30)" : "rgba(255,90,90,.40)"}`, borderRadius: 8, padding: 8 }}><b>Mode isolation</b><br />{nkrSessionAudit?.modeIsolation?.ok ? "READY" : "BLOCKED"}</div>
-                      <div style={{ border: `1px solid ${nkrSessionAudit?.strategistSignals?.complete ? "rgba(80,255,180,.30)" : "rgba(255,190,90,.40)"}`, borderRadius: 8, padding: 8 }}><b>Strategist signals</b><br />{nkrSessionAudit?.strategistSignals?.complete ? "COMPLETE" : "INCOMPLETE"}</div>
-                      <div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: 8 }}><b>Transactions sent</b><br />{nkrSessionAudit.transactionsSent ?? 0}</div>
+                  {nkrSessionAudit?.scope === "global_shared_db_all_wallets" ? <div style={{ display: "grid", gap: 9 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(175px, 1fr))", gap: 7 }}>
+                      <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 8 }}><b>Globale NKR-Sessions</b><br />{nkrSessionAudit.sessionCount ?? "?"}<div className="muted tiny">{nkrSessionAudit.walletsWithSessions ?? "?"} Wallets mit registrierter Session</div></div>
+                      <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 8 }}><b>Aktiv / Pausiert</b><br />{nkrSessionAudit.sessionStates?.active ?? "?"} / {nkrSessionAudit.sessionStates?.paused ?? "?"}<div className="muted tiny">Beendigung: {nkrSessionAudit.sessionStates?.closing ?? "?"} · Fehler: {nkrSessionAudit.sessionStates?.error ?? "?"}</div></div>
+                      <div style={{ border: "1px solid rgba(255,190,90,.35)", borderRadius: 8, padding: 8 }}><b>Strategist-Signalspur</b><br />{nkrSessionAudit.strategistSignals?.status === "PARTIALLY_OBSERVED" ? "Bewertungen beobachtet" : "Nicht nachgewiesen"}<div className="muted tiny">Kein vollständiger End-to-End-Handelsnachweis</div></div>
+                      <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 8 }}><b>Erfasste erfolgreiche Operationen</b><br />{nkrSessionAudit.recordedOperations?.succeededWithTxHash ?? "?"}<div className="muted tiny">Tx-Hash in DB · kein On-chain-Receipt-Test</div></div>
                     </div>
-                    {(nkrSessionAudit.sessions || []).map((row, idx) => <details key={`${row?.chainId || "?"}:${row?.sessionId || idx}`} open style={{ border: `1px solid ${row?.locked ? "rgba(80,255,180,.24)" : "rgba(255,90,90,.35)"}`, borderRadius: 8, padding: "6px 8px" }}>
-                      <summary style={{ cursor: "pointer", fontWeight: 900 }}>{row?.chain || row?.chainId} · Session #{row?.sessionId} · {row?.mode || "?"} · {row?.locked ? "LOCKED" : "NOT LOCKED"}</summary>
-                      <div style={{ marginTop: 6, fontSize: 12, lineHeight: 1.55 }}>
-                        Status: {row?.status || "—"}<br />
-                        Config key: {row?.sessionConfigKey || "—"}<br />
-                        Observation: {row?.observationWindow ?? "—"}<br />
-                        Profit mode: {row?.profitMode || "—"}<br />
-                        Period: {row?.periodDays ?? "—"} days<br />
-                        Max assets: {row?.maxActiveAssets ?? "—"}<br />
-                        Max capital/asset: {row?.maxCapitalPerAssetPct ?? "—"}%<br />
-                        Budget: {row?.budgetUsd ?? "—"}<br />
-                        Entry threshold: {row?.modeThreshold ?? "—"}
-                      </div>
-                    </details>)}
-                    <details style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: "6px 8px" }}>
-                      <summary style={{ cursor: "pointer", fontWeight: 900 }}>Signal coverage and entry pipeline</summary>
-                      <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 10, margin: "6px 0 0" }}>{JSON.stringify({ modeIsolation: nkrSessionAudit.modeIsolation, strategistSignals: nkrSessionAudit.strategistSignals, entryPipeline: nkrSessionAudit.entryPipeline }, null, 2)}</pre>
+                    <div style={{ padding: 8, border: "1px solid rgba(130,212,220,.20)", borderRadius: 8 }}>
+                      <b>Mode-Isolation</b>: Registry-Schlüssel {nkrSessionAudit.modeIsolation?.registryEnforced ? "eindeutig" : "nicht geprüft"}. <span className="muted tiny">Die individuellen Einstellungen aller Nutzer wurden nicht ausgelesen.</span>
+                    </div>
+                    <div style={{ padding: 8, border: "1px solid rgba(130,212,220,.20)", borderRadius: 8 }}>
+                      <b>NKR-Sessions pro Chain</b>
+                      {Array.isArray(nkrSessionAudit.chains) && nkrSessionAudit.chains.length ?
+                        nkrSessionAudit.chains.map((x) => <div key={x.chainId} style={{ marginTop: 5, fontSize: 12 }}>
+                          <b>{x.chain || x.chainId}</b> · aktiv {x.active ?? 0} · pausiert {x.paused ?? 0} · wird beendet {x.closing ?? 0} · Fehler {x.error ?? 0}
+                        </div>) : <div className="muted tiny" style={{ marginTop: 6 }}>Keine registrierten NKR-Sessions auf ETH, BNB oder POL.</div>}
+                    </div>
+                    <details style={{ border: "1px solid rgba(255,255,255,.13)", borderRadius: 8, padding: "7px 8px" }}>
+                      <summary style={{ cursor: "pointer", fontWeight: 900 }}>Signalverarbeitung aus allen Workern</summary>
+                      {(nkrSessionAudit.strategistSignals?.stages || []).map((s, i) => <div key={`${s.stage}-${i}`} style={{ marginTop: 7, fontSize: 12 }}>
+                        <b>{s.label}</b> · {s.status === "RECENT" ? "Kürzlich beobachtet" : s.status === "OLD" ? "Ältere Bewertung" : "Keine Bewertung beobachtet"}
+                        {s.lastTs ? ` · zuletzt ${new Date(Number(s.lastTs) * 1000).toLocaleString()}` : ""}
+                        {s.signalCount != null ? ` · ${s.signalCount} Signalfelder` : ""}
+                      </div>)}
+                      <div className="muted tiny" style={{ marginTop: 8 }}>Beobachtete Bewertung ist kein Nachweis eines ausgeführten Trades oder vollständiger Signalabdeckung.</div>
                     </details>
-                  </div> : <div className="muted tiny">Run the audit to verify that every running session keeps its own mode and receives the full Strategist signal set.</div>}
+                    <details style={{ border: "1px solid rgba(255,255,255,.13)", borderRadius: 8, padding: "7px 8px" }}>
+                      <summary style={{ cursor: "pointer", fontWeight: 900 }}>Operationen / Nachweisgrenzen</summary>
+                      {Object.entries(nkrSessionAudit.recordedOperations?.byType || {}).map(([type, count]) => <div key={type} style={{ fontSize: 12, marginTop: 5 }}>{type}: {count}</div>)}
+                      <div className="muted tiny" style={{ marginTop: 7 }}>Nur in der gemeinsamen Datenbank als erfolgreich erfasste Operationen mit Tx-Hash. Das Audit selbst sendet keine Transaktionen. Weder sämtliche Trades noch alle On-chain-Receipts werden hier geprüft.</div>
+                      <div className="muted tiny" style={{ marginTop: 5 }}>{nkrSessionAudit.limitations || ""}</div>
+                    </details>
+                  </div> : nkrSessionAudit ? <div style={{ color: "#ffb4b4" }}>Globale Daten nicht verfügbar oder veraltetes Backend. Bitte Backend 525 prüfen.</div> : <div className="muted tiny">Mit „Globale NKR-Prüfung aktualisieren“ werden alle registrierten NKR-Sessions und Signalspuren in der gemeinsamen Datenbank zusammengefasst. Dein eigenes Wallet wird nicht als Session-Filter verwendet.</div>}
                 </details>
 
                 <details style={{

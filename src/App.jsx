@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.02-BUILD557-NEXUS-HELP-AI-INSIGHT-TOUR";
+const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD558-COMPARE-UI-REFINED";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -2360,7 +2360,7 @@ function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, index
 
     const plotLines = indexMode ? normalizeToIndex(lines) : lines;
 
-  // Hover: show crosshair + tooltip for ALL series (like finanzen.net)
+  // BUILD558: crosshair keeps the user-selected focus; a single highlighted coin gets a single-value tooltip.
   const [hoverIdx, setHoverIdx] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 }); // position in actual CSS pixels inside the chart overlay
   const [tooltipSize, setTooltipSize] = useState({ w: 220, h: 0 });
@@ -2467,6 +2467,37 @@ const tMin = x[0];
     };
 
     const yFmt = (tv) => (indexMode ? fmtDeltaPct(tv) : fmtUsd(invTVal(tv)));
+    // The selection already dims other curves. Make the hover data obey the SAME selection.
+    const selectedHoverSet = new Set((highlightedSyms || []).map((sym) => String(sym || "").toUpperCase()));
+    const hoverSyms = selectedHoverSet.size
+      ? syms.filter((sym) => selectedHoverSet.has(String(sym || "").toUpperCase()))
+      : syms;
+    // Replace anonymous hover dots with coin tickers. Keep adjacent labels readable even
+    // when 20 price curves cross the same vertical slice of the chart.
+    const hoverTickerLabels = hoverIdx === null ? [] : hoverSyms
+      .map((sym, idx) => {
+        const v = plotLines?.[sym]?.[hoverIdx];
+        if (!Number.isFinite(v)) return null;
+        return { sym, y: sy(v), labelY: sy(v),
+          color: colorForSym ? colorForSym(sym) : PALETTE20[syms.indexOf(sym) % 10] };
+      })
+      .filter(Boolean)
+      .sort((a,b) => a.y - b.y);
+    if (hoverTickerLabels.length > 1) {
+      const spacing = hoverTickerLabels.length >= 17 ? 10 : 12;
+      let nextY = padT + 6;
+      for (const point of hoverTickerLabels) {
+        point.labelY = Math.max(point.y, nextY);
+        nextY = point.labelY + spacing;
+      }
+      const overflow = hoverTickerLabels[hoverTickerLabels.length-1].labelY - (h - padB - 5);
+      if (overflow > 0) {
+        for (let i=hoverTickerLabels.length-1; i>=0; i--) {
+          const maxY = h-padB-5 - (hoverTickerLabels.length-1-i)*spacing;
+          hoverTickerLabels[i].labelY = Math.min(hoverTickerLabels[i].labelY, maxY);
+        }
+      }
+    }
     // Tooltip positioning must use real CSS pixels, not the SVG viewBox units.
     // Otherwise it will disappear on narrower rendered charts when moving right.
     const tooltipGap = 16;
@@ -2548,32 +2579,20 @@ const tMin = x[0];
           />
         )}
 
-        {hoverIdx !== null && syms.map((sym, idx) => {
-          const arr = plotLines?.[sym] || [];
-          const v = arr?.[hoverIdx];
-          if (v === null || v === undefined || !Number.isFinite(v)) return null;
-
-          const hasHighlights = Array.isArray(highlightedSyms) && highlightedSyms.length > 0;
-          const isHi = !hasHighlights || highlightedSyms.includes(sym);
-          if (!isHi) return null;
-
-          const c = colorForSym ? colorForSym(sym) : PALETTE20[idx % 10];
+        {hoverTickerLabels.map(({sym,y,labelY,color}) => {
+          const right = sx(hoverIdx) < w - 105;
+          const labelW = Math.max(24, Math.min(58, sym.length * 6.1 + 9));
+          const labelX = right ? sx(hoverIdx) + 8 : sx(hoverIdx) - 8;
           return (
-            <g key={`hover-dot-${sym}`} pointerEvents="none">
-              <circle
-                cx={sx(hoverIdx)}
-                cy={sy(v)}
-                r={6.4}
-                fill="rgba(7,24,22,0.92)"
-                stroke={c}
-                strokeWidth={2.6}
-              />
-              <circle
-                cx={sx(hoverIdx)}
-                cy={sy(v)}
-                r={2.6}
-                fill={c}
-              />
+            <g key={`hover-ticker-${sym}`} pointerEvents="none">
+              <line x1={sx(hoverIdx)} y1={y} x2={labelX}
+                y2={labelY-3} stroke={color} strokeWidth={1.1} opacity={0.6}/>
+              <rect x={right ? labelX-2 : labelX-labelW+2} y={labelY-12}
+                width={labelW} height={14} rx={3}
+                fill="rgba(4,24,22,0.94)" stroke={color} strokeWidth={0.8}/>
+              <text x={right ? labelX+3 : labelX-3} y={labelY-2}
+                textAnchor={right ? 'start' : 'end'}
+                fill={color} stroke="none" fontSize={10} fontWeight={950}>{sym}</text>
             </g>
           );
         })}
@@ -2625,7 +2644,7 @@ const tMin = x[0];
             {hoverDate(x[hoverIdx])}
           </div>
 
-          {syms.map((sym) => (
+          {hoverSyms.map((sym) => (
             <div
               key={sym}
               style={{
@@ -2633,7 +2652,6 @@ const tMin = x[0];
                 justifyContent: "space-between",
                 gap: 12,
                 fontWeight: 800,
-                opacity: highlightedSyms.length > 0 && !highlightedSyms.includes(sym) ? 0.55 : 1,
               }}
             >
               <span>{sym}</span>
@@ -10701,7 +10719,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [comparePage, setComparePage] = useState("all"); // first10 | next10 | all
   const [highlightedSyms, setHighlightedSyms] = useState([]);
   const [showTop10Pairs, setShowTop10Pairs] = useState(true);
-  const [bestPairsSortMode, setBestPairsSortMode] = useLocalStorageState("nexus_best_pairs_sort_mode", "score"); // score | spread
+  const [bestPairsSortMode, setBestPairsSortMode] = useLocalStorageState("nexus_best_pairs_sort_mode", "score"); // score | spread | rsi-gap | correlation
   const [movementPanelOpen, setMovementPanelOpen] = useState(false);
   const [customCompareWeightsOn, setCustomCompareWeightsOn] = useLocalStorageState("nexus_compare_custom_weights_on", false);
   const [compareWeightsExpanded, setCompareWeightsExpanded] = useLocalStorageState("nexus_compare_weights_expanded", false);
@@ -10779,13 +10797,18 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000, activeCompareWeights, ratingSummaryBySymbol), [compareSeries, activeCompareWeights, ratingSummaryBySymbol]);
   const bestPairsSorted = useMemo(() => {
     const rows = Array.isArray(bestPairsAll) ? [...bestPairsAll] : [];
-    if (String(bestPairsSortMode || "score") !== "spread") return rows;
-
-    return rows.sort((a, b) => {
-      const av = Number.isFinite(Number(a?.spreadPct)) ? Number(a.spreadPct) : -Infinity;
-      const bv = Number.isFinite(Number(b?.spreadPct)) ? Number(b.spreadPct) : -Infinity;
+    const mode = String(bestPairsSortMode || "score");
+    if (mode === "score" || !["spread", "rsi-gap", "correlation"].includes(mode)) return rows; // preserve the original score ranking
+    const field = mode === "spread" ? "spreadPct" : mode === "rsi-gap" ? "rsiGap" : "corr";
+    const readMetric = (pair) => {
+      const raw = pair?.[field];
+      return raw === null || raw === undefined || !Number.isFinite(Number(raw)) ? -Infinity : Number(raw);
+    };
+    return rows.sort((a,b) => {
+      const av=readMetric(a), bv=readMetric(b);
       if (bv !== av) return bv - av;
-      return (Number(b?.score || 0) - Number(a?.score || 0));
+      const secondary = Number(b?.score || 0) - Number(a?.score || 0);
+      return secondary || String(a?.pair || '').localeCompare(String(b?.pair || ''));
     });
   }, [bestPairsAll, bestPairsSortMode]);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsSorted.slice(0, 10) : bestPairsSorted), [showTop10Pairs, bestPairsSorted]);
@@ -24250,7 +24273,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
         {/* Compare */}
         <section className={`card section-compare dashboardPanel ${activePanel === "compare" ? "panelActive" : ""}`} onClick={handlePanelActivate("compare")}>
           <div className="cardHead">
-            <div className="cardTitle">Compare (user-defined)</div>
+            <div className="cardTitle">Compare</div>
             <NexusHelpButton topic="compare" onHelp={openNexusAiHelp} />
             <div className="cardActions">
               {TIMEFRAMES.map((tf) => {
@@ -24563,6 +24586,18 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <label className="muted tiny" style={{display:"flex",alignItems:"center",gap:5}}>
+                      Sort:
+                      <select aria-label="Sort compare pairs" value={["score","spread","rsi-gap","correlation"].includes(String(bestPairsSortMode)) ? bestPairsSortMode : "score"}
+                        onChange={(e)=>setBestPairsSortMode(e.target.value)}
+                        title="Change only the displayed order; the comparison score and its calculation stay unchanged."
+                        style={{background:"#143c34",color:"#e6fff4",border:"1px solid rgba(126,200,166,.3)",borderRadius:7,padding:"5px 6px",fontSize:11}}>
+                        <option value="score">Score (default)</option>
+                        <option value="rsi-gap">RSI Δ</option>
+                        <option value="spread">Spread</option>
+                        <option value="correlation">Correlation</option>
+                      </select>
+                    </label>
                     <button
                       className={String(bestPairsSortMode || "score") === "spread" ? "btn tiny" : "ghostBtn tiny"}
                       title="Sort by largest 30D spread first. Click again to return to score ranking."
@@ -24687,6 +24722,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     scrollbarGutter: "stable",
                   }}
                 >
+                  <style>{`.section-compare .pairsScroll > .pairHeaderRow {position:sticky !important;top:0 !important;z-index:4 !important;}`}</style>
+                  {bestPairsToShow.length ? (
+                    <div className="pairRow pairHeaderRow" aria-label="Compare pair columns" style={{gap:8,padding:"7px 8px",alignItems:"center",position:"sticky",top:0,zIndex:3,background:"#0a2a23",borderBottom:"1px solid rgba(125,200,171,.23)",fontSize:10,fontWeight:800,color:"#bce9d9"}}>
+                      <span style={{width:34,flex:"0 0 34px",textAlign:"right"}} title="Current position in the selected sorting order">#</span>
+                      <div style={{flex:1,minWidth:0,display:"grid",gridTemplateColumns:"minmax(88px, 1.2fr) 120px 120px 56px 72px auto auto",gap:8,alignItems:"center"}}>
+                        {[
+                          ["Pair", "Two cryptocurrencies compared with each other."],
+                          ["RSI A ⓘ", "Momentum of the first coin. RSI above 70 may indicate overbought conditions; below 30 may indicate oversold conditions."],
+                          ["RSI B ⓘ", "Momentum of the second coin, measured on the same RSI scale."],
+                          ["Δ ⓘ", "Absolute difference between the two RSI values."],
+                          ["Spread ⓘ", "Difference between the price performances of the two coins over 30 days."],
+                          ["Score ⓘ", "Nexus suitability score for this coin pair; this is not a guaranteed profit prediction."],
+                          ["Corr ⓘ", "Correlation of their indexed price curves. +1 = similar movements, 0 = little relationship, -1 = opposite movements."],
+                        ].map(([label,explanation]) => <span key={label} title={explanation} style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"help",textAlign:label.startsWith('Pair')?'left':'center'}}>{label}</span>)}
+                      </div>
+                    </div>
+                  ) : null}
                   {bestPairsToShow.length ? (
                     bestPairsToShow.map((p, i) => {
                       const rsiAState = _rsiBadgeState(p.rsiA);
@@ -24827,6 +24879,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               S {Number.isFinite(p.spreadPct) ? p.spreadPct.toFixed(1) + "%" : "—"}
                             </span>
 
+                            <div style={{display:"inline-flex",alignItems:"center",justifyContent:"flex-end",gap:4,minWidth:0}}>
                             <span
                               className="pill"
                               data-nexus-tour="compare-pair-score"
@@ -24856,6 +24909,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 </span>
                               );
                             })() : null}
+                            </div>
                             <span className="pill" data-nexus-tour="compare-pair-corr"
                               title="Correlation of indexed price lines" style={{ justifySelf: "end", whiteSpace: "nowrap" }}>{(p.corr >= 0 ? "+" : "") + p.corr.toFixed(2)}</span>
                           </div>

@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD564-GLOBAL-NKR-AUDIT";
+const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD565-GLOBAL-OBSERVABILITY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -32958,7 +32958,7 @@ export default function App() {
 
 
 
-                {/* BUILD561: READ-ONLY, PROCESS-LOCAL DATA QUALITY AUDIT */}
+                {/* BUILD565: GLOBAL SIGNAL AND PROVIDER ACTIVITY, PROCESS-LOCAL PRICE SNAPSHOTS */}
                 <details style={{
                   gridColumn: "span 12", border: "1px solid rgba(102,210,255,0.35)",
                   borderRadius: 10, padding: 11, background: "rgba(6,47,52,0.32)",
@@ -32978,6 +32978,33 @@ export default function App() {
                       </button>
                     </div>
                     {signalDataAuditError ? <div style={{ color: "#ffc28a" }}>⚠ {signalDataAuditError}</div> : null}
+                    {signalDataAudit && <div style={{ display: "grid", gap: 8, border: "1px solid rgba(108,230,194,.28)", borderRadius: 8, padding: 9 }}>
+                      <b>Globale Ueberwachung (alle Backend-Worker)</b>
+                      {(() => {
+                        const rec = signalDataAudit.signalRecorder || {};
+                        const state = rec.state || "UNKNOWN";
+                        const color = state === "OBSERVED" ? "#9bf9d0" : state === "ERROR" ? "#ffb5a9" : "#ffd088";
+                        const label = state === "OBSERVED" ? "Signale erfasst" : state === "READY_EMPTY" ? "Bereit - noch keine Signale erfasst" : state === "ERROR" ? "Fehler bei Signalaufzeichnung" : "Nicht geprueft";
+                        return <div>Signalprotokoll: <b style={{ color }}>{label}</b> <span className="muted tiny">{rec.observations24h == null ? "" : `(${rec.observations24h} Beobachtungen / 24h)`}</span>
+                          {state === "ERROR" && <div className="muted tiny">Datenbankpruefung fehlgeschlagen: {rec.errorType || "unbekannt"}</div>}
+                        </div>;
+                      })()}
+                      {(() => {
+                        const api = signalDataAudit.apiActivity || {};
+                        return <>
+                          <div>API-Aktivitaet: <b style={{ color: api.state === "ERROR" ? "#ffb5a9" : api.state === "OBSERVED" ? "#9bf9d0" : "#ffd088" }}>
+                            {api.state === "OBSERVED" ? `${api.attempts} beobachtete HTTP-Aufrufe / 24h` : api.state === "READY_EMPTY" ? "Bereit - noch keine API-Aufrufe erfasst" : "Noch nicht verfuegbar"}
+                          </b></div>
+                          {Array.isArray(api.providers) && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(175px,1fr))", gap: 6 }}>
+                            {api.providers.map(p => <div key={p.name} style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 7, padding: 7 }}>
+                              <b>{p.name}</b><div className="muted tiny">Aufrufe: {p.attempts} | HTTP 2xx: {p.httpOk} | Fehler: {p.errors} | Limits: {p.rateLimits}</div>
+                              <div className="muted tiny">Zuletzt: {p.lastSeenTs ? new Date(p.lastSeenTs * 1000).toLocaleString() : "noch nicht beobachtet"}</div>
+                            </div>)}
+                          </div>}
+                          <div className="muted tiny">Gemeinsame Datenbank aller Worker, zeitversetzt und nur fuer instrumentierte API-Wege. HTTP 2xx beweist keine gueltigen Marktdaten; lokale Preis-Caches bleiben getrennt.</div>
+                        </>;
+                      })()}
+                    </div>}
                     {signalDataAudit && signalDataAudit.traceScope !== "shared_db_all_workers" ? (
                       <div style={{ color: "#ffd088", border: "1px solid rgba(255,185,80,.38)", borderRadius: 8, padding: 8 }}>
                         ⚠ Globale Signalspur derzeit nicht verfügbar. Die angezeigten Bewertungen können nur aus dem antwortenden Backend-Worker stammen.
@@ -33253,7 +33280,7 @@ export default function App() {
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(175px, 1fr))", gap: 7 }}>
                       <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 8 }}><b>Globale NKR-Sessions</b><br />{nkrSessionAudit.sessionCount ?? "?"}<div className="muted tiny">{nkrSessionAudit.walletsWithSessions ?? "?"} Wallets mit registrierter Session</div></div>
                       <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 8 }}><b>Aktiv / Pausiert</b><br />{nkrSessionAudit.sessionStates?.active ?? "?"} / {nkrSessionAudit.sessionStates?.paused ?? "?"}<div className="muted tiny">Beendigung: {nkrSessionAudit.sessionStates?.closing ?? "?"} · Fehler: {nkrSessionAudit.sessionStates?.error ?? "?"}</div></div>
-                      <div style={{ border: "1px solid rgba(255,190,90,.35)", borderRadius: 8, padding: 8 }}><b>Strategist-Signalspur</b><br />{nkrSessionAudit.strategistSignals?.status === "PARTIALLY_OBSERVED" ? "Bewertungen beobachtet" : "Nicht nachgewiesen"}<div className="muted tiny">Kein vollständiger End-to-End-Handelsnachweis</div></div>
+                      <div style={{ border: "1px solid rgba(255,190,90,.35)", borderRadius: 8, padding: 8 }}><b>Strategist-Signalspur</b><br />{nkrSessionAudit.strategistSignals?.status === "PARTIALLY_OBSERVED" ? "Bewertungen beobachtet" : "Nicht nachgewiesen"}<div className="muted tiny">{nkrSessionAudit.strategistSignals?.recorder?.state === "OBSERVED" ? "Signalprotokoll: Bewertungen erfasst" : nkrSessionAudit.strategistSignals?.recorder?.state === "READY_EMPTY" ? "Signalprotokoll: bereit, noch keine Bewertungen" : "Signalprotokoll: nicht verfuegbar oder Fehler"}</div><div className="muted tiny">Kein vollstaendiger End-to-End-Handelsnachweis</div></div>
                       <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 8 }}><b>Erfasste erfolgreiche Operationen</b><br />{nkrSessionAudit.recordedOperations?.succeededWithTxHash ?? "?"}<div className="muted tiny">Tx-Hash in DB · kein On-chain-Receipt-Test</div></div>
                     </div>
                     <div style={{ padding: 8, border: "1px solid rgba(130,212,220,.20)", borderRadius: 8 }}>

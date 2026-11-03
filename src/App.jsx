@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD559-COMPARE-TICKER-PAIR-FIX";
+const FRONTEND_BUILD_ID = "F-2026.11.03-BUILD560-WATCHLIST-ADD-OPAQUE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -30682,7 +30682,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
             {addOpen && (
   <div className="modalBackdrop" onClick={resetAddModal}>
-    <div className="modal" data-nexus-tour="watch-add-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="modal" data-nexus-tour="watch-add-dialog" style={{ backgroundColor: "#0b2824", color: "#eaf8f3", border: "1px solid #2e6259", boxShadow: "0 32px 88px rgba(0,0,0,0.78)", opacity: 1 }} onClick={(e) => e.stopPropagation()}>
       <div className="modalHead">
         <div className="cardTitle">{addTab === "dex" ? "Add token (Contract)" : "Select token (CoinGecko)"}</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -30752,6 +30752,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
           <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <input
               className="input"
+              style={{ backgroundColor: "#081c1a", color: "#edf9f5", border: "1px solid #37645b", opacity: 1 }}
               placeholder="e.g. TON / BNB / Dogecoin"
               value={addQuery}
               onChange={(e) => setAddQuery(e.target.value)}
@@ -30811,13 +30812,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
           <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
             <div className="muted">Chain</div>
-            <select value={"polygon"} disabled>
+            <select value={"polygon"} disabled style={{ backgroundColor: "#081c1a", color: "#edf9f5", border: "1px solid #37645b", opacity: 1, WebkitTextFillColor: "#edf9f5" }}>
               <option value="polygon">Polygon</option>
 
             </select>
 
             <div className="muted">Contract</div>
-            <input className="input" placeholder="0x..." value={addContract} onChange={(e) => setAddContract(e.target.value)} />
+            <input className="input" style={{ backgroundColor: "#081c1a", color: "#edf9f5", border: "1px solid #37645b", opacity: 1 }} placeholder="0x..." value={addContract} onChange={(e) => setAddContract(e.target.value)} />
           </div>
 
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>

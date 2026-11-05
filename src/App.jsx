@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.05-BUILD569-STRATEGIST-ADVISORY-DIAGNOSTICS";
+const FRONTEND_BUILD_ID = "F-2026.11.05-BUILD570-STRATEGIST-SIGNAL-QUALITY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -33004,7 +33004,8 @@ export default function App() {
                           </div>}
                           <div className="muted tiny">Gemeinsame Datenbank aller Worker, zeitversetzt und nur fuer instrumentierte API-Wege. HTTP 2xx beweist keine gueltigen Marktdaten; lokale Preis-Caches bleiben getrennt.</div>
                           <div style={{ marginTop: 7, borderTop: "1px solid rgba(255,255,255,.13)", paddingTop: 7 }}>
-                            <b>Binance HTTP-400-Ursachen (seit Build 530)</b>
+                            <b>Binance HTTP-400-Ursachen (24h / nach Provider)</b>
+                            <div className="muted tiny">Spot -1121: ungueltiges Handelspaar, im Preis-Fallback zeitlich begrenzt ausgesetzt. Futures Open Interest -4108: nur diese Abfrage je Pair 15 Minuten gedrosselt; Funding/Marktdaten bleiben getrennt. Alte 24h-Fehler zaehlen bis zum Ablauf weiter. Keine Aenderung der automatischen Handelsregeln.</div>
                             {(signalDataAudit?.apiActivity?.binance400 || []).length ?
                               (signalDataAudit.apiActivity.binance400 || []).map((x, i) => <div key={i} className="muted tiny" style={{ marginTop: 3 }}>
                                 {x.provider} · {x.endpoint} · Binance-Code {x.binanceCode || "unbekannt"} · {x.count}×
@@ -33095,6 +33096,7 @@ export default function App() {
                       </div>}
                       <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 9 }}>
                         <b>Globale Signalübergabe (Strategist / NKR / Trader)</b>
+                        <div className="muted tiny" style={{ marginTop: 4 }}>Ohne aktive NKR-/Trader-Session ist keine laufende Einstiegs-/Exit-Bewertung zu erwarten. Die manuelle Strategist-Fruehsignal-Analyse wird separat nachgewiesen; ein beobachtetes Signal ist keine Transaktion.</div>
                         {(signalDataAudit.signalPipeline || []).map((stage, i) => <div key={i} style={{ marginTop: 6 }}>
                           <b>{stage.stage}</b> · <span style={{ color: stage.state === "OBSERVED" ? "#8be1b2" : "#ffd088" }}>
                             {stage.state === "OBSERVED" ? `Verarbeitung beobachtet (${stage.ageSec ?? "?"}s alt)` :

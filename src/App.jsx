@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.05-BUILD566-STRATEGIST-FIXES-GLOBAL-OBSERVABILITY";
+const FRONTEND_BUILD_ID = "F-2026.11.05-BUILD567-STRATEGIST-EARLY-OBSERVATION";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -33060,6 +33060,28 @@ export default function App() {
                           {!signalDataAudit.prices?.length ? <div style={{ padding: 8 }}>Keine beobachteten Preise in diesem Backend-Prozess.</div> : null}
                         </div>
                       </div>
+                      {signalDataAudit.strategistEarly && <div style={{ border: "1px solid rgba(90,202,255,.27)", borderRadius: 8, padding: 9 }}>
+                        <b>Strategist Früherkennung · Beobachtung (keine Trades)</b>
+                        <div className="muted tiny" style={{ marginTop: 5 }}>
+                          Quelle: Binance Spot, abgeschlossene 1m-Kerzen · {signalDataAudit.strategistEarly.cachedPairs ?? 0} Paare im lokalen Cache
+                          {` · ${signalDataAudit.strategistEarly.requestsLast60s ?? 0}/${signalDataAudit.strategistEarly.requestsBudgetPer60s ?? 0} API-Abrufe/60s`}
+                          {` · ${signalDataAudit.strategistEarly.availableRecent ?? 0} aktuelle Messungen`}
+                        </div>
+                        <div className="muted tiny">Nur Messwerte des antwortenden Backend-Workers. Taker-Kaufanteil ist kein echter Orderbuch- oder DEX-Liquiditätsnachweis.</div>
+                        <div style={{ marginTop: 6, maxHeight: 185, overflowY: "auto" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                            <thead><tr style={{ textAlign: "left" }}>{["Spot-Paar", "1m", "5m", "15m", "RVOL 5m", "Kaufanteil 5m", "Alter / Status"].map(h => <th key={h} style={{ padding: 5 }}>{h}</th>)}</tr></thead>
+                            <tbody>{(signalDataAudit.strategistEarly.samples || []).map(s => <tr key={s.pair} style={{ borderTop: "1px solid rgba(255,255,255,.08)" }}>
+                              <td style={{ padding: 5 }}><b>{s.pair}</b></td>
+                              {["momentum1mPct", "momentum5mPct", "momentum15mPct"].map(k => <td key={k} style={{ padding: 5 }}>{s.available && s[k] != null ? `${Number(s[k]) > 0 ? "+" : ""}${Number(s[k]).toFixed(2)}%` : "—"}</td>)}
+                              <td style={{ padding: 5 }}>{s.available && s.rvol5m != null ? `${Number(s.rvol5m).toFixed(2)}x` : "—"}</td>
+                              <td style={{ padding: 5 }}>{s.available && s.takerBuyShare5mPct != null ? `${Number(s.takerBuyShare5mPct).toFixed(1)}%` : "—"}</td>
+                              <td style={{ padding: 5 }}>{s.available ? `${s.cacheAgeSec ?? "?"}s Cache` : (s.reason || "nicht verfügbar")}</td>
+                            </tr>)}</tbody>
+                          </table>
+                          {!signalDataAudit.strategistEarly.samples?.length && <div className="muted tiny" style={{ padding: 6 }}>Noch keine kurzzeitigen Spot-Beobachtungen im antwortenden Worker.</div>}
+                        </div>
+                      </div>}
                       <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 9 }}>
                         <b>Globale Signalübergabe (Strategist / NKR / Trader)</b>
                         {(signalDataAudit.signalPipeline || []).map((stage, i) => <div key={i} style={{ marginTop: 6 }}>

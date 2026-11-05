@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.05-BUILD568-STRATEGIST-EARLY-SPOT-FIX";
+const FRONTEND_BUILD_ID = "F-2026.11.05-BUILD569-STRATEGIST-ADVISORY-DIAGNOSTICS";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -33003,6 +33003,15 @@ export default function App() {
                             </div>)}
                           </div>}
                           <div className="muted tiny">Gemeinsame Datenbank aller Worker, zeitversetzt und nur fuer instrumentierte API-Wege. HTTP 2xx beweist keine gueltigen Marktdaten; lokale Preis-Caches bleiben getrennt.</div>
+                          <div style={{ marginTop: 7, borderTop: "1px solid rgba(255,255,255,.13)", paddingTop: 7 }}>
+                            <b>Binance HTTP-400-Ursachen (seit Build 530)</b>
+                            {(signalDataAudit?.apiActivity?.binance400 || []).length ?
+                              (signalDataAudit.apiActivity.binance400 || []).map((x, i) => <div key={i} className="muted tiny" style={{ marginTop: 3 }}>
+                                {x.provider} · {x.endpoint} · Binance-Code {x.binanceCode || "unbekannt"} · {x.count}×
+                              </div>) :
+                              <div className="muted tiny">Noch keine klassifizierten HTTP-400-Antworten seit dem aktuellen Backend-Deployment.</div>}
+                            <div className="muted tiny">Nur Fehlerklassen, keine privaten Wallets oder API-Schlüssel. Die bisherigen 24h-Zähler bleiben separat erhalten.</div>
+                          </div>
                         </>;
                       })()}
                     </div>}

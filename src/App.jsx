@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.05-BUILD567-STRATEGIST-EARLY-OBSERVATION";
+const FRONTEND_BUILD_ID = "F-2026.11.05-BUILD568-STRATEGIST-EARLY-SPOT-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -32999,6 +32999,7 @@ export default function App() {
                             {api.providers.map(p => <div key={p.name} style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 7, padding: 7 }}>
                               <b>{p.name}</b><div className="muted tiny">Aufrufe: {p.attempts} | HTTP 2xx: {p.httpOk} | Fehler: {p.errors} | Limits: {p.rateLimits}</div>
                               <div className="muted tiny">Zuletzt: {p.lastSeenTs ? new Date(p.lastSeenTs * 1000).toLocaleString() : "noch nicht beobachtet"}</div>
+                              {p.lastErrorOutcome && <div className="muted tiny" style={{ color: "#ffd088" }}>Letzter Fehler: {p.lastErrorOutcome}{p.lastErrorHttpStatus ? ` (HTTP ${p.lastErrorHttpStatus})` : " (ohne HTTP-Code)"}</div>}
                             </div>)}
                           </div>}
                           <div className="muted tiny">Gemeinsame Datenbank aller Worker, zeitversetzt und nur fuer instrumentierte API-Wege. HTTP 2xx beweist keine gueltigen Marktdaten; lokale Preis-Caches bleiben getrennt.</div>
@@ -33063,11 +33064,12 @@ export default function App() {
                       {signalDataAudit.strategistEarly && <div style={{ border: "1px solid rgba(90,202,255,.27)", borderRadius: 8, padding: 9 }}>
                         <b>Strategist Früherkennung · Beobachtung (keine Trades)</b>
                         <div className="muted tiny" style={{ marginTop: 5 }}>
-                          Quelle: Binance Spot, abgeschlossene 1m-Kerzen · {signalDataAudit.strategistEarly.cachedPairs ?? 0} Paare im lokalen Cache
-                          {` · ${signalDataAudit.strategistEarly.requestsLast60s ?? 0}/${signalDataAudit.strategistEarly.requestsBudgetPer60s ?? 0} API-Abrufe/60s`}
+                          Quelle: Binance Spot (öffentliche Marktdaten), abgeschlossene 1m-Kerzen · {signalDataAudit.strategistEarly.cachedPairs ?? 0} Paare in {signalDataAudit.strategistEarly.localCacheOnly ? "lokalem Cache" : "gemeinsamer Datenbank"}
+                          {` · ${signalDataAudit.strategistEarly.requestsLast60s ?? 0}/${signalDataAudit.strategistEarly.requestsBudgetPer60s ?? 0} API-Abrufe/60s (antwortender Worker)`}
+                          {signalDataAudit.strategistEarly.providerCooldownSec > 0 ? ` · Provider-Pause: ${signalDataAudit.strategistEarly.providerCooldownSec}s` : ""}
                           {` · ${signalDataAudit.strategistEarly.availableRecent ?? 0} aktuelle Messungen`}
                         </div>
-                        <div className="muted tiny">Nur Messwerte des antwortenden Backend-Workers. Taker-Kaufanteil ist kein echter Orderbuch- oder DEX-Liquiditätsnachweis.</div>
+                        <div className="muted tiny">{signalDataAudit.strategistEarly.localCacheOnly ? "Nur Messwerte des antwortenden Backend-Workers." : "Messwerte aller Backend-Worker aus der gemeinsamen Datenbank."} Taker-Kaufanteil ist kein echter Orderbuch- oder DEX-Liquiditätsnachweis. Die Messungen lösen keine Trades aus.</div>
                         <div style={{ marginTop: 6, maxHeight: 185, overflowY: "auto" }}>
                           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                             <thead><tr style={{ textAlign: "left" }}>{["Spot-Paar", "1m", "5m", "15m", "RVOL 5m", "Kaufanteil 5m", "Alter / Status"].map(h => <th key={h} style={{ padding: 5 }}>{h}</th>)}</tr></thead>
@@ -33079,7 +33081,7 @@ export default function App() {
                               <td style={{ padding: 5 }}>{s.available ? `${s.cacheAgeSec ?? "?"}s Cache` : (s.reason || "nicht verfügbar")}</td>
                             </tr>)}</tbody>
                           </table>
-                          {!signalDataAudit.strategistEarly.samples?.length && <div className="muted tiny" style={{ padding: 6 }}>Noch keine kurzzeitigen Spot-Beobachtungen im antwortenden Worker.</div>}
+                          {!signalDataAudit.strategistEarly.samples?.length && <div className="muted tiny" style={{ padding: 6 }}>Noch keine Spot-Beobachtungen erfasst. Die unabhängige Hintergrundstichprobe startet im bestehenden Backend-Worker.</div>}
                         </div>
                       </div>}
                       <div style={{ border: "1px solid rgba(255,255,255,.14)", borderRadius: 8, padding: 9 }}>

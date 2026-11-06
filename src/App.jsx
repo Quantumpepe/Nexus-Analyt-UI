@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD574-POLYGON-USDC-LEGACY-OPTION";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD575-CAPITAL-ROUTE-AUDIT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -23857,7 +23857,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.20)" }}>
                     <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer" }}>Swap → USDC / USDT (Privy Wallet)</summary>
                     <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>
-                      Select ETH/BNB/POL, wrapped native, or existing Polygon USDC.e to swap into native USDC. USDC.e remains an optional bridged destination, never the default. Max is preselected; Nexus reserves gas and checks real quotes. Funds remain in your Privy Wallet.
+                      Select ETH/BNB/POL, wrapped native, or existing Polygon USDC.e to swap into native USDC. USDC.e remains an optional bridged destination, never the default. Max is preselected; Nexus reserves gas and checks real quotes. Funds remain in your Privy Wallet. Automatic trading-capital conversion is still in safety testing; use Trading Wallet deposit separately.
                     </div>
                     <select className="input" value={walletSwapFromKey} onChange={(e) => { setWalletSwapFromKey(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy} style={{ width: "100%", height: 42, marginTop: 9 }}>
                       <option value="">Select token to swap</option>
@@ -31811,6 +31811,11 @@ export default function App() {
   const [signalDataAudit, setSignalDataAudit] = useState(null);
   const [signalDataAuditBusy, setSignalDataAuditBusy] = useState(false);
   const [signalDataAuditError, setSignalDataAuditError] = useState("");
+  const [capitalAudit, setCapitalAudit] = useState(null);
+  const [capitalAuditChain, setCapitalAuditChain] = useState("POL");
+  const [capitalAuditStable, setCapitalAuditStable] = useState("USDC");
+  const [capitalAuditBusy, setCapitalAuditBusy] = useState(false);
+  const [capitalAuditError, setCapitalAuditError] = useState("");
   const [engineDiagnostics, setEngineDiagnostics] = useState(null);
   const [engineDiagnosticsBusy, setEngineDiagnosticsBusy] = useState("");
   const [engineDiagnosticsError, setEngineDiagnosticsError] = useState("");
@@ -32254,6 +32259,27 @@ export default function App() {
     const headers = { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet || "") };
     if (bearer) headers.Authorization = `Bearer ${bearer}`;
     return headers;
+  };
+
+  // BUILD575: Read-only capital audit. It never starts a session or signs a tx.
+  const _loadCapitalRouteAudit = async () => {
+    if (!canOpenSystemInfo || capitalAuditBusy || !footerWallet) return;
+    setCapitalAuditBusy(true);
+    setCapitalAuditError("");
+    setCapitalAudit(null);
+    try {
+      const query = new URLSearchParams({ chain: capitalAuditChain, stable: capitalAuditStable, engine: "ALL" });
+      const res = await fetch(`${API_BASE}/api/nexus/capital/route-audit?${query.toString()}`, {
+        method: "GET", cache: "no-store", credentials: "include", headers: _authHeaders(),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || payload?.status !== "ok") throw new Error(payload?.detail || payload?.error || `HTTP ${res.status}`);
+      setCapitalAudit(payload);
+    } catch (e) {
+      setCapitalAuditError(String(e?.message || e));
+    } finally {
+      setCapitalAuditBusy(false);
+    }
   };
 
   const _loadNkrSessionAudit = async () => {
@@ -33156,6 +33182,44 @@ export default function App() {
                       <div className="muted tiny">Globale Werte stammen aus den registrierten Sessions der gemeinsamen Nexus-Datenbank, nicht aus einem vollständigen On-chain-Scan. Worker-Status RUNNING bedeutet nicht, dass ein Nutzer gerade handelt. Keine fremden Wallet-Adressen werden angezeigt.</div>
                     </div>;
                   })()}
+                </details>
+
+                {/* BUILD575: Exact token/contract, wallet-vs-Vault and on-chain sessions. Owner local wallet ONLY. */}
+                <details style={{ gridColumn: "span 12", border: "1px solid rgba(64,196,255,.30)", borderRadius: 10,
+                    background: "rgba(35,80,100,.10)", padding: 10 }}>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Trading-Kapitalprüfung · NKR / Grid / Trader (nur lesen)</summary>
+                  <div className="muted tiny" style={{ marginTop: 7 }}>
+                    Exakte Stablecoin-Adresse, bestätigtes Vault-Guthaben und registrierte On-Chain-Sessions prüfen.
+                    Diese Diagnose führt keine Swaps, Einzahlungen oder Auszahlungen aus.
+                  </div>
+                  <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); }} style={{ width: 115 }}>
+                      <option value="ETH">ETH</option><option value="BNB">BNB</option><option value="POL">POL</option>
+                    </select>
+                    <select className="input" value={capitalAuditStable} onChange={(e) => { setCapitalAuditStable(e.target.value); setCapitalAudit(null); }} style={{ width: 115 }}>
+                      <option value="USDC">USDC</option><option value="USDT">USDT</option>
+                    </select>
+                    <button type="button" className="miniBtn" disabled={capitalAuditBusy || !footerWallet} onClick={_loadCapitalRouteAudit}>
+                      {capitalAuditBusy ? "Prüfe…" : "Kapitalwege prüfen"}
+                    </button>
+                  </div>
+                  {capitalAuditError && <div className="muted" style={{ color: "#ff9999", marginTop: 8 }}>{capitalAuditError}</div>}
+                  {capitalAudit?.status === "ok" && (
+                    <div style={{ marginTop: 9, display: "grid", gap: 6, fontSize: 12 }}>
+                      <div><b>{capitalAudit.chain} · {capitalAudit.stable}</b> · {capitalAudit.settlementIdentity} · Vault-Konfiguration: {capitalAudit.vaultSettlementReady ? "OK" : "NICHT bereit"}</div>
+                      <div className="mono" style={{ overflowWrap: "anywhere", fontSize: 11 }}>Tokenvertrag: {capitalAudit.token}</div>
+                      <div>Privy-Wallet Stable: {capitalAudit.walletStableUnits} kleinste Einheiten · Vault frei: {capitalAudit.vaultFreeBaseUnits} kleinste Einheiten · Dezimalstellen: {capitalAudit.decimals}</div>
+                      <div>Wallet-Gasreserve: {capitalAudit.nativeGasReserveWei} Wei · Privy registriert: {capitalAudit.privyWalletProvisioned ? "Ja" : "Nein"} · DEX Router: {capitalAudit.swapRouterConfigured ? "gesetzt" : "fehlt"}</div>
+                      <div>Automatische Umwandlung: <b style={{ color: "#ffd166" }}>{capitalAudit.automaticSwapExecutionEnabled ? "Aktiv" : "Noch nicht live freigegeben"}</b></div>
+                      {Array.isArray(capitalAudit.sessions) && capitalAudit.sessions.length ? capitalAudit.sessions.map((entry, idx) => (
+                        <div key={`${entry.engine}-${entry.sessionId || idx}`} style={{ borderTop: "1px solid rgba(255,255,255,.12)", paddingTop: 5 }}>
+                          <b>{entry.engine}</b> · Session #{entry.sessionId || "?"} · {entry.verification} · Status {entry.statusCode ?? entry.registryStatus ?? "?"} · Positionen {entry.openAssetCount ?? "?"} · Settlement korrekt: {entry.settlementMatchesTarget === true ? "Ja" : entry.settlementMatchesTarget === false ? "Nein (alt/abweichend)" : "ungeprüft"} · Finalisierung: {entry.canFinalize ? "Bedingungen teilweise erfüllt" : "nicht nachgewiesen"}
+                          {entry.reason ? ` · ${entry.reason}` : ""}
+                        </div>
+                      )) : <div className="muted">Keine offenen Sessions in der gemeinsamen Registrierung für diese Chain. Kein vollständiger On-Chain-Scan.</div>}
+                      <div className="muted tiny">{capitalAudit.note}</div>
+                    </div>
+                  )}
                 </details>
 
                 <details style={{

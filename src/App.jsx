@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.05-BUILD570-STRATEGIST-SIGNAL-QUALITY";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD571-PRIVY-SWAP-SAFETY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7531,82 +7531,113 @@ useEffect(() => {
   }, [walletAssetRows, walletSendAssetKey, walletSwapFromKey]);
 
 
+  // BUILD571: user-triggered Privy wallet swap. An actual on-chain quote and
+  // individually successful receipts are mandatory; no unlimited approvals.
   const runPrivyWalletSwap = async () => {
     try {
       setWalletSwapMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
       const fromRow = walletAssetRows.find((item) => item.key === walletSwapFromKey);
-      if (!fromRow) throw new Error("Select an asset to swap from.");
+      if (!fromRow) throw new Error("Select a native token or its wrapped equivalent.");
       const rawAmount = String(walletSwapAmount || "").trim();
       if (!/^\d+(\.\d+)?$/.test(rawAmount) || Number(rawAmount) <= 0) throw new Error("Enter a valid amount.");
       if (Number(rawAmount) > Number(fromRow.amount || 0)) throw new Error("Amount exceeds wallet balance.");
-      const toSym = String(walletSwapToSym || "USDC").toUpperCase();
-      if (!["USDC", "USDT"].includes(toSym)) throw new Error("Swap destination must be USDC or USDT.");
       const chainKey = normalizeWalletChainKey(fromRow.chain || DEFAULT_CHAIN);
+      if (!["ETH", "BNB", "POL"].includes(chainKey)) throw new Error("Wallet swaps are currently available on ETH, BNB and POL.");
+      const wrapped = wnativeSpecForChain(chainKey);
+      const fromNative = fromRow.kind === "native" || fromRow.address === "native";
+      const fromWrapped = !!wrapped && String(fromRow.address || "").toLowerCase() === String(wrapped.address || "").toLowerCase();
+      if (!fromNative && !fromWrapped) throw new Error("Only native and wrapped-native swaps are enabled in this secured flow.");
+      const toSym = String(walletSwapToSym || "USDC").toUpperCase();
+      if (!["USDC", "USDT"].includes(toSym)) throw new Error("Choose USDC or USDT.");
       const chainId = CHAIN_ID?.[chainKey];
       if (!chainId) throw new Error(`Unsupported network: ${chainKey}`);
-
       setWalletSwapBusy(true);
-      setWalletSwapMsg(`Preparing ${fromRow.symbol} → ${toSym} on ${walletChainDisplayName(chainKey)}…`);
-      const tokenIn = (fromRow.kind === "native" || fromRow.address === "native")
-        ? "native"
-        : String(fromRow.address || "");
+      setWalletSwapMsg("Obtaining a real on-chain quote…");
       const prepRes = await fetch(`${API_BASE}/api/wallet/swap/prepare`, {
-        method: "POST",
-        credentials: "include",
+        method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json", ...(_authHeaders?.() || {}) },
-        body: JSON.stringify({
-          wallet,
-          chain: chainKey,
-          chainId,
-          tokenIn,
-          tokenOut: toSym,
-          amount: Number(rawAmount),
-          slippageBps: 100,
-        }),
+        body: JSON.stringify({wallet, chain: chainKey, chainId,
+          tokenIn: fromNative ? "native" : String(fromRow.address || ""),
+          tokenOut: toSym, amount: rawAmount, slippageBps: 100}),
       });
       const prep = await prepRes.json().catch(() => ({}));
-      if (!prepRes.ok || prep?.status !== "ok") throw new Error(prep?.error || `Prepare failed (${prepRes.status})`);
+      if (!prepRes.ok || prep?.status !== "ok") throw new Error(prep?.error || `Swap preparation failed (${prepRes.status})`);
       const steps = Array.isArray(prep.steps) ? prep.steps : [];
-      if (!steps.length) throw new Error("No swap steps returned.");
-
+      if (prep.quoteSource !== "ONCHAIN_QUOTER" || !steps.length || BigInt(prep.minOut || "0") <= 0n) {
+        throw new Error("Verified quote or minimum payout missing. Swap blocked.");
+      }
+      if (Number(prep.deadline || 0) <= Math.floor(Date.now() / 1000) + 60) throw new Error("Swap quote expired. Try again.");
+      const stableDecimals = Number(prep?.tokenOut?.decimals ?? 6);
+      const formatStable = (units) => {
+        const v = BigInt(units || "0");
+        const div = 10n ** BigInt(stableDecimals);
+        return `${v / div}.${String(v % div).padStart(stableDecimals, "0").slice(0, 6)}`;
+      };
+      const confirmText = `Swap ${rawAmount} ${fromRow.symbol} → ${toSym} on ${chainKey}?\n` +
+        `Quoted output: ${formatStable(prep.quoteOut)} ${toSym}\n` +
+        `Minimum received: ${formatStable(prep.minOut)} ${toSym}\n` +
+        `Slippage limit: ${Number(prep.slippageBps || 100) / 100}%\n` +
+        `Network gas fees are extra.\n\nApprove this transaction sequence?`;
+      if (!window.confirm(confirmText)) { setWalletSwapMsg("Swap cancelled by user."); return; }
       const provider = await _getEmbeddedProvider();
       await _trySwitchChain(provider, chainId);
-      const currentHex = await provider.request({ method: "eth_chainId" });
       const expectedHex = "0x" + Number(chainId).toString(16);
-      if (String(currentHex).toLowerCase() !== expectedHex.toLowerCase()) {
-        throw new Error(`Please switch your Privy wallet to ${walletChainDisplayName(chainKey)}.`);
-      }
-
-      const hashes = [];
+      const verifyChain = async () => {
+        const current = await provider.request({ method: "eth_chainId" });
+        if (String(current).toLowerCase() !== expectedHex.toLowerCase()) throw new Error("Wallet switched to another network. Swap cancelled.");
+      };
+      await verifyChain();
+      const waitSuccessfulReceipt = async (hash) => {
+        // No further step is sent while the prior transaction is unconfirmed.
+        for (let attempt = 0; attempt < 90; attempt++) {
+          const r = await provider.request({method: "eth_getTransactionReceipt", params: [hash]});
+          if (r) {
+            if (BigInt(r.status || "0x0") !== 1n) throw new Error(`Wallet transaction reverted: ${hash}`);
+            return r;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+        throw new Error(`Transaction not confirmed; check chain explorer before retrying: ${hash}`);
+      };
+      const receiptBalanceOf = async () => {
+        const data = "0x70a08231" + String(wallet).replace(/^0x/i, "").toLowerCase().padStart(64, "0");
+        const val = await provider.request({method:"eth_call", params:[{to:prep.tokenOut.address, data}, "latest"]});
+        return BigInt(val || "0x0");
+      };
+      const payoutBefore = await receiptBalanceOf();
+      let swapHash = "";
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
-        setWalletSwapMsg(`${step.label || step.type || "Step"} (${i + 1}/${steps.length})…`);
-        const tx = {
-          from: wallet,
-          to: String(step.to || ""),
-          data: String(step.data || "0x"),
-          value: String(step.value || "0x0"),
-        };
-        const hash = await provider.request({ method: "eth_sendTransaction", params: [tx] });
-        hashes.push(hash);
-        try {
-          saveWalletTransaction({
-            type: `WALLET SWAP ${String(step.type || "").toUpperCase()}`,
-            chain: chainKey,
-            asset: fromRow.symbol,
-            amount: rawAmount,
-            from: wallet,
-            to: step.to,
-            txHash: hash,
-            status: "SUBMITTED",
-          });
-        } catch (_) {}
+        await verifyChain();
+        if (step.type === "swap" && Number(prep.deadline) <= Math.floor(Date.now() / 1000) + 25) {
+          throw new Error("Swap deadline too close. Refresh quote; do not resend prior steps.");
+        }
+        setWalletSwapMsg(`${step.label || step.type} (${i + 1}/${steps.length}) — awaiting confirmation…`);
+        const tx = {from: wallet, to:String(step.to || ""), data:String(step.data || "0x"), value:String(step.value || "0x0")};
+        if (step.type === "swap") {
+          // Guard against wrong router selector, missing allowance or unavailable pool.
+          // An eth_call simulates the wallet transaction without spending money.
+          try { await provider.request({method:"eth_call", params:[tx, "latest"]}); }
+          catch (simError) { throw new Error(`Swap simulation failed; no swap sent: ${String(simError?.message || simError).slice(0, 150)}`); }
+        }
+        const hash = await provider.request({method:"eth_sendTransaction", params:[tx]});
+        if (!/^0x[0-9a-f]{64}$/i.test(String(hash || ""))) throw new Error("Wallet returned no valid transaction hash.");
+        try { saveWalletTransaction({type:`WALLET SWAP ${String(step.type || "").toUpperCase()}`, chain:chainKey, asset:fromRow.symbol,
+          amount:rawAmount, from:wallet, to:step.to, txHash:hash, status:"SUBMITTED"}); } catch (_) {}
+        await waitSuccessfulReceipt(hash);
+        try { saveWalletTransaction({type:`WALLET SWAP ${String(step.type || "").toUpperCase()}`, chain:chainKey, asset:fromRow.symbol,
+          amount:rawAmount, from:wallet, to:step.to, txHash:hash, status:"CONFIRMED"}); } catch (_) {}
+        if (step.type === "swap") swapHash = hash;
       }
-      setWalletSwapMsg(`Swap submitted (${hashes.length} tx). ${toSym} stays in your wallet. Refresh balances shortly.`);
+      if (!swapHash) throw new Error("Swap transaction missing.");
+      const payoutAfter = await receiptBalanceOf();
+      if (payoutAfter - payoutBefore < BigInt(prep.minOut)) throw new Error(`Swap confirmed but expected ${toSym} balance increase was not verified. Check tx ${swapHash}`);
+      setWalletSwapMsg(`Confirmed: at least ${formatStable(prep.minOut)} ${toSym} received in your Privy Wallet. Tx ${swapHash}`);
+      setWalletSwapAmount("");
       try { await refreshBalances?.(); } catch (_) {}
     } catch (e) {
-      setWalletSwapMsg(String(e?.message || e || "Swap failed"));
+      setWalletSwapMsg(`Swap stopped: ${String(e?.message || e || "Unknown error")}`);
     } finally {
       setWalletSwapBusy(false);
     }
@@ -23696,6 +23727,23 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       {walletSendBusy ? "Sending…" : "Send from Privy Wallet"}
                     </button>
                     {walletSendMsg && <div className="muted" style={{ fontSize: 11, marginTop: 7, wordBreak: "break-word" }}>{walletSendMsg}</div>}
+                  </details>
+
+                  <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.20)" }}>
+                    <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer" }}>Swap native token → USDC / USDT (Privy)</summary>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>Direct wallet swap on ETH, BNB or POL. Real on-chain quote, gas reserve, limited approval and confirmed transactions required. Stablecoins remain in the Privy Wallet; deposit to the Trading Wallet separately.</div>
+                    <select className="input" value={walletSwapFromKey} onChange={(e) => { setWalletSwapFromKey(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy} style={{ width: "100%", height: 42, marginTop: 9 }}>
+                      <option value="">Select asset to swap</option>
+                      {walletAssetRows.filter((r) => ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(r.chain)) && (r.kind === "native" || r.address === "native" || String(wnativeSpecForChain(r.chain)?.address || "").toLowerCase() === String(r.address || "").toLowerCase())).map((r) => (
+                        <option key={r.key} value={r.key}>{r.symbol} · {walletChainDisplayName(r.chain)} · {fmtQty(r.amount)}</option>
+                      ))}
+                    </select>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 8, marginTop: 8 }}>
+                      <input className="input" inputMode="decimal" value={walletSwapAmount} onChange={(e) => { setWalletSwapAmount(e.target.value); setWalletSwapMsg(""); }} placeholder="Amount (leave native gas)" disabled={walletSwapBusy} style={{ height: 42 }} />
+                      <select className="input" value={walletSwapToSym} onChange={(e) => { setWalletSwapToSym(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy} style={{ height: 42 }}><option value="USDC">USDC</option><option value="USDT">USDT</option></select>
+                    </div>
+                    <button type="button" className="btn" onClick={runPrivyWalletSwap} disabled={!wallet || walletSwapBusy || !walletSwapFromKey || !walletSwapAmount} style={{ width: "100%", height: 44, marginTop: 8 }}>{walletSwapBusy ? "Processing…" : "Get quote and confirm swap"}</button>
+                    {walletSwapMsg && <div className="muted" style={{ fontSize: 11, marginTop: 8, wordBreak: "break-word" }}>{walletSwapMsg}</div>}
                   </details>
 
                   <button type="button" className="btnGhost" onClick={() => { setWalletAssetSecurityByKey({}); refreshBalances(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 10 }}>

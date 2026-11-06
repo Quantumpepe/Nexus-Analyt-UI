@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD584-USER-AUTH-STRATEGIST-CAPITAL-RETURN";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD585-SYSTEM-CAPITAL-CHECK-SELL-ONLY-GRID";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -6913,6 +6913,49 @@ useEffect(() => {
     }
   };
 
+  // ENGINE-546: one read-only preflight per requested engine, no cross-engine pause.
+  const checkCapitalForStart = async ({system, chain, asset, amount}) => {
+    const needed = Number(String(amount ?? '0').replace(',', '.'));
+    if (!Number.isFinite(needed) || needed <= 0) return true;
+    const ownWallet = String(wallet || walletAddress || '');
+    const access = String((await getAccessToken?.()) || '');
+    if (!access || !ownWallet) return true; // existing authenticated create enforces access
+    const p = new URLSearchParams({system, chain, asset, amount:String(needed)});
+    const response = await fetch(`${API_BASE}/api/nexus/capital/check-start?${p}`, {
+      cache:'no-store', headers:{Authorization:`Bearer ${access}`, 'X-Wallet-Address':ownWallet}
+    });
+    const report = await response.json().catch(()=>null);
+    if (!response.ok || !report || report.status !== 'ok') {
+      // Genuine RPC/auth/configuration errors remain technical; never mislabel
+      // unknown balances as insufficient capital.
+      throw new Error(report?.error || 'Kapitalbestand konnte nicht geprueft werden');
+    }
+    if (report.canStart !== true) {
+      setCapitalShortagePopup({
+        system:report.system,chain:report.chain,asset:report.asset,
+        requested:Number(report.requested || needed),available:Number(report.available || 0),
+        vaultAvailable:Number(report.vaultAvailable || 0),missing:Number(report.missing || 0),
+      });
+      return false;
+    }
+    return true;
+  };
+
+  const showBackendCapitalShortage = (error, fallback) => {
+    const d = error?.data || {};
+    const code = String(d.error || error?.message || '');
+    if (!/insufficient_free_vault_budget|insufficient_vault_asset|capital_native_balance_insufficient_for_shortfall|insufficient_direct_funding/i.test(code)) return false;
+    const requested = Number(d.requestedAmount ?? d.requested_qty ?? fallback.amount ?? 0);
+    const available = Number(d.availableAmount ?? d.available_qty ?? 0);
+    setCapitalShortagePopup({
+      system:String(d.system || fallback.system || 'TRADER').toUpperCase(),
+      chain:String(d.chain || fallback.chain || '').toUpperCase(),
+      asset:String(d.asset || fallback.asset || 'USDC').toUpperCase(),
+      requested,available,missing:Math.max(0,requested-available),
+    });
+    return true;
+  };
+
   // ENGINE-175: create CoreVault sessions through the server-side Privy wallet API.
   // NKR, Trader and Grid must never trigger a browser approval popup.
   const createCoreVaultSystemSession = async ({ system, budgetUsd, durationHours = 24, maxSlippageBps = 100, maxLossBps = 1500, settlementAsset, chain, sessionConfig = null }) => {
@@ -6937,6 +6980,17 @@ useEffect(() => {
     const selectedVaultState = coreVaultOnchainByChain?.[selectedChain] || null;
     if (!selectedVaultState?.connected) {
       throw new Error(`${selectedChain} CoreVault V5 is not connected. Switch Trading Wallet to ${selectedChain} and wait for LIVE CONNECTED.`);
+    }
+
+    // Existing native Grid tokens are checked on the Grid order path, not
+    // against USDC/USDT. The automatic-session creator is for NKR/Trader only.
+    if (systemU === 'NKR' || systemU === 'TRADER') {
+      const capitalOk = await checkCapitalForStart({system:systemU,chain:selectedChain,asset:selectedAsset,amount:budget});
+      if (!capitalOk) {
+        const blocked = new Error('Kapital fehlt');
+        blocked.code = 'CAPITAL_SHORTAGE_POPUP';
+        throw blocked;
+      }
     }
 
     await ensurePrivyAutomationReady();
@@ -6973,11 +7027,10 @@ useEffect(() => {
       const avail = data?.availableAmount ?? data?.available_amount;
       const req = data?.requestedAmount ?? data?.requested_amount;
       if (/insufficient_free_vault_budget/i.test(code)) {
-        return new Error(
-          `Not enough free ${selectedAsset} on ${selectedChain}` +
-          (avail != null ? ` (free ~${avail}, need ~${req ?? budget})` : "") +
-          `. Check Trading Wallet → ${selectedChain} → Free. If Free is 0 while Balance looks funded, the USDC contract may differ (native vs bridged) — refresh vault status.`
-        );
+        showBackendCapitalShortage(error, {system:systemU,chain:selectedChain,asset:selectedAsset,amount:budget});
+        const insufficient = new Error('Kapital fehlt');
+        insufficient.code = 'CAPITAL_SHORTAGE_POPUP';
+        return insufficient;
       }
       if (/privy_live_execution_not_ready|privy_wallet_mapping/i.test(code)) {
         const blockers = Array.isArray(data?.blockers) ? data.blockers.join(", ") : "";
@@ -11165,6 +11218,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [rotationSwapFromAsset, setRotationSwapFromAsset] = useState("AUTO");
   const [rotationSwapAmount, setRotationSwapAmount] = useState("");
   const [fundingPrompt, setFundingPrompt] = useState(null);
+  const [capitalShortagePopup, setCapitalShortagePopup] = useState(null);
   const [rotationBudgetReleased, setRotationBudgetReleased] = useState(false);
   const [rotationBackendLoading, setRotationBackendLoading] = useState(false);
 
@@ -11642,6 +11696,11 @@ useEffect(() => {
       setRotationBackendMsg(`NKR started on ${startChainCheck} · ${startedNkrCapitalMode}. Capital reserved · scanning ${startChainCheck}-tradable assets.`);
       setRotationCapitalTopup("");
     } catch (e) {
+      if (e?.code === 'CAPITAL_SHORTAGE_POPUP') {
+        nkrStartPendingRef.current = false;
+        setRotationBackendMsg('');
+        return;
+      }
       const rawMessage = String(e?.message || e || "NKR CoreVault session failed");
       const routeMissing = rawMessage.includes("verified_trade_route_required") || rawMessage.toLowerCase().includes("enabled trade route") || rawMessage.toLowerCase().includes("verified corevault trade route");
       const noFree = /insufficient_free_vault_budget|insufficient free/i.test(rawMessage);
@@ -13988,6 +14047,7 @@ useEffect(() => {
       });
       setErrorMsg("");
     } catch (e) {
+      if (e?.code === 'CAPITAL_SHORTAGE_POPUP') { setErrorMsg(''); return null; }
       setErrorMsg(`Trading CoreVault (${traderStartChain}): ${e?.message || e}`);
       return null;
     }
@@ -18096,35 +18156,23 @@ setGridBusy((s) => ({ ...s, start: true }));
     // Require: Vault has budget deposited and operator is enabled (so backend can trade without further user signatures).
     const chainKeyPre = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const want = Number(gridInvestQty) || 0;
-    const have = Number(vaultState?.polBalance || 0);
+    const gridAsset = String(gridItem || activeGridChainSymbol || chainKeyPre).toUpperCase();
+    if (!(want > 0)) {
+      setErrorMsg('Bitte zuerst die Grid-Tokenmenge eingeben.');
+      setGridBusy((s) => ({ ...s, start: false }));
+      return;
+    }
+    try {
+      if (!await checkCapitalForStart({system:'GRID',chain:String(chainKeyPre).toUpperCase(),asset:gridAsset,amount:want})) {
+        setGridBusy((s) => ({ ...s, start: false }));
+        return;
+      }
+    } catch (preflightErr) {
+      setErrorMsg('Grid-Kapitalpruefung nicht verfuegbar: ' + String(preflightErr?.message || preflightErr));
+      setGridBusy((s) => ({ ...s, start: false }));
+      return;
+    }
 
-    // Friendly UI guidance instead of crashing:
-    // If prerequisites are missing, open the Vault modal and pre-fill the required deposit amount.
-    if (!vaultState?.operatorEnabled) {
-      setErrorMsg("Core Vault setup required: configure the Core Vault and Executor authorization for this EVM network.");
-      setWsChainKey(chainKeyPre);
-      setWithdrawSendOpen(true);
-      // (no hard return)
-    }
-    if (!want || want <= 0) {
-      setErrorMsg("Set a Budget (Qty) amount > 0.");
-      // (no hard return)
-    }
-    if (have <= 0) {
-      setErrorMsg("Vault has 0 balance. Please deposit funds into the Vault first.");
-      setWsChainKey(chainKeyPre);
-      setDepositAmt(String(want));
-      setWithdrawSendOpen(true);
-      // (no hard return)
-    }
-    if (want > have + 1e-12) {
-      const needed = Math.max(0, want - have);
-      setErrorMsg(`Not enough Vault funds. Deposit +${needed.toFixed(6)} native into the Vault to start.`);
-      setWsChainKey(chainKeyPre);
-      setDepositAmt(String(needed));
-      setWithdrawSendOpen(true);
-      // (no hard return)
-    }
 
     try {
       const chainKey = (balActiveChain || wsChainKey || DEFAULT_CHAIN);
@@ -18151,18 +18199,9 @@ setGridBusy((s) => ({ ...s, start: true }));
         chain: chainKey,
         auto_path: !!gridAutoPath,
       };
-      // BUILD387: Grid CoreVault session settles to USDC/USDT only (not the traded token).
-      const gridPayout = normalizeStablePayoutAsset(manualPayoutAsset || "USDC", "USDC");
-      await createCoreVaultSystemSession({
-        system: "GRID",
-        budgetUsd: Math.max(investUsd, investQty, 1),
-        durationHours: 24,
-        maxSlippageBps: Math.round((Number(manualSlippagePct) || 1) * 100),
-        maxLossBps: Math.max(1, Math.round((Number(manualMaxLossPct) || 15) * 100)),
-        chain: String(chainKey || "ETH").toUpperCase(),
-        settlementAsset: gridPayout,
-      });
-      const r = await api("/api/grid/cycle/start", { method: "POST", token, body: { ...body, core_vault_session_reserved: true } });
+      // Grid only monitors an existing token's SELL target and stop-loss.
+      // No stablecoin-funded session and no automatic token purchase.
+      const r = await api("/api/grid/cycle/start", { method: "POST", token, body: { ...body, core_vault_session_reserved: false } });
       applyGridMetaResponse(r, itemId);
       setGridVaultStats((prev) => getGridVaultStatsFromResponse(r, prev));
       const startOrdersRaw = getGridOrdersFromResponse(r);
@@ -18174,7 +18213,11 @@ setGridBusy((s) => ({ ...s, start: true }));
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, start: false }));
 } catch (e) {
-      setErrorMsg(`Grid start: ${e.message}`);
+      if (showBackendCapitalShortage(e, {system:'GRID',chain:String(activeGridChainKey || DEFAULT_CHAIN),asset:String(gridItem || ''),amount:Number(gridInvestQty || 0)})) {
+        setErrorMsg('');
+      } else {
+        setErrorMsg(`Grid start: ${e.message}`);
+      }
       setGridBusy((s) => ({ ...s, start: false }));
     }
   }
@@ -18703,35 +18746,23 @@ setGridBusy((s) => ({ ...s, stop: true }));
 try {
       const price = Number(manualPrice);
       if (!Number.isFinite(price) || price <= 0) throw new Error("Invalid price.");
+      const qtyRequired = Number(manualQty);
+      if (!Number.isFinite(qtyRequired) || qtyRequired <= 0) throw new Error('Bitte Grid-Tokenmenge eingeben.');
+      const gridNativeChain = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
+      const gridToken = String(gridItem || activeGridChainSymbol || '').toUpperCase();
+      if (!await checkCapitalForStart({system:'GRID',chain:gridNativeChain,asset:gridToken,amount:qtyRequired})) {
+        setGridBusy((s) => ({ ...s, add:false }));
+        return;
+      }
 
       const slp = Math.min(20, Math.max(0.1, Number(manualSlippagePct) || 5));
       const dlm = Math.min(120, Math.max(5, Number(manualDeadlineMin) || 20));
       const deadlineSec = Math.floor(dlm * 60);
       const gridPayout = normalizeStablePayoutAsset(manualPayoutAsset || "USDC", "USDC");
       const chainKey = String(activeGridChainKey || DEFAULT_CHAIN).toUpperCase();
-      // BUILD387: ensure GRID CoreVault session exists with USDC/USDT settlement before the order.
-      // Order alone is not enough for on-chain sell — session must be bound correctly from the start.
-      let gridSessionId = "";
-      try {
-        const qtyEst = Number(manualQty || 0);
-        const budgetUsd = Math.max(1, (Number.isFinite(price) && Number.isFinite(qtyEst) && qtyEst > 0) ? price * qtyEst : qtyEst || 1);
-        const created = await createCoreVaultSystemSession({
-          system: "GRID",
-          budgetUsd,
-          durationHours: 24,
-          maxSlippageBps: Math.round(slp * 100),
-          maxLossBps: Math.max(1, Math.round((Number(manualMaxLossPct) || 15) * 100)),
-          chain: chainKey,
-          settlementAsset: gridPayout,
-        });
-        gridSessionId = String(created?.sessionId || created?.onchainSessionId || created?.onchain_session_id || "");
-      } catch (sessErr) {
-        // If a GRID session already exists, backend may reject duplicate — still allow order with warning.
-        const msg = String(sessErr?.message || sessErr || "");
-        if (!/already|exists|active session|limit/i.test(msg)) {
-          throw new Error(`Grid Vault session required: ${msg}`);
-        }
-      }
+      // A Grid SELL spends already-held native/other tokens. Its proceeds
+      // settle to the user's chosen USDC/USDT. No stablecoin-backed session.
+      const gridSessionId = '';
       const body = {
         item: gridItemId,
         addr: walletAddress || undefined,
@@ -18764,9 +18795,7 @@ body.funding_approved = !!opts.fundingApproved;
 body.funding_source_asset = String(opts.fundingSourceAsset || "").toUpperCase();
 
 // Grid never funds a purchase. It can only reserve an already-held token quantity.
-if (qty > Number(manualVaultAvailableQty || 0)) {
-  throw new Error(`Not enough ${String(gridItem || "token").toUpperCase()} available in the Vault.`);
-}
+// The server rechecks this exact Grid token's freeBase when accepting the order.
 
 	// Canonical endpoint is /api/grid/manual/add.
 	// If the backend is on an older deployed revision, fall back to known aliases.
@@ -18794,7 +18823,11 @@ if (qty > Number(manualVaultAvailableQty || 0)) {
       kickGridRefresh();
       setGridBusy((s) => ({ ...s, add: false }));
 } catch (e) {
-      setErrorMsg(`Grid start: ${e.message}`);
+      if (showBackendCapitalShortage(e, {system:'GRID',chain:String(activeGridChainKey || DEFAULT_CHAIN),asset:String(gridItem || ''),amount:Number(manualQty || 0)})) {
+        setErrorMsg('');
+      } else {
+        setErrorMsg(`Grid start: ${e.message}`);
+      }
     
       setGridBusy((s) => ({ ...s, add: false }));}
   }
@@ -21408,6 +21441,32 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
   return (
     <div className="app nexusApp">
+      {capitalShortagePopup && (
+        <div role="presentation" onClick={() => setCapitalShortagePopup(null)}
+          style={{position:'fixed',inset:0,zIndex:12000,background:'rgba(0,0,0,.78)',display:'grid',placeItems:'center',padding:16}}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="nexus-capital-shortage-title"
+            onClick={(e)=>e.stopPropagation()}
+            style={{width:'min(440px,100%)',border:'1px solid rgba(255,210,105,.5)',borderRadius:16,background:'#10231f',color:'#f0faf6',padding:22,boxShadow:'0 24px 65px rgba(0,0,0,.55)'}}>
+            <div id="nexus-capital-shortage-title" style={{fontWeight:900,fontSize:20,color:'#ffd166',marginBottom:12}}>
+              {capitalShortagePopup.system} – Kapital fehlt
+            </div>
+            <p style={{fontSize:14,margin:'0 0 16px'}}>
+              Nicht genügend {capitalShortagePopup.asset} auf {capitalShortagePopup.chain} für diesen Start.
+              Nur {capitalShortagePopup.system} bleibt gesperrt. Andere Systeme laufen unverändert weiter.
+            </p>
+            <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:9,fontSize:14,marginBottom:16}}>
+              <span>Benötigt</span><b>{Number(capitalShortagePopup.requested).toLocaleString('de-CH',{maximumFractionDigits:8})} {capitalShortagePopup.asset}</b>
+              <span>Verfügbar</span><b>{Number(capitalShortagePopup.available).toLocaleString('de-CH',{maximumFractionDigits:8})} {capitalShortagePopup.asset}</b>
+              <span style={{color:'#ffd166'}}>Bitte nachladen</span><b style={{color:'#ffd166'}}>{Number(capitalShortagePopup.missing).toLocaleString('de-CH',{maximumFractionDigits:8})} {capitalShortagePopup.asset}</b>
+            </div>
+            <p style={{fontSize:12,opacity:.8,margin:'0 0 17px'}}>
+              {capitalShortagePopup.system === 'GRID' ? 'Token zuerst in den CoreVault einzahlen. Grid kauft keine Token nach.' : 'USDC/USDT nachladen. Nexus verwendet ausschliesslich das freigegebene Handelsbudget.'}
+            </p>
+            <button type="button" className="btn" autoFocus onClick={()=>setCapitalShortagePopup(null)}
+              style={{width:'100%'}}>Verstanden</button>
+          </div>
+        </div>
+      )}
       
       <style>{`
         @keyframes nexusMovementPulse {

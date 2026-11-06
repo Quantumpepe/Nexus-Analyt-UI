@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD590-CAPITAL-INFO-ENGLISH";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD591-NKR-VAULT-ACCOUNT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -26798,7 +26798,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         if (["0x2791bca1f2de4661ed88a30c99a7a9449aa84174", "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359"].includes(addr)) return "USDC";
                         if (raw.includes("USDT")) return "USDT";
                         if (raw.includes("USDC")) return "USDC";
-                        return raw || "USDC";
+                        // NKR/Trader settlement is stable-only. Session.asset may
+                        // refer to traded BNB/POL/ETH, never use it as Vault USD.
+                        return "USDC";
                       };
                       const nkrSessionVaultRefs = (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : [])
                         .map((sess) => {
@@ -26811,12 +26813,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             sess?.settlementToken || sess?.settlementTokenAddress || sess?.settlement_address ||
                             meta?.settlement_token || meta?.settlement_token_address || meta?.settlement_address || ""
                           );
-                          const asset = canonicalNkrSettlementAsset(
-                            sess?.settlementAsset || sess?.settlementTokenSymbol || sess?.baseAsset ||
-                            sess?.payoutAsset || meta?.settlement_asset || meta?.settlement_symbol || meta?.base_asset || "USDC",
-                            settlementAddress
-                          );
-                          return chain ? { key: `${chain}|${asset}`, chain, asset, settlementAddress, session: sess } : null;
+                          const stableFromSession = [
+                            sess?.settlementAsset, sess?.settlementTokenSymbol, sess?.payoutAsset,
+                            meta?.settlement_asset, meta?.settlement_symbol,
+                            sess?.baseAsset, meta?.base_asset,
+                          ].map((v) => String(v || "").trim().toUpperCase())
+                            .find((v) => v.includes("USDC") || v.includes("USDT")) || "USDC";
+                          const vaultToken = Object.values(coreVaultOnchainByChain?.[chain]?.tokens || {})
+                            .find((row) => settlementAddress &&
+                              String(row?.address || "").toLowerCase() === settlementAddress.toLowerCase() &&
+                              /USDC|USDT/i.test(String(row?.symbol || "")));
+                          const asset = canonicalNkrSettlementAsset(vaultToken?.symbol || stableFromSession, settlementAddress);
+                          const key = `${chain}|${asset}|${settlementAddress.toLowerCase()}`;
+                          return chain ? { key, chain, asset, settlementAddress, session: sess } : null;
                         })
                         .filter(Boolean);
                       const nkrSessionVaultRefByKey = new Map();
@@ -26841,10 +26850,10 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         const targetAddr = String(settlementAddress || "").toLowerCase();
                         const candidates = Object.entries(tokenRows).map(([rowKey, row]) => {
                           const rowAddress = String(row?.address || row?.token || row?.tokenAddress || "").toLowerCase();
-                          const rowAsset = canonicalNkrSettlementAsset(
-                            row?.symbol || row?.asset || row?.name || rowKey || "",
-                            rowAddress
-                          );
+                          const rowTokenName = String(row?.symbol || row?.asset || rowKey || "")
+                            .toUpperCase().replace(/[^A-Z0-9]/g, "");
+                          const isStableAccount = rowTokenName.includes("USDC") || rowTokenName.includes("USDT");
+                          const rowAsset = canonicalNkrSettlementAsset(rowTokenName, rowAddress);
                           const account = row?.account && typeof row.account === "object" ? row.account : null;
                           const total = account ? Math.max(0,
                             Number(account?.baseCapital || 0) + Number(account?.totalSecuredProfit || 0)
@@ -26854,7 +26863,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           const exactKey = String(rowKey || "").toUpperCase() === String(asset || "").toUpperCase();
                           const sameAsset = rowAsset === asset;
                           const settlementConfigured = Boolean(row?.config?.settlementToken ?? row?.settlementToken);
-                          return { rowKey, row, account, total, allocated, rowAsset, exactAddress, exactKey, sameAsset, settlementConfigured };
+                          return { rowKey, row, account, total, allocated, rowAsset, exactAddress, exactKey, sameAsset, settlementConfigured, isStableAccount };
                         });
 
                         // ENGINE-379: Every chain must contribute its real wallet-bound settlement
@@ -26863,7 +26872,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         // token address, then the exact row key/symbol, then the configured settlement
                         // account with the highest wallet balance (important for POL USDC vs USDC_NATIVE).
                         const ranked = candidates
-                          .filter((c) => c.account)
+                          // Never select BNB/POL/ETH holdings when displaying
+                          // NKR/Trader settlement capital in USD.
+                          .filter((c) => c.account && c.isStableAccount && (c.exactAddress || c.sameAsset))
                           .sort((a, b) => {
                             const score = (c) =>
                               (c.exactAddress ? 1000000 : 0) +

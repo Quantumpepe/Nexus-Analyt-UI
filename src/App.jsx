@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD576-CAPITAL-AUTH-FIX";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD577-CAPITAL-AUDIT-NO-SIGN";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -32261,76 +32261,61 @@ export default function App() {
     return headers;
   };
 
-  // BUILD576: This System Info panel is in App(), not AppInner(). Its signed
-  // backend authentication must therefore be acquired here, not via a Privy
-  // JWT fallback or a wallet-address header alone. Trigger only on user click.
-  const _getCapitalAuditBackendToken = async (force = false) => {
-    if (!ready || !authenticated || !footerWallet) throw new Error("Bitte zuerst mit der Privy-Wallet anmelden.");
-    if (!force) {
-      const cached = String(localStorage.getItem("nexus_token") || "").trim();
-      if (cached) return cached;
+  // BUILD577: Read-only capital audit must NEVER initiate a wallet signature.
+  // Reuse only an existing signed Nexus backend session already established
+  // by the application's normal login flow. No nonce, personal_sign, or
+  // auth/verify calls can originate from this read-only operation.
+  const _getCapitalAuditBackendToken = () => {
+    if (!ready || !authenticated || !footerWallet) {
+      throw new Error("Bitte zuerst mit Privy anmelden.");
     }
-    const walletAddress = String(footerWallet).toLowerCase();
-    const embedded = (systemWallets || []).find((entry) => {
+    const walletAddress = String(footerWallet).trim().toLowerCase();
+    const hasMatchingPrivyWallet = (systemWallets || []).some((entry) => {
       const kind = String(entry?.walletClientType || entry?.connectorType || "").toLowerCase();
-      return ["privy", "embedded"].includes(kind) && String(entry?.address || "").toLowerCase() === walletAddress;
+      return ["privy", "embedded"].includes(kind)
+        && String(entry?.address || "").toLowerCase() === walletAddress;
     });
-    if (!embedded) throw new Error("Die angemeldete Privy-Wallet stimmt nicht mit dem Nexus-Konto überein.");
-    const postJson = async (path, body) => {
-      const response = await fetch(`${API_BASE}${path}`, {
-        method: "POST", cache: "no-store", credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data?.status !== "ok") throw new Error(data?.error || `Anmeldung fehlgeschlagen (HTTP ${response.status}).`);
-      return data;
-    };
-    const challenge = await postJson("/api/auth/nonce", { address: walletAddress });
-    if (!challenge?.nonce || !challenge?.message) throw new Error("Nexus-Anmeldeaufforderung fehlt.");
-    const provider = await embedded.getEthereumProvider?.();
-    if (!provider?.request) throw new Error("Privy-Signaturfunktion ist nicht verfügbar.");
-    const signature = await provider.request({ method: "personal_sign", params: [challenge.message, walletAddress] });
-    if (!signature) throw new Error("Die Wallet-Anmeldung wurde nicht bestätigt.");
-    const verified = await postJson("/api/auth/verify", {
-      address: walletAddress, message: challenge.message, nonce: challenge.nonce, signature,
-    });
-    if (String(verified?.wallet_address || "").toLowerCase() !== walletAddress || !verified?.token) {
-      throw new Error("Nexus hat die Wallet-Anmeldung nicht korrekt bestätigt.");
+    if (!hasMatchingPrivyWallet) {
+      throw new Error("Angemeldete Privy-Wallet und Nexus-Konto stimmen nicht überein.");
     }
-    localStorage.setItem("nexus_token", String(verified.token));
-    return String(verified.token);
+    // The backend verifies token signature, expiry, and wallet identity.
+    // A Privy JWT is intentionally not substituted for the Nexus token.
+    const token = String(localStorage.getItem("nexus_token") || "").trim();
+    if (!token) {
+      throw new Error("Noch keine Nexus-Sitzung vorhanden. Anmeldung abschliessen und erneut prüfen. Die Kapitalprüfung fordert keine Signatur an.");
+    }
+    return token;
   };
 
-  // BUILD576: Read-only audit; on a 401 only the authentication is retried,
-  // never a transaction. Keep the on-chain audit endpoint wallet-scoped.
   const _loadCapitalRouteAudit = async () => {
     if (!canOpenSystemInfo || capitalAuditBusy || !footerWallet) return;
     setCapitalAuditBusy(true);
     setCapitalAuditError("");
     setCapitalAudit(null);
     try {
+      const signedToken = _getCapitalAuditBackendToken();
       const query = new URLSearchParams({ chain: capitalAuditChain, stable: capitalAuditStable, engine: "ALL" });
-      const auditUrl = `${API_BASE}/api/nexus/capital/route-audit?${query.toString()}`;
-      const callAudit = async (signedToken) => fetch(auditUrl, {
+      const response = await fetch(`${API_BASE}/api/nexus/capital/route-audit?${query.toString()}`, {
         method: "GET", cache: "no-store", credentials: "include",
-        headers: { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet), Authorization: `Bearer ${signedToken}` },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Wallet-Address": String(footerWallet),
+          Authorization: `Bearer ${signedToken}`,
+        },
       });
-      let res = await callAudit(await _getCapitalAuditBackendToken(false));
-      if (res.status === 401) {
-        // A stale browser token must not silently fall back to an unverified JWT.
-        res = await callAudit(await _getCapitalAuditBackendToken(true));
-      }
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok || payload?.status !== "ok") {
-        const reason = payload?.detail || payload?.error || `HTTP ${res.status}`;
-        throw new Error(res.status === 401
-          ? "Nexus-Anmeldung konnte nicht bestätigt werden. Bitte Privy neu verbinden oder den Backend-Auth-Secret prüfen."
-          : reason);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload?.status !== "ok") {
+        if (response.status === 401) {
+          throw new Error("Nexus-Sitzung abgelaufen oder nicht gueltig. Bitte die Anmeldung erneuern. Die Kapitalprüfung fordert keine Wallet-Signatur an.");
+        }
+        if (response.status === 403 && payload?.error === "wallet_identity_mismatch") {
+          throw new Error("Die Nexus-Sitzung gehört zu einer anderen Wallet. Bitte mit der richtigen Privy-Wallet anmelden.");
+        }
+        throw new Error(payload?.detail || payload?.error || `HTTP ${response.status}`);
       }
       setCapitalAudit(payload);
-    } catch (e) {
-      setCapitalAuditError(String(e?.message || e));
+    } catch (error) {
+      setCapitalAuditError(String(error?.message || error));
     } finally {
       setCapitalAuditBusy(false);
     }

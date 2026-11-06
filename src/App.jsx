@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD582-CAPITAL-PILOT-GUARDS";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD583-CAPITAL-PILOT-WALLET-GATE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -33479,7 +33479,8 @@ export default function App() {
                           {capitalSafetyBusy ? "Prüfe…" : "Ausführungssicherheit prüfen (nur lesen)"}
                         </button>
                         {capitalSafety && <div className="muted tiny" style={{display:"grid",gap:3}}>
-                          <div>Live-Pilot: <b>{capitalSafety.operatorEnabled ? "Freigabe konfiguriert" : "Gesperrt"}</b> · 24h-Limit: {capitalSafety.pilot24hLimit} USDC/USDT · Bereits geplant/ausgeführt: {capitalSafety.pilot24hUsed} · Rest: {capitalSafety.pilot24hRemaining}</div>
+                          <div>Live-Pilot: <b>{capitalSafety.pilotTransferEnabled ? "Test bereit – noch nicht ausgeführt" : "Gesperrt"}</b> · Nur Test-Wallet: <b>{capitalSafety.pilotWalletAllowed ? "freigegeben" : "nicht freigegeben"}</b></div>
+                          <div>24h-Testlimit: {capitalSafety.pilot24hLimit} USDC/USDT · Bereits eingeplant: {capitalSafety.pilot24hUsed} · Übrig: {capitalSafety.pilot24hRemaining}</div>
                           <div>Offene Kapitaljobs: {(capitalSafety.pendingJobs || []).length} · Doppelstartschutz: {capitalSafety.duplicateWorkerClaimProtection ? "aktiv" : "unbekannt"}</div>
                           {(capitalSafety.pendingJobs || []).map((j)=><div key={j.jobId} style={{color:"#ffd166"}}>Offener Job {j.jobId}: {j.status} – nicht automatisch wiederholen</div>)}
                           <div>{capitalSafety.note}</div>

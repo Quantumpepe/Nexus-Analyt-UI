@@ -121,7 +121,9 @@ const DEMO_ALL_EVM_ENABLED = true;
 
 const ENABLE_VAULT_SUBSCRIBE = false; // Set true when vault subscription is ready and audited.
 
-const LIVE_ENABLED_CHAINS = ["ETH", "BNB", "POL", "BASE", "ARB"];
+// BUILD579: only currently tested chains appear as live candidates.
+// Additional networks are listed via the read-only backend registry, not silently enabled.
+const LIVE_ENABLED_CHAINS = ["ETH", "BNB", "POL"];
 const PRIMARY_EVM_CHAINS = ["ETH", "BNB", "POL", "BASE", "ARB"];
 /** Native gas symbol per chain key — used by Withdraw for every live/future EVM vault. */
 const NATIVE_SYMBOL_BY_CHAIN = {
@@ -614,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD578-PRIVY-VERIFIED-AUDIT";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD579-MULTICHAIN-REGISTRY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -31816,6 +31818,9 @@ export default function App() {
   const [capitalAuditStable, setCapitalAuditStable] = useState("USDC");
   const [capitalAuditBusy, setCapitalAuditBusy] = useState(false);
   const [capitalAuditError, setCapitalAuditError] = useState("");
+  const [chainRegistry, setChainRegistry] = useState(null);
+  const [chainRegistryBusy, setChainRegistryBusy] = useState(false);
+  const [chainRegistryError, setChainRegistryError] = useState("");
   const [engineDiagnostics, setEngineDiagnostics] = useState(null);
   const [engineDiagnosticsBusy, setEngineDiagnosticsBusy] = useState("");
   const [engineDiagnosticsError, setEngineDiagnosticsError] = useState("");
@@ -32283,6 +32288,27 @@ export default function App() {
       throw new Error("Keine gültige Privy-Sitzung. Bitte erneut anmelden.");
     }
     return privyToken;
+  };
+
+  // BUILD579: configuration/status only, no authorization signature or transactions.
+  const _loadChainRegistry = async () => {
+    if (chainRegistryBusy) return;
+    setChainRegistryBusy(true);
+    setChainRegistryError("");
+    try {
+      const response = await fetch(`${API_BASE}/api/nexus/chains/registry`, {
+        method: "GET", cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.status !== "ok" || !Array.isArray(data?.chains)) {
+        throw new Error(data?.error || `Netzwerkregister nicht verfügbar (HTTP ${response.status}).`);
+      }
+      setChainRegistry(data);
+    } catch (err) {
+      setChainRegistryError(String(err?.message || err));
+    } finally {
+      setChainRegistryBusy(false);
+    }
   };
 
   const _loadCapitalRouteAudit = async () => {
@@ -33233,8 +33259,10 @@ export default function App() {
                     Diese Diagnose führt keine Swaps, Einzahlungen oder Auszahlungen aus.
                   </div>
                   <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); }} style={{ width: 115 }}>
-                      <option value="ETH">ETH</option><option value="BNB">BNB</option><option value="POL">POL</option>
+                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); }} style={{ width: 145 }}>
+                      {["ETH", "BNB", "POL"].map((chain) => <option key={chain} value={chain}>{chain}</option>)}
+                      {(chainRegistry?.chains || []).filter((c) => !["ETH", "BNB", "POL"].includes(c.chain) && c.capitalAuditAvailable)
+                        .map((c) => <option key={c.chain} value={c.chain}>{c.chain} (Audit)</option>)}
                     </select>
                     <select className="input" value={capitalAuditStable} onChange={(e) => { setCapitalAuditStable(e.target.value); setCapitalAudit(null); }} style={{ width: 115 }}>
                       <option value="USDC">USDC</option><option value="USDT">USDT</option>
@@ -33242,7 +33270,27 @@ export default function App() {
                     <button type="button" className="miniBtn" disabled={capitalAuditBusy || !footerWallet} onClick={_loadCapitalRouteAudit}>
                       {capitalAuditBusy ? "Prüfe…" : "Kapitalwege prüfen"}
                     </button>
+                    <button type="button" className="miniBtn" disabled={chainRegistryBusy} onClick={_loadChainRegistry}>
+                      {chainRegistryBusy ? "Lade…" : "Netzwerkstatus prüfen"}
+                    </button>
                   </div>
+                  {chainRegistryError ? <div className="muted" style={{ marginTop: 7, color: "#ff9999" }}>{chainRegistryError}</div> : null}
+                  {Array.isArray(chainRegistry?.chains) ? (
+                    <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(185px, 1fr))", gap: 6 }}>
+                      {chainRegistry.chains.map((n) => (
+                        <div key={n.chainId} style={{ border: "1px solid rgba(255,255,255,.13)", borderRadius: 8, padding: 7, fontSize: 11 }}>
+                          <b>{n.chain}</b> <span className="muted">#{n.chainId} · {n.nativeSymbol}</span>
+                          <div style={{ color: n.stage === "CURRENT_TEST_CHAIN" ? "#8dffd0" : "#ffd166", marginTop: 3 }}>
+                            {n.stage === "CURRENT_TEST_CHAIN" ? "Bestehende Test-Chain" : "In Vorbereitung (kein Live-Trading)"}
+                          </div>
+                          <div className="muted" style={{ marginTop: 3 }}>
+                            Vault {n.vaultConfigured ? "✓" : "–"} · RPC {n.rpcConfigured ? "✓" : "–"} · Router {n.routerConfigured ? "✓" : "–"} · Stablecoins {(n.stablecoins || []).join("/") || "–"}
+                          </div>
+                          <div className="muted">Kapitalprüfung: {n.capitalAuditAvailable ? "konfiguriert, On-Chain-Test nötig" : "noch nicht konfiguriert"}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   {capitalAuditError && <div className="muted" style={{ color: "#ff9999", marginTop: 8 }}>{capitalAuditError}</div>}
                   {capitalAudit?.status === "ok" && (
                     <div style={{ marginTop: 9, display: "grid", gap: 6, fontSize: 12 }}>

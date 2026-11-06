@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD573-PRIVY-SWAP-AUTH-FIX";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD574-POLYGON-USDC-LEGACY-OPTION";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -701,8 +701,8 @@ const TOKEN_WHITELIST = {
     // The deployed Polygon CoreVault V5 is configured for bridged Polygon USDC
     // (0x2791...). Keep native Circle USDC visible as a separate exact contract;
     // symbols are display-only and deposits are matched by contract address.
-    { symbol: "USDC", address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", decimals: 6, name: "USDC (Polygon PoS)" },
-    { symbol: "USDC_NATIVE", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6, name: "USDC (Circle native)" },
+    { symbol: "USDC", address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174", decimals: 6, name: "Bridged USDC.e (Polygon PoS)", displaySymbol: "USDC.e" },
+    { symbol: "USDC_NATIVE", address: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", decimals: 6, name: "Circle native USDC (Polygon PoS)", displaySymbol: "USDC" },
     { symbol: "USDT", address: "0xC2132D05D31c914a87C6611C10748AEb04B58e8F", decimals: 6 },
   ],
   BNB: [
@@ -5516,6 +5516,9 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [walletSwapAmount, setWalletSwapAmount] = useState("");
   const [walletSwapBusy, setWalletSwapBusy] = useState(false);
   const [walletSwapMsg, setWalletSwapMsg] = useState("");
+  const [walletSwapTargets, setWalletSwapTargets] = useState([]);
+  const [walletSwapTargetsStatus, setWalletSwapTargetsStatus] = useState("idle");
+  const [walletSwapTargetsError, setWalletSwapTargetsError] = useState("");
   const [walletViewTab, setWalletViewTab] = useState("ASSETS");
   const [walletTransactionsStore, setWalletTransactionsStore] = useLocalStorageState("nexus_privy_wallet_transactions_v1", {});
 
@@ -7482,10 +7485,20 @@ useEffect(() => {
         const amount = Number(rawAmount);
         if (!Number.isFinite(amount) || amount <= 0) continue;
         const spec = getStableWhitelistForChain(chain).find((x) => String(x?.symbol || "").toUpperCase() === String(symbol).toUpperCase());
+        const isPolygonStable = normalizeWalletChainKey(chain) === "POL";
+        const vaultToken = isPolygonStable && normalizeWalletChainKey(coreVaultOnchain?.chain || "") === "POL"
+          ? Object.values(coreVaultOnchain?.tokens || {}).find((token) =>
+              String(token?.address || "").toLowerCase() === String(spec?.address || "").toLowerCase())
+          : null;
+        const vaultReady = !!(vaultToken?.config?.configured && vaultToken?.config?.depositEnabled &&
+          vaultToken?.config?.withdrawEnabled && vaultToken?.config?.executionEnabled && vaultToken?.config?.settlementToken);
         rows.push({
           key: `${chain}:${String(spec?.address || symbol).toLowerCase()}`, chain,
-          symbol: String(symbol).toUpperCase(), name: "Approved stablecoin", amount, usd: amount,
-          address: String(spec?.address || ""), kind: "stable", decimals: Number(spec?.decimals ?? 6), vaultStatus: "VERIFIED", vaultLabel: "Verified for Vault",
+          symbol: String(spec?.displaySymbol || symbol), name: String(spec?.name || "Approved stablecoin"),
+          amount, usd: amount,
+          address: String(spec?.address || ""), kind: "stable", decimals: Number(spec?.decimals ?? 6),
+          vaultStatus: !isPolygonStable || vaultReady ? "VERIFIED" : "PENDING",
+          vaultLabel: !isPolygonStable || vaultReady ? "Verified for Vault" : "Vault status checked before swap",
         });
       }
       for (const tokenRow of data?.custom || []) {
@@ -7517,7 +7530,7 @@ useEffect(() => {
       }
     }
     return rows.sort((a, b) => (Number(b.usd || 0) - Number(a.usd || 0)) || a.symbol.localeCompare(b.symbol));
-  }, [walletChainKeys, balByChain, walletPx, walletAssetSecurityByKey]);
+  }, [walletChainKeys, balByChain, walletPx, walletAssetSecurityByKey, coreVaultOnchain]);
 
   useEffect(() => {
     if (!walletAssetRows.length) {
@@ -7531,13 +7544,69 @@ useEffect(() => {
     const swapEligible = walletAssetRows.filter((row) =>
       ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(row.chain)) &&
       (row.kind === "native" || row.address === "native" ||
-        String(wnativeSpecForChain(row.chain)?.address || "").toLowerCase() === String(row.address || "").toLowerCase())
+        String(wnativeSpecForChain(row.chain)?.address || "").toLowerCase() === String(row.address || "").toLowerCase() ||
+        (normalizeWalletChainKey(row.chain) === "POL" &&
+          String(row.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"))
     );
     if (!swapEligible.some((row) => row.key === walletSwapFromKey)) {
       setWalletSwapFromKey(swapEligible[0]?.key || "");
     }
   }, [walletAssetRows, walletSendAssetKey, walletSwapFromKey]);
 
+
+  // BUILD574: exact-contract destinations come from the deployed CoreVault
+  // on the selected chain. Do not guess that Polygon USDC and USDC.e match.
+  const walletSwapSourceChain = walletAssetRows.find((row) => row.key === walletSwapFromKey)?.chain || "";
+  const walletSwapSourceAddress = walletAssetRows.find((row) => row.key === walletSwapFromKey)?.address || "";
+  useEffect(() => {
+    if (!wallet || !walletModalOpen || !walletSwapFromKey || !walletSwapSourceChain) {
+      setWalletSwapTargets([]);
+      setWalletSwapTargetsStatus("idle");
+      return;
+    }
+    const chain = normalizeWalletChainKey(walletSwapSourceChain);
+    let cancelled = false;
+    setWalletSwapTargets([]);
+    setWalletSwapTargetsStatus("loading");
+    setWalletSwapTargetsError("");
+    (async () => {
+      try {
+        const req = async (forceAuth) => fetch(`${API_BASE}/api/wallet/swap/targets?chain=${encodeURIComponent(chain)}`, {
+          method: "GET", credentials: "include",
+          headers: {Authorization: `Bearer ${await ensureBackendAuthToken(forceAuth)}`,
+                    "X-Wallet-Address": String(wallet)},
+        });
+        let resp = await req(false);
+        if (resp.status === 401) resp = await req(true);
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data?.status !== "ok") throw new Error(data?.error || `Vault check failed (${resp.status})`);
+        if (cancelled) return;
+        const options = Array.isArray(data.targets) ? data.targets.filter((t) =>
+          /^0x[a-f0-9]{40}$/i.test(String(t?.address || "")) &&
+          String(t?.address || "").toLowerCase() !== String(walletSwapSourceAddress || "").toLowerCase() &&
+          (t?.vaultSettlementVerified === true ||
+            (chain === "POL" && t?.legacyOptional === true && t?.symbol === "USDC.e" &&
+              String(t?.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"))) : [];
+        setWalletSwapTargets(options);
+        setWalletSwapTargetsStatus(options.length ? "ready" : "error");
+        if (!options.length) setWalletSwapTargetsError("No compatible USDC/USDT settlement token is enabled in this CoreVault.");
+        // Never silently preselect legacy USDC.e (even if the only option).
+        // A legacy destination always requires the user to choose it explicitly.
+        setWalletSwapToSym((current) => {
+          const standard = options.find((t) => t.vaultSettlementVerified === true);
+          if (current === "USDC.e") return standard?.symbol || "";
+          return options.some((t) => t.symbol === current)
+            ? current : (standard?.symbol || "");
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setWalletSwapTargets([]);
+        setWalletSwapTargetsStatus("error");
+        setWalletSwapTargetsError(String(error?.message || error || "Vault status unavailable"));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [wallet, walletModalOpen, walletSwapFromKey, walletSwapSourceChain, walletSwapSourceAddress]);
 
   // BUILD571: user-triggered Privy wallet swap. An actual on-chain quote and
   // individually successful receipts are mandatory; no unlimited approvals.
@@ -7562,9 +7631,16 @@ useEffect(() => {
       const wrapped = wnativeSpecForChain(chainKey);
       const fromNative = fromRow.kind === "native" || fromRow.address === "native";
       const fromWrapped = !!wrapped && String(fromRow.address || "").toLowerCase() === String(wrapped.address || "").toLowerCase();
-      if (!fromNative && !fromWrapped) throw new Error("Only native and wrapped-native swaps are enabled in this secured flow.");
-      const toSym = String(walletSwapToSym || "USDC").toUpperCase();
-      if (!["USDC", "USDT"].includes(toSym)) throw new Error("Choose USDC or USDT.");
+      const fromLegacyUsdc = chainKey === "POL" && String(fromRow.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174";
+      if (!fromNative && !fromWrapped && !fromLegacyUsdc) throw new Error("Select a native, wrapped-native, or Polygon USDC.e token.");
+      const toSym = String(walletSwapToSym || "").trim();
+      const selectedDestination = walletSwapTargets.find((target) => target.symbol === toSym);
+      const legacyDestination = chainKey === "POL" && selectedDestination?.legacyOptional === true &&
+        selectedDestination?.symbol === "USDC.e" &&
+        String(selectedDestination?.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174";
+      if (walletSwapTargetsStatus !== "ready" || !(selectedDestination?.vaultSettlementVerified || legacyDestination)) {
+        throw new Error("Select a valid stablecoin contract for this network.");
+      }
       const chainId = CHAIN_ID?.[chainKey];
       if (!chainId) throw new Error(`Unsupported network: ${chainKey}`);
       setWalletSwapBusy(true);
@@ -7592,6 +7668,15 @@ useEffect(() => {
       }
       const prep = await prepRes.json().catch(() => ({}));
       if (!prepRes.ok || prep?.status !== "ok") throw new Error(prep?.error || `Swap preparation failed (${prepRes.status})`);
+      if (Boolean(prep?.tokenOut?.vaultSettlementVerified) !== Boolean(selectedDestination.vaultSettlementVerified) ||
+          Boolean(prep?.tokenOut?.legacyOptional) !== Boolean(selectedDestination.legacyOptional) ||
+          String(prep?.tokenOut?.address || "").toLowerCase() !== String(selectedDestination.address).toLowerCase() ||
+          String(prep?.tokenOut?.symbol || "") !== String(selectedDestination.symbol)) {
+        throw new Error("Quote token differs from your explicitly selected stablecoin. Swap cancelled.");
+      }
+      if (String(prep?.tokenIn?.address || "").toLowerCase() !== (fromNative ? "native" : String(fromRow.address || "").toLowerCase())) {
+        throw new Error("Quoted input token differs from your wallet selection. Swap cancelled.");
+      }
       const steps = Array.isArray(prep.steps) ? prep.steps : [];
       if (prep.quoteSource !== "ONCHAIN_QUOTER" || !steps.length || BigInt(prep.minOut || "0") <= 0n) {
         throw new Error("Verified quote or minimum payout missing. Swap blocked.");
@@ -7611,10 +7696,15 @@ useEffect(() => {
         `Amount setting: ${isCustomAmount ? "Custom" : selectedPercent === 100 ? "Max" : `${selectedPercent}%`}\n` +
         `Quoted output: ${formatStable(prep.quoteOut)} ${toSym}\n` +
         `Minimum received: ${formatStable(prep.minOut)} ${toSym}\n` +
+        `Stablecoin contract: ${selectedDestination.address}\n` +
+        (legacyDestination ? `WARNING: Bridged USDC.e - wallet only, not standard Vault capital.\n` : "") +
         `Slippage limit: ${Number(prep.slippageBps || 100) / 100}%\n` +
         `Estimated gas reserve kept: ${nativeGasReserve.toFixed(6)} ${chainKey === "POL" ? "POL" : chainKey}\n` +
         `Actual network fees may vary.\n\nApprove this transaction sequence?`;
       if (!window.confirm(confirmText)) { setWalletSwapMsg("Swap cancelled by user."); return; }
+      if (legacyDestination && !window.confirm("USDC.e is the older bridged Polygon token, NOT Circle native USDC. It may not be accepted by the Trading Vault. Do you explicitly want to receive USDC.e?")) {
+        setWalletSwapMsg("Legacy USDC.e swap cancelled."); return;
+      }
       const provider = await _getEmbeddedProvider();
       await _trySwitchChain(provider, chainId);
       const expectedHex = "0x" + Number(chainId).toString(16);
@@ -23767,18 +23857,37 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.20)" }}>
                     <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer" }}>Swap → USDC / USDT (Privy Wallet)</summary>
                     <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>
-                      Choose a token and stablecoin. Max is selected automatically; Nexus keeps native gas for fees and calculates the exact spendable amount on-chain. All steps require confirmation. Funds remain in your Privy Wallet.
+                      Select ETH/BNB/POL, wrapped native, or existing Polygon USDC.e to swap into native USDC. USDC.e remains an optional bridged destination, never the default. Max is preselected; Nexus reserves gas and checks real quotes. Funds remain in your Privy Wallet.
                     </div>
                     <select className="input" value={walletSwapFromKey} onChange={(e) => { setWalletSwapFromKey(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy} style={{ width: "100%", height: 42, marginTop: 9 }}>
                       <option value="">Select token to swap</option>
-                      {walletAssetRows.filter((r) => ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(r.chain)) && (r.kind === "native" || r.address === "native" || String(wnativeSpecForChain(r.chain)?.address || "").toLowerCase() === String(r.address || "").toLowerCase())).map((r) => (
+                      {walletAssetRows.filter((r) => ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(r.chain)) && (r.kind === "native" || r.address === "native" || String(wnativeSpecForChain(r.chain)?.address || "").toLowerCase() === String(r.address || "").toLowerCase() || (normalizeWalletChainKey(r.chain) === "POL" && String(r.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"))).map((r) => (
                         <option key={r.key} value={r.key}>{r.symbol} · {walletChainDisplayName(r.chain)} · {fmtQty(r.amount)}</option>
                       ))}
                     </select>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 9 }}>
                       <span className="muted" style={{ fontSize: 11 }}>Amount to swap</span>
-                      <select className="input" value={walletSwapToSym} onChange={(e) => { setWalletSwapToSym(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy} style={{ width: 100, height: 38 }}><option value="USDC">USDC</option><option value="USDT">USDT</option></select>
+                      <select className="input" value={walletSwapToSym} onChange={(e) => { setWalletSwapToSym(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy || walletSwapTargetsStatus !== "ready"} style={{ width: 154, height: 38 }}>
+                        {!walletSwapTargets.length && <option value="">Checking Vault…</option>}
+                        {walletSwapTargets.length > 0 && <option value="">Choose destination</option>}
+                        {walletSwapTargets.map((dest) => <option key={dest.address} value={dest.symbol}>{dest.symbol}{dest.legacyOptional ? " (bridged · optional)" : ""}</option>)}
+                      </select>
                     </div>
+                    {walletSwapTargetsStatus === "error" && (
+                      <div className="muted" style={{ color: "#ffd166", fontSize: 11, marginTop: 7 }}>
+                        Swap disabled: {walletSwapTargetsError}
+                      </div>
+                    )}
+                    {walletSwapTargetsStatus === "ready" && walletSwapTargets.some((v) => v.symbol === walletSwapToSym && v.legacyOptional) && (
+                      <div className="muted" style={{ fontSize: 11, color: "#ffd166", marginTop: 6 }}>
+                        USDC.e is an older bridged Polygon token. Only select it deliberately; Circle native USDC is the standard destination.
+                      </div>
+                    )}
+                    {walletSwapTargetsStatus === "ready" && walletSwapTargets.some((v) => v.symbol === walletSwapToSym) && (
+                      <div className="muted" style={{ fontSize: 10, marginTop: 6, overflowWrap: "anywhere" }}>
+                        {walletSwapTargets.find((v) => v.symbol === walletSwapToSym)?.legacyOptional ? "Bridged USDC.e (wallet-only, not default Vault settlement)" : "Verified Vault settlement"} contract: {walletSwapTargets.find((v) => v.symbol === walletSwapToSym)?.address}
+                      </div>
+                    )}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 5, marginTop: 7 }}>
                       {["25", "50", "75", "100", "CUSTOM"].map((mode) => (
                         <button key={mode} type="button" className={walletSwapMode === mode ? "btn" : "btnGhost"}
@@ -23803,7 +23912,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       </div>
                     )}
                     <button type="button" className="btn" onClick={runPrivyWalletSwap}
-                      disabled={!wallet || walletSwapBusy || !walletSwapFromKey || (walletSwapMode === "CUSTOM" && !walletSwapAmount.trim())}
+                      disabled={!wallet || walletSwapBusy || !walletSwapFromKey || walletSwapTargetsStatus !== "ready" || !walletSwapTargets.some((v) => v.symbol === walletSwapToSym) || (walletSwapMode === "CUSTOM" && !walletSwapAmount.trim())}
                       style={{ width: "100%", height: 44, marginTop: 9 }}>
                       {walletSwapBusy ? "Processing…" : "Get quote and confirm swap"}
                     </button>

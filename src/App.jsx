@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD581-CAPITAL-COORDINATION-STRICT";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD582-CAPITAL-PILOT-GUARDS";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -31862,6 +31862,10 @@ export default function App() {
   const [capitalCombinedPlan, setCapitalCombinedPlan] = useState(null);
   const [capitalCombinedBusy, setCapitalCombinedBusy] = useState(false);
   const [capitalCombinedError, setCapitalCombinedError] = useState("");
+  const [capitalSafety, setCapitalSafety] = useState(null);
+  const [capitalSafetyBusy, setCapitalSafetyBusy] = useState(false);
+  const [capitalSafetyError, setCapitalSafetyError] = useState("");
+  const [capitalJobReceipts, setCapitalJobReceipts] = useState(null);
   const [chainRegistry, setChainRegistry] = useState(null);
   const [chainRegistryBusy, setChainRegistryBusy] = useState(false);
   const [chainRegistryError, setChainRegistryError] = useState("");
@@ -32432,6 +32436,27 @@ export default function App() {
       setCapitalCombinedPlan(data.plan);
     } catch(e) {setCapitalCombinedError(String(e?.message || e));}
     finally {setCapitalCombinedBusy(false);}
+  };
+
+  // BUILD582: read-only pilot safety and receipt checks. No signatures or transfers.
+  const _loadCapitalSafety = async () => {
+    if (capitalSafetyBusy) return;
+    setCapitalSafetyBusy(true); setCapitalSafetyError(""); setCapitalSafety(null);
+    try {
+      const query = new URLSearchParams({chain:capitalAuditChain, stable:capitalAuditStable});
+      const data = await _capitalAutoRequest(`/api/nexus/capital/automation/safety?${query}`);
+      setCapitalSafety(data.safety);
+    } catch(e) { setCapitalSafetyError(String(e?.message || e)); }
+    finally { setCapitalSafetyBusy(false); }
+  };
+  const _loadCapitalJobReceipts = async () => {
+    const jobId = String(capitalAutoJob?.jobId || "");
+    if (!jobId) return;
+    setCapitalSafetyError(""); setCapitalJobReceipts(null);
+    try {
+      const data = await _capitalAutoRequest(`/api/nexus/capital/automation/jobs/${encodeURIComponent(jobId)}/receipts`);
+      setCapitalJobReceipts(data.receipts || []);
+    } catch(e) { setCapitalSafetyError(String(e?.message || e)); }
   };
 
   const _startCapitalAutomation = async (kind) => {
@@ -33376,12 +33401,12 @@ export default function App() {
                     Diese Diagnose führt keine Swaps, Einzahlungen oder Auszahlungen aus.
                   </div>
                   <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalCombinedPlan(null); setCapitalAutoJob(null); }} style={{ width: 145 }}>
+                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalCombinedPlan(null); setCapitalAutoJob(null); setCapitalSafety(null); setCapitalSafetyError(""); setCapitalJobReceipts(null); }} style={{ width: 145 }}>
                       {["ETH", "BNB", "POL"].map((chain) => <option key={chain} value={chain}>{chain}</option>)}
                       {(chainRegistry?.chains || []).filter((c) => !["ETH", "BNB", "POL"].includes(c.chain) && c.capitalAuditAvailable)
                         .map((c) => <option key={c.chain} value={c.chain}>{c.chain} (Audit)</option>)}
                     </select>
-                    <select className="input" value={capitalAuditStable} onChange={(e) => { setCapitalAuditStable(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalCombinedPlan(null); setCapitalAutoJob(null); }} style={{ width: 115 }}>
+                    <select className="input" value={capitalAuditStable} onChange={(e) => { setCapitalAuditStable(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalCombinedPlan(null); setCapitalAutoJob(null); setCapitalSafety(null); setCapitalSafetyError(""); setCapitalJobReceipts(null); }} style={{ width: 115 }}>
                       <option value="USDC">USDC</option><option value="USDT">USDT</option>
                     </select>
                     <button type="button" className="miniBtn" disabled={capitalAuditBusy || !footerWallet} onClick={_loadCapitalRouteAudit}>
@@ -33449,6 +33474,18 @@ export default function App() {
                         <div style={{color:"#ffd166"}}>{capitalCombinedPlan.note}</div>
                       </div>}
                       {capitalCombinedError && <div style={{color:"#ffaaaa"}}>{capitalCombinedError}</div>}
+                      <div style={{borderTop:"1px solid rgba(255,255,255,.12)",paddingTop:7,marginTop:5,display:"grid",gap:5}}>
+                        <button type="button" className="miniBtn" disabled={capitalSafetyBusy} onClick={_loadCapitalSafety} style={{justifySelf:"start"}}>
+                          {capitalSafetyBusy ? "Prüfe…" : "Ausführungssicherheit prüfen (nur lesen)"}
+                        </button>
+                        {capitalSafety && <div className="muted tiny" style={{display:"grid",gap:3}}>
+                          <div>Live-Pilot: <b>{capitalSafety.operatorEnabled ? "Freigabe konfiguriert" : "Gesperrt"}</b> · 24h-Limit: {capitalSafety.pilot24hLimit} USDC/USDT · Bereits geplant/ausgeführt: {capitalSafety.pilot24hUsed} · Rest: {capitalSafety.pilot24hRemaining}</div>
+                          <div>Offene Kapitaljobs: {(capitalSafety.pendingJobs || []).length} · Doppelstartschutz: {capitalSafety.duplicateWorkerClaimProtection ? "aktiv" : "unbekannt"}</div>
+                          {(capitalSafety.pendingJobs || []).map((j)=><div key={j.jobId} style={{color:"#ffd166"}}>Offener Job {j.jobId}: {j.status} – nicht automatisch wiederholen</div>)}
+                          <div>{capitalSafety.note}</div>
+                        </div>}
+                        {capitalSafetyError && <div style={{color:"#ffaaaa"}}>{capitalSafetyError}</div>}
+                      </div>
                     </div>
                     <div className="muted tiny">Rückzahlung nach abgeschlossener Session (nur Kapital, keine gesicherten Gewinne):</div>
                     <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
@@ -33457,6 +33494,8 @@ export default function App() {
                     </div>
                     {capitalAutoJob && <div className="muted tiny"><b>Job {capitalAutoJob.jobId}:</b> {capitalAutoJob.status} · {capitalAutoJob.detail}
                       {(capitalAutoJob.steps || []).map((step,i)=><div key={i}>{step.step} · {step.status} {step.txHash ? `· ${step.txHash}` : ""}</div>)}
+                      <button type="button" className="miniBtn" onClick={_loadCapitalJobReceipts}>Transaktionsbelege prüfen (nur lesen)</button>
+                      {Array.isArray(capitalJobReceipts) && capitalJobReceipts.map((receipt,i)=><div key={i}>{receipt.step}: {receipt.receiptStatus} {receipt.txHash || "kein Hash"}</div>)}
                     </div>}
                     {capitalAutoError && <div className="muted" style={{color:"#ff9999"}}>{capitalAutoError}</div>}
                   </div>

@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD571-PRIVY-SWAP-SAFETY";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD573-PRIVY-SWAP-AUTH-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -5511,6 +5511,8 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   // BUILD454: manual Privy wallet swap (user-initiated)
   const [walletSwapFromKey, setWalletSwapFromKey] = useState("");
   const [walletSwapToSym, setWalletSwapToSym] = useState("USDC");
+  // BUILD572: Max (minus native gas) is the default. Manual amount is optional.
+  const [walletSwapMode, setWalletSwapMode] = useState("100"); // 25 / 50 / 75 / 100 / CUSTOM
   const [walletSwapAmount, setWalletSwapAmount] = useState("");
   const [walletSwapBusy, setWalletSwapBusy] = useState(false);
   const [walletSwapMsg, setWalletSwapMsg] = useState("");
@@ -7520,13 +7522,19 @@ useEffect(() => {
   useEffect(() => {
     if (!walletAssetRows.length) {
       if (walletSendAssetKey) setWalletSendAssetKey("");
+      if (walletSwapFromKey) setWalletSwapFromKey("");
       return;
     }
     if (!walletAssetRows.some((row) => row.key === walletSendAssetKey)) {
       setWalletSendAssetKey(walletAssetRows[0].key);
     }
-    if (walletSwapFromKey && !walletAssetRows.some((row) => row.key === walletSwapFromKey)) {
-      setWalletSwapFromKey(walletAssetRows[0]?.key || "");
+    const swapEligible = walletAssetRows.filter((row) =>
+      ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(row.chain)) &&
+      (row.kind === "native" || row.address === "native" ||
+        String(wnativeSpecForChain(row.chain)?.address || "").toLowerCase() === String(row.address || "").toLowerCase())
+    );
+    if (!swapEligible.some((row) => row.key === walletSwapFromKey)) {
+      setWalletSwapFromKey(swapEligible[0]?.key || "");
     }
   }, [walletAssetRows, walletSendAssetKey, walletSwapFromKey]);
 
@@ -7539,9 +7547,16 @@ useEffect(() => {
       if (!wallet) throw new Error("Wallet not connected.");
       const fromRow = walletAssetRows.find((item) => item.key === walletSwapFromKey);
       if (!fromRow) throw new Error("Select a native token or its wrapped equivalent.");
+      // Max/presets are resolved server-side from on-chain balances; no typed
+      // amount is required. Custom amount remains a deliberate opt-in.
+      const isCustomAmount = walletSwapMode === "CUSTOM";
       const rawAmount = String(walletSwapAmount || "").trim();
-      if (!/^\d+(\.\d+)?$/.test(rawAmount) || Number(rawAmount) <= 0) throw new Error("Enter a valid amount.");
-      if (Number(rawAmount) > Number(fromRow.amount || 0)) throw new Error("Amount exceeds wallet balance.");
+      if (isCustomAmount) {
+        if (!/^\d+(\.\d+)?$/.test(rawAmount) || Number(rawAmount) <= 0) throw new Error("Enter a valid custom amount.");
+        if (Number(rawAmount) > Number(fromRow.amount || 0)) throw new Error("Amount exceeds displayed wallet balance.");
+      }
+      const selectedPercent = isCustomAmount ? null : Number(walletSwapMode);
+      if (!isCustomAmount && ![25, 50, 75, 100].includes(selectedPercent)) throw new Error("Invalid swap percentage.");
       const chainKey = normalizeWalletChainKey(fromRow.chain || DEFAULT_CHAIN);
       if (!["ETH", "BNB", "POL"].includes(chainKey)) throw new Error("Wallet swaps are currently available on ETH, BNB and POL.");
       const wrapped = wnativeSpecForChain(chainKey);
@@ -7554,13 +7569,27 @@ useEffect(() => {
       if (!chainId) throw new Error(`Unsupported network: ${chainKey}`);
       setWalletSwapBusy(true);
       setWalletSwapMsg("Obtaining a real on-chain quote…");
-      const prepRes = await fetch(`${API_BASE}/api/wallet/swap/prepare`, {
+      // BUILD573: This wallet view is inside AppInner; _authHeaders belongs to
+      // a different component and is not in scope. Prepare requires the signed
+      // Nexus backend JWT matching the connected Privy wallet.
+      const requestSwapPreparation = async (backendToken) => fetch(`${API_BASE}/api/wallet/swap/prepare`, {
         method: "POST", credentials: "include",
-        headers: { "Content-Type": "application/json", ...(_authHeaders?.() || {}) },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Wallet-Address": String(wallet),
+          Authorization: `Bearer ${backendToken}`,
+        },
         body: JSON.stringify({wallet, chain: chainKey, chainId,
           tokenIn: fromNative ? "native" : String(fromRow.address || ""),
-          tokenOut: toSym, amount: rawAmount, slippageBps: 100}),
+          tokenOut: toSym, amountMode: isCustomAmount ? "CUSTOM" : "PERCENT",
+          ...(isCustomAmount ? {amount: rawAmount} : {amountPercent: selectedPercent}),
+          slippageBps: 100}),
       });
+      let prepRes = await requestSwapPreparation(await ensureBackendAuthToken(false));
+      // Backend JWTs can expire; refresh once, never retry a submitted trade.
+      if (prepRes.status === 401) {
+        prepRes = await requestSwapPreparation(await ensureBackendAuthToken(true));
+      }
       const prep = await prepRes.json().catch(() => ({}));
       if (!prepRes.ok || prep?.status !== "ok") throw new Error(prep?.error || `Swap preparation failed (${prepRes.status})`);
       const steps = Array.isArray(prep.steps) ? prep.steps : [];
@@ -7574,11 +7603,17 @@ useEffect(() => {
         const div = 10n ** BigInt(stableDecimals);
         return `${v / div}.${String(v % div).padStart(stableDecimals, "0").slice(0, 6)}`;
       };
-      const confirmText = `Swap ${rawAmount} ${fromRow.symbol} → ${toSym} on ${chainKey}?\n` +
+      // Use the precise server-derived input, not a rounded display balance.
+      const confirmedAmount = String(prep.amountInHuman || "").trim();
+      if (!confirmedAmount || BigInt(prep.amountIn || "0") <= 0n) throw new Error("Exact input amount missing from quote.");
+      const nativeGasReserve = Number(prep.gasReserveWei || "0") / 1e18;
+      const confirmText = `Swap ${confirmedAmount} ${fromRow.symbol} → ${toSym} on ${chainKey}?\n` +
+        `Amount setting: ${isCustomAmount ? "Custom" : selectedPercent === 100 ? "Max" : `${selectedPercent}%`}\n` +
         `Quoted output: ${formatStable(prep.quoteOut)} ${toSym}\n` +
         `Minimum received: ${formatStable(prep.minOut)} ${toSym}\n` +
         `Slippage limit: ${Number(prep.slippageBps || 100) / 100}%\n` +
-        `Network gas fees are extra.\n\nApprove this transaction sequence?`;
+        `Estimated gas reserve kept: ${nativeGasReserve.toFixed(6)} ${chainKey === "POL" ? "POL" : chainKey}\n` +
+        `Actual network fees may vary.\n\nApprove this transaction sequence?`;
       if (!window.confirm(confirmText)) { setWalletSwapMsg("Swap cancelled by user."); return; }
       const provider = await _getEmbeddedProvider();
       await _trySwitchChain(provider, chainId);
@@ -7624,10 +7659,10 @@ useEffect(() => {
         const hash = await provider.request({method:"eth_sendTransaction", params:[tx]});
         if (!/^0x[0-9a-f]{64}$/i.test(String(hash || ""))) throw new Error("Wallet returned no valid transaction hash.");
         try { saveWalletTransaction({type:`WALLET SWAP ${String(step.type || "").toUpperCase()}`, chain:chainKey, asset:fromRow.symbol,
-          amount:rawAmount, from:wallet, to:step.to, txHash:hash, status:"SUBMITTED"}); } catch (_) {}
+          amount:confirmedAmount, from:wallet, to:step.to, txHash:hash, status:"SUBMITTED"}); } catch (_) {}
         await waitSuccessfulReceipt(hash);
         try { saveWalletTransaction({type:`WALLET SWAP ${String(step.type || "").toUpperCase()}`, chain:chainKey, asset:fromRow.symbol,
-          amount:rawAmount, from:wallet, to:step.to, txHash:hash, status:"CONFIRMED"}); } catch (_) {}
+          amount:confirmedAmount, from:wallet, to:step.to, txHash:hash, status:"CONFIRMED"}); } catch (_) {}
         if (step.type === "swap") swapHash = hash;
       }
       if (!swapHash) throw new Error("Swap transaction missing.");
@@ -23730,20 +23765,49 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </details>
 
                   <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.20)" }}>
-                    <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer" }}>Swap native token → USDC / USDT (Privy)</summary>
-                    <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>Direct wallet swap on ETH, BNB or POL. Real on-chain quote, gas reserve, limited approval and confirmed transactions required. Stablecoins remain in the Privy Wallet; deposit to the Trading Wallet separately.</div>
+                    <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer" }}>Swap → USDC / USDT (Privy Wallet)</summary>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>
+                      Choose a token and stablecoin. Max is selected automatically; Nexus keeps native gas for fees and calculates the exact spendable amount on-chain. All steps require confirmation. Funds remain in your Privy Wallet.
+                    </div>
                     <select className="input" value={walletSwapFromKey} onChange={(e) => { setWalletSwapFromKey(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy} style={{ width: "100%", height: 42, marginTop: 9 }}>
-                      <option value="">Select asset to swap</option>
+                      <option value="">Select token to swap</option>
                       {walletAssetRows.filter((r) => ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(r.chain)) && (r.kind === "native" || r.address === "native" || String(wnativeSpecForChain(r.chain)?.address || "").toLowerCase() === String(r.address || "").toLowerCase())).map((r) => (
                         <option key={r.key} value={r.key}>{r.symbol} · {walletChainDisplayName(r.chain)} · {fmtQty(r.amount)}</option>
                       ))}
                     </select>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 8, marginTop: 8 }}>
-                      <input className="input" inputMode="decimal" value={walletSwapAmount} onChange={(e) => { setWalletSwapAmount(e.target.value); setWalletSwapMsg(""); }} placeholder="Amount (leave native gas)" disabled={walletSwapBusy} style={{ height: 42 }} />
-                      <select className="input" value={walletSwapToSym} onChange={(e) => { setWalletSwapToSym(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy} style={{ height: 42 }}><option value="USDC">USDC</option><option value="USDT">USDT</option></select>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 9 }}>
+                      <span className="muted" style={{ fontSize: 11 }}>Amount to swap</span>
+                      <select className="input" value={walletSwapToSym} onChange={(e) => { setWalletSwapToSym(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy} style={{ width: 100, height: 38 }}><option value="USDC">USDC</option><option value="USDT">USDT</option></select>
                     </div>
-                    <button type="button" className="btn" onClick={runPrivyWalletSwap} disabled={!wallet || walletSwapBusy || !walletSwapFromKey || !walletSwapAmount} style={{ width: "100%", height: 44, marginTop: 8 }}>{walletSwapBusy ? "Processing…" : "Get quote and confirm swap"}</button>
-                    {walletSwapMsg && <div className="muted" style={{ fontSize: 11, marginTop: 8, wordBreak: "break-word" }}>{walletSwapMsg}</div>}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 5, marginTop: 7 }}>
+                      {["25", "50", "75", "100", "CUSTOM"].map((mode) => (
+                        <button key={mode} type="button" className={walletSwapMode === mode ? "btn" : "btnGhost"}
+                          onClick={() => { setWalletSwapMode(mode); setWalletSwapMsg(""); }}
+                          disabled={walletSwapBusy} style={{ padding: "8px 1px", minWidth: 0, fontSize: 10 }}>
+                          {mode === "100" ? "MAX" : mode === "CUSTOM" ? "Other" : `${mode}%`}
+                        </button>
+                      ))}
+                    </div>
+                    {walletSwapMode === "CUSTOM" ? (
+                      <input className="input" inputMode="decimal" value={walletSwapAmount} onChange={(e) => { setWalletSwapAmount(e.target.value); setWalletSwapMsg(""); }} placeholder="Enter amount (optional mode)" disabled={walletSwapBusy} style={{ height: 42, marginTop: 8, width: "100%" }} />
+                    ) : (
+                      <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>
+                        {walletSwapMode === "100" ? "MAX selected · " : `${walletSwapMode}% selected · `}
+                        {walletAssetRows.find((r) => r.key === walletSwapFromKey)
+                          ? `${fmtQty(walletAssetRows.find((r) => r.key === walletSwapFromKey).amount)} available (wallet display)`
+                          : "Choose a token"}
+                        {walletSwapMode === "100"
+                          ? (walletAssetRows.find((r) => r.key === walletSwapFromKey)?.kind === "native" || walletAssetRows.find((r) => r.key === walletSwapFromKey)?.address === "native"
+                            ? " · Native gas reserve deducted automatically" : " · Native gas held separately for network fees")
+                          : " · Actual spend is checked on-chain"}
+                      </div>
+                    )}
+                    <button type="button" className="btn" onClick={runPrivyWalletSwap}
+                      disabled={!wallet || walletSwapBusy || !walletSwapFromKey || (walletSwapMode === "CUSTOM" && !walletSwapAmount.trim())}
+                      style={{ width: "100%", height: 44, marginTop: 9 }}>
+                      {walletSwapBusy ? "Processing…" : "Get quote and confirm swap"}
+                    </button>
+                    {walletSwapMsg && <div className="muted" role="status" style={{ fontSize: 11, marginTop: 8, wordBreak: "break-word" }}>{walletSwapMsg}</div>}
                   </details>
 
                   <button type="button" className="btnGhost" onClick={() => { setWalletAssetSecurityByKey({}); refreshBalances(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 10 }}>

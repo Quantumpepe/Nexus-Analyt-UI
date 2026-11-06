@@ -614,7 +614,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD577-CAPITAL-AUDIT-NO-SIGN";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD578-PRIVY-VERIFIED-AUDIT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -31790,7 +31790,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
 
 export default function App() {
-  const { ready, authenticated } = usePrivy();
+  const { ready, authenticated, getAccessToken } = usePrivy();
   const { wallets: systemWallets = [] } = useWallets();
   const { addSigners } = useSigners();
   const _privySignerSetupInFlight = useRef(false);
@@ -32261,11 +32261,11 @@ export default function App() {
     return headers;
   };
 
-  // BUILD577: Read-only capital audit must NEVER initiate a wallet signature.
-  // Reuse only an existing signed Nexus backend session already established
-  // by the application's normal login flow. No nonce, personal_sign, or
-  // auth/verify calls can originate from this read-only operation.
-  const _getCapitalAuditBackendToken = () => {
+  // BUILD578: Privy access tokens refresh silently via getAccessToken().
+  // This read-only audit must not start nonce/personal_sign/login or a transaction.
+  // The backend validates JWT signature, issuer, audience, expiry and DID-to-wallet
+  // membership with Privy's authenticated user API; no address-only trust.
+  const _getCapitalAuditPrivyToken = async () => {
     if (!ready || !authenticated || !footerWallet) {
       throw new Error("Bitte zuerst mit Privy anmelden.");
     }
@@ -32278,13 +32278,11 @@ export default function App() {
     if (!hasMatchingPrivyWallet) {
       throw new Error("Angemeldete Privy-Wallet und Nexus-Konto stimmen nicht überein.");
     }
-    // The backend verifies token signature, expiry, and wallet identity.
-    // A Privy JWT is intentionally not substituted for the Nexus token.
-    const token = String(localStorage.getItem("nexus_token") || "").trim();
-    if (!token) {
-      throw new Error("Noch keine Nexus-Sitzung vorhanden. Anmeldung abschliessen und erneut prüfen. Die Kapitalprüfung fordert keine Signatur an.");
+    const privyToken = String((await getAccessToken?.()) || "").trim();
+    if (!privyToken) {
+      throw new Error("Keine gültige Privy-Sitzung. Bitte erneut anmelden.");
     }
-    return token;
+    return privyToken;
   };
 
   const _loadCapitalRouteAudit = async () => {
@@ -32293,7 +32291,7 @@ export default function App() {
     setCapitalAuditError("");
     setCapitalAudit(null);
     try {
-      const signedToken = _getCapitalAuditBackendToken();
+      const signedToken = await _getCapitalAuditPrivyToken();
       const query = new URLSearchParams({ chain: capitalAuditChain, stable: capitalAuditStable, engine: "ALL" });
       const response = await fetch(`${API_BASE}/api/nexus/capital/route-audit?${query.toString()}`, {
         method: "GET", cache: "no-store", credentials: "include",
@@ -32306,10 +32304,13 @@ export default function App() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload?.status !== "ok") {
         if (response.status === 401) {
-          throw new Error("Nexus-Sitzung abgelaufen oder nicht gueltig. Bitte die Anmeldung erneuern. Die Kapitalprüfung fordert keine Wallet-Signatur an.");
+          throw new Error("Privy-Sitzung ungültig oder abgelaufen. Bitte erneut bei Privy anmelden. Keine zusätzliche Wallet-Signatur für diese Prüfung.");
         }
         if (response.status === 403 && payload?.error === "wallet_identity_mismatch") {
-          throw new Error("Die Nexus-Sitzung gehört zu einer anderen Wallet. Bitte mit der richtigen Privy-Wallet anmelden.");
+          throw new Error("Die angemeldete Privy-Sitzung gehört nicht zu dieser Wallet.");
+        }
+        if (response.status === 503) {
+          throw new Error("Privy-Identitätsprüfung momentan nicht verfügbar. Bitte später erneut versuchen oder Privy-Konfiguration am Backend prüfen.");
         }
         throw new Error(payload?.detail || payload?.error || `HTTP ${response.status}`);
       }

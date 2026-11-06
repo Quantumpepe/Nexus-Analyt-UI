@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD580-CAPITAL-AUTOMATION-GUARDED";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD581-CAPITAL-COORDINATION-STRICT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -31857,6 +31857,11 @@ export default function App() {
   const [capitalAutoSessionId, setCapitalAutoSessionId] = useState("");
   const [capitalAutoBusy, setCapitalAutoBusy] = useState(false);
   const [capitalAutoError, setCapitalAutoError] = useState("");
+  // BUILD581: Shared Vault balance must not be counted three times.
+  const [capitalCombinedBudgets, setCapitalCombinedBudgets] = useState({NKR:"10", GRID:"10", TRADER:"10"});
+  const [capitalCombinedPlan, setCapitalCombinedPlan] = useState(null);
+  const [capitalCombinedBusy, setCapitalCombinedBusy] = useState(false);
+  const [capitalCombinedError, setCapitalCombinedError] = useState("");
   const [chainRegistry, setChainRegistry] = useState(null);
   const [chainRegistryBusy, setChainRegistryBusy] = useState(false);
   const [chainRegistryError, setChainRegistryError] = useState("");
@@ -32412,6 +32417,21 @@ export default function App() {
       setCapitalAutoPlan(data.plan);
     } catch (e) { setCapitalAutoError(String(e?.message || e)); }
     finally { setCapitalAutoBusy(false); }
+  };
+
+  // BUILD581: one consolidated plan; all values read from ONE wallet/chain.
+  const _previewCombinedCapital = async () => {
+    if (capitalCombinedBusy) return;
+    setCapitalCombinedBusy(true);
+    setCapitalCombinedError("");
+    setCapitalCombinedPlan(null);
+    try {
+      const query = new URLSearchParams({chain:capitalAuditChain, stable:capitalAuditStable,
+        nkr:capitalCombinedBudgets.NKR, grid:capitalCombinedBudgets.GRID, trader:capitalCombinedBudgets.TRADER});
+      const data = await _capitalAutoRequest(`/api/nexus/capital/automation/combined-preview?${query}`);
+      setCapitalCombinedPlan(data.plan);
+    } catch(e) {setCapitalCombinedError(String(e?.message || e));}
+    finally {setCapitalCombinedBusy(false);}
   };
 
   const _startCapitalAutomation = async (kind) => {
@@ -33356,12 +33376,12 @@ export default function App() {
                     Diese Diagnose führt keine Swaps, Einzahlungen oder Auszahlungen aus.
                   </div>
                   <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalAutoJob(null); }} style={{ width: 145 }}>
+                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalCombinedPlan(null); setCapitalAutoJob(null); }} style={{ width: 145 }}>
                       {["ETH", "BNB", "POL"].map((chain) => <option key={chain} value={chain}>{chain}</option>)}
                       {(chainRegistry?.chains || []).filter((c) => !["ETH", "BNB", "POL"].includes(c.chain) && c.capitalAuditAvailable)
                         .map((c) => <option key={c.chain} value={c.chain}>{c.chain} (Audit)</option>)}
                     </select>
-                    <select className="input" value={capitalAuditStable} onChange={(e) => { setCapitalAuditStable(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalAutoJob(null); }} style={{ width: 115 }}>
+                    <select className="input" value={capitalAuditStable} onChange={(e) => { setCapitalAuditStable(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalCombinedPlan(null); setCapitalAutoJob(null); }} style={{ width: 115 }}>
                       <option value="USDC">USDC</option><option value="USDT">USDT</option>
                     </select>
                     <button type="button" className="miniBtn" disabled={capitalAuditBusy || !footerWallet} onClick={_loadCapitalRouteAudit}>
@@ -33406,6 +33426,30 @@ export default function App() {
                       {Array.isArray(capitalAutoPlan.blockers) && capitalAutoPlan.blockers.length ? <div style={{color:"#ffb4b4"}}>Blockiert: {capitalAutoPlan.blockers.join(", ")}</div> : null}
                     </div>}
                     {capitalAutoPlan?.automationLiveAllowed && <button type="button" className="miniBtn" disabled={capitalAutoBusy} onClick={()=>_startCapitalAutomation("FUND")}>Handelskapital automatisch bereitstellen</button>}
+                    <div style={{marginTop:10,padding:10,border:"1px solid rgba(141,255,208,.25)",borderRadius:9,display:"grid",gap:7}}>
+                      <b>Gemeinsamer Budgettest – NKR / Grid / Trader</b>
+                      <div className="muted tiny">Alle drei Budgets werden gegen denselben freien Vault-Bestand gerechnet. Nur Vorschau: keine Reservierung, kein Swap, keine Einzahlung.</div>
+                      <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                        {(["NKR","GRID","TRADER"]).map((engine) => <label key={engine} className="muted tiny" style={{display:"grid",gap:3}}>{engine}
+                          <input className="input" type="text" value={capitalCombinedBudgets[engine]}
+                            onChange={(e)=>{setCapitalCombinedBudgets((old)=>({...old,[engine]:e.target.value}));setCapitalCombinedPlan(null);}}
+                            style={{width:95}} />
+                        </label>)}
+                        <button type="button" className="miniBtn" disabled={capitalCombinedBusy} onClick={_previewCombinedCapital}>
+                          {capitalCombinedBusy ? "Prüfe…" : "Alle Budgets gemeinsam prüfen"}
+                        </button>
+                      </div>
+                      {capitalCombinedPlan && <div className="muted tiny" style={{display:"grid",gap:4}}>
+                        <div><b>Gemeinsamer Bedarf:</b> {capitalCombinedPlan.totalBudgetUnits} kleinste Einheiten · <b>Vault frei:</b> {capitalCombinedPlan.vaultFreeUnits} · <b>Wallet:</b> {capitalCombinedPlan.walletStableUnits}</div>
+                        <div><b>Zusätzliche Einzahlung:</b> {capitalCombinedPlan.additionalDepositUnits} · <b>Nach Stablecoin-Bestand durch Native-Token zu decken:</b> {capitalCombinedPlan.nativeSwapShortfallUnits}</div>
+                        {(capitalCombinedPlan.breakdown || []).map((entry) => <div key={entry.engine}>
+                          {entry.engine}: Budget {entry.budgetUnits} · aus Vault {entry.coveredByVaultUnits} · aus Wallet {entry.coveredByWalletUnits} · Swap-Bedarf {entry.nativeSwapShortfallUnits}
+                        </div>)}
+                        {capitalCombinedPlan.pendingJob && <div style={{color:"#ffd166"}}>Kapitaljob offen: {capitalCombinedPlan.pendingJob.engine} / {capitalCombinedPlan.pendingJob.status} – erst abgleichen.</div>}
+                        <div style={{color:"#ffd166"}}>{capitalCombinedPlan.note}</div>
+                      </div>}
+                      {capitalCombinedError && <div style={{color:"#ffaaaa"}}>{capitalCombinedError}</div>}
+                    </div>
                     <div className="muted tiny">Rückzahlung nach abgeschlossener Session (nur Kapital, keine gesicherten Gewinne):</div>
                     <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
                       <input className="input" type="text" value={capitalAutoSessionId} onChange={(e)=>setCapitalAutoSessionId(e.target.value)} placeholder="On-Chain Session-ID" style={{width:155}} />

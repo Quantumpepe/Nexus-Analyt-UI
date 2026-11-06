@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD586-CAPITAL-ACCESS-PARITY";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD587-CAPITAL-AUDIT-GRID-SEPARATE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -31916,8 +31916,22 @@ export default function App() {
   const [capitalAutoSessionId, setCapitalAutoSessionId] = useState("");
   const [capitalAutoBusy, setCapitalAutoBusy] = useState(false);
   const [capitalAutoError, setCapitalAutoError] = useState("");
-  // BUILD581: Shared Vault balance must not be counted three times.
-  const [capitalCombinedBudgets, setCapitalCombinedBudgets] = useState({NKR:"10", GRID:"10", TRADER:"10"});
+  const [capitalAutoChecked, setCapitalAutoChecked] = useState(false);
+  // BUILD587: GRID is sell-only and never spends a USDC/USDT trading budget.
+  const [capitalCombinedBudgets, setCapitalCombinedBudgets] = useState({NKR:"10", TRADER:"10"});
+  const [capitalCombinedChecked, setCapitalCombinedChecked] = useState(false);
+  const [capitalGridToken, setCapitalGridToken] = useState("POL");
+  const [capitalGridQty, setCapitalGridQty] = useState("10");
+  const [capitalGridReport, setCapitalGridReport] = useState(null);
+  const [capitalGridBusy, setCapitalGridBusy] = useState(false);
+  const [capitalGridError, setCapitalGridError] = useState("");
+  const [capitalGridChecked, setCapitalGridChecked] = useState(false);
+  // BUILD587: one read-only capital overview for every already-live network.
+  const [capitalAllReports, setCapitalAllReports] = useState([]);
+  const [capitalAllBusy, setCapitalAllBusy] = useState(false);
+  const [capitalAllChecked, setCapitalAllChecked] = useState(false);
+  const [capitalAllError, setCapitalAllError] = useState("");
+  const capitalAllFlightRef = useRef(false);
   const [capitalCombinedPlan, setCapitalCombinedPlan] = useState(null);
   const [capitalCombinedBusy, setCapitalCombinedBusy] = useState(false);
   const [capitalCombinedError, setCapitalCombinedError] = useState("");
@@ -32470,31 +32484,134 @@ export default function App() {
     return data;
   };
 
+  // A click must visibly result in data OR a readable diagnostic; no blank panel.
+  const _capitalHumanAmount = (units, decimals = 6) => {
+    const value = Number(units) / Math.pow(10, Number(decimals) || 6);
+    return Number.isFinite(value) ? value.toLocaleString("de-CH", {maximumFractionDigits:6}) : "–";
+  };
+
+  // BUILD587: Always read ETH/BNB/POL (plus genuinely verified live networks)
+  // together. Existing engine starts, funding and withdrawals are NOT called.
+  // An unavailable RPC never hides the other networks' results.
+  const _loadAllCapitalNetworks = async () => {
+    if (capitalAllFlightRef.current || !footerWallet) return;
+    capitalAllFlightRef.current = true;
+    setCapitalAllBusy(true); setCapitalAllChecked(true);
+    setCapitalAllError("");
+    setCapitalAllReports([]);
+    try {
+      const response = await fetch(`${API_BASE}/api/nexus/chains/registry`, {method:"GET",cache:"no-store"});
+      const registry = await response.json().catch(() => ({}));
+      if (!response.ok || registry?.status !== "ok" || !Array.isArray(registry.chains)) {
+        throw new Error("Netzwerkübersicht nicht verfügbar. Bitte erneut prüfen.");
+      }
+      setChainRegistry(registry);
+      const supported = registry.chains.filter(n =>
+        n && (n.stage === "CURRENT_TEST_CHAIN" || n.liveExecutionVerifiedByRegistry === true));
+      // Keep all three previously-live networks visible, even if one is
+      // incompletely configured and cannot be audited right now.
+      const active = ["ETH","BNB","POL"].map(key =>
+        supported.find(n => n.chain === key) || registry.chains.find(n => n.chain === key) ||
+        {chain:key,nativeSymbol:key,capitalAuditAvailable:false,stablecoins:[]});
+      supported.filter(n => !["ETH","BNB","POL"].includes(n.chain)).forEach(n => active.push(n));
+      const budgets = {nkr:String(capitalCombinedBudgets.NKR || "0"), trader:String(capitalCombinedBudgets.TRADER || "0")};
+      const gridQty = String(capitalGridQty || "").replace(",", ".");
+      setCapitalAllReports(active.map(n => ({chain:n.chain, nativeSymbol:n.nativeSymbol || n.chain,
+        stage:n.stage, status:"checking", stables:[], grid:null, budget:null, details:n})));
+
+      await Promise.all(active.map(async n => {
+        const stables = ["USDC","USDT"].filter(x => (n.stablecoins || []).includes(x));
+        const audit = await Promise.all(stables.map(async stable => {
+          if (!n.capitalAuditAvailable) return {stable,error:"Vault-/RPC-Konfiguration unvollständig"};
+          try {
+            const query = new URLSearchParams({chain:n.chain,stable,engine:"ALL"});
+            const result = await _capitalAutoRequest(`/api/nexus/capital/route-audit?${query}`);
+            return {stable, audit:result};
+          } catch(err) { return {stable,error:String(err?.message || err)}; }
+        }));
+        const preferred = stables.includes(capitalAuditStable) ? capitalAuditStable : (stables[0] || "");
+        let budget = null;
+        if (preferred && n.capitalAuditAvailable) {
+          try {
+            const query = new URLSearchParams({chain:n.chain,stable:preferred,
+              nkr:budgets.nkr,grid:"0",trader:budgets.trader});
+            const result = await _capitalAutoRequest(`/api/nexus/capital/automation/combined-preview?${query}`);
+            budget = {stable:preferred,plan:result.plan};
+          } catch(err) { budget = {stable:preferred,error:String(err?.message || err)}; }
+        } else {
+          budget = {error:"Keine prüfbare USDC/USDT-Abrechnung auf dieser Chain"};
+        }
+        // GRID is independent: it holds and sells native tokens. This check
+        // does NOT debit any stablecoin budget and does NOT submit an order.
+        let grid = null;
+        if (Number(gridQty) > 0 && Number.isFinite(Number(gridQty)) && n.stage === "CURRENT_TEST_CHAIN") {
+          const nativeSymbol = String(n.nativeSymbol || n.chain).toUpperCase();
+          try {
+            const query = new URLSearchParams({system:"GRID",chain:n.chain,asset:nativeSymbol,amount:gridQty});
+            const result = await _capitalAutoRequest(`/api/nexus/capital/check-start?${query}`);
+            grid = {asset:nativeSymbol,data:result};
+          } catch(err) { grid = {asset:nativeSymbol,error:String(err?.message || err)}; }
+        } else {
+          grid = {asset:String(n.nativeSymbol || n.chain),error:"Tokenmenge fehlt oder Grid-Prüfung für dieses Netzwerk noch nicht verfügbar"};
+        }
+        setCapitalAllReports(previous => previous.map(row => row.chain === n.chain
+          ? {...row,status:"done",stables:audit,grid,budget} : row));
+      }));
+    } catch(err) {
+      setCapitalAllError(String(err?.message || err));
+    } finally {
+      capitalAllFlightRef.current = false;
+      setCapitalAllBusy(false);
+    }
+  };
+
   const _previewCapitalAutomation = async () => {
     if (capitalAutoBusy) return;
+    setCapitalAutoChecked(true);
     setCapitalAutoBusy(true); setCapitalAutoError(""); setCapitalAutoPlan(null);
     try {
       const query = new URLSearchParams({ chain: capitalAuditChain, stable: capitalAuditStable,
         engine: capitalAutoEngine, amount: capitalAutoAmount });
       const data = await _capitalAutoRequest(`/api/nexus/capital/automation/preview?${query}`);
+      if (!data?.plan || typeof data.plan !== "object") throw new Error("Keine Kapitaldaten vom Backend erhalten.");
       setCapitalAutoPlan(data.plan);
-    } catch (e) { setCapitalAutoError(String(e?.message || e)); }
+    } catch (e) { setCapitalAutoError(String(e?.message || e || "Prüfung nicht möglich")); }
     finally { setCapitalAutoBusy(false); }
   };
 
-  // BUILD581: one consolidated plan; all values read from ONE wallet/chain.
+  // BUILD587: NKR and Trader share stablecoins; Grid has a separate token check.
   const _previewCombinedCapital = async () => {
     if (capitalCombinedBusy) return;
+    setCapitalCombinedChecked(true);
     setCapitalCombinedBusy(true);
-    setCapitalCombinedError("");
-    setCapitalCombinedPlan(null);
+    setCapitalCombinedError(""); setCapitalCombinedPlan(null);
     try {
       const query = new URLSearchParams({chain:capitalAuditChain, stable:capitalAuditStable,
-        nkr:capitalCombinedBudgets.NKR, grid:capitalCombinedBudgets.GRID, trader:capitalCombinedBudgets.TRADER});
+        nkr:capitalCombinedBudgets.NKR, grid:"0", trader:capitalCombinedBudgets.TRADER});
       const data = await _capitalAutoRequest(`/api/nexus/capital/automation/combined-preview?${query}`);
+      if (!data?.plan || typeof data.plan !== "object") throw new Error("Keine gemeinsamen Kapitaldaten vom Backend erhalten.");
       setCapitalCombinedPlan(data.plan);
-    } catch(e) {setCapitalCombinedError(String(e?.message || e));}
+    } catch(e) { setCapitalCombinedError(String(e?.message || e || "Prüfung nicht möglich")); }
     finally {setCapitalCombinedBusy(false);}
+  };
+
+  const _previewGridTokenCapital = async () => {
+    if (capitalGridBusy) return;
+    setCapitalGridChecked(true); setCapitalGridBusy(true);
+    setCapitalGridReport(null); setCapitalGridError("");
+    try {
+      const token = String(capitalGridToken || "").trim().toUpperCase();
+      if (!/^[A-Z0-9._-]{2,16}$/.test(token) || token === "USDC" || token === "USDT") {
+        throw new Error("Bitte den Token eingeben, den Grid verkaufen soll (z. B. POL).");
+      }
+      const amount = Number(String(capitalGridQty || "").replace(",", "."));
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error("Bitte eine gültige Tokenmenge eingeben.");
+      const query = new URLSearchParams({system:"GRID",chain:capitalAuditChain,asset:token,amount:String(amount)});
+      const data = await _capitalAutoRequest(`/api/nexus/capital/check-start?${query}`);
+      if (typeof data?.canStart !== "boolean") throw new Error("Keine Grid-Bestandsdaten erhalten.");
+      setCapitalGridReport(data);
+    } catch(e) { setCapitalGridError(String(e?.message || e || "Grid-Prüfung nicht möglich")); }
+    finally { setCapitalGridBusy(false); }
   };
 
   // BUILD582: read-only pilot safety and receipt checks. No signatures or transfers.
@@ -33452,20 +33569,66 @@ export default function App() {
                 </details>
 
                 {/* BUILD575: Exact token/contract, wallet-vs-Vault and on-chain sessions. Owner local wallet ONLY. */}
-                <details style={{ gridColumn: "span 12", border: "1px solid rgba(64,196,255,.30)", borderRadius: 10,
+                <details onToggle={(event) => {
+                  if (event.currentTarget.open && !capitalAllChecked && !capitalAllFlightRef.current && footerWallet) _loadAllCapitalNetworks();
+                }} style={{ gridColumn: "span 12", border: "1px solid rgba(64,196,255,.30)", borderRadius: 10,
                     background: "rgba(35,80,100,.10)", padding: 10 }}>
-                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Trading-Kapitalprüfung · NKR / Grid / Trader (nur lesen)</summary>
+                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Trading-Kapitalprüfung · alle aktiven Netzwerke (nur lesen)</summary>
                   <div className="muted tiny" style={{ marginTop: 7 }}>
                     Exakte Stablecoin-Adresse, bestätigtes Vault-Guthaben und registrierte On-Chain-Sessions prüfen.
                     Diese Diagnose führt keine Swaps, Einzahlungen oder Auszahlungen aus.
                   </div>
+                  <div style={{marginTop:10,display:"grid",gap:8}}>
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                      <b>ETH · BNB · POL gemeinsam</b>
+                      <button type="button" className="miniBtn" disabled={capitalAllBusy || !footerWallet} onClick={_loadAllCapitalNetworks}>
+                        {capitalAllBusy ? "Prüfe alle Netzwerke…" : "Alle aktiven Netzwerke aktualisieren"}
+                      </button>
+                    </div>
+                    <div className="muted tiny">Alle bestehenden Live-Chains werden gleichzeitig geprüft, ohne sie einzeln auszuwählen. NKR/Trader: jeweils {capitalCombinedBudgets.NKR || "0"}/{capitalCombinedBudgets.TRADER || "0"} {capitalAuditStable} als Budget-Vorschau pro Netzwerk. Grid: {capitalGridQty || "0"} vorhandene native Token je Netzwerk; andere Grid-Token können unten einzeln geprüft werden. Keine Transaktionen oder Reservierungen.</div>
+                    {capitalAllBusy && <div className="muted tiny" role="status">Netzwerkbestände werden gelesen. Verfügbare Ergebnisse erscheinen sofort einzeln.</div>}
+                    {capitalAllError && <div role="alert" style={{color:"#ffaaaa",fontSize:12}}>Netzwerkprüfung nicht möglich: {capitalAllError}</div>}
+                    {capitalAllChecked && !capitalAllBusy && !capitalAllReports.length && !capitalAllError && <div role="status" className="muted tiny">Keine Netzwerkdaten erhalten.</div>}
+                    {capitalAllReports.length > 0 && <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(245px, 1fr))",gap:8}}>
+                      {capitalAllReports.map(n => <div key={n.chain} style={{border:"1px solid rgba(255,255,255,.18)",borderRadius:8,padding:9,fontSize:12,display:"grid",gap:5}}>
+                        <b style={{color:"#9feaff"}}>{n.chain} · {n.nativeSymbol}</b>
+                        {n.status === "checking" ? <div className="muted tiny">Prüfung läuft …</div> : <>
+                          {n.stables?.length ? n.stables.map(s => <div key={s.stable} style={{borderTop:"1px solid rgba(255,255,255,.10)",paddingTop:5}}>
+                            <b>{s.stable}</b> · {s.error ? <span style={{color:"#ffd166"}}>Bestand nicht prüfbar: {s.error}</span> : <>
+                              <span style={{color:s.audit?.vaultSettlementReady ? "#8dffd0" : "#ffd166"}}>{s.audit?.vaultSettlementReady ? "Vault-Abrechnung OK" : "Vault-Konfiguration prüfen"}</span>
+                              <div className="muted tiny">Vault frei: {_capitalHumanAmount(s.audit?.vaultFreeBaseUnits,s.audit?.decimals)} {s.stable}</div>
+                              <div className="muted tiny">Privy-Wallet: {_capitalHumanAmount(s.audit?.walletStableUnits,s.audit?.decimals)} {s.stable}</div>
+                            </>}
+                          </div>) : <div style={{color:"#ffd166"}}>Kein USDC/USDT für die Kapitalprüfung konfiguriert.</div>}
+                          <div style={{borderTop:"1px solid rgba(255,255,255,.10)",paddingTop:5}}>
+                            <b>NKR + Trader · {n.budget?.stable || capitalAuditStable}</b>
+                            {n.budget?.error ? <div style={{color:"#ffd166"}}>Budget-Vorschau nicht verfügbar: {n.budget.error}</div> : n.budget?.plan ? <>
+                              <div>Gemeinsames Budget: {_capitalHumanAmount(n.budget.plan.totalBudgetUnits,n.budget.plan.decimals)} {n.budget.stable}</div>
+                              <div style={{color:Number(n.budget.plan.additionalDepositUnits) === 0 ? "#8dffd0" : "#ffd166"}}>
+                                {Number(n.budget.plan.additionalDepositUnits) === 0 ? "Im Vault gedeckt" : `Im Vault fehlen ${_capitalHumanAmount(n.budget.plan.additionalDepositUnits,n.budget.plan.decimals)} ${n.budget.stable}; Einzahlung nötig`}
+                              </div>
+                              <div className="muted tiny">Wallet zusätzlich: {_capitalHumanAmount(n.budget.plan.walletStableUnits,n.budget.plan.decimals)} {n.budget.stable}. Keine Startfreigabe.</div>
+                            </> : <div className="muted tiny">Noch kein Budgetergebnis.</div>}
+                          </div>
+                          <div style={{borderTop:"1px solid rgba(255,255,255,.10)",paddingTop:5}}>
+                            <b>Grid · {n.grid?.asset || n.nativeSymbol} (separat)</b>
+                            {n.grid?.error ? <div style={{color:"#ffd166"}}>Tokenprüfung nicht verfügbar: {n.grid.error}</div> : n.grid?.data ? <>
+                              <div>Frei im Vault: {n.grid.data.vaultAvailable} {n.grid.asset} · Benötigt: {n.grid.data.requested}</div>
+                              <div style={{color:n.grid.data.canStart ? "#8dffd0" : "#ffd166"}}>{n.grid.data.canStart ? "Tokenbestand gedeckt" : `Fehlend: ${n.grid.data.missing} ${n.grid.asset}`}</div>
+                            </> : <div className="muted tiny">Keine Grid-Daten.</div>}
+                          </div>
+                        </>}
+                      </div>)}
+                    </div>}
+                    <div className="muted tiny">Einzelprüfung für spezielle Tokens und detaillierte Transaktionsbelege (optional):</div>
+                  </div>
                   <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalCombinedPlan(null); setCapitalAutoJob(null); setCapitalSafety(null); setCapitalSafetyError(""); setCapitalJobReceipts(null); }} style={{ width: 145 }}>
+                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); setCapitalGridToken(e.target.value); setCapitalGridReport(null); setCapitalGridError(""); setCapitalGridChecked(false); setCapitalAutoPlan(null); setCapitalAutoChecked(false); setCapitalCombinedPlan(null); setCapitalCombinedChecked(false); setCapitalAutoJob(null); setCapitalSafety(null); setCapitalSafetyError(""); setCapitalJobReceipts(null); }} style={{ width: 145 }}>
                       {["ETH", "BNB", "POL"].map((chain) => <option key={chain} value={chain}>{chain}</option>)}
                       {(chainRegistry?.chains || []).filter((c) => !["ETH", "BNB", "POL"].includes(c.chain) && c.capitalAuditAvailable)
                         .map((c) => <option key={c.chain} value={c.chain}>{c.chain} (Audit)</option>)}
                     </select>
-                    <select className="input" value={capitalAuditStable} onChange={(e) => { setCapitalAuditStable(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalCombinedPlan(null); setCapitalAutoJob(null); setCapitalSafety(null); setCapitalSafetyError(""); setCapitalJobReceipts(null); }} style={{ width: 115 }}>
+                    <select className="input" value={capitalAuditStable} onChange={(e) => { setCapitalAuditStable(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalAutoChecked(false); setCapitalCombinedPlan(null); setCapitalCombinedChecked(false); setCapitalAutoJob(null); setCapitalSafety(null); setCapitalSafetyError(""); setCapitalJobReceipts(null); }} style={{ width: 115 }}>
                       <option value="USDC">USDC</option><option value="USDT">USDT</option>
                     </select>
                     <button type="button" className="miniBtn" disabled={capitalAuditBusy || !footerWallet} onClick={_loadCapitalRouteAudit}>
@@ -33487,38 +33650,50 @@ export default function App() {
                           <div className="muted" style={{ marginTop: 3 }}>
                             Vault {n.vaultConfigured ? "✓" : "–"} · RPC {n.rpcConfigured ? "✓" : "–"} · Router {n.routerConfigured ? "✓" : "–"} · Stablecoins {(n.stablecoins || []).join("/") || "–"}
                           </div>
-                          <div className="muted">Kapitalprüfung: {n.capitalAuditAvailable ? "konfiguriert, On-Chain-Test nötig" : "noch nicht konfiguriert"}</div>
+                          <div className="muted">{["ETH", "BNB", "POL"].includes(n.chain)
+                            ? (n.capitalAuditAvailable
+                              ? "Kapitalprüfung verfügbar (einzelne Stablecoins und Vault-Bestände separat prüfen)"
+                              : `Kapitalprüfung unvollständig: ${[!n.vaultConfigured ? "Vault-Adresse" : "", !n.rpcConfigured ? "RPC" : "", !(n.stablecoins || []).length ? "USDC/USDT-Adresse" : ""].filter(Boolean).join(", ") || "Konfiguration prüfen"}`)
+                            : "Weitere Chain in Vorbereitung – keine automatische Live-Freigabe"}</div>
                         </div>
                       ))}
                     </div>
                   ) : null}
 
                   <div style={{ marginTop: 10, borderTop: "1px solid rgba(255,255,255,.14)", paddingTop: 9, display: "grid", gap: 7 }}>
-                    <b>Automatische Kapitalbereitstellung · NKR / Grid / Trader</b>
-                    <div className="muted tiny">Vorschau ohne Transaktion. Nexus verwendet deine verifizierte Privy-Wallet und das von dir gewählte Budget. Keine manuelle Wallet-Freigabe in Render. ETH/BNB/POL mit Sicherheitslimit; andere Chains bleiben bis zur Prüfung gesperrt.</div>
+                    <b>Stablecoin-Kapitalprüfung · NKR / Trader</b>
+                    <div className="muted tiny">Nur lesen: NKR und Trader verwenden USDC/USDT. Grid verkauft vorhandene Token und wird unten separat geprüft. Diese Anzeige führt keine Transaktionen aus.</div>
+                    {capitalAudit?.status === "ok" && capitalAudit.chain === capitalAuditChain && capitalAudit.stable === capitalAuditStable ? (
+                      <div className="muted tiny" style={{border:"1px solid rgba(141,255,208,.24)",borderRadius:7,padding:8}}>
+                        <b>Letzter On-Chain-Bestand:</b> Vault frei {_capitalHumanAmount(capitalAudit.vaultFreeBaseUnits, capitalAudit.decimals)} {capitalAuditStable} · Privy-Wallet {_capitalHumanAmount(capitalAudit.walletStableUnits, capitalAudit.decimals)} {capitalAuditStable}. Das ist ein Kontostand, noch keine Startfreigabe.
+                      </div>
+                    ) : null}
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
                       <select className="input" value={capitalAutoEngine} onChange={(e)=> {setCapitalAutoEngine(e.target.value);setCapitalAutoPlan(null);}} style={{width:115}}>
-                        <option value="NKR">NKR</option><option value="GRID">GRID</option><option value="TRADER">TRADER</option>
+                        <option value="NKR">NKR</option><option value="TRADER">TRADER</option>
                       </select>
                       <input className="input" type="text" value={capitalAutoAmount} onChange={(e)=>{setCapitalAutoAmount(e.target.value);setCapitalAutoPlan(null);}} placeholder="Budget (USDC/USDT)" style={{width:135}} />
                       <button type="button" className="miniBtn" disabled={capitalAutoBusy} onClick={_previewCapitalAutomation}>{capitalAutoBusy ? "Prüfe…" : "Kapitalbedarf prüfen"}</button>
                     </div>
-                    {capitalAutoPlan && <div className="muted tiny">
-                      <b>Plan:</b> {capitalAutoPlan.route} · Noch einzuzahlen: {capitalAutoPlan.depositNeededUnits} kleinste {capitalAuditStable}-Einheiten · Wallet: {capitalAutoPlan.walletStableUnits} · Vault frei: {capitalAutoPlan.vaultFreeUnits}.
+                    {capitalAutoBusy && <div className="muted tiny" role="status">Kapitalbedarf wird geprüft …</div>}
+                    {capitalAutoChecked && !capitalAutoBusy && !capitalAutoPlan && !capitalAutoError && <div className="muted tiny" role="status">Noch kein Ergebnis. Bitte Prüfung wiederholen.</div>}
+                    {capitalAutoPlan && <div className="muted tiny" role="status" style={{border:"1px solid rgba(141,255,208,.24)",borderRadius:7,padding:8}}>
+                      <b>Budget {capitalAutoAmount} {capitalAuditStable} · {capitalAutoEngine}</b> · Vault frei: {_capitalHumanAmount(capitalAutoPlan.vaultFreeUnits, capitalAutoPlan.decimals)} {capitalAuditStable} · Wallet: {_capitalHumanAmount(capitalAutoPlan.walletStableUnits, capitalAutoPlan.decimals)} {capitalAuditStable} · Noch im Vault bereitzustellen: {_capitalHumanAmount(capitalAutoPlan.depositNeededUnits, capitalAutoPlan.decimals)} {capitalAuditStable}.
                       {capitalAutoPlan.nativeSwapQuote && <span> · Geschätzter Native-Swap: {capitalAutoPlan.nativeSwapQuote.nativeSpendWei} Wei, Mindestbetrag {capitalAutoPlan.nativeSwapQuote.minOutUnits} {capitalAuditStable}-Basiseinheiten.</span>}
                       {capitalAutoPlan.budgetAlreadyCovered ? (
-                        <div style={{color:"#8dffd0"}}><b>Handelsbudget gedeckt.</b> Keine Einzahlung nötig. Starte {capitalAutoEngine} über die normale Systemkarte.</div>
+                        <div style={{color:"#8dffd0"}}><b>Handelskapital im Vault vorhanden.</b> Keine Einzahlung nötig. Die zusätzliche Einzahlungsfreigabe wird für dieses Budget nicht benötigt. Starte {capitalAutoEngine} über die normale Systemkarte.</div>
                       ) : (
-                        <div>Automatische Einzahlung: <b style={{color: capitalAutoPlan.automationLiveAllowed ? "#8dffd0" : "#ffd166"}}>{capitalAutoPlan.automationLiveAllowed ? "Freigegeben" : "Noch nicht freigegeben"}</b></div>
+                        <div>Zusätzliche automatische Einzahlung: <b style={{color: capitalAutoPlan.automationLiveAllowed ? "#8dffd0" : "#ffd166"}}>{capitalAutoPlan.automationLiveAllowed ? "Berechtigt" : "Derzeit nicht möglich"}</b></div>
                       )}
-                      {Array.isArray(capitalAutoPlan.blockers) && capitalAutoPlan.blockers.length ? <div style={{color:"#ffb4b4"}}>Prüfung: {capitalAutoPlan.blockers.join(", ")}</div> : null}
+                      {Array.isArray(capitalAutoPlan.vaultHealthBlockers) && capitalAutoPlan.vaultHealthBlockers.length > 0 && <div style={{color:"#ffd166"}}>Vault-Prüfung: {capitalAutoPlan.vaultHealthBlockers.join(", ")}. Die Startbereitschaft muss unabhängig geprüft werden.</div>}
+                      {capitalAutoPlan.fundingRequired && Array.isArray(capitalAutoPlan.blockers) && capitalAutoPlan.blockers.length > 0 && <div style={{color:"#ffb4b4"}}>Einzahlung derzeit nicht möglich: {capitalAutoPlan.blockers.join(", ")}. Bereits laufende Sessions anderer Systeme bleiben unverändert.</div>}
                     </div>}
                     {capitalAutoPlan?.automationLiveAllowed && !capitalAutoPlan?.budgetAlreadyCovered && <button type="button" className="miniBtn" disabled={capitalAutoBusy} onClick={()=>_startCapitalAutomation("FUND")}>Handelskapital automatisch bereitstellen</button>}
                     <div style={{marginTop:10,padding:10,border:"1px solid rgba(141,255,208,.25)",borderRadius:9,display:"grid",gap:7}}>
-                      <b>Gemeinsamer Budgettest – NKR / Grid / Trader</b>
-                      <div className="muted tiny">Alle drei Budgets werden gegen denselben freien Vault-Bestand gerechnet. Nur Vorschau: keine Reservierung, kein Swap, keine Einzahlung.</div>
+                      <b>Gemeinsamer USDC/USDT-Budgettest – NKR und Trader</b>
+                      <div className="muted tiny">Nur diese beiden Systeme teilen den Stablecoin-Bestand. Grid bleibt unabhängig. Vorschau ohne Reservierung, Swap oder Einzahlung.</div>
                       <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-                        {(["NKR","GRID","TRADER"]).map((engine) => <label key={engine} className="muted tiny" style={{display:"grid",gap:3}}>{engine}
+                        {(["NKR","TRADER"]).map((engine) => <label key={engine} className="muted tiny" style={{display:"grid",gap:3}}>{engine}
                           <input className="input" type="text" value={capitalCombinedBudgets[engine]}
                             onChange={(e)=>{setCapitalCombinedBudgets((old)=>({...old,[engine]:e.target.value}));setCapitalCombinedPlan(null);}}
                             style={{width:95}} />
@@ -33527,16 +33702,34 @@ export default function App() {
                           {capitalCombinedBusy ? "Prüfe…" : "Alle Budgets gemeinsam prüfen"}
                         </button>
                       </div>
-                      {capitalCombinedPlan && <div className="muted tiny" style={{display:"grid",gap:4}}>
-                        <div><b>Gemeinsamer Bedarf:</b> {capitalCombinedPlan.totalBudgetUnits} kleinste Einheiten · <b>Vault frei:</b> {capitalCombinedPlan.vaultFreeUnits} · <b>Wallet:</b> {capitalCombinedPlan.walletStableUnits}</div>
-                        <div><b>Zusätzliche Einzahlung:</b> {capitalCombinedPlan.additionalDepositUnits} · <b>Nach Stablecoin-Bestand durch Native-Token zu decken:</b> {capitalCombinedPlan.nativeSwapShortfallUnits}</div>
-                        {(capitalCombinedPlan.breakdown || []).map((entry) => <div key={entry.engine}>
-                          {entry.engine}: Budget {entry.budgetUnits} · aus Vault {entry.coveredByVaultUnits} · aus Wallet {entry.coveredByWalletUnits} · Swap-Bedarf {entry.nativeSwapShortfallUnits}
+                      {capitalCombinedBusy && <div className="muted tiny" role="status">Gemeinsamer Stablecoin-Bedarf wird geprüft …</div>}
+                      {capitalCombinedChecked && !capitalCombinedBusy && !capitalCombinedPlan && !capitalCombinedError && <div className="muted tiny" role="status">Noch kein Ergebnis. Bitte Prüfung wiederholen.</div>}
+                      {capitalCombinedPlan && <div className="muted tiny" role="status" style={{display:"grid",gap:4}}>
+                        <div><b>Gemeinsamer Bedarf:</b> {_capitalHumanAmount(capitalCombinedPlan.totalBudgetUnits, capitalCombinedPlan.decimals)} {capitalAuditStable} · <b>Vault frei:</b> {_capitalHumanAmount(capitalCombinedPlan.vaultFreeUnits, capitalCombinedPlan.decimals)} · <b>Wallet:</b> {_capitalHumanAmount(capitalCombinedPlan.walletStableUnits, capitalCombinedPlan.decimals)}</div>
+                        <div><b>Einzahlung erforderlich:</b> {_capitalHumanAmount(capitalCombinedPlan.additionalDepositUnits, capitalCombinedPlan.decimals)} {capitalAuditStable} · <b>Davon nicht durch Wallet-Stablecoins gedeckt:</b> {_capitalHumanAmount(capitalCombinedPlan.nativeSwapShortfallUnits, capitalCombinedPlan.decimals)}</div>
+                        {(capitalCombinedPlan.breakdown || []).filter((entry)=>entry.engine!=="GRID").map((entry) => <div key={entry.engine}>
+                          {entry.engine}: Budget {_capitalHumanAmount(entry.budgetUnits, capitalCombinedPlan.decimals)} · aus Vault {_capitalHumanAmount(entry.coveredByVaultUnits, capitalCombinedPlan.decimals)} · aus Wallet {_capitalHumanAmount(entry.coveredByWalletUnits, capitalCombinedPlan.decimals)} · Zusätzlicher Swap-Bedarf {_capitalHumanAmount(entry.nativeSwapShortfallUnits, capitalCombinedPlan.decimals)}
                         </div>)}
                         {capitalCombinedPlan.pendingJob && <div style={{color:"#ffd166"}}>Kapitaljob offen: {capitalCombinedPlan.pendingJob.engine} / {capitalCombinedPlan.pendingJob.status} – erst abgleichen.</div>}
                         <div style={{color:"#ffd166"}}>{capitalCombinedPlan.note}</div>
                       </div>}
-                      {capitalCombinedError && <div style={{color:"#ffaaaa"}}>{capitalCombinedError}</div>}
+                      {capitalCombinedError && <div role="alert" style={{color:"#ffaaaa"}}>Budgetprüfung nicht möglich: {capitalCombinedError}</div>}
+                      <div style={{borderTop:"1px solid rgba(255,255,255,.12)",paddingTop:10,marginTop:5,display:"grid",gap:6}}>
+                        <b>Grid – vorhandene Token prüfen (getrennt)</b>
+                        <div className="muted tiny">Grid kauft keine Token. Geprüft wird nur der freie Tokenbestand für den späteren Verkauf bei Gewinnziel oder Stop-Loss. Der Erlös geht in USDC/USDT.</div>
+                        <div style={{display:"flex",gap:7,flexWrap:"wrap",alignItems:"center"}}>
+                          <input className="input" type="text" value={capitalGridToken} onChange={(e)=>{setCapitalGridToken(e.target.value.toUpperCase());setCapitalGridReport(null);setCapitalGridChecked(false);}} placeholder="Token (z. B. POL)" style={{width:120}} aria-label="Grid-Token" />
+                          <input className="input" type="text" value={capitalGridQty} onChange={(e)=>{setCapitalGridQty(e.target.value);setCapitalGridReport(null);setCapitalGridChecked(false);}} placeholder="Tokenmenge" style={{width:115}} aria-label="Grid-Tokenmenge" />
+                          <button type="button" className="miniBtn" disabled={capitalGridBusy} onClick={_previewGridTokenCapital}>{capitalGridBusy ? "Prüfe…" : "Grid-Token prüfen"}</button>
+                        </div>
+                        {capitalGridBusy && <div className="muted tiny" role="status">Grid-Tokenbestand wird geprüft …</div>}
+                        {capitalGridReport && <div className="muted tiny" role="status" style={{color:capitalGridReport.canStart ? "#8dffd0" : "#ffd166"}}>
+                          <b>{capitalGridReport.canStart ? "Grid-Tokenbestand gedeckt" : "Grid: Token fehlen"}</b> · Benötigt {capitalGridReport.requested} {capitalGridReport.asset} · Frei im Vault {capitalGridReport.vaultAvailable} {capitalGridReport.asset} · Fehlend {capitalGridReport.missing} {capitalGridReport.asset}.
+                          {!capitalGridReport.canStart && <div>Bitte {capitalGridReport.missing} {capitalGridReport.asset} nachladen. Nur Grid ist betroffen.</div>}
+                        </div>}
+                        {capitalGridError && <div role="alert" style={{color:"#ffaaaa"}}>Grid-Bestandsprüfung nicht möglich: {capitalGridError}</div>}
+                        {capitalGridChecked && !capitalGridBusy && !capitalGridReport && !capitalGridError && <div role="status" className="muted tiny">Noch kein Grid-Ergebnis. Bitte erneut prüfen.</div>}
+                      </div>
                       <div style={{borderTop:"1px solid rgba(255,255,255,.12)",paddingTop:7,marginTop:5,display:"grid",gap:5}}>
                         <button type="button" className="miniBtn" disabled={capitalSafetyBusy} onClick={_loadCapitalSafety} style={{justifySelf:"start"}}>
                           {capitalSafetyBusy ? "Prüfe…" : "Ausführungssicherheit prüfen (nur lesen)"}
@@ -33561,7 +33754,7 @@ export default function App() {
                       <button type="button" className="miniBtn" onClick={_loadCapitalJobReceipts}>Transaktionsbelege prüfen (nur lesen)</button>
                       {Array.isArray(capitalJobReceipts) && capitalJobReceipts.map((receipt,i)=><div key={i}>{receipt.step}: {receipt.receiptStatus} {receipt.txHash || "kein Hash"}</div>)}
                     </div>}
-                    {capitalAutoError && <div className="muted" style={{color:"#ff9999"}}>{capitalAutoError}</div>}
+                    {capitalAutoError && <div className="muted" role="alert" style={{color:"#ff9999"}}>Kapitalprüfung nicht möglich: {capitalAutoError}</div>}
                   </div>
                   {capitalAuditError && <div className="muted" style={{ color: "#ff9999", marginTop: 8 }}>{capitalAuditError}</div>}
                   {capitalAudit?.status === "ok" && (

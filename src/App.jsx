@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD587-CAPITAL-AUDIT-GRID-SEPARATE";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD588-ALL-CORE-CAPITAL-ROUTES";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -33582,7 +33582,7 @@ export default function App() {
                     <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                       <b>ETH · BNB · POL gemeinsam</b>
                       <button type="button" className="miniBtn" disabled={capitalAllBusy || !footerWallet} onClick={_loadAllCapitalNetworks}>
-                        {capitalAllBusy ? "Prüfe alle Netzwerke…" : "Alle aktiven Netzwerke aktualisieren"}
+                        {capitalAllBusy ? "Prüfe alle Kapitalwege…" : "Kapitalwege prüfen – alle aktiven Netzwerke"}
                       </button>
                     </div>
                     <div className="muted tiny">Alle bestehenden Live-Chains werden gleichzeitig geprüft, ohne sie einzeln auszuwählen. NKR/Trader: jeweils {capitalCombinedBudgets.NKR || "0"}/{capitalCombinedBudgets.TRADER || "0"} {capitalAuditStable} als Budget-Vorschau pro Netzwerk. Grid: {capitalGridQty || "0"} vorhandene native Token je Netzwerk; andere Grid-Token können unten einzeln geprüft werden. Keine Transaktionen oder Reservierungen.</div>
@@ -33620,8 +33620,10 @@ export default function App() {
                         </>}
                       </div>)}
                     </div>}
-                    <div className="muted tiny">Einzelprüfung für spezielle Tokens und detaillierte Transaktionsbelege (optional):</div>
+                    <div className="muted tiny">ETH, BNB und POL werden ohne Einzelauswahl geprüft. Details zu einem bestimmten Token sind freiwillig.</div>
                   </div>
+                  <details style={{marginTop:8}}>
+                    <summary style={{cursor:"pointer",fontSize:12}}>Optionale Einzelprüfung / Spezial-Token</summary>
                   <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); setCapitalGridToken(e.target.value); setCapitalGridReport(null); setCapitalGridError(""); setCapitalGridChecked(false); setCapitalAutoPlan(null); setCapitalAutoChecked(false); setCapitalCombinedPlan(null); setCapitalCombinedChecked(false); setCapitalAutoJob(null); setCapitalSafety(null); setCapitalSafetyError(""); setCapitalJobReceipts(null); }} style={{ width: 145 }}>
                       {["ETH", "BNB", "POL"].map((chain) => <option key={chain} value={chain}>{chain}</option>)}
@@ -33632,12 +33634,13 @@ export default function App() {
                       <option value="USDC">USDC</option><option value="USDT">USDT</option>
                     </select>
                     <button type="button" className="miniBtn" disabled={capitalAuditBusy || !footerWallet} onClick={_loadCapitalRouteAudit}>
-                      {capitalAuditBusy ? "Prüfe…" : "Kapitalwege prüfen"}
+                      {capitalAuditBusy ? "Prüfe…" : "Einzelnen Kapitalweg prüfen"}
                     </button>
                     <button type="button" className="miniBtn" disabled={chainRegistryBusy} onClick={_loadChainRegistry}>
                       {chainRegistryBusy ? "Lade…" : "Netzwerkstatus prüfen"}
                     </button>
                   </div>
+                  </details>
                   {chainRegistryError ? <div className="muted" style={{ marginTop: 7, color: "#ff9999" }}>{chainRegistryError}</div> : null}
                   {Array.isArray(chainRegistry?.chains) ? (
                     <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(185px, 1fr))", gap: 6 }}>
@@ -33652,8 +33655,8 @@ export default function App() {
                           </div>
                           <div className="muted">{["ETH", "BNB", "POL"].includes(n.chain)
                             ? (n.capitalAuditAvailable
-                              ? "Kapitalprüfung verfügbar (einzelne Stablecoins und Vault-Bestände separat prüfen)"
-                              : `Kapitalprüfung unvollständig: ${[!n.vaultConfigured ? "Vault-Adresse" : "", !n.rpcConfigured ? "RPC" : "", !(n.stablecoins || []).length ? "USDC/USDT-Adresse" : ""].filter(Boolean).join(", ") || "Konfiguration prüfen"}`)
+                              ? "Bestehendes Live-Netzwerk; Kapitalweg prüfbar"
+                              : `Bestehendes Live-Netzwerk; Kapitaldiagnose unvollständig: ${[!n.vaultConfigured ? "Vault-Adresse" : "", !n.rpcConfigured ? "RPC" : "", !(n.stablecoins || []).length ? "USDC/USDT-Adresse" : ""].filter(Boolean).join(", ") || "Konfiguration prüfen"}`)
                             : "Weitere Chain in Vorbereitung – keine automatische Live-Freigabe"}</div>
                         </div>
                       ))}

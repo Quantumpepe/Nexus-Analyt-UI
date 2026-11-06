@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD585-SYSTEM-CAPITAL-CHECK-SELL-ONLY-GRID";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD586-CAPITAL-ACCESS-PARITY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -33506,10 +33506,14 @@ export default function App() {
                     {capitalAutoPlan && <div className="muted tiny">
                       <b>Plan:</b> {capitalAutoPlan.route} · Noch einzuzahlen: {capitalAutoPlan.depositNeededUnits} kleinste {capitalAuditStable}-Einheiten · Wallet: {capitalAutoPlan.walletStableUnits} · Vault frei: {capitalAutoPlan.vaultFreeUnits}.
                       {capitalAutoPlan.nativeSwapQuote && <span> · Geschätzter Native-Swap: {capitalAutoPlan.nativeSwapQuote.nativeSpendWei} Wei, Mindestbetrag {capitalAutoPlan.nativeSwapQuote.minOutUnits} {capitalAuditStable}-Basiseinheiten.</span>}
-                      <div>Ausführung: <b style={{color: capitalAutoPlan.automationLiveAllowed ? "#8dffd0" : "#ffd166"}}>{capitalAutoPlan.automationLiveAllowed ? "Für diese Chain freigegeben" : "Noch nicht live freigegeben"}</b></div>
-                      {Array.isArray(capitalAutoPlan.blockers) && capitalAutoPlan.blockers.length ? <div style={{color:"#ffb4b4"}}>Blockiert: {capitalAutoPlan.blockers.join(", ")}</div> : null}
+                      {capitalAutoPlan.budgetAlreadyCovered ? (
+                        <div style={{color:"#8dffd0"}}><b>Handelsbudget gedeckt.</b> Keine Einzahlung nötig. Starte {capitalAutoEngine} über die normale Systemkarte.</div>
+                      ) : (
+                        <div>Automatische Einzahlung: <b style={{color: capitalAutoPlan.automationLiveAllowed ? "#8dffd0" : "#ffd166"}}>{capitalAutoPlan.automationLiveAllowed ? "Freigegeben" : "Noch nicht freigegeben"}</b></div>
+                      )}
+                      {Array.isArray(capitalAutoPlan.blockers) && capitalAutoPlan.blockers.length ? <div style={{color:"#ffb4b4"}}>Prüfung: {capitalAutoPlan.blockers.join(", ")}</div> : null}
                     </div>}
-                    {capitalAutoPlan?.automationLiveAllowed && <button type="button" className="miniBtn" disabled={capitalAutoBusy} onClick={()=>_startCapitalAutomation("FUND")}>Handelskapital automatisch bereitstellen</button>}
+                    {capitalAutoPlan?.automationLiveAllowed && !capitalAutoPlan?.budgetAlreadyCovered && <button type="button" className="miniBtn" disabled={capitalAutoBusy} onClick={()=>_startCapitalAutomation("FUND")}>Handelskapital automatisch bereitstellen</button>}
                     <div style={{marginTop:10,padding:10,border:"1px solid rgba(141,255,208,.25)",borderRadius:9,display:"grid",gap:7}}>
                       <b>Gemeinsamer Budgettest – NKR / Grid / Trader</b>
                       <div className="muted tiny">Alle drei Budgets werden gegen denselben freien Vault-Bestand gerechnet. Nur Vorschau: keine Reservierung, kein Swap, keine Einzahlung.</div>

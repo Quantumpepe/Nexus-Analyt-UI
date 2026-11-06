@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD583-CAPITAL-PILOT-WALLET-GATE";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD584-USER-AUTH-STRATEGIST-CAPITAL-RETURN";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -33436,7 +33436,7 @@ export default function App() {
 
                   <div style={{ marginTop: 10, borderTop: "1px solid rgba(255,255,255,.14)", paddingTop: 9, display: "grid", gap: 7 }}>
                     <b>Automatische Kapitalbereitstellung · NKR / Grid / Trader</b>
-                    <div className="muted tiny">Vorschau ohne Transaktion. Bei aktivierter Chain nutzt Nexus die Privy-Wallet im Rahmen des gewählten Budgets. Jede Transaktion wird einzeln protokolliert. Weitere Chains bleiben gesperrt bis zum Live-Test.</div>
+                    <div className="muted tiny">Vorschau ohne Transaktion. Nexus verwendet deine verifizierte Privy-Wallet und das von dir gewählte Budget. Keine manuelle Wallet-Freigabe in Render. ETH/BNB/POL mit Sicherheitslimit; andere Chains bleiben bis zur Prüfung gesperrt.</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
                       <select className="input" value={capitalAutoEngine} onChange={(e)=> {setCapitalAutoEngine(e.target.value);setCapitalAutoPlan(null);}} style={{width:115}}>
                         <option value="NKR">NKR</option><option value="GRID">GRID</option><option value="TRADER">TRADER</option>
@@ -33479,8 +33479,8 @@ export default function App() {
                           {capitalSafetyBusy ? "Prüfe…" : "Ausführungssicherheit prüfen (nur lesen)"}
                         </button>
                         {capitalSafety && <div className="muted tiny" style={{display:"grid",gap:3}}>
-                          <div>Live-Pilot: <b>{capitalSafety.pilotTransferEnabled ? "Test bereit – noch nicht ausgeführt" : "Gesperrt"}</b> · Nur Test-Wallet: <b>{capitalSafety.pilotWalletAllowed ? "freigegeben" : "nicht freigegeben"}</b></div>
-                          <div>24h-Testlimit: {capitalSafety.pilot24hLimit} USDC/USDT · Bereits eingeplant: {capitalSafety.pilot24hUsed} · Übrig: {capitalSafety.pilot24hRemaining}</div>
+                          <div>Kapitalautomatik: <b>{capitalSafety.pilotTransferEnabled ? "Berechtigt (Transaktion nicht getestet)" : "Gesperrt"}</b> · Core-Berechtigung: <b>{capitalSafety.pilotWalletAllowed ? "bestätigt" : "nicht bestätigt"}</b></div>
+                          <div>24h-Sicherheitslimit: {capitalSafety.pilot24hLimit} USDC/USDT · Bereits eingeplant: {capitalSafety.pilot24hUsed} · Übrig: {capitalSafety.pilot24hRemaining}</div>
                           <div>Offene Kapitaljobs: {(capitalSafety.pendingJobs || []).length} · Doppelstartschutz: {capitalSafety.duplicateWorkerClaimProtection ? "aktiv" : "unbekannt"}</div>
                           {(capitalSafety.pendingJobs || []).map((j)=><div key={j.jobId} style={{color:"#ffd166"}}>Offener Job {j.jobId}: {j.status} – nicht automatisch wiederholen</div>)}
                           <div>{capitalSafety.note}</div>
@@ -33488,7 +33488,7 @@ export default function App() {
                         {capitalSafetyError && <div style={{color:"#ffaaaa"}}>{capitalSafetyError}</div>}
                       </div>
                     </div>
-                    <div className="muted tiny">Rückzahlung nach abgeschlossener Session (nur Kapital, keine gesicherten Gewinne):</div>
+                    <div className="muted tiny">Nach dem bestätigten Session-Abschluss erfolgt die Kapitalrückzahlung automatisch, soweit die Sicherheitsprüfung sie erlaubt. Manuelle Prüfung/Rückzahlung:</div>
                     <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
                       <input className="input" type="text" value={capitalAutoSessionId} onChange={(e)=>setCapitalAutoSessionId(e.target.value)} placeholder="On-Chain Session-ID" style={{width:155}} />
                       <button type="button" className="miniBtn" disabled={capitalAutoBusy || !/^[1-9][0-9]*$/.test(capitalAutoSessionId) || !capitalAutoPlan?.automationLiveAllowed} onClick={()=>_startCapitalAutomation("RETURN")}>Freigegebenes Kapital zurückzahlen</button>

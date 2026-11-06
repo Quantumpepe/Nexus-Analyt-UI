@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD579-MULTICHAIN-REGISTRY";
+const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD580-CAPITAL-AUTOMATION-GUARDED";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7024,6 +7024,37 @@ useEffect(() => {
         } catch (retryErr) {
           throw enrichCreateError(retryErr);
         }
+      } else if (Number(error?.status || 0) === 409 && /insufficient_free_vault_budget/i.test(String(error?.data?.error || ""))) {
+        // BUILD580: only an explicit CoreVault Start click can trigger funding.
+        // The server refuses transactions unless an operator explicitly enabled
+        // this chain AND verified Vault/Privy configuration. No new signature.
+        try {
+          const access = String((await getAccessToken?.()) || "");
+          if (!access) throw new Error("Privy-Sitzung fehlt");
+          const h = { "Content-Type":"application/json", "Authorization":`Bearer ${access}`, "X-Wallet-Address":String(wallet) };
+          const query = new URLSearchParams({ chain:selectedChain, stable:selectedAsset, engine:systemU, amount:String(budget) });
+          const previewRes = await fetch(`${API_BASE}/api/nexus/capital/automation/preview?${query}`, {cache:"no-store",headers:h});
+          const preview = await previewRes.json().catch(()=>({}));
+          if (!previewRes.ok || !preview?.plan?.automationLiveAllowed) throw error;
+          const requestId = `session-fund-${Date.now()}-${Math.floor(Math.random()*1e7)}`;
+          const startRes = await fetch(`${API_BASE}/api/nexus/capital/automation/jobs`, {method:"POST",headers:h,
+            body:JSON.stringify({kind:"FUND",engine:systemU,chain:selectedChain,stable:selectedAsset,amount:String(budget),requestId})});
+          const started = await startRes.json().catch(()=>({}));
+          if (!startRes.ok || !started?.job?.jobId) throw new Error(started.error || "Automatische Kapitalbereitstellung nicht möglich");
+          const jobId = started.job.jobId;
+          let funded = false;
+          for (let attempt=0;attempt<120;attempt++) {
+            const pollRes = await fetch(`${API_BASE}/api/nexus/capital/automation/jobs/${encodeURIComponent(jobId)}`, {cache:"no-store",headers:h});
+            const data = await pollRes.json().catch(()=>({}));
+            if (!pollRes.ok) throw new Error(data.error || "Kapitaljob nicht verfügbar");
+            if (data.job?.status === "CONFIRMED") { funded = true; break; }
+            if (["BLOCKED","BROADCAST_UNKNOWN"].includes(String(data.job?.status || ""))) throw new Error(`Kapitalbereitstellung ${data.job.status}: ${data.job.detail}`);
+            await new Promise((resolve)=>setTimeout(resolve,2500));
+          }
+          if (!funded) throw new Error(`Kapitalbereitstellung läuft noch (Job ${jobId}); bitte Status prüfen, keinen zweiten Transfer starten.`);
+          // Only one retry after confirmed Vault credit. Do not loop or duplicate.
+          result = await api("/api/nexus/core-vault/session/create-auto", {method:"POST",token:backendToken,wallet,body:bodyPayload});
+        } catch (fundError) { throw enrichCreateError(fundError === error ? error : fundError); }
       } else {
         throw enrichCreateError(error);
       }
@@ -31818,6 +31849,14 @@ export default function App() {
   const [capitalAuditStable, setCapitalAuditStable] = useState("USDC");
   const [capitalAuditBusy, setCapitalAuditBusy] = useState(false);
   const [capitalAuditError, setCapitalAuditError] = useState("");
+  // BUILD580: guarded capital automation. A quote/preview does not move funds.
+  const [capitalAutoEngine, setCapitalAutoEngine] = useState("NKR");
+  const [capitalAutoAmount, setCapitalAutoAmount] = useState("10");
+  const [capitalAutoPlan, setCapitalAutoPlan] = useState(null);
+  const [capitalAutoJob, setCapitalAutoJob] = useState(null);
+  const [capitalAutoSessionId, setCapitalAutoSessionId] = useState("");
+  const [capitalAutoBusy, setCapitalAutoBusy] = useState(false);
+  const [capitalAutoError, setCapitalAutoError] = useState("");
   const [chainRegistry, setChainRegistry] = useState(null);
   const [chainRegistryBusy, setChainRegistryBusy] = useState(false);
   const [chainRegistryError, setChainRegistryError] = useState("");
@@ -32346,6 +32385,64 @@ export default function App() {
     } finally {
       setCapitalAuditBusy(false);
     }
+  };
+
+  // BUILD580: Current verified Privy session only, no personal_sign or login.
+  const _capitalAutoRequest = async (path, options = {}) => {
+    const token = await _getCapitalAuditPrivyToken();
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: options.method || "GET", cache: "no-store", credentials: "include",
+      headers: { "Content-Type": "application/json", "X-Wallet-Address": String(footerWallet), Authorization: `Bearer ${token}` },
+      ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status !== "ok") {
+      throw new Error(data.detail || data.error || `Kapitalautomatik HTTP ${response.status}`);
+    }
+    return data;
+  };
+
+  const _previewCapitalAutomation = async () => {
+    if (capitalAutoBusy) return;
+    setCapitalAutoBusy(true); setCapitalAutoError(""); setCapitalAutoPlan(null);
+    try {
+      const query = new URLSearchParams({ chain: capitalAuditChain, stable: capitalAuditStable,
+        engine: capitalAutoEngine, amount: capitalAutoAmount });
+      const data = await _capitalAutoRequest(`/api/nexus/capital/automation/preview?${query}`);
+      setCapitalAutoPlan(data.plan);
+    } catch (e) { setCapitalAutoError(String(e?.message || e)); }
+    finally { setCapitalAutoBusy(false); }
+  };
+
+  const _startCapitalAutomation = async (kind) => {
+    if (capitalAutoBusy) return;
+    if (kind === "FUND" && capitalAutoPlan?.automationLiveAllowed !== true) {
+      setCapitalAutoError("Die automatische Ausführung ist für diese Chain noch nicht freigegeben. Nur Vorschau.");
+      return;
+    }
+    const explanation = kind === "RETURN"
+      ? `Freies, nachweislich aus Session #${capitalAutoSessionId} freigegebenes ${capitalAuditStable} an die Privy-Wallet auszahlen?`
+      : `${capitalAutoAmount} ${capitalAuditStable} Handelsbudget für ${capitalAutoEngine} bereitstellen? Nexus kann hierfür einen nativen Token tauschen und das Kapital in den Vault einzahlen.`;
+    if (!window.confirm(explanation)) return;
+    setCapitalAutoBusy(true); setCapitalAutoError(""); setCapitalAutoJob(null);
+    try {
+      const operationId = `capital-${Date.now()}-${Math.floor(Math.random()*1e7)}`;
+      const response = await _capitalAutoRequest('/api/nexus/capital/automation/jobs', {
+        method: "POST", body: { kind, chain: capitalAuditChain, stable: capitalAuditStable, engine: capitalAutoEngine,
+          amount: capitalAutoAmount, sessionId: capitalAutoSessionId, requestId: operationId }
+      });
+      setCapitalAutoJob(response.job);
+      const jobId = String(response.job?.jobId || "");
+      if (!jobId) throw new Error("Kapitaljob-ID fehlt");
+      // The job is durably recorded on the backend; browser polling does not trigger transactions.
+      for (let attempt=0; attempt<80; attempt++) {
+        const update = await _capitalAutoRequest(`/api/nexus/capital/automation/jobs/${encodeURIComponent(jobId)}`);
+        setCapitalAutoJob(update.job);
+        if (["CONFIRMED", "BLOCKED", "BROADCAST_UNKNOWN"].includes(String(update.job?.status || ""))) break;
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    } catch (e) { setCapitalAutoError(String(e?.message || e)); }
+    finally { setCapitalAutoBusy(false); }
   };
 
   const _loadNkrSessionAudit = async () => {
@@ -33259,12 +33356,12 @@ export default function App() {
                     Diese Diagnose führt keine Swaps, Einzahlungen oder Auszahlungen aus.
                   </div>
                   <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); }} style={{ width: 145 }}>
+                    <select className="input" value={capitalAuditChain} onChange={(e) => { setCapitalAuditChain(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalAutoJob(null); }} style={{ width: 145 }}>
                       {["ETH", "BNB", "POL"].map((chain) => <option key={chain} value={chain}>{chain}</option>)}
                       {(chainRegistry?.chains || []).filter((c) => !["ETH", "BNB", "POL"].includes(c.chain) && c.capitalAuditAvailable)
                         .map((c) => <option key={c.chain} value={c.chain}>{c.chain} (Audit)</option>)}
                     </select>
-                    <select className="input" value={capitalAuditStable} onChange={(e) => { setCapitalAuditStable(e.target.value); setCapitalAudit(null); }} style={{ width: 115 }}>
+                    <select className="input" value={capitalAuditStable} onChange={(e) => { setCapitalAuditStable(e.target.value); setCapitalAudit(null); setCapitalAutoPlan(null); setCapitalAutoJob(null); }} style={{ width: 115 }}>
                       <option value="USDC">USDC</option><option value="USDT">USDT</option>
                     </select>
                     <button type="button" className="miniBtn" disabled={capitalAuditBusy || !footerWallet} onClick={_loadCapitalRouteAudit}>
@@ -33291,6 +33388,34 @@ export default function App() {
                       ))}
                     </div>
                   ) : null}
+
+                  <div style={{ marginTop: 10, borderTop: "1px solid rgba(255,255,255,.14)", paddingTop: 9, display: "grid", gap: 7 }}>
+                    <b>Automatische Kapitalbereitstellung · NKR / Grid / Trader</b>
+                    <div className="muted tiny">Vorschau ohne Transaktion. Bei aktivierter Chain nutzt Nexus die Privy-Wallet im Rahmen des gewählten Budgets. Jede Transaktion wird einzeln protokolliert. Weitere Chains bleiben gesperrt bis zum Live-Test.</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                      <select className="input" value={capitalAutoEngine} onChange={(e)=> {setCapitalAutoEngine(e.target.value);setCapitalAutoPlan(null);}} style={{width:115}}>
+                        <option value="NKR">NKR</option><option value="GRID">GRID</option><option value="TRADER">TRADER</option>
+                      </select>
+                      <input className="input" type="text" value={capitalAutoAmount} onChange={(e)=>{setCapitalAutoAmount(e.target.value);setCapitalAutoPlan(null);}} placeholder="Budget (USDC/USDT)" style={{width:135}} />
+                      <button type="button" className="miniBtn" disabled={capitalAutoBusy} onClick={_previewCapitalAutomation}>{capitalAutoBusy ? "Prüfe…" : "Kapitalbedarf prüfen"}</button>
+                    </div>
+                    {capitalAutoPlan && <div className="muted tiny">
+                      <b>Plan:</b> {capitalAutoPlan.route} · Noch einzuzahlen: {capitalAutoPlan.depositNeededUnits} kleinste {capitalAuditStable}-Einheiten · Wallet: {capitalAutoPlan.walletStableUnits} · Vault frei: {capitalAutoPlan.vaultFreeUnits}.
+                      {capitalAutoPlan.nativeSwapQuote && <span> · Geschätzter Native-Swap: {capitalAutoPlan.nativeSwapQuote.nativeSpendWei} Wei, Mindestbetrag {capitalAutoPlan.nativeSwapQuote.minOutUnits} {capitalAuditStable}-Basiseinheiten.</span>}
+                      <div>Ausführung: <b style={{color: capitalAutoPlan.automationLiveAllowed ? "#8dffd0" : "#ffd166"}}>{capitalAutoPlan.automationLiveAllowed ? "Für diese Chain freigegeben" : "Noch nicht live freigegeben"}</b></div>
+                      {Array.isArray(capitalAutoPlan.blockers) && capitalAutoPlan.blockers.length ? <div style={{color:"#ffb4b4"}}>Blockiert: {capitalAutoPlan.blockers.join(", ")}</div> : null}
+                    </div>}
+                    {capitalAutoPlan?.automationLiveAllowed && <button type="button" className="miniBtn" disabled={capitalAutoBusy} onClick={()=>_startCapitalAutomation("FUND")}>Handelskapital automatisch bereitstellen</button>}
+                    <div className="muted tiny">Rückzahlung nach abgeschlossener Session (nur Kapital, keine gesicherten Gewinne):</div>
+                    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                      <input className="input" type="text" value={capitalAutoSessionId} onChange={(e)=>setCapitalAutoSessionId(e.target.value)} placeholder="On-Chain Session-ID" style={{width:155}} />
+                      <button type="button" className="miniBtn" disabled={capitalAutoBusy || !/^[1-9][0-9]*$/.test(capitalAutoSessionId) || !capitalAutoPlan?.automationLiveAllowed} onClick={()=>_startCapitalAutomation("RETURN")}>Freigegebenes Kapital zurückzahlen</button>
+                    </div>
+                    {capitalAutoJob && <div className="muted tiny"><b>Job {capitalAutoJob.jobId}:</b> {capitalAutoJob.status} · {capitalAutoJob.detail}
+                      {(capitalAutoJob.steps || []).map((step,i)=><div key={i}>{step.step} · {step.status} {step.txHash ? `· ${step.txHash}` : ""}</div>)}
+                    </div>}
+                    {capitalAutoError && <div className="muted" style={{color:"#ff9999"}}>{capitalAutoError}</div>}
+                  </div>
                   {capitalAuditError && <div className="muted" style={{ color: "#ff9999", marginTop: 8 }}>{capitalAuditError}</div>}
                   {capitalAudit?.status === "ok" && (
                     <div style={{ marginTop: 9, display: "grid", gap: 6, fontSize: 12 }}>

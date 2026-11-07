@@ -688,6 +688,35 @@ const PALETTE20 = [
 
 // Local cache (stale-while-revalidate) so live refresh/cold-start won't blank the UI
 const LS_WATCH_ROWS_CACHE = "na_watch_rows_cache_v1";
+const LS_WATCH_FAST_CACHE = "na_watch_fast_cache_v1";
+// UI-only, wallet-scoped last-known prices. This cache NEVER changes orders, signals or Vault values.
+function _nexusWatchQuickSignature(items) {
+  return JSON.stringify((Array.isArray(items) ? items : []).map(_watchKeyFromItem));
+}
+function _nexusWatchQuickRead(scope, items) {
+  try {
+    const obj = JSON.parse(localStorage.getItem(LS_WATCH_FAST_CACHE) || "null");
+    if (!obj || obj.scope !== String(scope || "__guest__").toLowerCase()) return null;
+    if (obj.signature !== _nexusWatchQuickSignature(items)) return null;
+    if (!Number.isFinite(Number(obj.ts)) || Date.now() - Number(obj.ts) > 10 * 60 * 1000) return null;
+    const allowed = new Set((items || []).map(_watchKeyFromItem));
+    const rows = Array.isArray(obj.rows) ? obj.rows.filter((r) => allowed.has(_watchKeyFromRow(r))) : [];
+    return rows.length && rows.length === (items || []).length ? rows : null;
+  } catch { return null; }
+}
+function _nexusWatchQuickWrite(scope, items, rows) {
+  try {
+    const expected = new Set((items || []).map(_watchKeyFromItem));
+    const filtered = (Array.isArray(rows) ? rows : []).filter((r) => expected.has(_watchKeyFromRow(r)));
+    if (!filtered.length || !filtered.some((r) => Number(r?.price) > 0)) return;
+    localStorage.setItem(LS_WATCH_FAST_CACHE, JSON.stringify({
+      scope: String(scope || "__guest__").toLowerCase(),
+      signature: _nexusWatchQuickSignature(items),
+      ts: Date.now(), rows: filtered.slice(0, 160)
+    }));
+  } catch {}
+}
+
 const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
 const LS_APP_VERSION = "na_app_version";
 const LS_COMPARE_STORE = "na_compare_store_v2";
@@ -695,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD603-SHADOW-LIVE-HISTORY-GUARD";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD604-COMPARE-WATCH-FIRST-PAINT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9023,7 +9052,10 @@ const byChain = {};
 
   // watchlist
   const [watchItems, setWatchItems] = useState(() => cloneNexusDefaultWatchItems());
-  const [watchRows, setWatchRows] = useState([]);
+  const [watchRows, setWatchRows] = useState(() => cloneNexusDefaultWatchItems().map((it) => ({
+    ...it, symbol: String(it?.symbol || "").toUpperCase(),
+    price: null, chg_24h: null, change24h: null, vol: null, source: "pending"
+  })));
   const [watchDragKey, setWatchDragKey] = useState("");
   const [watchDropKey, setWatchDropKey] = useState("");
   const [watchSortMode, setWatchSortMode] = useState("manual"); // manual | winner | loser
@@ -9210,8 +9242,12 @@ const byChain = {};
       }
 
       setWatchSyncedWallet(wa);
-      fetchWatchSnapshot(serverItems, { force: true, user: false });
-      setCompareForceNonce((n) => n + 1);
+      // Avoid a second market-data fetch (and forced Compare refresh) on every 15s sync.
+      // The independent 30s Watchlist and 90s Compare refresh loops remain active.
+      if (neverSynced || serverSig !== localSig) {
+        fetchWatchSnapshot(serverItems, { force: true, user: false });
+      }
+      if (serverSig !== localSig) setCompareForceNonce((n) => n + 1);
     } catch (e) {
       console.warn("watchlist sync failed", e);
       fetchWatchSnapshot();
@@ -17758,6 +17794,17 @@ const [aiLoading, setAiLoading] = useState(false);
     inflightWatch.current = true;
     try {
       const wa = resolveWalletAddress(wallet);
+      const requestedItems = (itemsOverride ?? watchItems) || [];
+      const cachedRows = _nexusWatchQuickRead(wa || "__guest__", requestedItems);
+      if (cachedRows) {
+        // Display last-known data before network IO; only for this wallet and exact item list.
+        setWatchRows((prev) => {
+          const current = Array.isArray(prev) ? prev : [];
+          const sameKeys = _nexusWatchQuickSignature(current) === _nexusWatchQuickSignature(requestedItems);
+          const hasLiveRows = sameKeys && current.some((x) => Number(x?.price) > 0);
+          return hasLiveRows ? prev : cachedRows;
+        });
+      }
       const snapPath = wa ? `/api/watchlist/snapshot?wallet=${encodeURIComponent(wa)}&wallet_address=${encodeURIComponent(wa)}` : "/api/watchlist/snapshot";
       const r = await api(snapPath, { method: "POST", token, wallet: wa || wallet, body: { wallet: wa || wallet, wallet_address: wa || wallet, items: (itemsOverride ?? watchItems) } });
       const nextRowsRaw = (r?.results || r?.rows || []);
@@ -17770,6 +17817,7 @@ const [aiLoading, setAiLoading] = useState(false);
         // Also drop anything not in current watchItems (never replace by snapshot).
         return allowedKeys.has(k);
       });
+      _nexusWatchQuickWrite(wa || "__guest__", requestedItems, nextRows);
       let mergedRows = [];
       setWatchRows((prev0) => {
         const prev = Array.isArray(prev0) ? prev0 : [];

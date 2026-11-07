@@ -695,7 +695,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD602-SHADOW-UI-RETIRED";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD603-SHADOW-LIVE-HISTORY-GUARD";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3402,15 +3402,23 @@ function computeBestPairs(chart, limit = 30) {
 // ------------------------
 
 
+// BUILD603: Identify simulator-origin records from structural metadata only.
+// Do not reject a confirmed live trade because its explanatory reason mentions
+// that Shadow was disabled or bypassed.
+function isRetiredShadowEvent(event) {
+  if (!event || typeof event !== "object") return false;
+  if (event.shadowOnly === true || event.localOnly === true) return true;
+  const tags = [event.mode, event.executionMode, event.execution_mode,
+    event.eventKind, event.event_kind, event.source, event.status,
+    event.eventType, event.action];
+  return tags.some((value) => /(^|[^a-z])(shadow|paper[-_ ]?only|simulated)(?=$|[^a-z])/i.test(String(value || "")));
+}
+
 function EngineEventHistory({ engine, events = [] }) {
   const [showAll, setShowAll] = useState(false);
   const [filter, setFilter] = useState("ALL");
   // BUILD602: only real/live/monitor records belong in visible event history.
-  const rows = (Array.isArray(events) ? events : []).filter((ev) => {
-    const origin = [ev?.mode, ev?.executionMode, ev?.execution_mode, ev?.eventKind, ev?.event_kind, ev?.source,
-      ev?.status, ev?.eventType, ev?.action, ev?.reason].map((v) => String(v || "")).join(" ");
-    return !ev?.shadowOnly && !/(shadow|paper[-_ ]?only|simulated)/i.test(origin);
-  });
+  const rows = (Array.isArray(events) ? events : []).filter((ev) => !isRetiredShadowEvent(ev));
   const filtered = rows.filter((ev) => {
     const status = String(ev?.status || ev?.eventType || ev?.action || "EVENT").toUpperCase();
     if (filter === "ALL") return true;
@@ -28576,8 +28584,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     txHash: String(ev?.txHash || ev?.tx_hash || ev?.lastTxHash || ev?.tx || "").trim(),
                                   };
                                 })
-                                .filter((ev) => ev.eventKind !== "SHADOW" && !/shadow/i.test(
-                                  [ev.status, ev.action, ev.text, ev.reason].map((value) => String(value || "")).join(" "))
+                                .filter((ev) => !isRetiredShadowEvent(ev)
                                   && (ev.status || ev.action || ev.targetAsset || ev.event_id || ev.trade_id || ev.text));
                               const byId = new Map();
                               normalizedEvents.forEach((ev) => {
@@ -33783,12 +33790,10 @@ export default function App() {
 
   // BUILD602: Shadow data must not leak through owner raw diagnostics.
   const withoutRetiredShadowFields = (value) => {
-    if (Array.isArray(value)) return value
-      .filter((item) => !(typeof item === "string" && /shadow/i.test(item)))
-      .map(withoutRetiredShadowFields);
+    if (Array.isArray(value)) return value.map(withoutRetiredShadowFields);
     if (value && typeof value === "object") return Object.fromEntries(
       Object.entries(value)
-        .filter(([key, item]) => !/shadow/i.test(key) && !(typeof item === "string" && /shadow/i.test(item)))
+        .filter(([key]) => !/shadow/i.test(key))
         .map(([key, item]) => [key, withoutRetiredShadowFields(item)])
     );
     return typeof value === "string" && /shadow/i.test(value) ? "[not displayed]" : value;
@@ -33823,9 +33828,9 @@ export default function App() {
   ];
 
   const allModuleRows = normalizeStatusRows(systemInfoStatus).length ? normalizeStatusRows(systemInfoStatus) : defaultModuleRows;
+  // Keep live modules even when their notes mention the retired simulator.
   const moduleRows = allModuleRows.filter((row) => !/shadow/i.test([
-    row?.name, row?.module, row?.key, row?.id, row?.status, row?.state, row?.mode,
-    row?.note, row?.description, row?.detail, row?.policy, row?.stage,
+    row?.name, row?.module, row?.key, row?.id,
   ].map((part) => String(part || "")).join(" ")));
 
   return (
@@ -34751,9 +34756,10 @@ export default function App() {
                   <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 7 }}>
                     {moduleRows.map((row, idx) => {
                       const name = row?.name || row?.module || row?.key || row?.id || `Module ${idx + 1}`;
-                      const status = row?.status || row?.state || row?.mode || row?.value || "unknown";
-                      const note = row?.note || row?.description || row?.detail || row?.policy || row?.stage || "";
-                      const t = statusTone(status);
+                      const originalStatus = row?.status || row?.state || row?.mode || row?.value || "unknown";
+                      const status = withoutRetiredShadowFields(originalStatus);
+                      const note = withoutRetiredShadowFields(row?.note || row?.description || row?.detail || row?.policy || row?.stage || "");
+                      const t = statusTone(originalStatus);
                       return (
                         <div
                           key={`${name}-${idx}`}

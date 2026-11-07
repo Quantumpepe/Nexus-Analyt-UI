@@ -695,7 +695,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD601-WALLET-ALL-NETWORKS-VIEW";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD602-SHADOW-UI-RETIRED";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3405,7 +3405,12 @@ function computeBestPairs(chart, limit = 30) {
 function EngineEventHistory({ engine, events = [] }) {
   const [showAll, setShowAll] = useState(false);
   const [filter, setFilter] = useState("ALL");
-  const rows = Array.isArray(events) ? events : [];
+  // BUILD602: only real/live/monitor records belong in visible event history.
+  const rows = (Array.isArray(events) ? events : []).filter((ev) => {
+    const origin = [ev?.mode, ev?.executionMode, ev?.execution_mode, ev?.eventKind, ev?.event_kind, ev?.source,
+      ev?.status, ev?.eventType, ev?.action, ev?.reason].map((v) => String(v || "")).join(" ");
+    return !ev?.shadowOnly && !/(shadow|paper[-_ ]?only|simulated)/i.test(origin);
+  });
   const filtered = rows.filter((ev) => {
     const status = String(ev?.status || ev?.eventType || ev?.action || "EVENT").toUpperCase();
     if (filter === "ALL") return true;
@@ -9938,34 +9943,11 @@ const byChain = {};
     access?.full_access ||
     (access?.active && !String(access?.plan || access?.tier || "").toLowerCase().includes("strategist"))
   );
-  const shadowVisibilityKey = wallet ? `nexus_shadow_visible_v2_${String(wallet).toLowerCase()}` : "";
-  // Demo users may see Shadow immediately. Once Core access/subscription is active,
-  // Shadow starts OFF and is shown only after the user explicitly enables it.
-  const [shadowUiEnabled, setShadowUiEnabled] = useState(false);
-
-  useEffect(() => {
-    if (!hasCoreAccess) {
-      setShadowUiEnabled(true);
-      setShadowDrawerOpen(true);
-      return;
-    }
-    try {
-      const saved = shadowVisibilityKey ? localStorage.getItem(shadowVisibilityKey) : null;
-      const enabled = saved == null ? false : saved === "true";
-      setShadowUiEnabled(enabled);
-      setShadowDrawerOpen(enabled);
-    } catch {
-      setShadowUiEnabled(false);
-      setShadowDrawerOpen(false);
-    }
-  }, [hasCoreAccess, shadowVisibilityKey]);
-
-  const setShadowVisibilityForWallet = useCallback((enabled) => {
-    const next = !!enabled;
-    setShadowUiEnabled(next);
-    setShadowDrawerOpen(next);
-    try { if (shadowVisibilityKey) localStorage.setItem(shadowVisibilityKey, String(next)); } catch {}
-  }, [shadowVisibilityKey]);
+  // BUILD602: Shadow is retired from the visible Nexus product for every login.
+  // Never re-enable it from an old per-wallet localStorage preference.
+  // Keep existing trading/engine data structures untouched; only the presentation
+  // and the paper-only timer are disabled. There is no public/owner toggle.
+  const shadowUiEnabled = false;
 
   const requirePro = useCallback((actionLabel = "This action") => {
     if (isPro) return true;
@@ -14201,6 +14183,7 @@ useEffect(() => {
   }, [api, wallet, tradingVisibleQueueSummary, selectedTradingSession, selectedTradingSessionId, activeGridChainKey, gridChain, tradingRuntimeHours, tradingRuntimeUnit, normalizeTradingRuntimeHours, normalizeTradingSessionBaseId, tradingSessionIdMatches, tradingMaxTrades, tradingRiskMode, tradingMaxSlippagePct, normalizeTradingReuseProfitPct, normalizeTradingMaxCombinedSlots, shadowExecutorState, applyShadowQueuePreview, refreshNexusBackendState, openTradingSessions, setActiveTradingSessionId, setTradingExecutionQueue, setTradingSessionStatus, setTradingSessionUpdatedTs, updateTradingSessionMeta, getTradingSlotSessionId]);
 
   useEffect(() => {
+    if (!shadowUiEnabled) return; // BUILD602: no hidden Trader paper-runtime timer.
     const run = shadowExecutorState?.last_run || shadowExecutorState?.run || null;
     const status = String(shadowExecutorState?.runtime_status || run?.summary?.runtime_status || run?.summary?.runtime?.status || "").toLowerCase();
     if (String(gridMode || "").toLowerCase() !== "trading") return;
@@ -17590,6 +17573,7 @@ const [aiLoading, setAiLoading] = useState(false);
   }, [rotationShadowBusy, rotationSessions, activeRotationSessionId, rotationBudgetRelease, rotationSelectedPick, activeGridChainKey, gridItem, rotationMaxSlippage, buildRotationShadowAssets, wallet, token, rotationMinNetAdvantage, rotationRiskLimit, isRotationSessionRunnable, manualPayoutAsset, nkrControlState, nkrCapitalMode, nkrObservationWindow, nkrProfitMode, nkrPeriodDays, nkrPeriodUnit, normalizeNkrPeriodHours, rotationNetworkScope, makeNexusSessionId]);
 
   useInterval(() => {
+    if (!shadowUiEnabled) return; // BUILD602: never auto-start retired paper NKR simulation.
     const now = Date.now();
     const sessions = Array.isArray(rotationSessions) ? rotationSessions : [];
     const runnable = sessions.filter((sess) => isRotationSessionRunnable(sess, now));
@@ -28549,17 +28533,17 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   targetAsset: ev?.asset || ev?.symbol || "",
                                 };
                               });
-                              const localEvents = [
-                                ...(Array.isArray(rotationShadowEvents) ? rotationShadowEvents : []).map((ev) => ({ ...ev, localOnly: true })),
-                                ...engineFillEvents,
-                              ];
+                              // BUILD602: Local paper/shadow events are not user-facing history.
+                              const localEvents = [...engineFillEvents];
                               const classifyEventKind = (ev) => {
                                 const explicit = String(ev?.eventKind || ev?.event_kind || "").toUpperCase();
-                                if (["ON_CHAIN", "ONCHAIN", "SHADOW", "MONITOR"].includes(explicit)) {
+                                const mode = String(ev?.mode || ev?.executionMode || ev?.execution_mode || "").toLowerCase();
+                                // Never promote paper trades to confirmed on-chain entries.
+                                if (explicit === "SHADOW" || mode === "shadow" || mode === "paper" || ev?.localOnly || ev?.shadowOnly) return "SHADOW";
+                                if (["ON_CHAIN", "ONCHAIN", "MONITOR"].includes(explicit)) {
                                   return explicit === "ONCHAIN" ? "ON_CHAIN" : explicit;
                                 }
                                 const tx = String(ev?.txHash || ev?.tx_hash || ev?.lastTxHash || ev?.tx || "").trim();
-                                const mode = String(ev?.mode || "").toLowerCase();
                                 const st = String(ev?.status || ev?.action || "").toUpperCase();
                                 const hasBuySell = ["BUY", "SELL", "OPEN", "CLOSE", "ADD", "REDUCE", "OPEN_POSITION", "BUY_OPEN", "CLOSED_PROFIT", "CLOSED_LOSS"].some((k) => st.includes(k));
                                 if (tx && hasBuySell) return "ON_CHAIN";
@@ -28592,7 +28576,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                     txHash: String(ev?.txHash || ev?.tx_hash || ev?.lastTxHash || ev?.tx || "").trim(),
                                   };
                                 })
-                                .filter((ev) => ev.status || ev.action || ev.targetAsset || ev.event_id || ev.trade_id || ev.text);
+                                .filter((ev) => ev.eventKind !== "SHADOW" && !/shadow/i.test(
+                                  [ev.status, ev.action, ev.text, ev.reason].map((value) => String(value || "")).join(" "))
+                                  && (ev.status || ev.action || ev.targetAsset || ev.event_id || ev.trade_id || ev.text));
                               const byId = new Map();
                               normalizedEvents.forEach((ev) => {
                                 const key = String(ev?.event_id || `${ev?.trade_id || "EV"}-${ev?.status || ev?.action || "EVENT"}-${ev?.ts || Math.random()}`);
@@ -28614,7 +28600,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const kind = String(ev?.eventKind || "").toUpperCase();
                                 if (filter === "ALL") return true;
                                 if (filter === "ON_CHAIN") return kind === "ON_CHAIN";
-                                if (filter === "MONITOR") return kind === "MONITOR" || kind === "SHADOW";
+                                if (filter === "MONITOR") return kind === "MONITOR";
                                 if (filter === "OPEN") return ["OPEN_POSITION", "BUY_OPEN", "POSITION_TRACKING", "EXECUTOR_ACTIVE", "DISPATCHED", "READY_DISPATCHED", "OPEN"].includes(st);
                                 if (filter === "CLOSED_PROFIT") return st === "CLOSED_PROFIT" || st === "SIMULATED_ROTATION_CLOSED";
                                 if (filter === "CLOSED_LOSS") return st === "CLOSED_LOSS" || st === "CLOSED_LOSS_REALLOCATE" || st === "REBALANCED_OUT";
@@ -28695,7 +28681,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       const sellTs = ev?.sellTime || ev?.closedAt;
                                       const buyPrice = Number(ev?.buyPriceUsd ?? ev?.entryPriceUsd ?? ev?.entry_price_usd ?? ev?.entryPrice ?? 0);
                                       const sellPrice = Number(ev?.sellPriceUsd ?? ev?.exitPriceUsd ?? ev?.exit_price_usd ?? ev?.exitPrice ?? 0);
-                                      const isMonitorOnly = kind === "MONITOR" || kind === "SHADOW";
+                                      const isMonitorOnly = kind === "MONITOR";
                                       return (
                                         <div key={ev.event_id || ev.id || `${ev.trade_id}-${ev.ts}`} className="muted tiny" style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 5 }}>
                                           <div>
@@ -28711,7 +28697,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                                 fontSize: 10,
                                               }}
                                             >
-                                              {kind === "ON_CHAIN" ? "ON-CHAIN" : kind === "MONITOR" ? "MONITOR" : "SHADOW"}
+                                              {kind === "ON_CHAIN" ? "ON-CHAIN" : "MONITOR"}
                                             </span>
                                             <b style={{ color: st.includes("CLOSED") ? "#86efac" : "#8bdcff" }}>
                                               {ev.ts ? new Date(ev.ts).toLocaleTimeString() : "—"}
@@ -33795,6 +33781,19 @@ export default function App() {
     return [];
   };
 
+  // BUILD602: Shadow data must not leak through owner raw diagnostics.
+  const withoutRetiredShadowFields = (value) => {
+    if (Array.isArray(value)) return value
+      .filter((item) => !(typeof item === "string" && /shadow/i.test(item)))
+      .map(withoutRetiredShadowFields);
+    if (value && typeof value === "object") return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key, item]) => !/shadow/i.test(key) && !(typeof item === "string" && /shadow/i.test(item)))
+        .map(([key, item]) => [key, withoutRetiredShadowFields(item)])
+    );
+    return typeof value === "string" && /shadow/i.test(value) ? "[not displayed]" : value;
+  };
+
   const statusTone = (statusLike) => {
     const s = String(statusLike || "").toUpperCase();
     if (s.includes("READY") || s.includes("RUNNING") || s.includes("ONLINE") || s.includes("ALLOWED")) return { dot: "🟢", color: "#8dffd0", border: "rgba(68,255,180,0.26)", bg: "rgba(0,255,140,0.055)" };
@@ -33823,7 +33822,11 @@ export default function App() {
     { name: "Private Keys", status: pickSystemInfoValue(systemInfoStatus || buildInfo, ["private_keys", "privateKeys", "guards.private_keys"], "NOT IN BACKEND") },
   ];
 
-  const moduleRows = normalizeStatusRows(systemInfoStatus).length ? normalizeStatusRows(systemInfoStatus) : defaultModuleRows;
+  const allModuleRows = normalizeStatusRows(systemInfoStatus).length ? normalizeStatusRows(systemInfoStatus) : defaultModuleRows;
+  const moduleRows = allModuleRows.filter((row) => !/shadow/i.test([
+    row?.name, row?.module, row?.key, row?.id, row?.status, row?.state, row?.mode,
+    row?.note, row?.description, row?.detail, row?.policy, row?.stage,
+  ].map((part) => String(part || "")).join(" ")));
 
   return (
     <>
@@ -33918,8 +33921,6 @@ export default function App() {
                   <b>Engine Modes</b>
                   <br />
                   Strategist: {strategistBuild}
-                  <br />
-                  Shadow: {shadowBuild}
                   <br />
                   Entry: {entryMode}
                   <br />
@@ -34232,27 +34233,6 @@ export default function App() {
                   )}
                 </details>
 
-                <details style={{
-                  gridColumn: "span 4",
-                  border: `1px solid ${shadowStalled ? "rgba(255,80,80,0.55)" : "rgba(68,255,180,0.22)"}`,
-                  borderRadius: 10,
-                  padding: 10,
-                  background: shadowStalled ? "rgba(120,0,0,0.18)" : "rgba(0,255,140,0.055)",
-                }}>
-                  <summary style={{ cursor: "pointer", fontWeight: 900 }}>Shadow Runtime Health · {shadowRuntimeStatus} {shadowHealth?.running ? "🟢" : "⚪"}</summary>
-                  <div style={{ marginTop: 8 }}>
-                    Last Tick: {shadowLastTick}
-                    <br />
-                    Tick Age: {shadowTickAge == null ? "unknown" : `${shadowTickAge}s`} {shadowStalled ? "⚠ STALLED" : ""}
-                    <br />
-                    Tick Count: {shadowTickCount}
-                    <br />
-                    Process Tick: {shadowHealth?.process_tick_count ?? "?"} / {shadowHealth?.process_tick_source || "?"}
-                  </div>
-                </details>
-
-
-
                 {/* BUILD565: GLOBAL SIGNAL AND PROVIDER ACTIVITY, PROCESS-LOCAL PRICE SNAPSHOTS */}
                 <details style={{
                   gridColumn: "span 12", border: "1px solid rgba(102,210,255,0.35)",
@@ -34491,7 +34471,7 @@ export default function App() {
                     Strategist Diagnostics · NKR / Trader · Read-only
                   </summary>
                   <div className="muted" style={{ marginTop: 7, fontSize: 11 }}>
-                    Observed signals, recorded sessions and synthetic rule tests. Shadow stays OFF. No live orders,
+                    Observed signals, recorded sessions and synthetic rule tests. No live orders,
                     signatures, deposits, withdrawals or new market API calls. Results do not prove live execution.
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10, alignItems: "end" }}>
@@ -35245,7 +35225,10 @@ export default function App() {
                     maxHeight: 180,
                     overflow: "auto",
                   }}>
-                    {JSON.stringify({ buildInfo: buildInfo || { error: "build-info not loaded" }, shadowHealth: shadowHealth || { error: "shadow health not loaded" }, systemInfoStatus: systemInfoStatus || { error: "system-info-owner-panel not loaded" }, shadowReadiness: shadowReadiness || { error: "shadow-readiness-check not loaded" } }, null, 2)}
+                    {JSON.stringify(withoutRetiredShadowFields({
+                      buildInfo: buildInfo || { error: "build-info not loaded" },
+                      systemInfoStatus: systemInfoStatus || { error: "system-info-owner-panel not loaded" },
+                    }), null, 2)}
                   </pre>
                 </details>
               </div>

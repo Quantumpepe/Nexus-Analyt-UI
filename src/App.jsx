@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.06-BUILD591-NKR-VAULT-ACCOUNT";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD592-COMPARE-GUEST-FIVE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9247,11 +9247,22 @@ const byChain = {};
   }, [ratingStatus]);
 
 
-  // Compare selections are wallet-bound. Hydrate the exact wallet key before any write,
-  // otherwise the transient "guest" render during Privy startup can overwrite a saved wallet selection.
-  const compareWalletKey = String(resolveWalletAddress(wallet) || wallet || "").toLowerCase();
+  // BUILD592: Guest Compare is always the five public defaults, never a cached
+  // wallet/guest selection. Only a currently authenticated Privy wallet may
+  // hydrate/persist a wallet-bound Compare selection. The matching address guard
+  // avoids revealing the last wallet's selection during Privy startup/switching.
+  const comparePrivyWallet = privyWallets?.find((w) =>
+    ["privy", "embedded"].includes(String(w?.walletClientType || "").toLowerCase()) ||
+    String(w?.connectorType || "").toLowerCase() === "embedded"
+  ) || privyWallets?.[0] || null;
+  const compareAuthenticatedAddress = ready && authenticated
+    ? String(comparePrivyWallet?.address || "").toLowerCase()
+    : "";
+  const compareCurrentWalletAddress = String(resolveWalletAddress(wallet) || "").toLowerCase();
+  const compareWalletKey = compareAuthenticatedAddress && compareAuthenticatedAddress === compareCurrentWalletAddress
+    ? compareAuthenticatedAddress : "";
   const compareStorageKey = useMemo(
-    () => compareWalletKey ? `nexus_compare_symbols_v3_wallet_${compareWalletKey}` : "nexus_compare_symbols_v3_guest",
+    () => compareWalletKey ? `nexus_compare_symbols_v3_wallet_${compareWalletKey}` : "",
     [compareWalletKey]
   );
   const compareHydratedKeyRef = useRef("");
@@ -9259,33 +9270,30 @@ const byChain = {};
   const [compareSet, setCompareSet] = useState(() => [...NEXUS_DEFAULT_COMPARE_SYMBOLS]);
 
   useEffect(() => {
+    if (!compareWalletKey) {
+      // Do not read guest localStorage or write over anyone's saved selection.
+      compareHydratedKeyRef.current = "";
+      compareSkipNextPersistRef.current = true;
+      setCompareSet([...NEXUS_DEFAULT_COMPARE_SYMBOLS]);
+      return;
+    }
     let next = [];
     try {
-      const raw = localStorage.getItem(compareStorageKey);
-      if (raw == null && !compareWalletKey) {
-        // Guest view gets the five public defaults checked from the first render.
-        next = [...NEXUS_DEFAULT_COMPARE_SYMBOLS];
-      } else {
-        const arr = JSON.parse(raw || "[]");
-        next = Array.isArray(arr)
-          ? arr.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20)
-          : [];
-      }
-    } catch {
-      if (!compareWalletKey) next = [...NEXUS_DEFAULT_COMPARE_SYMBOLS];
-    }
+      const arr = JSON.parse(localStorage.getItem(compareStorageKey) || "[]");
+      next = Array.isArray(arr)
+        ? arr.map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20)
+        : [];
+    } catch {}
 
-    // Critical deploy/remount guard:
-    // React runs this hydration effect and the persistence effect from the same render.
-    // Without this guard, the persistence effect still sees the initial [] and overwrites
-    // the saved wallet selection before setCompareSet(next) is rendered.
+    // The hydration and persistence effects run in the same render; never let
+    // the transient Compare state overwrite the authenticated wallet's key.
     compareHydratedKeyRef.current = compareStorageKey;
     compareSkipNextPersistRef.current = true;
     setCompareSet(next); // empty is authoritative for this exact wallet key
   }, [compareStorageKey, compareWalletKey]);
 
   useEffect(() => {
-    if (compareHydratedKeyRef.current !== compareStorageKey) return;
+    if (!compareWalletKey || compareHydratedKeyRef.current !== compareStorageKey) return;
     if (compareSkipNextPersistRef.current) {
       compareSkipNextPersistRef.current = false;
       return;
@@ -9296,15 +9304,16 @@ const byChain = {};
         JSON.stringify((compareSet || []).map((x) => String(x || "").toUpperCase()).filter(Boolean).slice(0, 20))
       );
     } catch {}
-  }, [compareSet, compareStorageKey]);
+  }, [compareSet, compareStorageKey, compareWalletKey]);
   const compareSymbols = useMemo(() => {
+    if (!compareWalletKey) return [...NEXUS_DEFAULT_COMPARE_SYMBOLS];
     const uniq = [];
     for (const s of compareSet || []) {
       const sym = String(s || "").toUpperCase().trim();
       if (sym && !uniq.includes(sym)) uniq.push(sym);
     }
     return uniq.slice(0, 20);
-  }, [compareSet]);
+  }, [compareSet, compareWalletKey]);
 
   // -------- Fixed color slots (10), stable per coin --------
   // Rule: coin keeps its color while selected; when removed, its slot becomes free for the next new coin.
@@ -20247,6 +20256,7 @@ useInterval(fetchGridOrders, 30000, false);
 
   // watchlist actions
   function toggleCompare(sym) {
+    if (!compareWalletKey) return; // Guests always see exactly the five defaults.
     const S = String(sym || "").toUpperCase();
     if (!S) return;
     setCompareSet((prev) => {
@@ -30111,8 +30121,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             type="checkbox"
                             checked={checked}
                             onChange={() => toggleCompare(sym)}
-                            disabled={!checked && compareSymbols.length >= 20}
-                            title="Compare"
+                            disabled={!compareWalletKey || (!checked && compareSymbols.length >= 20)}
+                            title={compareWalletKey ? "Compare" : "Connect Wallet to customize Compare"}
                             style={{ transform: "scale(0.9)", marginRight: 2 }}
                           />
                           <button
@@ -30265,7 +30275,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!checked && compareSymbols.length >= 20} style={{ transform: "scale(0.9)" }} />
+                        <input type="checkbox" checked={checked} onChange={() => toggleCompare(sym)} disabled={!compareWalletKey || (!checked && compareSymbols.length >= 20)} style={{ transform: "scale(0.9)" }} />
                       </div>
                       <div className="watchCompactMain">
                         <div className="watchCompactTop" style={{ gap: 6, minWidth: 0, overflow: "hidden" }}>

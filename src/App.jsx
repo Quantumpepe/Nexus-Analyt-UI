@@ -1,3 +1,98 @@
+// BUILD599: customer Wallet is a concise view of movements, not a system ledger.
+// Preserve all raw source rows; owner's full ledger is shown in System Info.
+// Do not treat a backend operation marked RECORDED as a mined CONFIRMED trade.
+function nexusWalletSimpleHistory(rows, knownContractsByChain = {}, showUnknownTokens = false) {
+  const output = [];
+  let hiddenUnknown = 0;
+  let hiddenSystem = 0;
+  for (const raw of Array.isArray(rows) ? rows : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const type = String(raw.type || "").trim().toUpperCase();
+    const source = String(raw.source || "").trim().toUpperCase();
+    const dir = String(raw.direction || "").trim().toUpperCase();
+    const chain = String(raw.chain || "ETH").trim().toUpperCase();
+    const asset = String(raw.asset || "").trim().toUpperCase();
+    const contract = String(raw.contract || "").trim().toLowerCase();
+    // Status changes, approvals, job setup and empty records are not financial moves.
+    if (/^(SESSION\b|CREATE$|START_CLOSING$|FINALIZE$|ADD_CAPITAL$|APPROVAL$|.*\bAPPROVE$|.*\bAPPROVAL$)/.test(type) ||
+        (/^NKR|^GRID|^TRADER/.test(type) && !/(BUY|SELL|TRADE|EXIT|SWAP|WITHDRAW|DEPOSIT|PAYOUT)/.test(type))) {
+      hiddenSystem++;
+      continue;
+    }
+    const indexedToken = source === "ONCHAIN_ERC20_LOG" || type === "TOKEN TRANSFER";
+    if (indexedToken && !(knownContractsByChain?.[chain]?.has(contract))) {
+      if (!showUnknownTokens) { hiddenUnknown++; continue; }
+    }
+    let title = "";
+    let sign = "";
+    if (/\bTRADE BUY\b|\bBUY\b/.test(type)) title = "Handelskauf";
+    else if (/\bTRADE SELL\b|\bSELL\b|\bTRADE EXIT\b/.test(type)) title = "Handelsverkauf";
+    else if (/\bVAULT WITHDRAW\b|\bPROFIT WITHDRAW\b|\bPAYOUT\b/.test(type) || dir === "TO_PRIVY") {
+      title = asset ? `${asset} erhalten` : "Auszahlung erhalten"; sign = "+";
+    } else if (/\bVAULT DEPOSIT\b/.test(type) || dir === "TO_VAULT") {
+      title = asset ? `${asset} eingezahlt` : "Ins Trading Wallet eingezahlt"; sign = "−";
+    } else if (/SUBSCRIPTION PAYMENT|\bPAYMENT\b/.test(type)) {
+      title = "Abo bezahlt"; sign = "−";
+    } else if (/SWAP|WRAP|UNWRAP|EXCHANGE/.test(type)) {
+      title = "Token getauscht";
+    } else if (indexedToken || /\bTRANSFER\b|\bSEND\b|\bRECEIVE\b/.test(type)) {
+      if (dir === "IN") { title = asset ? `${asset} erhalten` : "Token erhalten"; sign = "+"; }
+      else if (dir === "OUT") { title = asset ? `${asset} gesendet` : "Token gesendet"; sign = "−"; }
+      else if (dir === "SELF") title = "Eigener Transfer";
+      else title = "Token-Transfer";
+    } else if (dir === "IN") { title = asset ? `${asset} erhalten` : "Erhalten"; sign = "+"; }
+    else if (dir === "OUT") { title = asset ? `${asset} gesendet` : "Gesendet"; sign = "−"; }
+    else if (type.includes("TRADE")) title = "Handelsaktion";
+    else { hiddenSystem++; continue; }
+
+    const rawStatus = String(raw.status || "").toUpperCase();
+    const statusText = rawStatus === "CONFIRMED" ? "Bestätigt" : rawStatus === "FAILED" ? "Fehlgeschlagen"
+      : rawStatus === "RECORDED" ? "Erfasst" : "Ausstehend";
+    const amountVal = raw.amount;
+    // Unknown decimals or unverified amounts must never be guessed from amountRaw.
+    let displayAmount = "";
+    if (amountVal !== null && amountVal !== undefined && String(amountVal).trim() !== "" &&
+        Number.isFinite(Number(amountVal)) && Number(amountVal) >= 0) {
+      const n = Number(amountVal);
+      displayAmount = `${sign}${new Intl.NumberFormat("de-CH", { maximumFractionDigits: 8 }).format(n)}${asset ? ` ${asset}` : ""}`;
+    }
+    const timestamp = Number(raw.createdAt || 0);
+    let dateLabel = "";
+    if (timestamp > 1e11 && Number.isFinite(timestamp)) {
+      try { dateLabel = new Date(timestamp).toLocaleString("de-CH", {day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit"}); }
+      catch (_) { dateLabel = ""; }
+    }
+    output.push({ id: String(raw.id || `${chain}:${raw.txHash || output.length}`), title,
+      chain, asset, statusText, rawStatus, displayAmount, dateLabel,
+      // The short explorer link remains available, without printing hashes or addresses.
+      txHash: String(raw.txHash || ""), isUnknown: indexedToken && !(knownContractsByChain?.[chain]?.has(contract)),
+      source, sign, createdAt: timestamp,
+    });
+  }
+  // A verified Vault payout can also appear as an indexed ERC-20 receive in
+  // the same tx. Avoid two customer cards for that one movement, but preserve
+  // separate swap legs and separate transfers inside the same chain tx.
+  const visibleRows = [];
+  const sameMovement = new Map();
+  for (const row of output) {
+    const indexed = row.source === "ONCHAIN_ERC20_LOG";
+    const key = row.txHash && row.asset && row.sign
+      ? `${row.chain}:${row.txHash.toLowerCase()}:${row.asset}:${row.sign}` : "";
+    const priorIndex = key && sameMovement.has(key) ? sameMovement.get(key) : -1;
+    const prior = priorIndex >= 0 ? visibleRows[priorIndex] : null;
+    // Dedup only across provider classes (backend vs on-chain), never two
+    // individual indexed transfer logs of the same token in one transaction.
+    if (prior && (indexed !== (prior.source === "ONCHAIN_ERC20_LOG"))) {
+      const preferred = prior.rawStatus !== "CONFIRMED" && row.rawStatus === "CONFIRMED" ? row : prior;
+      visibleRows[priorIndex] = { ...preferred, displayAmount: preferred.displayAmount || prior.displayAmount || row.displayAmount };
+      continue;
+    }
+    if (key && !sameMovement.has(key)) sameMovement.set(key, visibleRows.length);
+    visibleRows.push(row);
+  }
+  return { rows: visibleRows, hiddenUnknown, hiddenSystem };
+}
+
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
   const arr =
     r?.orders ??
@@ -616,7 +711,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD598-WALLET-LEDGER-PRIVY-SCOPE-FIX";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD599-WALLET-SIMPLE-OWNER-LEDGER";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7592,6 +7687,7 @@ const [walletLedgerOwner, setWalletLedgerOwner] = useState("");
 const [walletLedgerBusy, setWalletLedgerBusy] = useState(false);
 const [walletLedgerError, setWalletLedgerError] = useState("");
 const [walletLedgerCoverage, setWalletLedgerCoverage] = useState("");
+const [showUnknownWalletTransfers, setShowUnknownWalletTransfers] = useState(false);
 const loadUnifiedWalletLedger = useCallback(async (scan = false) => {
   if (!resolveWalletAddress(wallet)) return;
   setWalletLedgerBusy(true); setWalletLedgerError("");
@@ -7645,6 +7741,7 @@ useEffect(() => {
   setWalletLedgerChainScan([]);
   setWalletLedgerCoverage("");
   setWalletLedgerError("");
+  setShowUnknownWalletTransfers(false);
 }, [wallet]);
 useEffect(() => {
   if (!wallet || !walletModalOpen || walletPanelTab !== "WALLET" || walletViewTab !== "TRANSACTIONS") return;
@@ -8162,6 +8259,29 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
     const v = walletTokenStore?.[walletKey];
     return v && typeof v === "object" ? { ...empty, ...v } : empty;
   }, [walletKey, walletTokenStore]);
+
+  // The public transaction view accepts only known stable, native-wrapped or
+  // explicitly user-added token contracts by default. Auto-discovered airdrops
+  // must never silently become trusted just because they arrived in the wallet.
+  const walletKnownContracts = useMemo(() => {
+    const known = {};
+    for (const chain of ["ETH", "BNB", "POL"]) {
+      const contracts = new Set();
+      for (const token of [
+        ...(getStableWhitelistForChain(chain) || []),
+        ...(walletTokensByChain?.[chain] || []),
+        wnativeSpecForChain(chain),
+      ]) {
+        const address = String(token?.address || "").toLowerCase();
+        if (/^0x[0-9a-f]{40}$/.test(address)) contracts.add(address);
+      }
+      known[chain] = contracts;
+    }
+    return known;
+  }, [walletTokensByChain]);
+  const walletPublicHistory = useMemo(() =>
+    nexusWalletSimpleHistory(walletAllTransactions, walletKnownContracts, showUnknownWalletTransfers),
+    [walletAllTransactions, walletKnownContracts, showUnknownWalletTransfers]);
 
   const setWalletTokensForChain = (chain, nextList) => {
     const c = normalizeWalletChainKey(chain);
@@ -23995,7 +24115,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 10 }}>
                     <button type="button" className={walletViewTab === "ASSETS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("ASSETS")}>Assets</button>
-                    <button type="button" className={walletViewTab === "TRANSACTIONS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("TRANSACTIONS")}>Transactions · {walletUniqueTxCount}</button>
+                    <button type="button" className={walletViewTab === "TRANSACTIONS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("TRANSACTIONS")}>Transactions · {walletPublicHistory.rows.length}</button>
                   </div>
                   {walletViewTab === "ASSETS" ? (
                     <>
@@ -24118,49 +24238,48 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </button>
                     </>
                   ) : (
-                    <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                      <div className="muted" style={{ fontSize: 10, lineHeight: 1.45 }}>
-                        Combined: Privy actions + recorded Nexus/Vault trades and capital movements. The count shows unique transaction hashes; a transaction may contain several token-transfer events. Refresh server records or scan recent ERC-20 wallet transfers. Historical native transfers and older chain blocks are not fully indexed.
+                    <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center", flexWrap:"wrap" }}>
+                        <span className="muted" style={{ fontSize:11 }}>Deine Zahlungen, Ein- und Ausgänge und Handelsaktionen</span>
+                        <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={() => loadUnifiedWalletLedger(true)}>
+                          {walletLedgerBusy ? "Aktualisiere…" : "Verlauf aktualisieren"}
+                        </button>
                       </div>
-                      <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
-                        <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={() => loadUnifiedWalletLedger(false)}>{walletLedgerBusy ? "Reading…" : "Refresh Nexus/Vault records"}</button>
-                        <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={() => loadUnifiedWalletLedger(true)}>Scan recent {normalizeWalletChainKey(balActiveChain || wsChainKey || DEFAULT_CHAIN)} token transfers</button>
-                      </div>
-                      {walletLedgerCoverage ? <div className="muted" style={{ fontSize: 10 }}>{walletLedgerCoverage}</div> : null}
-                      {walletLedgerError ? <div role="status" style={{ fontSize: 10, color: "#ffd38a" }}>{walletLedgerError}</div> : null}
-                      {walletAllTransactions.length ? walletAllTransactions.map((tx) => {
-                        const status = String(tx?.status || "PENDING").toUpperCase();
-                        const statusColor = status === "CONFIRMED" ? "#86efac" : status === "FAILED" ? "#ff8a8a" : "#ffd166";
-                        const explorer = walletExplorerTxUrl(tx?.chain, tx?.txHash);
+                      {walletLedgerError ? <div role="status" style={{ fontSize:11, color:"#ffd38a" }}>
+                        {walletLedgerError.startsWith("Recent ") ? "Ein Teil des Blockchain-Verlaufs ist aktuell nicht verfügbar." : "Verlauf konnte nicht vollständig aktualisiert werden."}
+                      </div> : null}
+                      {walletPublicHistory.rows.length ? walletPublicHistory.rows.map((tx) => {
+                        const statusColor = tx.rawStatus === "CONFIRMED" ? "#86efac" : tx.rawStatus === "FAILED" ? "#ff8a8a" : "#ffd166";
+                        const explorer = walletExplorerTxUrl(tx.chain, tx.txHash);
                         return (
-                          <div key={tx.id || tx.txHash} style={{ padding: 10, borderRadius: 12, border: "1px solid rgba(255,255,255,.09)", background: "rgba(255,255,255,.025)", display: "grid", gap: 5 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                              <b style={{ fontSize: 12 }}>{tx.type || "WALLET TRANSACTION"}</b>
-                              <b style={{ color: statusColor, fontSize: 10 }}>{status}</b>
-                            </div>
-                            <div className="muted" style={{ fontSize: 10 }}>
-                              {tx.chain || "—"} · {tx.direction || ""} · {tx.amount != null ? `${tx.amount} ` : ""}{tx.asset || ""} · {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : "Block " + (tx.blockNumber || "—")}
-                            </div>
-                            {tx.source ? <div className="muted" style={{ fontSize: 9 }}>Source: {tx.source}{tx.contract ? ` · Token ${tx.contract}` : ""}</div> : null}
-                            {tx.from ? <div className="muted" style={{ fontSize: 9, wordBreak: "break-all" }}>From: {tx.from}</div> : null}
-                            {tx.to ? <div className="muted" style={{ fontSize: 9, wordBreak: "break-all" }}>To: {tx.to}</div> : null}
-                            {tx.amountRaw && tx.amount == null ? <div className="muted" style={{ fontSize: 9 }}>Raw token units: {tx.amountRaw} · decimals not verified</div> : null}
-                            {tx.txHash ? (
-                              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                                <span className="muted" style={{ fontFamily: "monospace", fontSize: 9 }}>{tx.txHash.slice(0, 10)}…{tx.txHash.slice(-8)}</span>
-                                <button type="button" className="miniBtn" onClick={() => navigator.clipboard?.writeText(tx.txHash)}>Copy hash</button>
-                                {explorer ? <a className="miniBtn" href={explorer} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>On-chain</a> : null}
+                          <div key={tx.id} style={{ padding:"12px 11px", borderRadius:13, border:"1px solid rgba(255,255,255,.10)", background:"rgba(255,255,255,.026)" }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
+                              <div style={{ minWidth:0, display:"grid", gap:5 }}>
+                                <b style={{fontSize:13, overflowWrap:"anywhere"}}>{tx.title}</b>
+                                <span className="muted" style={{fontSize:10}}>{tx.chain}{tx.dateLabel ? ` · ${tx.dateLabel}` : ""}</span>
+                                {tx.isUnknown ? <span style={{fontSize:10,color:"#ffd166"}}>Unbekannter Token – nicht geprüft</span> : null}
                               </div>
-                            ) : null}
-                            {tx.blockNumber ? <div className="muted" style={{ fontSize: 9 }}>Block: {String(tx.blockNumber)}</div> : null}
-                            {tx.note ? <div style={{ color: "#ffb3b3", fontSize: 9 }}>{tx.note}</div> : null}
+                              <div style={{display:"grid", gap:5, justifyItems:"end", textAlign:"right", flexShrink:0}}>
+                                <b style={{fontSize:12}}>{tx.displayAmount || "—"}</b>
+                                <span style={{fontSize:10,color:statusColor}}>{tx.statusText}</span>
+                              </div>
+                            </div>
+                            {explorer ? <div style={{marginTop:8, textAlign:"right"}}>
+                              <a href={explorer} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:"#8ad7ff",textDecoration:"none"}}>Blockchain ansehen ↗</a>
+                            </div> : null}
                           </div>
                         );
                       }) : (
-                        <div className="muted" style={{ padding: 18, textAlign: "center", border: "1px dashed rgba(255,255,255,.10)", borderRadius: 12 }}>
-No recorded transactions yet. A missing entry does not prove no transfer happened. Use the chain scanner or the block explorer.
+                        <div className="muted" style={{padding:16,textAlign:"center",border:"1px dashed rgba(255,255,255,.12)",borderRadius:12}}>
+                          {walletLedgerBusy ? "Verlauf wird geladen…" : "Noch keine Wallet-Bewegungen angezeigt. Wähle «Verlauf aktualisieren»."}
                         </div>
                       )}
+                      {walletPublicHistory.hiddenUnknown > 0 || showUnknownWalletTransfers ? (
+                        <button type="button" className="miniBtn" onClick={() => setShowUnknownWalletTransfers(v => !v)}
+                          style={{justifySelf:"start",opacity:.85}}>
+                          {showUnknownWalletTransfers ? "Unbekannte Token ausblenden" : "Unbekannte Token anzeigen"}
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </>
@@ -32012,6 +32131,11 @@ export default function App() {
   const [liveSetupMsg, setLiveSetupMsg] = useState("");
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [showSystemInfo, setShowSystemInfo] = useState(false);
+  // BUILD599: Owner-only, on-demand raw Wallet/Ledger diagnostics.
+  const [ownerLedgerChain, setOwnerLedgerChain] = useState("BNB");
+  const [ownerLedgerData, setOwnerLedgerData] = useState(null);
+  const [ownerLedgerBusy, setOwnerLedgerBusy] = useState(false);
+  const [ownerLedgerError, setOwnerLedgerError] = useState("");
   const [buildInfo, setBuildInfo] = useState(null);
   const [shadowHealth, setShadowHealth] = useState(null);
   const [systemInfoStatus, setSystemInfoStatus] = useState(() => {
@@ -32251,7 +32375,11 @@ export default function App() {
   const DEV_SYSTEM_INFO_WALLET = "0x150270ac191ba7caee8f098add651fa9db38b028";
   const footerWallet = resolveWalletAddress(typeof window !== "undefined" ? localStorage.getItem("nexus_wallet") : "");
   const canOpenSystemInfo = String(footerWallet || "").toLowerCase() === DEV_SYSTEM_INFO_WALLET;
-
+  useEffect(() => {
+    // Never retain an owner's raw ledger across a Privy account change.
+    setOwnerLedgerData(null);
+    setOwnerLedgerError("");
+  }, [footerWallet, authenticated]);
 
   // BUILD561: owner-only, read-only signal/data audit refresh.
   const _refreshSignalDataAudit = async () => {
@@ -32538,6 +32666,28 @@ export default function App() {
       throw new Error("No valid Privy session. Please sign in again.");
     }
     return privyToken;
+  };
+
+  // BUILD599: No auto-scan. Only the owner can explicitly read their own
+  // recorded transactions or request a bounded Alchemy history scan here.
+  const _loadOwnerWalletLedger = async (scan = false) => {
+    if (!canOpenSystemInfo || ownerLedgerBusy || !footerWallet) return;
+    setOwnerLedgerBusy(true); setOwnerLedgerError("");
+    try {
+      const jwt = await _getCapitalAuditPrivyToken();
+      const chain = ownerLedgerChain;
+      const qs = new URLSearchParams({chain, scan: scan ? "1" : "0", blocks:"6000"});
+      const res = await fetch(`${API_BASE}/api/nexus/wallet/ledger?${qs}`, {
+        method:"GET", cache:"no-store", credentials:"include",
+        headers:{"Content-Type":"application/json", "X-Wallet-Address":String(footerWallet), Authorization:`Bearer ${jwt}`},
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.status !== "ok" || data?.readOnly !== true) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      setOwnerLedgerData({ ...data, selectedChain:chain, scanRequested:scan });
+    } catch (e) { setOwnerLedgerError(String(e?.message || e || "Ledger check failed")); }
+    finally { setOwnerLedgerBusy(false); }
   };
 
   // BUILD579: configuration/status only, no authorization signature or transactions.
@@ -33726,6 +33876,63 @@ export default function App() {
                     </div>;
                   })()}
                 </details>
+
+                {/* BUILD599: Technical ledger stays owner-only, not on the customer Wallet. */}
+                {canOpenSystemInfo && <details style={{gridColumn:"span 12", padding:11, borderRadius:10,
+                  border:"1px solid rgba(96,196,255,.32)", background:"rgba(24,56,74,.16)"}}>
+                  <summary style={{cursor:"pointer",fontWeight:900,color:"#aee4ff"}}>Wallet / Ledger Diagnostics – Owner (Read Only)</summary>
+                  <div className="muted tiny" style={{marginTop:8}}>
+                    Raw Nexus events, transaction receipts and indexed Alchemy transfers. Owner wallet only. No signatures, trading or transfers.
+                  </div>
+                  <div style={{display:"flex", gap:8, alignItems:"center", flexWrap:"wrap", marginTop:10}}>
+                    <select className="input" aria-label="Ledger chain" value={ownerLedgerChain}
+                      onChange={(e) => {setOwnerLedgerChain(e.target.value);setOwnerLedgerData(null);setOwnerLedgerError("");}}
+                      style={{width:100}}>
+                      <option value="ETH">ETH</option><option value="BNB">BNB</option><option value="POL">POL</option>
+                    </select>
+                    <button type="button" className="miniBtn" disabled={ownerLedgerBusy} onClick={()=>_loadOwnerWalletLedger(false)}>
+                      {ownerLedgerBusy ? "Reading…" : "Load recorded ledger"}</button>
+                    <button type="button" className="miniBtn" disabled={ownerLedgerBusy} onClick={()=>_loadOwnerWalletLedger(true)}>
+                      Scan {ownerLedgerChain} indexed transfers + verify receipts</button>
+                  </div>
+                  {ownerLedgerError ? <div role="alert" style={{color:"#ffb4b4",fontSize:12,marginTop:8}}>{ownerLedgerError}</div> : null}
+                  {ownerLedgerData ? <div style={{marginTop:9,display:"grid",gap:7,fontSize:11}}>
+                    <div><b>Selected chain:</b> {ownerLedgerData.selectedChain} · <b>Stored actions:</b> {ownerLedgerData.events?.length ?? 0}
+                      {ownerLedgerData.scanRequested ? ` · Indexed transfers: ${ownerLedgerData.recentOnchain?.events?.length ?? 0}` : ""}
+                      {ownerLedgerData.receiptProof ? ` · Verified receipts: ${ownerLedgerData.receiptProof.minedConfirmed ?? 0}/${ownerLedgerData.receiptProof.checked ?? 0}` : ""}
+                    </div>
+                    {ownerLedgerData.coverage ? <div className="muted tiny">{ownerLedgerData.coverage}</div> : null}
+                    {ownerLedgerData.scanRequested ? <div style={{color:ownerLedgerData.recentOnchain?.completeForRequestedRange ? "#8dffd0" : "#ffd166"}}>
+                      Indexed scan: {ownerLedgerData.recentOnchain?.completeForRequestedRange ? "COMPLETE FOR REQUESTED WINDOW" : "PARTIAL / UNAVAILABLE"}
+                      {ownerLedgerData.recentOnchain?.error ? ` · ${ownerLedgerData.recentOnchain.error}` : ""}
+                      {ownerLedgerData.recentOnchain?.lookbackDays ? ` · Lookback ${ownerLedgerData.recentOnchain.lookbackDays}d` : ""}
+                      {ownerLedgerData.recentOnchain?.pagesFetched != null ? ` · Pages ${ownerLedgerData.recentOnchain.pagesFetched}` : ""}
+                    </div> : null}
+                    <div style={{maxHeight:360,overflowY:"auto", display:"grid",gap:6}}>
+                      {[...(ownerLedgerData.events || []), ...(ownerLedgerData.recentOnchain?.events || [])].map((tx, i) => {
+                        const network = String(tx.chain || ownerLedgerChain).toUpperCase();
+                        const explorerBase = network === "BNB" ? "https://bscscan.com/tx/" : network === "POL" ? "https://polygonscan.com/tx/" : "https://etherscan.io/tx/";
+                        const hash = String(tx.txHash || "");
+                        return <div key={`${tx.id || hash}-${i}`} style={{padding:9,border:"1px solid rgba(255,255,255,.13)",borderRadius:8,overflowWrap:"anywhere"}}>
+                          <b>{tx.type || "EVENT"} · {network} · {tx.status || "?"}</b>
+                          <div>Source: {tx.source || "—"} · Direction: {tx.direction || "—"} · Asset: {tx.asset || "—"} · Amount: {tx.amount ?? "unverified"}</div>
+                          <div className="muted tiny">{tx.createdAt ? new Date(tx.createdAt).toLocaleString() : "Unknown date"}
+                            {tx.blockNumber != null ? ` · Block: ${tx.blockNumber}` : ""}{tx.contract ? ` · Contract: ${tx.contract}` : ""}</div>
+                          {tx.from ? <div className="muted tiny">From: {tx.from}</div> : null}
+                          {tx.to ? <div className="muted tiny">To: {tx.to}</div> : null}
+                          {hash && <div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap",marginTop:5}}>
+                            <code>{hash}</code>
+                            <button type="button" className="miniBtn" onClick={()=>navigator.clipboard?.writeText(hash)}>Copy hash</button>
+                            <a href={`${explorerBase}${hash}`} target="_blank" rel="noopener noreferrer">On-chain</a>
+                          </div>}
+                          {tx.note ? <div style={{color:"#ffd166",fontSize:10}}>{tx.note}</div> : null}
+                        </div>;
+                      })}
+                    </div>
+                    {!((ownerLedgerData.events || []).length || (ownerLedgerData.recentOnchain?.events || []).length) ?
+                      <div className="muted tiny">No ledger events in this wallet-scoped response.</div> : null}
+                  </div> : null}
+                </details>}
 
                 {/* BUILD575: Exact token/contract, wallet-vs-Vault and on-chain sessions. Owner local wallet ONLY. */}
                 <details onToggle={(event) => {

@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD606-STRATEGIST-QUESTION-SCOPE";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD607-STRATEGIST-FULL-ANSWER";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3709,6 +3709,22 @@ function NexusManualInline({ text }) {
   return <>{parts.map((part,i) => part.startsWith('**') && part.endsWith('**')
     ? <strong key={i}>{part.slice(2,-2)}</strong>
     : <React.Fragment key={i}>{part}</React.Fragment>)}</>;
+}
+
+// BUILD607: Render Strategist GPT Markdown safely as React text elements.
+// Preserve full prose, inline bold and headings without injecting HTML.
+function NexusStrategistFormattedText({ text }) {
+  const lines = String(text || "").split(/\r?\n/);
+  return <>{lines.map((raw, index) => {
+    const heading = /^\s*#{1,6}\s+(.+?)\s*$/.exec(raw);
+    const plain = (heading ? heading[1] : raw)
+      .replace(/^\s*[-*]\s+/, "\u2022 ")
+      .replace(/\s+$/, "");
+    return <React.Fragment key={index}>
+      {index ? "\n" : null}
+      {heading ? <strong><NexusManualInline text={plain} /></strong> : <NexusManualInline text={plain} />}
+    </React.Fragment>;
+  })}</>;
 }
 
 const NEXUS_SUPPORT_TOPICS = Object.freeze({
@@ -21198,6 +21214,7 @@ function aiTaskPlaceholder(kind) {
 
     const headingMap = {
       "DIRECT VIEW": "direct_view",
+      "DIRECT ASSESSMENT": "direct_view",
       "DIREKTE EINSCHÄTZUNG": "direct_view",
       "DIREKTE EINSCHAETZUNG": "direct_view",
       "ANSWER": "output",
@@ -21229,15 +21246,15 @@ function aiTaskPlaceholder(kind) {
 
     const lines = source.split(/\r?\n/);
     const sections = [];
-    let current = null;
+    // Start with an ordinary answer section; GPT may begin with a paragraph or
+    // its own Markdown heading (e.g. ### COMPARATIVE ANALYSIS).
+    let current = { key: "output", lines: [] };
 
     const flush = () => {
       if (!current) return;
-      const body = current.lines
-        .join("\n")
-        .replace(/^\s*-\s+/gm, "• ")
-        .replace(/^\s*\*\*([^*]+)\*\*/gm, "• $1")
-        .trim();
+      // BUILD607: Do not strip Markdown or discard prose preceding first heading.
+      // Rendering handles bullets and bold without changing GPT's content.
+      const body = current.lines.join("\n").trim();
       if (body) sections.push({ key: current.key, body });
       current = null;
     };
@@ -21260,8 +21277,12 @@ function aiTaskPlaceholder(kind) {
       return [{ key: "output", body: source }];
     }
 
-    const order = ["direct_view", "exchange_spread", "market_read", "nexus_rotation", "nexus_grid", "nexus_trading", "risk_context", "tactical_take", "strategist_check", "next_check", "output"];
-    return sections.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+    // Keep GPT's original section order (especially the answer itself).
+    // Strategist Check is only supplemental, and must be displayed LAST.
+    return [
+      ...sections.filter((section) => section.key !== "strategist_check"),
+      ...sections.filter((section) => section.key === "strategist_check"),
+    ];
   }, []);
 
   const aiOutputSections = useMemo(() => parseAiAnalystOutput(aiOutput), [aiOutput, parseAiAnalystOutput]);
@@ -31261,7 +31282,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <div className="muted tiny" style={{ whiteSpace: "nowrap" }}>{meta.sub}</div>
                                 </div>
                                 <div className="aiText" style={{ whiteSpace: "pre-wrap", lineHeight: 1.28 }}>
-                                  {section.body}
+                                  <NexusStrategistFormattedText text={section.body} />
                                 </div>
                                 {isLatestAssistant && nexusStrategistCanShowAction(section, detectNexusUserIntent(aiQuestion || content || "")) ? (
                                   <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>

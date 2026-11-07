@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD592-COMPARE-GUEST-FIVE";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD593-STRATEGIST-QUESTION-FOCUS";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -1865,6 +1865,33 @@ function watchFinalRating(row, summary, onchain) {
   const base = watchFinalScore(row, summary);
   const delta = watchOnchainScoreDelta(onchain);
   return ratingFromScore(Math.max(0, Math.min(100, base + delta)));
+}
+
+// BUILD593: Put explicitly requested coins before Compare's stored order.
+// This is AI research context only, not a trading signal or execution change.
+function strategistQuestionSymbols(question, compareSymbols, watchRows) {
+  const base = Array.from(new Set((Array.isArray(compareSymbols) ? compareSymbols : [])
+    .map((x) => String(x || "").trim().toUpperCase())
+    .filter((x) => /^[A-Z0-9]{2,12}$/.test(x))));
+  const known = new Set([...base, "BTC", "ETH", "BNB", "POL", "SOL", "XRP", "LINK", "UNI", "ADA", "AVAX", "DOGE", "LTC", "XLM", "TRX", "ARB", "ATOM"]);
+  for (const r of Array.isArray(watchRows) ? watchRows : []) {
+    const symbol = String(r?.symbol || r?.sym || "").trim().toUpperCase();
+    if (/^[A-Z0-9]{2,12}$/.test(symbol)) known.add(symbol);
+  }
+  const raw = String(question || "").toUpperCase();
+  const found = [];
+  const register = (name, symbol) => {
+    const rex = new RegExp(`(^|[^A-Z0-9])${name}(?![A-Z0-9])`, "g");
+    const hit = rex.exec(raw);
+    if (hit) found.push({ index: hit.index + hit[1].length, symbol });
+  };
+  for (const symbol of known) register(symbol, symbol);
+  for (const [label, symbol] of [["BITCOIN", "BTC"], ["ETHEREUM", "ETH"], ["POLYGON", "POL"], ["SOLANA", "SOL"], ["RIPPLE", "XRP"]]) {
+    register(label, symbol);
+  }
+  found.sort((a, b) => a.index - b.index);
+  const focused = Array.from(new Set(found.map((x) => x.symbol)));
+  return [...focused, ...base.filter((x) => !focused.includes(x))].slice(0, 20);
 }
 
 function buildAiSignalContext({ syms, watchRows, ratingSummaryBySymbol, onchainBySymbol, marketConditionBySymbol, bestPairsToShow, compareWeights, aiMode, nexusTradingContext }) {
@@ -20651,44 +20678,10 @@ if (data?.cached != null) setWatchCached(Boolean(data.cached));
   const aiCompareContextModes = useMemo(() => new Set(["research", "daily_report"]), []);
   const aiUsesCompareContext = aiCompareContextModes.has(aiKind);
   
-  const normalizeAiOutput = (rawText, tf, q, seriesStats) => {
-    const TF = String(tf || "").toUpperCase();
-    const is1D = TF === "1D" || TF === "24H" || TF === "24HRS" || TF === "1DAY";
-    let text = String(rawText || "");
-
-    if (is1D) return text;
-
-    // Remove obvious 24h-only lines/metrics to avoid misleading output when timeframe != 1D
-    const lines = text.split(/\r?\n/);
-    const filtered = lines.filter((ln) => {
-      const s = ln.toLowerCase();
-      if (s.includes("24h") || s.includes("24 h") || s.includes("24-stunden") || s.includes("24 stunden")) return false;
-      if (s.includes("price_change_percentage_24h") || s.includes("volume_24h") || s.includes("high_24h") || s.includes("low_24h")) return false;
-      return true;
-    });
-
-    // Build a factual timeframe summary from chart series stats (same data as overlay)
-    const entries = Object.entries(seriesStats || {});
-    if (!entries.length) return filtered.join("\n");
-
-    const isGerman = /\b(wie|was|warum|in|den|letzten|tage|wochen|markt|zukunft)\b/i.test(q || "");
-    const headTitle = isGerman ? `Zeitraum-Stats (${TF})` : `Timeframe stats (${TF})`;
-
-    const fmt = (n) => (n == null || !Number.isFinite(n) ? "—" : n.toFixed(2));
-    const bullets = entries.map(([sym, stats]) => {
-      const ch = stats?.changePct;
-      const vol = stats?.volPct;
-      const mdd = stats?.maxDDPct;
-      const last = stats?.last;
-      const first = stats?.first;
-      if (isGerman) {
-        return `- ${sym}: Start ${fmtUsd(first)}, Ende ${fmtUsd(last)}, Veränderung ${fmt(ch)}%, Volatilität ${fmt(vol)}%, MaxDD ${fmt(mdd)}%`;
-      }
-      return `- ${sym}: start ${fmtUsd(first)}, end ${fmtUsd(last)}, change ${fmt(ch)}%, vol ${fmt(vol)}%, maxDD ${fmt(mdd)}%`;
-    });
-
-    return `${headTitle}\n${bullets.join("\n")}\n\n${filtered.join("\n")}`.trim();
-  };
+  // BUILD593: Keep the model's question-specific answer intact. The previous
+  // formatter removed ALL 24h lines for a 90D UI even when the user explicitly
+  // requested 24h information; it also prepended unrelated chart stats.
+  const normalizeAiOutput = (rawText, tf, q, seriesStats) => String(rawText || "");
 
 function detectNexusUserLanguage(text = "") {
   const raw = String(text || "");
@@ -21011,7 +21004,7 @@ async function runAi() {
 
     // Compare/watchlist data may still be useful as hidden context for Research and Daily Report,
     // but coin chips are no longer shown in the AI Analyst UI.
-    const syms = aiUsesCompareContext ? (compareSymbols || []) : [];
+    const syms = aiUsesCompareContext ? strategistQuestionSymbols(q, compareSymbols, watchRows) : [];
 
     const aiKindPrompts = isGermanAsk ? {
       research: `Arbeite als Nexus Strategist. Verstehe die Nutzerfrage zuerst, erkenne den passenden Marktmodus und antworte direkt. Nutze Rotation, relative Stärke, Spread, Volumen, Marktstruktur und Exchange-Kontext nur wenn relevant. Keine internen Module erwähnen.`,
@@ -21100,7 +21093,7 @@ ${q}`;
       await ensureBackendAuthToken();
 
       const uiTf = String(timeframe || "").toUpperCase();
-      const explicitTf = _extractExplicitTfFromQuestion(qFinal);
+      const explicitTf = _extractExplicitTfFromQuestion(q);
       const tf = String(explicitTf || uiTf || "90D").toUpperCase();
 
       const slicedSeries = sliceCompareSeries(compareSeries || {}, tf);
@@ -21207,7 +21200,7 @@ ${aiSignalText}
 
       const body = {
         kind: aiKind,
-        symbols: syms.length ? syms : (aiSignalContext?.analysis_symbols || []),
+        symbols: syms, // BUILD593: task modes must not silently become Compare market research.
         profile: aiProfile,
         question: questionText,
         timeframe: tf,

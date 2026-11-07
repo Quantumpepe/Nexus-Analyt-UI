@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD594-STRATEGIST-DECISION-CONSISTENCY";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD595-STRATEGIST-DIAGNOSTICS-READONLY";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -31959,6 +31959,13 @@ export default function App() {
   const [engineDiagnostics, setEngineDiagnostics] = useState(null);
   const [engineDiagnosticsBusy, setEngineDiagnosticsBusy] = useState("");
   const [engineDiagnosticsError, setEngineDiagnosticsError] = useState("");
+  // BUILD595: owner-only, read-only Strategist Diagnostics. No Shadow or wallet actions.
+  const [strategistDiagEngine, setStrategistDiagEngine] = useState("NKR");
+  const [strategistDiagChain, setStrategistDiagChain] = useState("BNB");
+  const [strategistDiagMode, setStrategistDiagMode] = useState("DYNAMIC");
+  const [strategistDiag, setStrategistDiag] = useState(null);
+  const [strategistDiagBusy, setStrategistDiagBusy] = useState(false);
+  const [strategistDiagError, setStrategistDiagError] = useState("");
   const [nkrSessionAudit, setNkrSessionAudit] = useState(null);
   const [nkrSessionAuditBusy, setNkrSessionAuditBusy] = useState(false);
   const [nkrSessionAuditError, setNkrSessionAuditError] = useState("");
@@ -33351,6 +33358,36 @@ export default function App() {
     finally { setOwnerAdminBusy(""); }
   };
 
+  // BUILD595: GET-only. Never calls a live execution, deposit, or Shadow endpoint.
+  const _runStrategistDiagnostics = async (view = "overview") => {
+    if (!canOpenSystemInfo || strategistDiagBusy) return;
+    setStrategistDiagBusy(true);
+    setStrategistDiagError("");
+    setStrategistDiag(null);
+    try {
+      const qs = new URLSearchParams({
+        wallet: footerWallet,
+        engine: strategistDiagEngine,
+        chain: strategistDiagChain,
+        mode: strategistDiagMode,
+        view,
+      });
+      const verifiedToken = await _getCapitalAuditPrivyToken();
+      const res = await fetch(`${API_BASE}/api/nexus/system-info/strategist-diagnostics?${qs.toString()}`, {
+        method: "GET", cache: "no-store", credentials: "include", headers: _authHeaders(verifiedToken),
+      });
+      const data = await res.json();
+      if (!res.ok || data?.status !== "ok" || data?.readOnly !== true || data?.mutations !== 0) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      setStrategistDiag(data);
+    } catch (err) {
+      setStrategistDiagError(String(err?.message || err));
+    } finally {
+      setStrategistDiagBusy(false);
+    }
+  };
+
   const _openEngineDiagnostics = async (engineName = "ALL", engineState = {}) => {
     const engine = String(engineName || "ALL").toUpperCase();
     setEngineDiagnosticsBusy(engine);
@@ -34044,6 +34081,109 @@ export default function App() {
                       </div>;
                     })}
                   </div>
+                </details>
+
+                {/* BUILD595: genuine read-only Strategist signals, history, and offline tests. */}
+                <details open style={{ gridColumn: "span 12", padding: 12, borderRadius: 10,
+                  border: "1px solid rgba(100,205,235,.35)", background: "rgba(11,54,75,.25)" }}>
+                  <summary style={{ fontWeight: 900, cursor: "pointer", color: "#a6eaff" }}>
+                    Strategist Diagnostics · NKR / Trader · Read-only
+                  </summary>
+                  <div className="muted" style={{ marginTop: 7, fontSize: 11 }}>
+                    Observed signals, recorded sessions and synthetic rule tests. Shadow stays OFF. No live orders,
+                    signatures, deposits, withdrawals or new market API calls. Results do not prove live execution.
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10, alignItems: "end" }}>
+                    {[
+                      ["Engine", strategistDiagEngine, setStrategistDiagEngine, ["NKR", "TRADER"]],
+                      ["Network", strategistDiagChain, setStrategistDiagChain, ["ETH", "BNB", "POL"]],
+                      ["Risk mode", strategistDiagMode, setStrategistDiagMode, ["AGGRESSIVE", "DYNAMIC", "TACTICAL", "DEFENSIVE"]],
+                    ].map(([label, value, setter, options]) => <label key={label} style={{ display: "grid", gap: 4, minWidth: 125 }}>
+                      <span className="muted" style={{ fontSize: 11 }}>{label}</span>
+                      <select value={value} onChange={(event) => { setter(event.target.value); setStrategistDiag(null); }}
+                        style={{ padding: "6px 8px", borderRadius: 6, color: "inherit", background: "#192b38" }}>
+                        {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    </label>)}
+                    {[
+                      ["Check all", "overview"], ["Current market / signals", "market"],
+                      ["Last session", "last-session"], ["Run offline scenarios", "scenarios"],
+                    ].map(([label, view]) => <button key={view} type="button" className="miniBtn"
+                      disabled={strategistDiagBusy} onClick={() => _runStrategistDiagnostics(view)}>
+                      {strategistDiagBusy ? "Checking…" : label}
+                    </button>)}
+                  </div>
+                  {strategistDiagError && <div style={{ marginTop: 9, color: "#ffb4b4" }}>Diagnostics unavailable: {strategistDiagError}</div>}
+                  {strategistDiag && <div style={{ display: "grid", gap: 11, marginTop: 12 }}>
+                    <div style={{ fontWeight: 800, color: "#98f2c8" }}>
+                      {strategistDiag.engine} · {strategistDiag.chain} · {strategistDiag.mode} · READ ONLY · 0 TX
+                    </div>
+                    {strategistDiag.market && <div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: 9 }}>
+                      <b>Observed signal pipeline</b>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px,1fr))", gap: 7, marginTop: 7 }}>
+                        {(strategistDiag.market.stages || []).map((stage) => <div key={stage.stage}
+                          style={{ padding: 7, border: "1px solid rgba(255,255,255,.13)", borderRadius: 7 }}>
+                          <b style={{ fontSize: 11 }}>{stage.stage}</b><div>{stage.state}</div>
+                          <div className="muted" style={{ fontSize: 11 }}>Last: {stage.ageSec == null ? "not observed" : `${stage.ageSec}s ago`}</div>
+                          <div className="muted" style={{ fontSize: 11 }}>Decision: {stage.decision || "—"} · {stage.signalCount} fields</div>
+                          <div className="muted" style={{ fontSize: 10, overflowWrap: "anywhere" }}>{(stage.fields || []).join(", ") || "No stored fields"}</div>
+                        </div>)}
+                      </div>
+                      <div style={{ marginTop: 7, fontSize: 11 }}>
+                        Market cache: {(strategistDiag.market.cachedMarket || []).length} observed assets ·
+                        {(strategistDiag.market.cachedMarket || []).filter(x => x.state === "SIGNAL_EVALUATED").length} evaluated signal candidates
+                      </div>
+                      {(strategistDiag.market.cachedMarket || []).length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                        {(strategistDiag.market.cachedMarket || []).map(m => <span key={m.symbol} style={{ fontSize: 11, padding: "5px 7px",
+                          border: "1px solid rgba(255,255,255,.1)", borderRadius: 5 }}>
+                          {m.symbol}: {m.decision} {m.score == null ? "" : `(${m.score})`} · {m.ageSec == null ? "unknown age" : `${m.ageSec}s`}
+                        </span>)}
+                      </div>}
+                      <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>{strategistDiag.market.limitations}</div>
+                    </div>}
+                    {strategistDiag.lastSession && <div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: 9 }}>
+                      <b>Last registered session and recorded history</b>
+                      <div style={{ marginTop: 6 }}>{strategistDiag.lastSession.status} ·
+                        Session: {strategistDiag.lastSession.session?.status || "not recorded"} ·
+                        Last update: {strategistDiag.lastSession.session?.updatedAt ? new Date(strategistDiag.lastSession.session.updatedAt * 1000).toLocaleString() : "—"}
+                      </div>
+                      <div className="muted" style={{ marginTop: 5, fontSize: 11 }}>
+                        Re-entry: {strategistDiag.lastSession.reentry?.state || "not verified"} ·
+                        Last recorded exit {strategistDiag.lastSession.reentry?.lastExitAgeSec == null ? "unknown" : `${strategistDiag.lastSession.reentry.lastExitAgeSec}s ago`} ·
+                        Cooldown {strategistDiag.lastSession.reentry?.cooldownSec == null ? "engine-specific" : `${strategistDiag.lastSession.reentry.cooldownSec}s`}
+                        {strategistDiag.lastSession.reentry?.cooldownTimeElapsed === true ? " (time elapsed, NOT on-chain clearance)" : ""}
+                      </div>
+                      {(strategistDiag.lastSession.events || []).map((evt, i) => <div key={`${evt.ts}-${i}`}
+                        style={{ fontSize: 11, marginTop: 4 }}>
+                        {evt.ts ? new Date(evt.ts * 1000).toLocaleString() : "—"} · {evt.type} · {evt.asset || "—"} ·
+                        {evt.hasTxHash ? "TX hash recorded" : "No TX hash"}
+                      </div>)}
+                      {!(strategistDiag.lastSession.events || []).length && <div className="muted" style={{ marginTop: 5 }}>No matching recorded trade history. This does not prove that no on-chain trade occurred.</div>}
+                      <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>{strategistDiag.lastSession.limitations}</div>
+                    </div>}
+                    {strategistDiag.scenarios && <div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: 9 }}>
+                      <b>Offline scenario checks · actual decision functions</b>
+                      <div style={{ marginTop: 5, fontSize: 11 }}>Evaluated {(strategistDiag.scenarios.cases || []).length} scenarios ·
+                        <span style={{ color: strategistDiag.scenarios.failedChecks ? "#ffb4b4" : "#98f2c8", fontWeight: 900 }}>
+                          {strategistDiag.scenarios.passedChecks} PASS / {strategistDiag.scenarios.failedChecks} FAIL
+                        </span> · {strategistDiag.scenarios.errors} calculation errors ·
+                        {strategistDiag.scenarios.computeMs} ms local rule computation (not execution latency)</div>
+                      <div style={{ overflowX: "auto", marginTop: 7 }}><table style={{ width: "100%", fontSize: 11 }}><thead>
+                        <tr><th style={{ textAlign: "left" }}>Scenario</th><th style={{ textAlign: "left" }}>Rule result</th>
+                        <th style={{ textAlign: "left" }}>Reason</th><th style={{ textAlign: "left" }}>Net / stop candidate</th></tr>
+                      </thead><tbody>
+                        {(strategistDiag.scenarios.cases || []).map((caseRow) => <tr key={caseRow.case}>
+                          <td>{caseRow.case}</td>
+                          <td><b style={{ color: caseRow.result === "PASS" ? "#98f2c8" : "#ffb4b4" }}>{caseRow.result}</b> · {caseRow.decision}
+                            {caseRow.result !== "PASS" ? <span className="muted"> (expected {caseRow.expected})</span> : null}</td>
+                          <td>{caseRow.reason}</td>
+                          <td>{caseRow.details?.netUsd == null ? "—" : `${caseRow.details.netUsd} USD`}
+                            {caseRow.details?.candidateStop ? ` · Proposed stop ${caseRow.details.candidateStop.thresholdPct}%: ${caseRow.details.candidateStop.triggered ? "yes" : "no"} (not live)` : ""}</td>
+                        </tr>)}
+                      </tbody></table></div>
+                      <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>{strategistDiag.scenarios.limitations}</div>
+                    </div>}
+                  </div>}
                 </details>
 
                 {engineDiagnostics && (

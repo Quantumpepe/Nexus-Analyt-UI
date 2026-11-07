@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD596-STRATEGIST-SECURITY-EXIT";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD597-LEDGER-HISTORY-REENTRY-AUDIT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3329,6 +3329,7 @@ function EngineEventHistory({ engine, events = [] }) {
   const filtered = rows.filter((ev) => {
     const status = String(ev?.status || ev?.eventType || ev?.action || "EVENT").toUpperCase();
     if (filter === "ALL") return true;
+    if (filter === "ONCHAIN") return /^0x[a-fA-F0-9]{64}$/.test(String(ev?.txHash || ""));
     if (filter === "OPEN") return status.includes("OPEN") || status.includes("ACTIVE") || status.includes("RUNNING");
     if (filter === "CLOSED") return status.includes("CLOSED") || status.includes("FILLED") || status.includes("SETTLED") || status.includes("STOPPED");
     if (filter === "PROFIT") return Number(ev?.netUsd ?? ev?.profitUsd ?? ev?.pnlUsd ?? 0) > 0;
@@ -3354,7 +3355,7 @@ function EngineEventHistory({ engine, events = [] }) {
       <summary style={{ cursor: "pointer", padding: "9px 10px", fontWeight: 950, color: "#8bdcff", listStyle: "none" }}>{engine} Event History · {rows.length} saved</summary>
       <div style={{ display: "grid", gap: 7, padding: "0 10px 10px" }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {["ALL","OPEN","CLOSED","PROFIT","LOSS","ERROR"].map((x) => <button key={x} type="button" className="miniBtn" onClick={() => setFilter(x)} style={{ opacity: filter === x ? 1 : .65 }}>{x}</button>)}
+          {["ALL","ONCHAIN","OPEN","CLOSED","PROFIT","LOSS","ERROR"].map((x) => <button key={x} type="button" className="miniBtn" onClick={() => setFilter(x)} style={{ opacity: filter === x ? 1 : .65 }}>{x}</button>)}
           <button type="button" className="miniBtn" onClick={() => setShowAll((v) => !v)}>{showAll ? "Show latest 10" : "Show Full History"}</button>
           <button type="button" className="miniBtn" onClick={() => exportFile("csv")}>Export CSV</button>
           <button type="button" className="miniBtn" onClick={() => exportFile("json")}>Export JSON</button>
@@ -3364,12 +3365,16 @@ function EngineEventHistory({ engine, events = [] }) {
           const status = String(ev?.status || ev?.eventType || ev?.action || "EVENT").toUpperCase();
           const net = Number(ev?.netUsd ?? ev?.profitUsd ?? ev?.pnlUsd ?? 0);
           const whenMs = ts ? (ts < 1000000000000 ? ts * 1000 : ts) : 0;
-          const when = ev?.date || (whenMs ? new Date(whenMs).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—");
+          const when = whenMs && Number.isFinite(whenMs) && whenMs >= 946684800000 && whenMs <= Date.now() + 86400000
+            ? new Date(whenMs).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
           const px = Number(ev?.priceUsd || ev?.price || ev?.fillPrice || 0);
           return <div key={ev?.eventKey || `${engine}-${ts}-${i}`} className="muted tiny" style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 6 }}>
             <div><b style={{ color: net > 0 ? "#86efac" : net < 0 ? "#ff8a8a" : "#8bdcff" }}>{when} · {ev?.asset || ev?.symbol || "ASSET"} · {status}</b></div>
             <div>{ev?.chain || "—"} · {ev?.side || ev?.action || "—"}{px > 0 ? ` · Entry/Exit ${fmtUsd(px)}` : " · Preis —"}{Number(ev?.quantity || 0) > 0 ? ` · Qty ${fmtQty(Number(ev.quantity))}` : ""}</div>
             <div>Budget {fmtUsd(Number(ev?.budgetUsd || ev?.amountUsd || 0))} · Gross {fmtUsd(Number(ev?.grossUsd || 0))} · Costs {fmtUsd(Number(ev?.costsUsd || 0))} · Net {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
+            <div style={{ fontSize: 10, color: ev?.txHash ? "#a8e3ff" : "#ffd38a" }}>
+              {ev?.txHash ? "TX recorded (receipt not independently checked)" : "Session status only · no blockchain tx recorded"}
+            </div>
             {ev?.reason ? <div>Reason: {toUserFacingReason(ev.reason)}</div> : null}{ev?.txHash ? <div className="mono">Tx: {ev.txHash}</div> : null}
           </div>;
         }) : <div className="muted tiny">No saved {engine.toLowerCase()} events yet.</div>}
@@ -7580,6 +7585,79 @@ useEffect(() => {
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
   const [walletPanelTab, setWalletPanelTab] = useState("WALLET");
+// BUILD597: server-side Vault/Trader/NKR/GRID activity; browser history is only one input.
+const [walletLedgerRows, setWalletLedgerRows] = useState([]);
+const [walletLedgerChainScan, setWalletLedgerChainScan] = useState([]);
+const [walletLedgerOwner, setWalletLedgerOwner] = useState("");
+const [walletLedgerBusy, setWalletLedgerBusy] = useState(false);
+const [walletLedgerError, setWalletLedgerError] = useState("");
+const [walletLedgerCoverage, setWalletLedgerCoverage] = useState("");
+const loadUnifiedWalletLedger = useCallback(async (scan = false) => {
+  if (!resolveWalletAddress(wallet)) return;
+  setWalletLedgerBusy(true); setWalletLedgerError("");
+  try {
+    const verifiedToken = await _getCapitalAuditPrivyToken();
+    const chain = normalizeWalletChainKey(balActiveChain || wsChainKey || DEFAULT_CHAIN);
+    const query = new URLSearchParams({ chain, scan: scan ? "1" : "0", blocks: "6000" });
+    const res = await fetch(`${API_BASE}/api/nexus/wallet/ledger?${query.toString()}`, {
+      method: "GET", cache: "no-store", credentials: "include", headers: _authHeaders(verifiedToken),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.status !== "ok" || data?.readOnly !== true) throw new Error(data?.error || `HTTP ${res.status}`);
+    setWalletLedgerOwner(String(wallet || "").toLowerCase());
+    setWalletLedgerRows(Array.isArray(data.events) ? data.events : []);
+    setWalletLedgerCoverage(String(data.coverage || ""));
+    if (scan) {
+      const scanInfo = data?.recentOnchain || {};
+      const next = Array.isArray(scanInfo.events) ? scanInfo.events : [];
+      setWalletLedgerChainScan((prev) => [
+        ...(Array.isArray(prev) ? prev.filter((v) => v.chain !== chain) : []), ...next,
+      ].slice(0, 500));
+      if (!scanInfo.completeForRequestedRange) setWalletLedgerError(`Recent ${chain} scan incomplete: ${scanInfo.error || (scanInfo.errors || []).join(",") || "RPC coverage limited"}`);
+    }
+  } catch (e) { setWalletLedgerError(String(e?.message || e || "Ledger unavailable")); }
+  finally { setWalletLedgerBusy(false); }
+}, [wallet, balActiveChain, wsChainKey]);
+useEffect(() => {
+  setWalletLedgerOwner("");
+  setWalletLedgerRows([]);
+  setWalletLedgerChainScan([]);
+  setWalletLedgerCoverage("");
+  setWalletLedgerError("");
+}, [wallet]);
+useEffect(() => {
+  if (!wallet || !walletModalOpen || walletPanelTab !== "WALLET" || walletViewTab !== "TRANSACTIONS") return;
+  void loadUnifiedWalletLedger(false);
+}, [wallet, walletModalOpen, walletPanelTab, walletViewTab]);
+const walletAllTransactions = useMemo(() => {
+  const owned = walletLedgerOwner && walletLedgerOwner === String(wallet || "").toLowerCase();
+  const items = [...(owned ? walletLedgerRows || [] : []), ...(owned ? walletLedgerChainScan || [] : []), ...(walletTransactions || [])];
+  const byKey = new Map();
+  for (const row of items) {
+    const tx = String(row?.txHash || "").toLowerCase();
+    const chain = normalizeWalletChainKey(row?.chain || DEFAULT_CHAIN);
+    const isLog = row?.source === "ONCHAIN_ERC20_LOG";
+    const key = isLog ? String(row?.id || `${chain}:${tx}`) : (tx ? `${chain}:${tx}` : String(row?.id || ""));
+    if (!key) continue;
+    if (byKey.has(key)) {
+      const older = byKey.get(key);
+      // A local wallet entry can add a known amount without erasing the
+      // server-recorded Vault direction or proof status.
+      if (older.amount == null && row.amount != null) byKey.set(key, { ...older,
+        amount: row.amount, asset: older.asset || row.asset,
+        note: `${older.note || ""} Amount also found in local wallet record (verify receipt).`.trim() });
+      continue;
+    }
+    byKey.set(key, row);
+  }
+  return Array.from(byKey.values()).sort((a,b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+}, [wallet, walletLedgerOwner, walletLedgerRows, walletLedgerChainScan, walletTransactions]);
+const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx) => {
+  const hash = String(tx?.txHash || "").toLowerCase();
+  const chain = normalizeWalletChainKey(tx?.chain || DEFAULT_CHAIN);
+  return hash ? `${chain}:${hash}` : String(tx?.id || "");
+})).size, [walletAllTransactions]);
+
   const [walletAssetSecurityByKey, setWalletAssetSecurityByKey] = useState({});
   const walletAssetRows = useMemo(() => {
     const rows = [];
@@ -15367,7 +15445,7 @@ useEffect(() => {
       const ts = Number(o?.updated_ts || o?.updatedTs || o?.filled_ts || o?.created_ts || o?.createdTs || Date.now());
       const status = String(o?.status || o?.state || "ORDER").toUpperCase();
       return {
-        eventKey: `GRID:${o?.id || o?.order_id || idx}:${status}:${ts}`,
+        eventKey: `GRID:${o?.id || o?.order_id || idx}:${status}`,
         eventType: status, status, ts,
         chain: o?.chain || o?.network || activeGridChainKey || gridChain || "",
         asset: o?.symbol || o?.asset || gridItem || "",
@@ -15394,7 +15472,7 @@ useEffect(() => {
         const ts=Number(slot?.updated_ts || slot?.updatedTs || slot?.closed_at || slot?.opened_at || s?.updated_ts || s?.created_ts || Date.now());
         const status=String(slot?.status || slot?.state || s?.status || 'SESSION').toUpperCase();
         events.push({
-          eventKey:`TRADER:${s?.id || s?.session_id || si}:${slot?.id || slot?.slot_id || idx}:${status}:${ts}`,
+          eventKey:`TRADER:${s?.id || s?.session_id || si}:${slot?.id || slot?.slot_id || idx}:${status}`,
           eventType:status,status,ts,
           chain:slot?.chain || s?.chain || meta?.chain || '', asset:slot?.symbol || slot?.asset || s?.symbol || s?.asset || meta?.symbol || '',
           side:slot?.side || slot?.action || meta?.side || '', priceUsd:Number(slot?.exit_price_usd || slot?.entry_price_usd || slot?.paper_mark_price || meta?.paper_mark_price || 0),
@@ -15418,7 +15496,7 @@ useEffect(() => {
         const ts=Number(slot?.updated_ts || slot?.updatedTs || slot?.closed_at || slot?.opened_at || s?.updated_ts || s?.created_ts || Date.now());
         const status=String(slot?.status || slot?.state || s?.status || 'SESSION').toUpperCase();
         events.push({
-          eventKey:`NKR:${s?.id || s?.session_id || si}:${slot?.id || slot?.slot_id || idx}:${status}:${ts}`,
+          eventKey:`NKR:${s?.id || s?.session_id || si}:${slot?.id || slot?.slot_id || idx}:${status}`,
           eventType:status,status,ts,
           chain:slot?.chain || s?.chain || meta?.chain || '',
           asset:slot?.symbol || slot?.asset || s?.symbol || s?.asset || meta?.symbol || '',
@@ -23896,7 +23974,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 10 }}>
                     <button type="button" className={walletViewTab === "ASSETS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("ASSETS")}>Assets</button>
-                    <button type="button" className={walletViewTab === "TRANSACTIONS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("TRANSACTIONS")}>Transactions · {walletTransactions.length}</button>
+                    <button type="button" className={walletViewTab === "TRANSACTIONS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("TRANSACTIONS")}>Transactions · {walletUniqueTxCount}</button>
                   </div>
                   {walletViewTab === "ASSETS" ? (
                     <>
@@ -24021,9 +24099,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   ) : (
                     <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
                       <div className="muted" style={{ fontSize: 10, lineHeight: 1.45 }}>
-                        Only transactions signed by this Privy Wallet inside Nexus are stored here. “Signed and broadcast” is separated from the later on-chain confirmation.
+                        Combined: Privy actions + recorded Nexus/Vault trades and capital movements. The count shows unique transaction hashes; a transaction may contain several token-transfer events. Refresh server records or scan recent ERC-20 wallet transfers. Historical native transfers and older chain blocks are not fully indexed.
                       </div>
-                      {walletTransactions.length ? walletTransactions.map((tx) => {
+                      <div style={{ display:"flex", gap:6, flexWrap:"wrap", alignItems:"center" }}>
+                        <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={() => loadUnifiedWalletLedger(false)}>{walletLedgerBusy ? "Reading…" : "Refresh Nexus/Vault records"}</button>
+                        <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={() => loadUnifiedWalletLedger(true)}>Scan recent {normalizeWalletChainKey(balActiveChain || wsChainKey || DEFAULT_CHAIN)} token transfers</button>
+                      </div>
+                      {walletLedgerCoverage ? <div className="muted" style={{ fontSize: 10 }}>{walletLedgerCoverage}</div> : null}
+                      {walletLedgerError ? <div role="status" style={{ fontSize: 10, color: "#ffd38a" }}>{walletLedgerError}</div> : null}
+                      {walletAllTransactions.length ? walletAllTransactions.map((tx) => {
                         const status = String(tx?.status || "PENDING").toUpperCase();
                         const statusColor = status === "CONFIRMED" ? "#86efac" : status === "FAILED" ? "#ff8a8a" : "#ffd166";
                         const explorer = walletExplorerTxUrl(tx?.chain, tx?.txHash);
@@ -24034,9 +24118,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <b style={{ color: statusColor, fontSize: 10 }}>{status}</b>
                             </div>
                             <div className="muted" style={{ fontSize: 10 }}>
-                              {tx.chain || "—"} · {tx.amount ? `${tx.amount} ` : ""}{tx.asset || ""} · {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : ""}
+                              {tx.chain || "—"} · {tx.direction || ""} · {tx.amount != null ? `${tx.amount} ` : ""}{tx.asset || ""} · {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : "Block " + (tx.blockNumber || "—")}
                             </div>
+                            {tx.source ? <div className="muted" style={{ fontSize: 9 }}>Source: {tx.source}{tx.contract ? ` · Token ${tx.contract}` : ""}</div> : null}
+                            {tx.from ? <div className="muted" style={{ fontSize: 9, wordBreak: "break-all" }}>From: {tx.from}</div> : null}
                             {tx.to ? <div className="muted" style={{ fontSize: 9, wordBreak: "break-all" }}>To: {tx.to}</div> : null}
+                            {tx.amountRaw && tx.amount == null ? <div className="muted" style={{ fontSize: 9 }}>Raw token units: {tx.amountRaw} · decimals not verified</div> : null}
                             {tx.txHash ? (
                               <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                                 <span className="muted" style={{ fontFamily: "monospace", fontSize: 9 }}>{tx.txHash.slice(0, 10)}…{tx.txHash.slice(-8)}</span>
@@ -24050,7 +24137,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         );
                       }) : (
                         <div className="muted" style={{ padding: 18, textAlign: "center", border: "1px dashed rgba(255,255,255,.10)", borderRadius: 12 }}>
-                          No Privy Wallet transactions saved yet.
+No recorded transactions yet. A missing entry does not prove no transfer happened. Use the chain scanner or the block explorer.
                         </div>
                       )}
                     </div>
@@ -34108,6 +34195,7 @@ export default function App() {
                     {[
                       ["Check all", "overview"], ["Current market / signals", "market"],
                       ["Last session", "last-session"], ["Run offline scenarios", "scenarios"],
+                      ["Verify re-entry on-chain", "reentry"],
                     ].map(([label, view]) => <button key={view} type="button" className="miniBtn"
                       disabled={strategistDiagBusy} onClick={() => _runStrategistDiagnostics(view)}>
                       {strategistDiagBusy ? "Checking…" : label}
@@ -34139,6 +34227,11 @@ export default function App() {
                           {m.symbol}: {m.decision} {m.score == null ? "" : `(${m.score})`} · {m.ageSec == null ? "unknown age" : `${m.ageSec}s`}
                         </span>)}
                       </div>}
+                      {strategistDiag.market.sessionContext && <div className="muted" style={{ fontSize: 10, marginTop: 5 }}>
+                        Session context: {strategistDiag.market.sessionContext.registeredActiveSessions} registered active ·
+                        Worker tick {strategistDiag.market.sessionContext.lastWorkerTickAgeSec == null ? "unavailable" : `${strategistDiag.market.sessionContext.lastWorkerTickAgeSec}s ago`}.
+                        Old signal traces while inactive are historical, not live-feed failure proof.
+                      </div>}
                       <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>{strategistDiag.market.limitations}</div>
                     </div>}
                     {strategistDiag.lastSession && <div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: 9 }}>
@@ -34160,6 +34253,16 @@ export default function App() {
                       </div>)}
                       {!(strategistDiag.lastSession.events || []).length && <div className="muted" style={{ marginTop: 5 }}>No matching recorded trade history. This does not prove that no on-chain trade occurred.</div>}
                       <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>{strategistDiag.lastSession.limitations}</div>
+                    </div>}
+                    {strategistDiag.reentryProof && <div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: 9 }}>
+                      <b>Explicit on-chain re-entry verification (read-only)</b>
+                      <div style={{ marginTop: 5 }}>{strategistDiag.reentryProof.state} · Session #{strategistDiag.reentryProof.sessionId || "—"} ·
+                        On-chain open positions: {strategistDiag.reentryProof.onchainOpenAssetCount ?? "unknown"} ·
+                        Persistent lock: {strategistDiag.reentryProof.positionLockState || "unknown"}</div>
+                      <div className="muted" style={{ fontSize: 10, marginTop: 5 }}>Pending operations: {(strategistDiag.reentryProof.pendingOperations || []).length} ·
+                        Cooldown elapsed: {String(strategistDiag.reentryProof.cooldownElapsed ?? "not known")} ·
+                        No wallet signatures or contract writes.</div>
+                      <div className="muted" style={{ fontSize: 10, marginTop: 5 }}>{strategistDiag.reentryProof.limitations}</div>
                     </div>}
                     {strategistDiag.scenarios && <div style={{ border: "1px solid rgba(255,255,255,.12)", borderRadius: 8, padding: 9 }}>
                       <b>Offline scenario checks · actual decision functions</b>

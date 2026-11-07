@@ -1,6 +1,8 @@
 // BUILD599: customer Wallet is a concise view of movements, not a system ledger.
 // Preserve all raw source rows; owner's full ledger is shown in System Info.
 // Do not treat a backend operation marked RECORDED as a mined CONFIRMED trade.
+// BUILD600: User transaction view is English, concise, and safe for public accounts.
+// Owner sees raw events separately; the transformer never mutates stored rows.
 function nexusWalletSimpleHistory(rows, knownContractsByChain = {}, showUnknownTokens = false) {
   const output = [];
   let hiddenUnknown = 0;
@@ -13,84 +15,63 @@ function nexusWalletSimpleHistory(rows, knownContractsByChain = {}, showUnknownT
     const chain = String(raw.chain || "ETH").trim().toUpperCase();
     const asset = String(raw.asset || "").trim().toUpperCase();
     const contract = String(raw.contract || "").trim().toLowerCase();
-    // Status changes, approvals, job setup and empty records are not financial moves.
     if (/^(SESSION\b|CREATE$|START_CLOSING$|FINALIZE$|ADD_CAPITAL$|APPROVAL$|.*\bAPPROVE$|.*\bAPPROVAL$)/.test(type) ||
         (/^NKR|^GRID|^TRADER/.test(type) && !/(BUY|SELL|TRADE|EXIT|SWAP|WITHDRAW|DEPOSIT|PAYOUT)/.test(type))) {
       hiddenSystem++;
       continue;
     }
     const indexedToken = source === "ONCHAIN_ERC20_LOG" || type === "TOKEN TRANSFER";
-    if (indexedToken && !(knownContractsByChain?.[chain]?.has(contract))) {
-      if (!showUnknownTokens) { hiddenUnknown++; continue; }
+    if (indexedToken && !(knownContractsByChain?.[chain]?.has(contract)) && !showUnknownTokens) {
+      hiddenUnknown++;
+      continue;
     }
     let title = "";
     let sign = "";
-    if (/\bTRADE BUY\b|\bBUY\b/.test(type)) title = "Handelskauf";
-    else if (/\bTRADE SELL\b|\bSELL\b|\bTRADE EXIT\b/.test(type)) title = "Handelsverkauf";
+    if (/\bTRADE BUY\b|\bBUY\b/.test(type)) title = "Trade buy";
+    else if (/\bTRADE SELL\b|\bSELL\b|\bTRADE EXIT\b/.test(type)) title = "Trade sell";
     else if (/\bVAULT WITHDRAW\b|\bPROFIT WITHDRAW\b|\bPAYOUT\b/.test(type) || dir === "TO_PRIVY") {
-      title = asset ? `${asset} erhalten` : "Auszahlung erhalten"; sign = "+";
+      title = asset ? `${asset} received` : "Withdrawal received"; sign = "+";
     } else if (/\bVAULT DEPOSIT\b/.test(type) || dir === "TO_VAULT") {
-      title = asset ? `${asset} eingezahlt` : "Ins Trading Wallet eingezahlt"; sign = "−";
+      title = asset ? `${asset} deposited` : "Trading Wallet deposit"; sign = "-";
     } else if (/SUBSCRIPTION PAYMENT|\bPAYMENT\b/.test(type)) {
-      title = "Abo bezahlt"; sign = "−";
-    } else if (/SWAP|WRAP|UNWRAP|EXCHANGE/.test(type)) {
-      title = "Token getauscht";
-    } else if (indexedToken || /\bTRANSFER\b|\bSEND\b|\bRECEIVE\b/.test(type)) {
-      if (dir === "IN") { title = asset ? `${asset} erhalten` : "Token erhalten"; sign = "+"; }
-      else if (dir === "OUT") { title = asset ? `${asset} gesendet` : "Token gesendet"; sign = "−"; }
-      else if (dir === "SELF") title = "Eigener Transfer";
-      else title = "Token-Transfer";
-    } else if (dir === "IN") { title = asset ? `${asset} erhalten` : "Erhalten"; sign = "+"; }
-    else if (dir === "OUT") { title = asset ? `${asset} gesendet` : "Gesendet"; sign = "−"; }
-    else if (type.includes("TRADE")) title = "Handelsaktion";
+      title = "Subscription payment"; sign = "-";
+    } else if (/SWAP|WRAP|UNWRAP|EXCHANGE/.test(type)) title = "Token swap";
+    else if (indexedToken || /\bTRANSFER\b|\bSEND\b|\bRECEIVE\b/.test(type)) {
+      if (dir === "IN") { title = asset ? `${asset} received` : "Token received"; sign = "+"; }
+      else if (dir === "OUT") { title = asset ? `${asset} sent` : "Token sent"; sign = "-"; }
+      else if (dir === "SELF") title = "Self transfer";
+      else title = "Token transfer";
+    } else if (dir === "IN") { title = asset ? `${asset} received` : "Received"; sign = "+"; }
+    else if (dir === "OUT") { title = asset ? `${asset} sent` : "Sent"; sign = "-"; }
+    else if (type.includes("TRADE")) title = "Trade activity";
     else { hiddenSystem++; continue; }
 
     const rawStatus = String(raw.status || "").toUpperCase();
-    const statusText = rawStatus === "CONFIRMED" ? "Bestätigt" : rawStatus === "FAILED" ? "Fehlgeschlagen"
-      : rawStatus === "RECORDED" ? "Erfasst" : "Ausstehend";
-    const amountVal = raw.amount;
-    // Unknown decimals or unverified amounts must never be guessed from amountRaw.
+    const statusText = rawStatus === "CONFIRMED" ? "Confirmed" : rawStatus === "FAILED" ? "Failed"
+      : rawStatus === "RECORDED" ? "Recorded" : "Pending";
     let displayAmount = "";
-    if (amountVal !== null && amountVal !== undefined && String(amountVal).trim() !== "" &&
-        Number.isFinite(Number(amountVal)) && Number(amountVal) >= 0) {
-      const n = Number(amountVal);
-      displayAmount = `${sign}${new Intl.NumberFormat("de-CH", { maximumFractionDigits: 8 }).format(n)}${asset ? ` ${asset}` : ""}`;
+    if (raw.amount !== null && raw.amount !== undefined && String(raw.amount).trim() !== "" &&
+        Number.isFinite(Number(raw.amount)) && Number(raw.amount) >= 0) {
+      displayAmount = `${sign}${new Intl.NumberFormat("en-US", {maximumFractionDigits:8}).format(Number(raw.amount))}${asset ? ` ${asset}` : ""}`;
     }
     const timestamp = Number(raw.createdAt || 0);
     let dateLabel = "";
     if (timestamp > 1e11 && Number.isFinite(timestamp)) {
-      try { dateLabel = new Date(timestamp).toLocaleString("de-CH", {day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit"}); }
+      try { dateLabel = new Date(timestamp).toLocaleString("en-GB", {day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}); }
       catch (_) { dateLabel = ""; }
     }
-    output.push({ id: String(raw.id || `${chain}:${raw.txHash || output.length}`), title,
+    output.push({id:String(raw.id || `${chain}:${raw.txHash || output.length}`), title,
       chain, asset, statusText, rawStatus, displayAmount, dateLabel,
-      // The short explorer link remains available, without printing hashes or addresses.
-      txHash: String(raw.txHash || ""), isUnknown: indexedToken && !(knownContractsByChain?.[chain]?.has(contract)),
-      source, sign, createdAt: timestamp,
-    });
+      txHash:String(raw.txHash || ""), isUnknown:indexedToken && !(knownContractsByChain?.[chain]?.has(contract)),
+      createdAt:timestamp});
   }
-  // A verified Vault payout can also appear as an indexed ERC-20 receive in
-  // the same tx. Avoid two customer cards for that one movement, but preserve
-  // separate swap legs and separate transfers inside the same chain tx.
-  const visibleRows = [];
-  const sameMovement = new Map();
-  for (const row of output) {
-    const indexed = row.source === "ONCHAIN_ERC20_LOG";
-    const key = row.txHash && row.asset && row.sign
-      ? `${row.chain}:${row.txHash.toLowerCase()}:${row.asset}:${row.sign}` : "";
-    const priorIndex = key && sameMovement.has(key) ? sameMovement.get(key) : -1;
-    const prior = priorIndex >= 0 ? visibleRows[priorIndex] : null;
-    // Dedup only across provider classes (backend vs on-chain), never two
-    // individual indexed transfer logs of the same token in one transaction.
-    if (prior && (indexed !== (prior.source === "ONCHAIN_ERC20_LOG"))) {
-      const preferred = prior.rawStatus !== "CONFIRMED" && row.rawStatus === "CONFIRMED" ? row : prior;
-      visibleRows[priorIndex] = { ...preferred, displayAmount: preferred.displayAmount || prior.displayAmount || row.displayAmount };
-      continue;
-    }
-    if (key && !sameMovement.has(key)) sameMovement.set(key, visibleRows.length);
-    visibleRows.push(row);
-  }
-  return { rows: visibleRows, hiddenUnknown, hiddenSystem };
+  return {rows:output,hiddenUnknown,hiddenSystem};
+}
+
+// Display-only filtering. The underlying wallet and token balance data is untouched.
+function nexusWalletFilterByChain(rows, chain) {
+  const selected = String(chain || "ETH").toUpperCase();
+  return (Array.isArray(rows) ? rows : []).filter((row) => String(row?.chain || "ETH").toUpperCase() === selected);
 }
 
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
@@ -711,7 +692,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD599-WALLET-SIMPLE-OWNER-LEDGER";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD600-WALLET-OWNER-ENGLISH-CHAIN-SELECT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -1628,7 +1609,8 @@ function formatNkrMoney(n) {
   return `$${v.toFixed(0)}`;
 }
 
-function Help({ de, en }) {
+function Help({ de, en, englishOnly = false }) {
+  if (englishOnly) return <div className="helpBlock"><div className="helpText">{en}</div></div>;
   return (
     <div className="helpBlock">
       <div className="helpLangTitle">DE</div>
@@ -4941,7 +4923,7 @@ function NexusAiSupport({ open, minimized = false, onClose, onMinimize, topic, o
   );
 }
 
-function AppInner({ coreVaultSessionPreview = null, coreVaultRecoveryJobs: coreVaultRecoveryJobsProp = null, onRecoverExactCoreVaultSession = null, exactOrphanRecoveryBusyKey = "" , refreshOnchainSessionsSilent = null }) {
+function AppInner({ ownerWalletView = false, ownerWalletAddress = "", coreVaultSessionPreview = null, coreVaultRecoveryJobs: coreVaultRecoveryJobsProp = null, onRecoverExactCoreVaultSession = null, exactOrphanRecoveryBusyKey = "" , refreshOnchainSessionsSilent = null }) {
   const coreVaultRecoveryJobs = (coreVaultRecoveryJobsProp && typeof coreVaultRecoveryJobsProp === 'object') ? coreVaultRecoveryJobsProp : {};
 
   // Multi-chain config: five primary EVM networks are always visible; configured V5 Vaults activate automatically.
@@ -7680,6 +7662,9 @@ useEffect(() => {
   const [walletUsd, setWalletUsd] = useState({ total: null, byChain: {}, unpriced: 0, ts: null });
   const [walletPx, setWalletPx] = useState({ native: {}, tokenByChain: {}, ts: null });
   const [walletPanelTab, setWalletPanelTab] = useState("WALLET");
+  const showOwnerWalletLedger = Boolean(ownerWalletView && ready && authenticated &&
+    resolveWalletAddress(wallet).toLowerCase() === String(ownerWalletAddress || "").toLowerCase());
+
 // BUILD597: server-side Vault/Trader/NKR/GRID activity; browser history is only one input.
 const [walletLedgerRows, setWalletLedgerRows] = useState([]);
 const [walletLedgerChainScan, setWalletLedgerChainScan] = useState([]);
@@ -7705,7 +7690,7 @@ const loadUnifiedWalletLedger = useCallback(async (scan = false) => {
         String(entry?.address || "").trim().toLowerCase() === activeWallet;
     });
     if (!matchingEmbeddedWallet) {
-      throw new Error("Die angemeldete Privy-Wallet stimmt nicht mit dem Nexus-Konto ueberein.");
+      throw new Error("Signed-in Privy Wallet does not match this Nexus account.");
     }
     const verifiedToken = String((await getAccessToken?.()) || "").trim();
     if (!verifiedToken) throw new Error("Privy session expired. Please sign in again.");
@@ -7746,7 +7731,7 @@ useEffect(() => {
 useEffect(() => {
   if (!wallet || !walletModalOpen || walletPanelTab !== "WALLET" || walletViewTab !== "TRANSACTIONS") return;
   void loadUnifiedWalletLedger(false);
-}, [wallet, walletModalOpen, walletPanelTab, walletViewTab]);
+}, [wallet, walletModalOpen, walletPanelTab, walletViewTab, balActiveChain, wsChainKey]);
 const walletAllTransactions = useMemo(() => {
   const owned = walletLedgerOwner && walletLedgerOwner === String(wallet || "").toLowerCase();
   const items = [...(owned ? walletLedgerRows || [] : []), ...(owned ? walletLedgerChainScan || [] : []), ...(walletTransactions || [])];
@@ -7847,10 +7832,12 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
       if (walletSwapFromKey) setWalletSwapFromKey("");
       return;
     }
-    if (!walletAssetRows.some((row) => row.key === walletSendAssetKey)) {
-      setWalletSendAssetKey(walletAssetRows[0].key);
+    const assetsOnSelectedChain = walletAssetRows.filter((row) =>
+      normalizeWalletChainKey(row.chain) === normalizeWalletChainKey(balActiveChain || DEFAULT_CHAIN));
+    if (!assetsOnSelectedChain.some((row) => row.key === walletSendAssetKey)) {
+      setWalletSendAssetKey(assetsOnSelectedChain[0]?.key || "");
     }
-    const swapEligible = walletAssetRows.filter((row) =>
+    const swapEligible = assetsOnSelectedChain.filter((row) =>
       ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(row.chain)) &&
       (row.kind === "native" || row.address === "native" ||
         String(wnativeSpecForChain(row.chain)?.address || "").toLowerCase() === String(row.address || "").toLowerCase() ||
@@ -7860,7 +7847,7 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
     if (!swapEligible.some((row) => row.key === walletSwapFromKey)) {
       setWalletSwapFromKey(swapEligible[0]?.key || "");
     }
-  }, [walletAssetRows, walletSendAssetKey, walletSwapFromKey]);
+  }, [walletAssetRows, walletSendAssetKey, walletSwapFromKey, balActiveChain]);
 
 
   // BUILD574: exact-contract destinations come from the deployed CoreVault
@@ -8282,6 +8269,16 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
   const walletPublicHistory = useMemo(() =>
     nexusWalletSimpleHistory(walletAllTransactions, walletKnownContracts, showUnknownWalletTransfers),
     [walletAllTransactions, walletKnownContracts, showUnknownWalletTransfers]);
+  const selectedWalletChain = normalizeWalletChainKey(balActiveChain || DEFAULT_CHAIN);
+  const visibleWalletPublicHistory = useMemo(() =>
+    nexusWalletFilterByChain(walletPublicHistory.rows, selectedWalletChain),
+    [walletPublicHistory, selectedWalletChain]);
+  const ownerWalletRawHistory = useMemo(() =>
+    nexusWalletFilterByChain(walletAllTransactions, selectedWalletChain),
+    [walletAllTransactions, selectedWalletChain]);
+  const visibleWalletAssetRows = useMemo(() =>
+    nexusWalletFilterByChain(walletAssetRows, selectedWalletChain),
+    [walletAssetRows, selectedWalletChain]);
 
   const setWalletTokensForChain = (chain, nextList) => {
     const c = normalizeWalletChainKey(chain);
@@ -24038,7 +24035,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ) : null}
                     <InfoButton title={walletPanelTab === "WALLET" ? "Privy Wallet explained" : "Trading Wallet explained"}>
                       {walletPanelTab === "WALLET" ? (
-                        <Help
+                        <Help englishOnly
                           de={
                             <>
                               <p><b>Privy Wallet</b> ist deine persönliche Wallet innerhalb von Nexus. Hier siehst du alle erkannten Assets und deren aktuellen Wert.</p>
@@ -24065,7 +24062,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           }
                         />
                       ) : (
-                        <Help
+                        <Help englishOnly
                           de={
                             <>
                               <p><b>Trading Wallet</b> ist der geschützte On-Chain-Finanzbereich für Basiskapital, System-Zuteilungen, realisierte Gewinne und Auszahlungen.</p>
@@ -24111,22 +24108,62 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <button type="button" className={walletPanelTab === "VAULT" ? "btn" : "btnGhost"} onClick={() => setWalletPanelTab("VAULT")}>Trading Wallet</button>
               </div>
 
+
+              {/* BUILD600: One network selector for both the Privy Wallet and Trading Wallet. */}
+              <div data-nexus-tour="wallet-network" style={{marginTop:10,padding:10,borderRadius:12,
+                background:"rgba(64,196,255,.045)",border:"1px solid rgba(64,196,255,.20)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:8}}>
+                  <b style={{fontSize:12}}>Network</b>
+                  <span style={{fontSize:10,color:"#86efac",fontWeight:800}}>{selectedWalletChain}</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:5}}>
+                  {PRIMARY_EVM_CHAINS.map((chainKey) => {
+                    const selected = selectedWalletChain === chainKey;
+                    const knownVault = _isAddr(_getVaultAddrForChain(chainKey)) || _isAddr(CORE_VAULT_ADDRESS_BY_CHAIN?.[chainKey]);
+                    const liveVault = selected && Boolean(coreVaultOnchain?.connected);
+                    return (
+                      <button key={chainKey} type="button" className={selected ? "btn" : "btnGhost"}
+                        aria-pressed={selected} title={`Display ${chainKey} Wallet and Trading Wallet`}
+                        disabled={walletSendBusy || walletSwapBusy || coreDepositBusy || coreWithdrawExecuteBusy || txBusy}
+                        onClick={() => {
+                          if (selected) return;
+                          setBalActiveChain(chainKey);
+                          setWsChainKey(chainKey);
+                          setWalletSendAssetKey("");
+                          setWalletSwapFromKey("");
+                          setWalletSendMsg("");
+                          setWalletSwapMsg("");
+                          setCoreDepositAsset("");
+                          setCoreDepositAmount("");
+                          setCoreDepositMsg("");
+                          void refreshVaultState(chainKey);
+                          void refreshCoreVaultOnchain(chainKey);
+                        }}
+                        style={{height:37,minWidth:0,padding:"5px 2px",fontSize:11,fontWeight:850}}>
+                        <div style={{fontWeight:900}}>{chainKey}</div>
+                        <div style={{fontSize:8,marginTop:2,opacity:.8}}>{liveVault ? "LIVE" : knownVault ? "READY" : "PENDING"}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {walletPanelTab === "WALLET" ? (
                 <>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 10 }}>
                     <button type="button" className={walletViewTab === "ASSETS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("ASSETS")}>Assets</button>
-                    <button type="button" className={walletViewTab === "TRANSACTIONS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("TRANSACTIONS")}>Transactions · {walletPublicHistory.rows.length}</button>
+                    <button type="button" className={walletViewTab === "TRANSACTIONS" ? "btn" : "btnGhost"} onClick={() => setWalletViewTab("TRANSACTIONS")}>Transactions ({showOwnerWalletLedger ? ownerWalletRawHistory.length : visibleWalletPublicHistory.length})</button>
                   </div>
                   {walletViewTab === "ASSETS" ? (
                     <>
                   <div style={{ marginTop: 12, padding: 11, borderRadius: 12, background: "rgba(0,255,166,0.055)", border: "1px solid rgba(0,255,166,0.14)" }}>
-                    <div className="muted" style={{ fontSize: 11 }}>Total wallet value</div>
+                    <div className="muted" style={{ fontSize: 11 }}>Total wallet value (all networks)</div>
                     <div className="mono" style={{ marginTop: 4, fontWeight: 900, fontSize: 18 }}>{walletUsdLoading ? "Loading…" : fmtUsd(Number(walletUsd?.total || 0))}</div>
                     <div className="muted" style={{ marginTop: 4, fontSize: 10 }}>Unpriced assets remain visible and are excluded from the USD total.</div>
                   </div>
 
                   <div style={{ marginTop: 10, display: "grid", gap: 7 }}>
-                    {walletAssetRows.length ? walletAssetRows.map((row) => {
+                    {visibleWalletAssetRows.length ? visibleWalletAssetRows.map((row) => {
                       const tone = row.vaultStatus === "VERIFIED" ? "#43e38d" : row.vaultStatus === "BLOCKED" ? "#ff7b7b" : row.vaultStatus === "PENDING" ? "#ffd166" : "#b7c5c0";
                       return (
                         <div key={row.key} style={{ padding: 10, borderRadius: 12, border: "1px solid rgba(255,255,255,0.09)", background: "rgba(255,255,255,0.025)" }}>
@@ -24147,15 +24184,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       );
                     }) : (
-                      <div className="muted" style={{ padding: 16, textAlign: "center" }}>{balLoading ? "Loading wallet assets…" : "No funded tracked assets found."}</div>
+                      <div className="muted" style={{ padding: 16, textAlign: "center" }}>{balLoading ? "Loading wallet assets..." : `No funded assets found on ${selectedWalletChain}.`}</div>
                     )}
                   </div>
 
 
                   <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
                     <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer", listStyle: "none" }}>Send asset</summary>
-                    <select className="input" value={walletSendAssetKey} onChange={(e) => { setWalletSendAssetKey(e.target.value); setWalletSendMsg(""); }} disabled={walletSendBusy || !walletAssetRows.length} style={{ width: "100%", height: 42, marginTop: 9 }}>
-                      {walletAssetRows.map((row) => <option key={row.key} value={row.key}>{row.symbol} · {walletChainDisplayName(row.chain)} · {fmtQty(row.amount)}</option>)}
+                    <select className="input" value={walletSendAssetKey} onChange={(e) => { setWalletSendAssetKey(e.target.value); setWalletSendMsg(""); }} disabled={walletSendBusy || !visibleWalletAssetRows.length} style={{ width: "100%", height: 42, marginTop: 9 }}>
+                      {visibleWalletAssetRows.map((row) => <option key={row.key} value={row.key}>{row.symbol} · {walletChainDisplayName(row.chain)} · {fmtQty(row.amount)}</option>)}
                     </select>
                     <input className="input" value={walletSendTo} onChange={(e) => { setWalletSendTo(e.target.value); setWalletSendMsg(""); }} placeholder="Recipient wallet address (0x…)" disabled={walletSendBusy} style={{ width: "100%", height: 42, marginTop: 8 }} />
                     <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, marginTop: 8 }}>
@@ -24175,7 +24212,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </div>
                     <select className="input" value={walletSwapFromKey} onChange={(e) => { setWalletSwapFromKey(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy} style={{ width: "100%", height: 42, marginTop: 9 }}>
                       <option value="">Select token to swap</option>
-                      {walletAssetRows.filter((r) => ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(r.chain)) && (r.kind === "native" || r.address === "native" || String(wnativeSpecForChain(r.chain)?.address || "").toLowerCase() === String(r.address || "").toLowerCase() || (normalizeWalletChainKey(r.chain) === "POL" && String(r.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"))).map((r) => (
+                      {visibleWalletAssetRows.filter((r) => ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(r.chain)) && (r.kind === "native" || r.address === "native" || String(wnativeSpecForChain(r.chain)?.address || "").toLowerCase() === String(r.address || "").toLowerCase() || (normalizeWalletChainKey(r.chain) === "POL" && String(r.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"))).map((r) => (
                         <option key={r.key} value={r.key}>{r.symbol} · {walletChainDisplayName(r.chain)} · {fmtQty(r.amount)}</option>
                       ))}
                     </select>
@@ -24238,89 +24275,89 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </button>
                     </>
                   ) : (
-                    <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", gap:8, alignItems:"center", flexWrap:"wrap" }}>
-                        <span className="muted" style={{ fontSize:11 }}>Deine Zahlungen, Ein- und Ausgänge und Handelsaktionen</span>
-                        <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={() => loadUnifiedWalletLedger(true)}>
-                          {walletLedgerBusy ? "Aktualisiere…" : "Verlauf aktualisieren"}
-                        </button>
-                      </div>
-                      {walletLedgerError ? <div role="status" style={{ fontSize:11, color:"#ffd38a" }}>
-                        {walletLedgerError.startsWith("Recent ") ? "Ein Teil des Blockchain-Verlaufs ist aktuell nicht verfügbar." : "Verlauf konnte nicht vollständig aktualisiert werden."}
-                      </div> : null}
-                      {walletPublicHistory.rows.length ? walletPublicHistory.rows.map((tx) => {
-                        const statusColor = tx.rawStatus === "CONFIRMED" ? "#86efac" : tx.rawStatus === "FAILED" ? "#ff8a8a" : "#ffd166";
-                        const explorer = walletExplorerTxUrl(tx.chain, tx.txHash);
-                        return (
-                          <div key={tx.id} style={{ padding:"12px 11px", borderRadius:13, border:"1px solid rgba(255,255,255,.10)", background:"rgba(255,255,255,.026)" }}>
-                            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:10 }}>
-                              <div style={{ minWidth:0, display:"grid", gap:5 }}>
-                                <b style={{fontSize:13, overflowWrap:"anywhere"}}>{tx.title}</b>
-                                <span className="muted" style={{fontSize:10}}>{tx.chain}{tx.dateLabel ? ` · ${tx.dateLabel}` : ""}</span>
-                                {tx.isUnknown ? <span style={{fontSize:10,color:"#ffd166"}}>Unbekannter Token – nicht geprüft</span> : null}
-                              </div>
-                              <div style={{display:"grid", gap:5, justifyItems:"end", textAlign:"right", flexShrink:0}}>
-                                <b style={{fontSize:12}}>{tx.displayAmount || "—"}</b>
-                                <span style={{fontSize:10,color:statusColor}}>{tx.statusText}</span>
-                              </div>
+                    <div style={{marginTop:10,display:"grid",gap:10}}>
+                      {showOwnerWalletLedger ? (
+                        <>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                            <b style={{fontSize:12,color:"#aee4ff"}}>Owner ledger - {selectedWalletChain}</b>
+                            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                              <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={()=>loadUnifiedWalletLedger(false)}>
+                                {walletLedgerBusy ? "Loading..." : "Refresh records"}</button>
+                              <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={()=>loadUnifiedWalletLedger(true)}>
+                                Scan {selectedWalletChain} transfers</button>
                             </div>
-                            {explorer ? <div style={{marginTop:8, textAlign:"right"}}>
-                              <a href={explorer} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:"#8ad7ff",textDecoration:"none"}}>Blockchain ansehen ↗</a>
-                            </div> : null}
                           </div>
-                        );
-                      }) : (
-                        <div className="muted" style={{padding:16,textAlign:"center",border:"1px dashed rgba(255,255,255,.12)",borderRadius:12}}>
-                          {walletLedgerBusy ? "Verlauf wird geladen…" : "Noch keine Wallet-Bewegungen angezeigt. Wähle «Verlauf aktualisieren»."}
-                        </div>
+                          <div className="muted" style={{fontSize:10}}>
+                            Full wallet-scoped ledger: recorded Vault/engine actions, indexed transfers, transaction hashes, addresses and receipts.
+                            A recorded operation is not automatically an on-chain confirmed transaction.
+                          </div>
+                          {walletLedgerCoverage ? <div className="muted" style={{fontSize:10}}>{walletLedgerCoverage}</div> : null}
+                          {walletLedgerError ? <div role="status" style={{fontSize:11,color:"#ffd38a"}}>{walletLedgerError}</div> : null}
+                          {ownerWalletRawHistory.length ? ownerWalletRawHistory.map((tx,i) => {
+                            const status = String(tx.status || "RECORDED").toUpperCase();
+                            const color = status === "CONFIRMED" ? "#86efac" : status === "FAILED" ? "#ff8a8a" : "#ffd166";
+                            const explorer = walletExplorerTxUrl(tx.chain, tx.txHash);
+                            const numericDate = Number(tx.createdAt || 0);
+                            const dateStr = numericDate > 1e11 && Number.isFinite(numericDate) ? new Date(numericDate).toLocaleString("en-GB") : "Timestamp unavailable";
+                            return <div key={`${tx.id || tx.txHash || i}-${i}`} style={{padding:10,borderRadius:11,border:"1px solid rgba(255,255,255,.1)",display:"grid",gap:5,overflowWrap:"anywhere"}}>
+                              <div style={{display:"flex",justifyContent:"space-between",gap:8}}>
+                                <b style={{fontSize:12}}>{tx.type || "WALLET EVENT"}</b>
+                                <b style={{fontSize:10,color}}>{status}</b>
+                              </div>
+                              <div className="muted" style={{fontSize:10}}>{tx.chain || selectedWalletChain} - {dateStr} - {tx.direction || "UNKNOWN DIRECTION"}</div>
+                              <div style={{fontSize:11}}>Asset: {tx.asset || "-"} - Amount: {tx.amount ?? "Not verified"} - Source: {tx.source || "Unknown"}</div>
+                              {tx.contract ? <div className="muted" style={{fontSize:10}}>Contract: {tx.contract}</div> : null}
+                              {tx.from ? <div className="muted" style={{fontSize:10}}>From: {tx.from}</div> : null}
+                              {tx.to ? <div className="muted" style={{fontSize:10}}>To: {tx.to}</div> : null}
+                              {tx.blockNumber != null ? <div className="muted" style={{fontSize:10}}>Block: {tx.blockNumber}</div> : null}
+                              {tx.txHash ? <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",fontSize:10}}>
+                                <code style={{overflowWrap:"anywhere"}}>{tx.txHash}</code>
+                                <button type="button" className="miniBtn" onClick={()=>navigator.clipboard?.writeText(String(tx.txHash))}>Copy hash</button>
+                                {explorer ? <a href={explorer} target="_blank" rel="noopener noreferrer">View on-chain</a> : null}
+                              </div> : null}
+                              {tx.note ? <div style={{fontSize:10,color:"#ffd166"}}>{tx.note}</div> : null}
+                            </div>;
+                          }) : <div className="muted" style={{padding:14}}>{walletLedgerBusy ? "Loading ledger..." : `No recorded ${selectedWalletChain} events. Use Refresh records or Scan transfers.`}</div>}
+                        </>
+                      ) : (
+                        <>
+                          <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                            <span className="muted" style={{fontSize:11}}>Your transfers, payments and trades</span>
+                            <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={()=>loadUnifiedWalletLedger(true)}>
+                              {walletLedgerBusy ? "Refreshing..." : "Refresh history"}</button>
+                          </div>
+                          {walletLedgerError ? <div role="status" style={{fontSize:11,color:"#ffd38a"}}>Some transactions could not be refreshed. Please try again.</div> : null}
+                          {visibleWalletPublicHistory.length ? visibleWalletPublicHistory.map((tx) => {
+                            const color = tx.rawStatus === "CONFIRMED" ? "#86efac" : tx.rawStatus === "FAILED" ? "#ff8a8a" : "#ffd166";
+                            const explorer = walletExplorerTxUrl(tx.chain, tx.txHash);
+                            return <div key={tx.id} style={{padding:"12px 11px",borderRadius:13,border:"1px solid rgba(255,255,255,.10)",background:"rgba(255,255,255,.026)"}}>
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                                <div style={{minWidth:0,display:"grid",gap:5}}>
+                                  <b style={{fontSize:13,overflowWrap:"anywhere"}}>{tx.title}</b>
+                                  <span className="muted" style={{fontSize:10}}>{tx.chain}{tx.dateLabel ? ` - ${tx.dateLabel}` : ""}</span>
+                                  {tx.isUnknown ? <span style={{fontSize:10,color:"#ffd166"}}>Unknown token - not verified</span> : null}
+                                </div>
+                                <div style={{display:"grid",gap:5,justifyItems:"end",textAlign:"right",flexShrink:0}}>
+                                  <b style={{fontSize:12}}>{tx.displayAmount || "-"}</b>
+                                  <span style={{fontSize:10,color}}>{tx.statusText}</span>
+                                </div>
+                              </div>
+                              {explorer ? <div style={{marginTop:8,textAlign:"right"}}><a href={explorer} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:"#8ad7ff",textDecoration:"none"}}>View on-chain</a></div> : null}
+                            </div>;
+                          }) : <div className="muted" style={{padding:16,textAlign:"center",border:"1px dashed rgba(255,255,255,.12)",borderRadius:12}}>
+                            {walletLedgerBusy ? "Loading history..." : `No ${selectedWalletChain} wallet transactions to display.`}
+                          </div>}
+                          {(walletPublicHistory.hiddenUnknown > 0 || showUnknownWalletTransfers) && <button type="button" className="miniBtn"
+                            onClick={()=>setShowUnknownWalletTransfers(v=>!v)} style={{justifySelf:"start",opacity:.85}}>
+                            {showUnknownWalletTransfers ? "Hide unknown tokens" : "Show unknown tokens"}
+                          </button>}
+                        </>
                       )}
-                      {walletPublicHistory.hiddenUnknown > 0 || showUnknownWalletTransfers ? (
-                        <button type="button" className="miniBtn" onClick={() => setShowUnknownWalletTransfers(v => !v)}
-                          style={{justifySelf:"start",opacity:.85}}>
-                          {showUnknownWalletTransfers ? "Unbekannte Token ausblenden" : "Unbekannte Token anzeigen"}
-                        </button>
-                      ) : null}
                     </div>
                   )}
                 </>
               ) : (
                 <>
-                  <div style={{ marginTop: 12, padding: 10, borderRadius: 12, background: "rgba(64,196,255,0.045)", border: "1px solid rgba(64,196,255,0.20)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                      <div>
-                        <div style={{ fontWeight: 900, fontSize: 12 }}>Network</div>
-                      </div>
-                      <span style={{ fontSize: 10, fontWeight: 900, color: "#86efac" }}>{String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase()}</span>
-                    </div>
-                    <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 6 }}>
-                      {PRIMARY_EVM_CHAINS.map((chainKey) => {
-                        const selected = String(balActiveChain || wsChainKey || DEFAULT_CHAIN).toUpperCase() === chainKey;
-                        const knownVault = _isAddr(_getVaultAddrForChain(chainKey)) || _isAddr(CORE_VAULT_ADDRESS_BY_CHAIN?.[chainKey]);
-                        const currentConnected = selected && Boolean(coreVaultOnchain?.connected);
-                        return (
-                          <button
-                            key={chainKey}
-                            type="button"
-                            className={selected ? "btn" : "btnGhost"}
-                            onClick={() => {
-                              setBalActiveChain(chainKey);
-                              setWsChainKey(chainKey);
-                              setCoreDepositAsset("");
-                              setCoreDepositAmount("");
-                              setCoreDepositMsg("");
-                              setTimeout(() => { try { refreshVaultState(chainKey); } catch (_) {} }, 0);
-                              setTimeout(() => { try { refreshCoreVaultOnchain(); } catch (_) {} }, 50);
-                            }}
-                            style={{ minWidth: 0, height: 42, padding: "5px 4px", fontSize: 11 }}
-                            title={knownVault ? `${chainKey} V5 Vault configured` : `${chainKey} is listed and will activate automatically after its V5 Vault is configured`}
-                          >
-                            <div style={{ fontWeight: 950 }}>{chainKey}</div>
-                            <div style={{ fontSize: 8, marginTop: 2, opacity: 0.8 }}>{currentConnected ? "LIVE" : knownVault ? "READY" : "PENDING"}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
                   <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
                     <summary style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, cursor: "pointer", listStyle: "none" }}>
                       <span style={{ fontWeight: 900, fontSize: 13 }}>Live Trading Wallet</span>
@@ -33741,7 +33778,7 @@ export default function App() {
 
   return (
     <>
-      <AppInner coreVaultSessionPreview={coreVaultSessionPreview} coreVaultRecoveryJobs={coreVaultRecoveryJobs} refreshOnchainSessionsSilent={_refreshOnchainSessionsSilent} onRecoverExactCoreVaultSession={_recoverExactCoreVaultSession} exactOrphanRecoveryBusyKey={exactOrphanRecoveryBusyKey} />
+      <AppInner ownerWalletView={canOpenSystemInfo && authenticated} ownerWalletAddress={footerWallet} coreVaultSessionPreview={coreVaultSessionPreview} coreVaultRecoveryJobs={coreVaultRecoveryJobs} refreshOnchainSessionsSilent={_refreshOnchainSessionsSilent} onRecoverExactCoreVaultSession={_recoverExactCoreVaultSession} exactOrphanRecoveryBusyKey={exactOrphanRecoveryBusyKey} />
 
       <div className="nexus-footer-left">
         {canOpenSystemInfo && (

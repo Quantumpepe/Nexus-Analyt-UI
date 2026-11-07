@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD605-AI-REGEX-REPAIR";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD606-STRATEGIST-QUESTION-SCOPE";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -1978,7 +1978,7 @@ function watchFinalRating(row, summary, onchain) {
 
 // BUILD593: Put explicitly requested coins before Compare's stored order.
 // This is AI research context only, not a trading signal or execution change.
-function strategistQuestionSymbols(question, compareSymbols, watchRows) {
+function strategistQuestionSymbols(question, compareSymbols, watchRows, explicitOnly = false) {
   const base = Array.from(new Set((Array.isArray(compareSymbols) ? compareSymbols : [])
     .map((x) => String(x || "").trim().toUpperCase())
     .filter((x) => /^[A-Z0-9]{2,12}$/.test(x))));
@@ -1999,7 +1999,11 @@ function strategistQuestionSymbols(question, compareSymbols, watchRows) {
     register(label, symbol);
   }
   found.sort((a, b) => a.index - b.index);
-  const focused = Array.from(new Set(found.map((x) => x.symbol)));
+  const ignoreNormalWords = new Set(["AI", "API", "USD", "USDC", "USDT", "THE", "AND", "ARE", "FOR", "WITH", "FROM", "ALL", "TOP", "BEST", "REST", "OTHER", "THIS", "THAT", "WHEN", "WHAT", "WHY", "HOW", "CAN", "ONE", "MORE", "LESS", "IN", "ON", "AS", "OR", "IS", "IT", "TO", "OF", "AT", "AN", "DO", "NO", "YOU", "YOUR", "GRID", "NKR", "TRADER", "COIN", "COINS", "MARKET", "RISK", "BUY", "SELL"]);
+  const focused = Array.from(new Set(found.map((x) => x.symbol))).filter((s) => !ignoreNormalWords.has(s));
+  if (explicitOnly) return focused;
+  const broadAsk = /\b(other coins?|other assets?|rest of|all coins?|all assets?|entire market|whole market|whole watchlist|all watchlist|across (?:the )?market|market.wide|top coins?|strongest coins?|weakest coins?|which (?:watchlist )?coins?|which (?:watchlist )?assets?|andere coins?|alle coins?|alle token|ganze(?:n|r)? markt|ganze watchlist|welche coins?|welche token)\b/i.test(String(question || ""));
+  if (focused.length && !broadAsk) return focused.slice(0, 12);
   return [...focused, ...base.filter((x) => !focused.includes(x))].slice(0, 20);
 }
 
@@ -21406,6 +21410,20 @@ ${q}`;
           risk_mode: tradingRiskMode || "",
         },
       });
+      // BUILD606: Never inject unrelated Compare pair examples into a named-asset
+      // research question. Broad Watchlist questions retain all pair candidates.
+      const namedScope = strategistQuestionSymbols(q, compareSymbols, watchRows, true);
+      const broadScopeRequested = /\b(other coins?|other assets?|rest of|all coins?|all assets?|entire market|whole market|whole watchlist|all watchlist|across (?:the )?market|market.wide|top coins?|strongest coins?|weakest coins?|which (?:watchlist )?coins?|which (?:watchlist )?assets?|andere coins?|alle coins?|alle token|ganze(?:n|r)? markt|ganze watchlist|welche coins?|welche token)\b/i.test(q);
+      if (namedScope.length && !broadScopeRequested) {
+        const allowed = new Set(namedScope);
+        const keepPair = (p) => String(p?.pair || "").toUpperCase().split("/").length === 2 &&
+          String(p?.pair || "").toUpperCase().split("/").every((s) => allowed.has(s.trim()));
+        aiSignalContext.analysis_symbols = namedScope;
+        aiSignalContext.coins = (aiSignalContext.coins || []).filter((c) => allowed.has(String(c?.symbol || "").toUpperCase()));
+        aiSignalContext.relevant_pairs = (aiSignalContext.relevant_pairs || []).filter(keepPair);
+        aiSignalContext.all_compare_pairs = (aiSignalContext.all_compare_pairs || []).filter(keepPair);
+        aiSignalContext.nexus_trading = null;
+      }
       const aiSignalText = formatAiSignalContextForPrompt(aiSignalContext);
 
       const statsText = Object.entries(seriesStats)

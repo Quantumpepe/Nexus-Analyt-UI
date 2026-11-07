@@ -68,10 +68,13 @@ function nexusWalletSimpleHistory(rows, knownContractsByChain = {}, showUnknownT
   return {rows:output,hiddenUnknown,hiddenSystem};
 }
 
-// Display-only filtering. The underlying wallet and token balance data is untouched.
+// BUILD601: ALL is a read-only display choice, never an executable chain ID.
+// The trading/network state remains an actual supported EVM chain at all times.
 function nexusWalletFilterByChain(rows, chain) {
   const selected = String(chain || "ETH").toUpperCase();
-  return (Array.isArray(rows) ? rows : []).filter((row) => String(row?.chain || "ETH").toUpperCase() === selected);
+  const validRows = Array.isArray(rows) ? rows : [];
+  if (selected === "ALL") return validRows;
+  return validRows.filter((row) => String(row?.chain || "ETH").toUpperCase() === selected);
 }
 
 function safeSetGridOrdersFromResponse(r, setOrdersFn) {
@@ -692,7 +695,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD600-WALLET-OWNER-ENGLISH-CHAIN-SELECT";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD601-WALLET-ALL-NETWORKS-VIEW";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -5631,6 +5634,8 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [walletSwapTargetsStatus, setWalletSwapTargetsStatus] = useState("idle");
   const [walletSwapTargetsError, setWalletSwapTargetsError] = useState("");
   const [walletViewTab, setWalletViewTab] = useState("ASSETS");
+  // BUILD601: ALL controls browsing only; never pass "ALL" to Privy, Vault or chain RPCs.
+  const [walletDisplayAllNetworks, setWalletDisplayAllNetworks] = useState(true);
   const [walletTransactionsStore, setWalletTransactionsStore] = useLocalStorageState("nexus_privy_wallet_transactions_v1", {});
 
   const walletTransactions = useMemo(() => {
@@ -7673,12 +7678,14 @@ const [walletLedgerBusy, setWalletLedgerBusy] = useState(false);
 const [walletLedgerError, setWalletLedgerError] = useState("");
 const [walletLedgerCoverage, setWalletLedgerCoverage] = useState("");
 const [showUnknownWalletTransfers, setShowUnknownWalletTransfers] = useState(false);
-const loadUnifiedWalletLedger = useCallback(async (scan = false) => {
+// The API returns recorded events across all supported chains. For an on-demand
+// ALL refresh, scan each currently indexed chain once, sequentially. Other
+// networks can still appear via local wallet data, but are not claimed indexed.
+const loadUnifiedWalletLedger = useCallback(async (scan = false, scanAllNetworks = false) => {
   if (!resolveWalletAddress(wallet)) return;
   setWalletLedgerBusy(true); setWalletLedgerError("");
   try {
-    // BUILD598: AppInner cannot access the App component's private helpers.
-    // Read the current Privy JWT here and fail closed on wallet mismatch.
+    // BUILD598: use verified Privy identity, never a browser-supplied wallet alone.
     const activeWallet = String(wallet || "").trim().toLowerCase();
     if (!ready || !authenticated || !/^0x[0-9a-f]{40}$/.test(activeWallet)) {
       throw new Error("Please sign in with your Privy wallet first.");
@@ -7694,29 +7701,55 @@ const loadUnifiedWalletLedger = useCallback(async (scan = false) => {
     }
     const verifiedToken = String((await getAccessToken?.()) || "").trim();
     if (!verifiedToken) throw new Error("Privy session expired. Please sign in again.");
-    const chain = normalizeWalletChainKey(balActiveChain || wsChainKey || DEFAULT_CHAIN);
-    const query = new URLSearchParams({ chain, scan: scan ? "1" : "0", blocks: "6000" });
-    const res = await fetch(`${API_BASE}/api/nexus/wallet/ledger?${query.toString()}`, {
-      method: "GET", cache: "no-store", credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Wallet-Address": activeWallet,
-        Authorization: `Bearer ${verifiedToken}`,
-      },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data?.status !== "ok" || data?.readOnly !== true) throw new Error(data?.error || `HTTP ${res.status}`);
-    setWalletLedgerOwner(String(wallet || "").toLowerCase());
-    setWalletLedgerRows(Array.isArray(data.events) ? data.events : []);
-    setWalletLedgerCoverage(String(data.coverage || ""));
-    if (scan) {
-      const scanInfo = data?.recentOnchain || {};
-      const next = Array.isArray(scanInfo.events) ? scanInfo.events : [];
-      setWalletLedgerChainScan((prev) => [
-        ...(Array.isArray(prev) ? prev.filter((v) => v.chain !== chain) : []), ...next,
-      ].slice(0, 500));
-      if (!scanInfo.completeForRequestedRange) setWalletLedgerError(`Recent ${chain} scan incomplete: ${scanInfo.error || (scanInfo.errors || []).join(",") || "RPC coverage limited"}`);
+    const currentChain = normalizeWalletChainKey(balActiveChain || wsChainKey || DEFAULT_CHAIN);
+    const chainsToFetch = scan && scanAllNetworks ? ["ETH", "BNB", "POL"] : [currentChain];
+    const scanResults = {};
+    const errors = [];
+    let recorded = null;
+    let succeeded = 0;
+    for (const chain of chainsToFetch) {
+      try {
+        const query = new URLSearchParams({ chain, scan: scan ? "1" : "0", blocks: "6000" });
+        const res = await fetch(`${API_BASE}/api/nexus/wallet/ledger?${query.toString()}`, {
+          method: "GET", cache: "no-store", credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Wallet-Address": activeWallet,
+            Authorization: `Bearer ${verifiedToken}`,
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.status !== "ok" || data?.readOnly !== true) throw new Error(data?.error || `HTTP ${res.status}`);
+        succeeded += 1;
+        if (!recorded) recorded = data;
+        if (scan) {
+          const info = data?.recentOnchain || {};
+          if (info.completeForRequestedRange) {
+            scanResults[chain] = Array.isArray(info.events) ? info.events : [];
+          } else {
+            // Keep any previously cached items when a provider returns an incomplete result.
+            errors.push(`${chain}: ${info.error || (info.errors || []).join(",") || "partial transfer coverage"}`);
+            if (Array.isArray(info.events) && info.events.length) scanResults[chain] = info.events;
+          }
+        }
+      } catch (err) {
+        errors.push(`${chain}: ${String(err?.message || err || "ledger unavailable")}`);
+      }
     }
+    if (!succeeded) throw new Error(errors.join("; ") || "Ledger unavailable");
+    setWalletLedgerOwner(activeWallet);
+    setWalletLedgerRows(Array.isArray(recorded?.events) ? recorded.events : []);
+    setWalletLedgerCoverage(String(recorded?.coverage || ""));
+    if (scan) {
+      const scannedChains = Object.keys(scanResults);
+      if (scannedChains.length) {
+        setWalletLedgerChainScan((prev) => [
+          ...(Array.isArray(prev) ? prev.filter((v) => !scannedChains.includes(String(v.chain || "").toUpperCase())) : []),
+          ...scannedChains.flatMap((chain) => scanResults[chain]),
+        ].slice(0, 500));
+      }
+    }
+    if (errors.length) setWalletLedgerError(`Transfer history partially unavailable: ${errors.join("; ")}`);
   } catch (e) { setWalletLedgerError(String(e?.message || e || "Ledger unavailable")); }
   finally { setWalletLedgerBusy(false); }
 }, [wallet, balActiveChain, wsChainKey, ready, authenticated, privyWallets, getAccessToken]);
@@ -8269,7 +8302,8 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
   const walletPublicHistory = useMemo(() =>
     nexusWalletSimpleHistory(walletAllTransactions, walletKnownContracts, showUnknownWalletTransfers),
     [walletAllTransactions, walletKnownContracts, showUnknownWalletTransfers]);
-  const selectedWalletChain = normalizeWalletChainKey(balActiveChain || DEFAULT_CHAIN);
+  const selectedWalletChain = walletPanelTab === "WALLET" && walletDisplayAllNetworks
+    ? "ALL" : normalizeWalletChainKey(balActiveChain || DEFAULT_CHAIN);
   const visibleWalletPublicHistory = useMemo(() =>
     nexusWalletFilterByChain(walletPublicHistory.rows, selectedWalletChain),
     [walletPublicHistory, selectedWalletChain]);
@@ -24109,13 +24143,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
               </div>
 
 
-              {/* BUILD600: One network selector for both the Privy Wallet and Trading Wallet. */}
+              {/* BUILD601: ALL is a browsing-only wallet view. Trading Wallet always keeps a real chain. */}
               <div data-nexus-tour="wallet-network" style={{marginTop:10,padding:10,borderRadius:12,
                 background:"rgba(64,196,255,.045)",border:"1px solid rgba(64,196,255,.20)"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:8}}>
                   <b style={{fontSize:12}}>Network</b>
-                  <span style={{fontSize:10,color:"#86efac",fontWeight:800}}>{selectedWalletChain}</span>
+                  <span style={{fontSize:10,color:"#86efac",fontWeight:800}}>{selectedWalletChain === "ALL" ? "ALL NETWORKS" : selectedWalletChain}</span>
                 </div>
+                {walletPanelTab === "WALLET" ? (
+                  <button type="button" className={walletDisplayAllNetworks ? "btn" : "btnGhost"}
+                    aria-pressed={walletDisplayAllNetworks} title="View balances and history across all available networks"
+                    disabled={walletSendBusy || walletSwapBusy || coreDepositBusy || coreWithdrawExecuteBusy || txBusy}
+                    onClick={() => setWalletDisplayAllNetworks(true)}
+                    style={{width:"100%",height:34,marginBottom:6,fontSize:12,fontWeight:850}}>
+                    All networks
+                  </button>
+                ) : null}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(5,minmax(0,1fr))",gap:5}}>
                   {PRIMARY_EVM_CHAINS.map((chainKey) => {
                     const selected = selectedWalletChain === chainKey;
@@ -24127,6 +24170,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         disabled={walletSendBusy || walletSwapBusy || coreDepositBusy || coreWithdrawExecuteBusy || txBusy}
                         onClick={() => {
                           if (selected) return;
+                          setWalletDisplayAllNetworks(false);
                           setBalActiveChain(chainKey);
                           setWsChainKey(chainKey);
                           setWalletSendAssetKey("");
@@ -24146,6 +24190,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     );
                   })}
                 </div>
+                {selectedWalletChain === "ALL" ? <div className="muted" style={{fontSize:10,marginTop:7}}>
+                  Combined read-only view. Choose a network above to send, swap, deposit or withdraw.
+                </div> : null}
               </div>
 
               {walletPanelTab === "WALLET" ? (
@@ -24184,11 +24231,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
                       );
                     }) : (
-                      <div className="muted" style={{ padding: 16, textAlign: "center" }}>{balLoading ? "Loading wallet assets..." : `No funded assets found on ${selectedWalletChain}.`}</div>
+                      <div className="muted" style={{ padding: 16, textAlign: "center" }}>{balLoading ? "Loading wallet assets..." : `No funded assets found on ${selectedWalletChain === "ALL" ? "available networks" : selectedWalletChain}.`}</div>
                     )}
                   </div>
 
 
+                  {selectedWalletChain !== "ALL" ? (<>
                   <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(64,196,255,0.055)", border: "1px solid rgba(64,196,255,0.22)" }}>
                     <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer", listStyle: "none" }}>Send asset</summary>
                     <select className="input" value={walletSendAssetKey} onChange={(e) => { setWalletSendAssetKey(e.target.value); setWalletSendMsg(""); }} disabled={walletSendBusy || !visibleWalletAssetRows.length} style={{ width: "100%", height: 42, marginTop: 9 }}>
@@ -24269,6 +24317,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     </button>
                     {walletSwapMsg && <div className="muted" role="status" style={{ fontSize: 11, marginTop: 8, wordBreak: "break-word" }}>{walletSwapMsg}</div>}
                   </details>
+                  </>) : null}
 
                   <button type="button" className="btnGhost" onClick={() => { setWalletAssetSecurityByKey({}); refreshBalances(); }} disabled={balLoading || !wallet} style={{ width: "100%", marginTop: 10 }}>
                     {balLoading ? "Refreshing…" : "Refresh Wallet Assets"}
@@ -24283,8 +24332,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                               <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={()=>loadUnifiedWalletLedger(false)}>
                                 {walletLedgerBusy ? "Loading..." : "Refresh records"}</button>
-                              <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={()=>loadUnifiedWalletLedger(true)}>
-                                Scan {selectedWalletChain} transfers</button>
+                              <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={()=>loadUnifiedWalletLedger(true, selectedWalletChain === "ALL")}>
+                                {selectedWalletChain === "ALL" ? "Scan ETH / BNB / POL transfers" : `Scan ${selectedWalletChain} transfers`}</button>
                             </div>
                           </div>
                           <div className="muted" style={{fontSize:10}}>
@@ -24317,13 +24366,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div> : null}
                               {tx.note ? <div style={{fontSize:10,color:"#ffd166"}}>{tx.note}</div> : null}
                             </div>;
-                          }) : <div className="muted" style={{padding:14}}>{walletLedgerBusy ? "Loading ledger..." : `No recorded ${selectedWalletChain} events. Use Refresh records or Scan transfers.`}</div>}
+                          }) : <div className="muted" style={{padding:14}}>{walletLedgerBusy ? "Loading ledger..." : `No recorded ${selectedWalletChain === "ALL" ? "wallet" : selectedWalletChain} events. Use Refresh records or Scan transfers.`}</div>}
                         </>
                       ) : (
                         <>
                           <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                             <span className="muted" style={{fontSize:11}}>Your transfers, payments and trades</span>
-                            <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={()=>loadUnifiedWalletLedger(true)}>
+                            <button type="button" className="miniBtn" disabled={walletLedgerBusy} onClick={()=>loadUnifiedWalletLedger(true, selectedWalletChain === "ALL")}>
                               {walletLedgerBusy ? "Refreshing..." : "Refresh history"}</button>
                           </div>
                           {walletLedgerError ? <div role="status" style={{fontSize:11,color:"#ffd38a"}}>Some transactions could not be refreshed. Please try again.</div> : null}
@@ -24345,7 +24394,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               {explorer ? <div style={{marginTop:8,textAlign:"right"}}><a href={explorer} target="_blank" rel="noopener noreferrer" style={{fontSize:10,color:"#8ad7ff",textDecoration:"none"}}>View on-chain</a></div> : null}
                             </div>;
                           }) : <div className="muted" style={{padding:16,textAlign:"center",border:"1px dashed rgba(255,255,255,.12)",borderRadius:12}}>
-                            {walletLedgerBusy ? "Loading history..." : `No ${selectedWalletChain} wallet transactions to display.`}
+                            {walletLedgerBusy ? "Loading history..." : `No ${selectedWalletChain === "ALL" ? "wallet" : selectedWalletChain} transactions to display.`}
                           </div>}
                           {(walletPublicHistory.hiddenUnknown > 0 || showUnknownWalletTransfers) && <button type="button" className="miniBtn"
                             onClick={()=>setShowUnknownWalletTransfers(v=>!v)} style={{justifySelf:"start",opacity:.85}}>

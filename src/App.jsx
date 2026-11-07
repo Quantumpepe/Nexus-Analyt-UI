@@ -616,7 +616,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD597-LEDGER-HISTORY-REENTRY-AUDIT";
+const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD598-WALLET-LEDGER-PRIVY-SCOPE-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -7596,11 +7596,32 @@ const loadUnifiedWalletLedger = useCallback(async (scan = false) => {
   if (!resolveWalletAddress(wallet)) return;
   setWalletLedgerBusy(true); setWalletLedgerError("");
   try {
-    const verifiedToken = await _getCapitalAuditPrivyToken();
+    // BUILD598: AppInner cannot access the App component's private helpers.
+    // Read the current Privy JWT here and fail closed on wallet mismatch.
+    const activeWallet = String(wallet || "").trim().toLowerCase();
+    if (!ready || !authenticated || !/^0x[0-9a-f]{40}$/.test(activeWallet)) {
+      throw new Error("Please sign in with your Privy wallet first.");
+    }
+    const matchingEmbeddedWallet = (privyWallets || []).some((entry) => {
+      const kind = String(entry?.walletClientType || "").toLowerCase();
+      const connector = String(entry?.connectorType || "").toLowerCase();
+      return (kind === "privy" || kind === "embedded" || connector === "embedded") &&
+        String(entry?.address || "").trim().toLowerCase() === activeWallet;
+    });
+    if (!matchingEmbeddedWallet) {
+      throw new Error("Die angemeldete Privy-Wallet stimmt nicht mit dem Nexus-Konto ueberein.");
+    }
+    const verifiedToken = String((await getAccessToken?.()) || "").trim();
+    if (!verifiedToken) throw new Error("Privy session expired. Please sign in again.");
     const chain = normalizeWalletChainKey(balActiveChain || wsChainKey || DEFAULT_CHAIN);
     const query = new URLSearchParams({ chain, scan: scan ? "1" : "0", blocks: "6000" });
     const res = await fetch(`${API_BASE}/api/nexus/wallet/ledger?${query.toString()}`, {
-      method: "GET", cache: "no-store", credentials: "include", headers: _authHeaders(verifiedToken),
+      method: "GET", cache: "no-store", credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Wallet-Address": activeWallet,
+        Authorization: `Bearer ${verifiedToken}`,
+      },
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.status !== "ok" || data?.readOnly !== true) throw new Error(data?.error || `HTTP ${res.status}`);
@@ -7617,7 +7638,7 @@ const loadUnifiedWalletLedger = useCallback(async (scan = false) => {
     }
   } catch (e) { setWalletLedgerError(String(e?.message || e || "Ledger unavailable")); }
   finally { setWalletLedgerBusy(false); }
-}, [wallet, balActiveChain, wsChainKey]);
+}, [wallet, balActiveChain, wsChainKey, ready, authenticated, privyWallets, getAccessToken]);
 useEffect(() => {
   setWalletLedgerOwner("");
   setWalletLedgerRows([]);

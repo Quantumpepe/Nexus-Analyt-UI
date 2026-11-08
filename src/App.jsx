@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.07-BUILD607-STRATEGIST-FULL-ANSWER";
+const FRONTEND_BUILD_ID = "F-2026.11.08-BUILD609-SESSION-CLOCK-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -756,6 +756,40 @@ function normalizeNkrChainKey(value) {
   if (["8453", "BASE"].includes(raw)) return "BASE";
   if (["42161", "ARB", "ARBITRUM", "ARBITRUM ONE"].includes(raw)) return "ARB";
   return raw;
+}
+
+// BUILD609: one clock for both live engines. Chain timestamps are UTC Unix
+// seconds; React Date displays them in the user's browser timezone.
+function nexusSessionEpochMs(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  if (n >= 1_000_000_000 && n < 10_000_000_000) return Math.round(n * 1000);
+  if (n >= 1_000_000_000_000) return Math.round(n);
+  return 0; // missing/invalid: never fabricate a start date
+}
+function nexusFirstSessionEpochMs(...values) {
+  for (const value of values) {
+    const ms = nexusSessionEpochMs(value);
+    if (ms) return ms;
+  }
+  return 0;
+}
+function nexusExactOnchainClock(preview, engine, session) {
+  const meta = session?.meta && typeof session.meta === "object" ? session.meta : {};
+  const oid = String(session?.onchainSessionId ?? session?.onchain_session_id ?? session?.coreVaultSessionId ??
+    meta.onchain_session_id ?? meta.core_vault_session_id ?? "").trim();
+  const chain = normalizeNkrChainKey(session?.chain || session?.chainKey || session?.chainId ||
+    meta.chain || meta.chain_id || "");
+  if (!/^\d+$/.test(oid) || !chain) return { startedMs: 0, endsMs: 0 };
+  const row = (Array.isArray(preview?.sessions) ? preview.sessions : []).find((item) =>
+    String(item?.engine || "").toUpperCase() === String(engine || "").toUpperCase() &&
+    normalizeNkrChainKey(item?.chain || item?.chainId || "") === chain &&
+    String(item?.sessionId ?? item?.onchainSessionId ?? "") === oid
+  );
+  return {
+    startedMs: nexusSessionEpochMs(row?.startsAt ?? row?.starts_at),
+    endsMs: nexusSessionEpochMs(row?.endsAt ?? row?.ends_at),
+  };
 }
 
 function nkrSessionControlKey(sessionOrChain, maybeOnchainId = "") {
@@ -11578,11 +11612,17 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     const explicitHours = Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || sess?.meta?.runtime_hours || 0);
     const fallbackDays = Number(sess?.periodDays || sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || 0);
     const periodHours = explicitHours > 0 ? explicitHours : (fallbackDays > 0 ? fallbackDays * 24 : normalizeNkrPeriodHours());
-    const start = Number(sess?.campaignStartedAt || sess?.meta?.campaign_started_at || sess?.startedAt || sess?.createdAt || 0);
+    const exact = nexusExactOnchainClock(coreVaultSessionPreview, "NKR", sess);
+    const start = exact.startedMs || nexusFirstSessionEpochMs(
+      sess?.campaignStartedAt, sess?.meta?.campaign_started_at, sess?.startedAt, sess?.createdAt
+    );
     const periodExpiry = start > 0 ? start + periodHours * 60 * 60 * 1000 : 0;
-    const exp = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || periodExpiry || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
+    const exp = exact.endsMs || nexusFirstSessionEpochMs(
+      sess?.campaignExpiresAt, sess?.meta?.campaign_expires_at,
+      sess?.expiresAt, sess?.expires_at, sess?.meta?.expires_at
+    ) || periodExpiry;
     return !exp || exp > now;
-  }, [nkrPeriodDays, nkrPeriodUnit, normalizeNkrPeriodHours]);
+  }, [nkrPeriodDays, nkrPeriodUnit, normalizeNkrPeriodHours, coreVaultSessionPreview]);
 
   // Multi-session support: each later budget approval becomes an independent user-bounded session.
   // Existing sessions are preserved; new Trading/NKR sessions get their own session_id.
@@ -12396,7 +12436,7 @@ useEffect(() => {
   const [tradingRuntimeNowMs, setTradingRuntimeNowMs] = useState(() => Date.now());
 
   useEffect(() => {
-    const id = setInterval(() => setTradingRuntimeNowMs(Date.now()), 60 * 1000);
+    const id = setInterval(() => setTradingRuntimeNowMs(Date.now()), 15 * 1000);
     return () => clearInterval(id);
   }, []);
   const [tradingHoldHours, setTradingHoldHours] = useState("1");
@@ -13146,7 +13186,11 @@ useEffect(() => {
         chainId: Number(row?.chainId || src?.chainId || local?.chainId || 0),
         settlementAsset,
         budgetUsd: Number(row?.budget || row?.budgetAmount || src?.budgetUsd || src?.approvedBudgetUsd || local?.budgetUsd || 0),
-        approvedBudgetUsd: Number(src?.approvedBudgetUsd || src?.budgetUsd || row?.budget || local?.approvedBudgetUsd || 0),
+        approvedBudgetUsd: Number(row?.budget || row?.budgetAmount || src?.approvedBudgetUsd || src?.budgetUsd || local?.approvedBudgetUsd || 0),
+        startsAt: row?.startsAt ?? src?.startsAt,
+        endsAt: row?.endsAt ?? src?.endsAt,
+        sessionStartedAt: nexusFirstSessionEpochMs(row?.startsAt, src?.sessionStartedAt, local?.sessionStartedAt),
+        sessionExpiresAt: nexusFirstSessionEpochMs(row?.endsAt, src?.sessionExpiresAt, local?.sessionExpiresAt),
         status: String(row?.statusLabel || row?.status || src?.status || local?.status || "ACTIVE").toUpperCase(),
         style: src?.style || src?.trading_style || src?.strategy || local?.style || undefined,
         trading_style: src?.trading_style || src?.style || src?.strategy || local?.trading_style || undefined,
@@ -13377,15 +13421,17 @@ useEffect(() => {
 
   const getTradingSessionTiming = useCallback((sess) => {
     const meta = sess?.meta || {};
-    const startedMs = normalizeSessionTimeMs(
-      sess?.sessionStartedAt ?? sess?.startedAt ?? sess?.createdAt ?? sess?.approvedAt ??
-      sess?.session_started_ts ?? sess?.started_ts ?? sess?.created_ts ??
-      meta.sessionStartedAt ?? meta.startedAt ?? meta.createdAt ?? meta.approvedAt ??
-      meta.session_started_ts ?? meta.started_ts ?? meta.created_ts
+    const exact = nexusExactOnchainClock(coreVaultSessionPreview, "TRADER", sess);
+    const startedMs = exact.startedMs || nexusFirstSessionEpochMs(
+      sess?.startsAt, sess?.starts_at, sess?.sessionStartedAt, sess?.session_started_ts,
+      meta.session_started_ts, meta.sessionStartedAt, sess?.startedAt, meta.startedAt,
+      sess?.createdAt, meta.createdAt, sess?.approvedAt, meta.approvedAt,
+      sess?.started_ts, meta.started_ts, sess?.created_ts, meta.created_ts
     );
-    const expiresMsRaw = normalizeSessionTimeMs(
-      sess?.expiresAt ?? sess?.expires_at ?? sess?.sessionExpiresAt ?? sess?.session_expires_ts ?? sess?.expires_ts ??
-      meta.expiresAt ?? meta.expires_at ?? meta.sessionExpiresAt ?? meta.session_expires_ts ?? meta.expires_ts
+    const expiresMsRaw = exact.endsMs || nexusFirstSessionEpochMs(
+      sess?.endsAt, sess?.ends_at, sess?.sessionExpiresAt, sess?.session_expires_ts,
+      meta.session_expires_ts, meta.sessionExpiresAt, sess?.expiresAt, sess?.expires_at,
+      meta.expiresAt, meta.expires_at, sess?.expires_ts, meta.expires_ts
     );
     const oid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || 0) || 0;
     const sid = String(sess?.id || sess?.session_id || "");
@@ -13394,12 +13440,11 @@ useEffect(() => {
       || (oid ? traderSessionSettingsCacheRef.current[`OID:${oid}`] : null)
       || (oid && chain ? traderSessionSettingsCacheRef.current[`${chain}:${oid}`] : null)
       || {};
-    const runtimeHours = Number(cached.runtimeHours || sess?.runtimeHours || meta.runtimeHours || meta.runtime_hours || 96) || 96;
-    let startedMsFix = startedMs;
-    if (!(startedMsFix > 0)) startedMsFix = normalizeSessionTimeMs(cached.sessionStartedAt || cached.frozenAt || 0);
-    if (!(startedMsFix > 0) && oid) startedMsFix = Date.now() - 60 * 1000;
-    let expiresMs = expiresMsRaw;
-    if (!(expiresMs > 0) && startedMsFix > 0) expiresMs = startedMsFix + Math.max(1, runtimeHours) * 3600 * 1000;
+    const startedMsFix = startedMs || nexusFirstSessionEpochMs(cached.sessionStartedAt, cached.session_started_ts);
+    const runtimeHours = Number(cached.runtimeHours || sess?.runtimeHours || meta.runtimeHours || meta.runtime_hours || 0);
+    // No synthetic Date.now()-60 seconds or arbitrary 96h expiry for recovered sessions.
+    const expiresMs = expiresMsRaw || (startedMsFix > 0 && Number.isFinite(runtimeHours) && runtimeHours > 0
+      ? startedMsFix + runtimeHours * 3600 * 1000 : 0);
     const now = Number(tradingRuntimeNowMs || Date.now());
     const elapsedMs = startedMsFix > 0 ? Math.max(0, now - startedMsFix) : 0;
     const remainingMs = expiresMs > 0 ? Math.max(0, expiresMs - now) : 0;
@@ -13409,10 +13454,10 @@ useEffect(() => {
       elapsedMs,
       remainingMs,
       elapsedLabel: startedMsFix > 0 ? formatTradingDuration(elapsedMs) : "—",
-      remainingLabel: expiresMs > 0 ? formatTradingDuration(remainingMs) : "—",
+      remainingLabel: expiresMs > 0 ? (remainingMs > 0 ? formatTradingDuration(remainingMs) : "expired") : "—",
       isExpired: expiresMs > 0 && now >= expiresMs,
     };
-  }, [normalizeSessionTimeMs, formatTradingDuration, tradingRuntimeNowMs]);
+  }, [coreVaultSessionPreview, formatTradingDuration, tradingRuntimeNowMs]);
 
   const getTradingVaultRuntimeLabel = useCallback((sessions = []) => {
     const activeSessions = (Array.isArray(sessions) ? sessions : []).filter((sess) => {
@@ -16318,7 +16363,11 @@ useEffect(() => {
               lifecycleState: String(sess?.statusLabel || sess?.status || "ACTIVE").toUpperCase(), positionState: "WAITING",
               active: true, visibleInActiveSessions: true, chain, chainId: Number(sess?.chainId || 0),
               settlementAsset: asset, asset, budgetUsd: budget, budgetAmount: budget, reservedUsd: budget,
-              maxActiveAssets: Number(rotationMaxActiveSessions || 0), createdAt: Number(sess?.createdAt || Date.now()), updatedAt: Date.now(),
+              maxActiveAssets: Number(rotationMaxActiveSessions || 0),
+              startsAt: sess?.startsAt, endsAt: sess?.endsAt,
+              campaignStartedAt: nexusSessionEpochMs(sess?.startsAt),
+              campaignExpiresAt: nexusSessionEpochMs(sess?.endsAt),
+              createdAt: nexusFirstSessionEpochMs(sess?.startsAt, sess?.createdAt), updatedAt: Date.now(),
               meta: { nkr_session: true, onchain_session_id: oid, chain, chain_id: Number(sess?.chainId || 0), settlement_asset: asset }
             };
           });
@@ -17015,8 +17064,9 @@ const [aiLoading, setAiLoading] = useState(false);
       if (sessions.length && !firstActive) {
         setRotationSessions((prev) => (Array.isArray(prev) ? prev : []).map((sess) => {
           const pHours = Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || sess?.meta?.runtime_hours || 0) || (Number(sess?.periodDays || sess?.nkrPeriodDays || sess?.meta?.nkr_period_days || 0) * 24) || normalizeNkrPeriodHours();
-          const pStart = Number(sess?.campaignStartedAt || sess?.meta?.campaign_started_at || sess?.startedAt || sess?.createdAt || 0);
-          const exp = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || (pStart > 0 ? pStart + pHours * 60 * 60 * 1000 : 0) || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
+          const pStart = nexusFirstSessionEpochMs(sess?.campaignStartedAt, sess?.meta?.campaign_started_at, sess?.startedAt, sess?.createdAt);
+          const exp = nexusFirstSessionEpochMs(sess?.campaignExpiresAt, sess?.meta?.campaign_expires_at, sess?.expiresAt, sess?.expires_at, sess?.meta?.expires_at)
+            || (pStart > 0 ? pStart + pHours * 60 * 60 * 1000 : 0);
           const st = String(sess?.status || "APPROVED").toUpperCase();
           if (exp && exp <= nowStart && !["STOPPED", "PAUSED", "EXPIRED", "CLOSED"].includes(st)) {
             return { ...sess, status: "EXPIRED", expiredAt: nowStart, updatedAt: nowStart };
@@ -23380,6 +23430,33 @@ const handlePanelActivate = useCallback((name) => (e) => {
               maxWidth: "100%",
             }}
           >
+            {/* BUILD608: Privy Connect is a first-class action on desktop and mobile. */}
+            <button
+              type="button"
+              className="btn"
+              data-nexus-tour="header-connect"
+              aria-label={authenticated ? "Disconnect wallet" : "Connect wallet"}
+              title={authenticated ? "Disconnect wallet" : "Connect wallet"}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setHeaderMenuOpen(false);
+                if (authenticated) disconnectWallet(); else connectWallet();
+              }}
+              style={{
+                height: 30,
+                minWidth: isCompactMobile ? 71 : 94,
+                padding: isCompactMobile ? "0 7px" : "0 11px",
+                fontSize: isCompactMobile ? 11 : 12,
+                fontWeight: 900,
+                whiteSpace: "nowrap",
+                flex: "0 0 auto",
+                background: authenticated ? "rgba(34,197,94,.17)" : "linear-gradient(90deg,#176345,#23976b)",
+                border: authenticated ? "1px solid rgba(34,197,94,.45)" : "1px solid rgba(120,255,183,.55)",
+              }}
+            >
+              {authenticated ? "Disconnect" : "Connect"}
+            </button>
             {/* Wallet pill is DISPLAY-ONLY: opens modal, must never trigger external wallet connect */}
             <button
               type="button"
@@ -23521,9 +23598,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     ) : null}
                     <button className="btnGhost" type="button" role="menuitem" style={{ width: "100%", textAlign: "left", marginBottom: 6 }} onClick={() => { setHeaderMenuOpen(false); setSupportOpen(true); setSupportMsg(""); }}>
                       Support
-                    </button>
-                    <button className="btnGhost" type="button" role="menuitem" style={{ width: "100%", textAlign: "left", marginBottom: 6 }} onClick={() => { setHeaderMenuOpen(false); if (authenticated) disconnectWallet(); else connectWallet(); }}>
-                      {authenticated ? "Disconnect" : "Connect"}
                     </button>
                     <div className="muted" style={{ fontSize: 11, padding: "6px 4px 2px" }}>
                       Access: {isPro ? "ACTIVE" : accessLoading && !access ? "…" : "OFF"}
@@ -26991,7 +27065,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           sess?.onchainStatus || sess?.statusLabel || sess?.rawStatusLabel ||
                           meta?.onchain_status || meta?.status_label || sess?.status || sess?.lifecycleState || "APPROVED"
                         ).toUpperCase();
-                        const exp = Number(sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0);
+                        const exactClock = nexusExactOnchainClock(coreVaultSessionPreview, "NKR", sess);
+                        const exp = exactClock.endsMs || nexusFirstSessionEpochMs(sess?.expiresAt, sess?.expires_at, sess?.meta?.expires_at);
                         if (!["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "RELEASED", "REBALANCED_OUT"].includes(st) && exp && exp <= rotationNow) return "EXPIRED";
                         return st;
                       };
@@ -27311,48 +27386,49 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       // NKR overview runtime: one clear campaign clock for the whole NKR run.
                       // Session cards can still show their own position runtime, but the overview
                       // must show when the current NKR campaign started and how long remains.
-                      const normalizeNkrTimestampMs = (value) => {
-                        const n = Number(value || 0);
-                        if (!Number.isFinite(n) || n <= 0) return 0;
-                        return n < 10_000_000_000 ? n * 1000 : n;
-                      };
                       const nkrTimingRows = (Array.isArray(rotationVisibleActiveRows) ? rotationVisibleActiveRows : [])
                         .filter((sess) => {
                           const st = String(getRotationDerivedStatus(sess) || "").toUpperCase();
-                          return !["STOPPED", "PAUSED", "EXPIRED", "CLOSED", "COMPLETE", "RELEASED", "REBALANCED_OUT"].includes(st);
+                          return !["STOPPED", "FINALIZED", "EXPIRED", "CLOSED", "COMPLETE", "RELEASED", "REBALANCED_OUT"].includes(st);
                         });
-                      const nkrStartCandidates = nkrTimingRows
-                        .map((sess) => normalizeNkrTimestampMs(
-                          sess?.campaignStartedAt || sess?.campaign_started_at || sess?.meta?.campaign_started_at ||
-                          sess?.startedAt || sess?.started_at || sess?.createdAt || sess?.created_at
-                        ))
-                        .filter((ts) => ts > 0);
-                      const nkrExplicitEndCandidates = nkrTimingRows
-                        .map((sess) => normalizeNkrTimestampMs(
-                          sess?.campaignExpiresAt || sess?.campaign_expires_at || sess?.meta?.campaign_expires_at ||
-                          sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at
-                        ))
-                        .filter((ts) => ts > 0);
-                      // A persisted control flag is not proof of an active V5 session.
-                      // After on-chain finalization the overview must stop immediately when
-                      // the authoritative session list is empty.
+                      const nkrStartCandidates = nkrTimingRows.map((sess) => {
+                        const exact = nexusExactOnchainClock(coreVaultSessionPreview, "NKR", sess);
+                        return exact.startedMs || nexusFirstSessionEpochMs(
+                          sess?.startsAt, sess?.campaignStartedAt, sess?.campaign_started_at,
+                          sess?.meta?.campaign_started_at, sess?.startedAt, sess?.started_at,
+                          sess?.createdAt, sess?.created_at
+                        );
+                      }).filter((ts) => ts > 0);
+                      const nkrExplicitEndCandidates = nkrTimingRows.map((sess) => {
+                        const exact = nexusExactOnchainClock(coreVaultSessionPreview, "NKR", sess);
+                        return exact.endsMs || nexusFirstSessionEpochMs(
+                          sess?.endsAt, sess?.campaignExpiresAt, sess?.campaign_expires_at,
+                          sess?.meta?.campaign_expires_at, sess?.expiresAt,
+                          sess?.expires_at, sess?.meta?.expires_at
+                        );
+                      }).filter((ts) => ts > 0);
+                      // The overview is a portfolio range across live sessions. An open
+                      // position is NOT the campaign start, and the new setup draft is NOT
+                      // the active session's period.
                       const nkrHasLiveSession = nkrTimingRows.length > 0 || activeRotations > 0 ||
                         (Array.isArray(rotationVisibleActiveRows) && rotationVisibleActiveRows.some((sess) => {
                           const st = String(getRotationDerivedStatus(sess) || sess?.status || "").toUpperCase();
                           const qty = Number(sess?.positionQty ?? sess?.positionAmount ?? sess?.openRotation?.positionQty ?? sess?.meta?.nkr_position_qty ?? 0) || 0;
                           return qty > 0 || ["RUNNING", "ACTIVE", "EXECUTOR", "POSITION_ACTIVE", "CLOSING"].includes(st);
                         }));
-                      const fallbackNkrStartTs = normalizeNkrTimestampMs(
-                        rotationVisibleActiveRows?.[0]?.positionOpenedAt || rotationVisibleActiveRows?.[0]?.meta?.position_opened_at ||
-                        rotationVisibleActiveRows?.[0]?.startedAt || rotationVisibleActiveRows?.[0]?.createdAt || 0
-                      );
-                      const nkrOverviewStartTs = nkrStartCandidates.length ? Math.min(...nkrStartCandidates) : fallbackNkrStartTs;
-                      const configuredNkrEndTs = nkrOverviewStartTs > 0
-                        ? nkrOverviewStartTs + normalizeNkrPeriodHours() * 60 * 60 * 1000
-                        : 0;
+                      const nkrOverviewStartTs = nkrStartCandidates.length ? Math.min(...nkrStartCandidates) : 0;
+                      const nkrConfiguredEnds = nkrTimingRows.map((sess) => {
+                        const exact = nexusExactOnchainClock(coreVaultSessionPreview, "NKR", sess);
+                        if (exact.endsMs) return exact.endsMs;
+                        const st = exact.startedMs || nexusFirstSessionEpochMs(
+                          sess?.campaignStartedAt, sess?.meta?.campaign_started_at, sess?.startedAt, sess?.createdAt
+                        );
+                        const hours = Number(sess?.nkrPeriodHours || sess?.runtimeHours || sess?.meta?.nkr_period_hours || sess?.meta?.runtime_hours || 0);
+                        return st > 0 && Number.isFinite(hours) && hours > 0 ? st + hours * 3600000 : 0;
+                      }).filter((ts) => ts > 0);
                       const nkrOverviewEndTs = nkrExplicitEndCandidates.length
                         ? Math.max(...nkrExplicitEndCandidates)
-                        : configuredNkrEndTs;
+                        : nkrConfiguredEnds.length ? Math.max(...nkrConfiguredEnds) : 0;
                       const nkrOverviewElapsedMs = nkrOverviewStartTs > 0 ? Math.max(0, rotationNow - nkrOverviewStartTs) : 0;
                       const nkrOverviewRemainingMs = nkrOverviewEndTs > 0 ? Math.max(0, nkrOverviewEndTs - rotationNow) : 0;
                       // ENGINE-214: Derive overview state from the authoritative live session/position,
@@ -27442,6 +27518,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 ) : null}
                               </div>
                               <div><b>Status:</b> <span style={{ color: activeRotations > 0 || nkrOpenPositionRows.length > 0 ? "#22c55e" : pausedRotations > 0 ? "#ffc107" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewStatus}</span></div>
+                              <div><b>Started:</b> {nkrOverviewRunning ? nkrOverviewStartedLabel : "—"}</div>
+                              <div><b>Ends:</b> {nkrOverviewRunning ? nkrOverviewEndsLabel : "—"}</div>
                               <div><b>Runtime:</b> {nkrOverviewRunning ? (nkrOverviewElapsedMs > 0 ? fmtRotationDuration(nkrOverviewElapsedMs) : "RUNNING") : "not running"}</div>
                               <div><b>Time Left:</b> <span style={{ color: nkrOverviewRunning && nkrOverviewRemainingMs > 0 ? "#8bdcff" : "rgba(232,242,240,.72)", fontWeight: 900 }}>{nkrOverviewRunning ? (nkrOverviewEndTs > 0 ? (nkrOverviewRemainingMs > 0 ? fmtRotationDuration(nkrOverviewRemainingMs) : "expired") : "—") : "—"}</span></div>
                             </div>
@@ -27556,12 +27634,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const sessionStatus = getRotationDerivedStatus(sess);
                                 const status = getRotationDisplayStatus(sess);
                                 const statusTone = getRotationStatusTone(status);
-                                const positionStartTs = Number(sess?.positionOpenedAt || sess?.meta?.position_opened_at || sess?.startedAt || sess?.started_at || sess?.createdAt || 0) || rotationNow;
-                                const campaignStartTs = Number(sess?.campaignStartedAt || sess?.meta?.campaign_started_at || positionStartTs) || positionStartTs;
-                                const campaignExpiresTs = Number(sess?.campaignExpiresAt || sess?.meta?.campaign_expires_at || sess?.expiresAt || sess?.expires_at || sess?.meta?.expires_at || 0) || 0;
-                                const runtimeText = fmtRotationDuration(Math.max(0, rotationNow - campaignStartTs));
+                                const exactClock = nexusExactOnchainClock(coreVaultSessionPreview, "NKR", sess);
+                                const positionStartTs = nexusFirstSessionEpochMs(sess?.positionOpenedAt, sess?.meta?.position_opened_at);
+                                const campaignStartTs = exactClock.startedMs || nexusFirstSessionEpochMs(
+                                  sess?.startsAt, sess?.campaignStartedAt, sess?.meta?.campaign_started_at,
+                                  sess?.startedAt, sess?.started_at, sess?.createdAt
+                                );
+                                const sessionHours = Number(immutableSessionSnapshot?.periodHours || 0);
+                                const campaignExpiresTs = exactClock.endsMs || nexusFirstSessionEpochMs(
+                                  sess?.endsAt, sess?.campaignExpiresAt, sess?.meta?.campaign_expires_at,
+                                  sess?.expiresAt, sess?.expires_at, sess?.meta?.expires_at
+                                ) || (campaignStartTs > 0 && sessionHours > 0 ? campaignStartTs + sessionHours * 3600000 : 0);
+                                const runtimeText = campaignStartTs > 0 ? fmtRotationDuration(Math.max(0, rotationNow - campaignStartTs)) : "—";
                                 const leftText = campaignExpiresTs ? (campaignExpiresTs > rotationNow ? fmtRotationDuration(campaignExpiresTs - rotationNow) : "expired") : "—";
-                                const positionRuntimeText = fmtRotationDuration(Math.max(0, rotationNow - positionStartTs));
+                                const positionRuntimeText = positionStartTs > 0 ? fmtRotationDuration(Math.max(0, rotationNow - positionStartTs)) : "—";
                                 const baseAsset = String(sess?.baseAsset || sess?.payoutAsset || sess?.meta?.base_asset || manualPayoutAsset || "USDC").toUpperCase();
                                 // Detect a real open position before choosing the route label.
                                 // Without this, settlement defaults (ETH on Ethereum) look like an active ETH trade
@@ -28097,8 +28183,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <div><b>Min Net Advantage:</b> {Number(nkrSessionInfoOpen.minNetAdvantage || 0) > 0 ? `${nkrSessionInfoOpen.minNetAdvantage}%` : "—"}</div>
                                   <div><b>Started:</b> {nkrSessionInfoOpen.started ? new Date(nkrSessionInfoOpen.started).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}</div>
                                   <div><b>Ends:</b> {nkrSessionInfoOpen.ends ? new Date(nkrSessionInfoOpen.ends).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}</div>
-                                  <div><b>Runtime:</b> {nkrSessionInfoOpen.runtimeText || "—"}</div>
-                                  <div><b>Time Left:</b> {nkrSessionInfoOpen.leftText || "—"}</div>
+                                  <div><b>Runtime:</b> {Number(nkrSessionInfoOpen.started || 0) > 0
+                                    ? formatTradingDuration(Math.max(0, Number(tradingRuntimeNowMs || Date.now()) - Number(nkrSessionInfoOpen.started))) : "—"}</div>
+                                  <div><b>Time Left:</b> {Number(nkrSessionInfoOpen.ends || 0) > 0
+                                    ? (Number(nkrSessionInfoOpen.ends) > Number(tradingRuntimeNowMs || Date.now())
+                                      ? formatTradingDuration(Number(nkrSessionInfoOpen.ends) - Number(tradingRuntimeNowMs || Date.now())) : "expired") : "—"}</div>
                                 </div>
                               </div>
                             </div>
@@ -28987,7 +29076,31 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const list = Array.isArray(rows) ? rows : [];
                                 return isTradingSessionLive(sess) ? list.map((sl) => sanitizeLiveTradingSlot(sl)) : list;
                               };
-                              if (Array.isArray(sess?.queue) && sess.queue.length) return _sanSlots(sess.queue);
+                              const reconcileOnchainSlots = (rows) => {
+                                const normalized = _sanSlots(rows);
+                                if (!isTradingSessionLive(sess) || !normalized.length) return normalized;
+                                const budget = Number(sess?.budgetUsd || sess?.budget || 0);
+                                const rawTotal = normalized.reduce((sum, sl) => sum + Math.max(0, Number(sl?.amountUsd ?? sl?.reserved_capital_usd ?? 0)), 0);
+                                const factor = budget > 0 && rawTotal > budget + 0.015 ? budget / rawTotal : 1;
+                                const vaultActive = String(sess?.status || "").toUpperCase() === "ACTIVE";
+                                const requestedStop = Number(sess?.stoppingAt || sess?.meta?.stoppingAt || 0) > 0;
+                                return normalized.map((sl) => {
+                                  const oldAmount = Math.max(0, Number(sl?.amountUsd ?? sl?.reserved_capital_usd ?? 0));
+                                  const displayAmount = Number((oldAmount * factor).toFixed(6));
+                                  const staleStopping = vaultActive && !requestedStop && String(sl?.status || sl?.state || "").toUpperCase() === "STOPPING";
+                                  if (factor === 1 && !staleStopping) return sl;
+                                  return {
+                                    ...sl,
+                                    ...(factor !== 1 ? { amountUsd: displayAmount, reserved_capital_usd: displayAmount } : {}),
+                                    ...(staleStopping ? { status: "WAIT", state: "WAIT" } : {}),
+                                    meta: { ...(sl?.meta || {}),
+                                      ...(factor !== 1 ? { display_reconciled_to_vault_budget: true } : {}),
+                                      ...(staleStopping ? { stale_stop_display_reconciled: true } : {}),
+                                    },
+                                  };
+                                });
+                              };
+                              if (Array.isArray(sess?.queue) && sess.queue.length) return reconcileOnchainSlots(sess.queue);
                               const fromExec = Array.isArray(tradingExecutionQueue) ? tradingExecutionQueue.filter((slot) => {
                                 const slotSid = String(getTradingSlotSessionId(slot) || "").trim();
                                 const slotOid = Number(slot?.onchainSessionId || slot?.onchain_session_id || slot?.meta?.onchain_session_id || 0) || 0;
@@ -28996,7 +29109,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 if (sessOid > 0 && slotOid > 0 && sessOid === slotOid) return true;
                                 return false;
                               }) : [];
-                              if (fromExec.length) return _sanSlots(fromExec);
+                              if (fromExec.length) return reconcileOnchainSlots(fromExec);
                               // BUILD429: rebuild display slots from settings cache (budget 8+8 → 2 slots).
                               const oid = Number(sess?.onchainSessionId || sess?.onchain_session_id || sess?.coreVaultSessionId || 0) || 0;
                               const chain = String(sess?.chain || sess?.chainKey || (Array.isArray(sess?.chains) ? sess.chains[0] : "") || "").toUpperCase();
@@ -29006,7 +29119,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 || {};
                               const splits = Array.isArray(cached.budgetSplits) ? cached.budgetSplits : (Array.isArray(cached.slotAmounts) ? cached.slotAmounts : []);
                               if (!splits.length) return [];
-                              return splits.map((amount, idx) => ({
+                              return reconcileOnchainSlots(splits.map((amount, idx) => ({
                                 id: `display-slot-${sid || oid}-${idx + 1}`,
                                 slot: idx + 1,
                                 slot_id: idx + 1,
@@ -29018,7 +29131,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 session_id: sid,
                                 style: cached.style,
                                 meta: { source: "settings_cache_display" },
-                              }));
+                              })));
                             })();
                             const sessionAsset = getTradingSessionPrimaryAsset(sess) || "ASSET";
                             const sessionBudget = getTradingSessionBudgetUsd(sess);
@@ -29116,6 +29229,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                     </div>
                                     <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
+                                    <div className="muted tiny">Started: {timing.startedMs > 0 ? new Date(timing.startedMs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"} · Ends: {timing.expiresMs > 0 ? new Date(timing.expiresMs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}</div>
                                     <div className="muted tiny">Closed trades {tradeCount} · Slots in use {counts.ACTIVE || 0}/{Math.max(1, getTradingSessionSlotCount(sess) || sessionSlots.length || 0)}</div>
                                   </div>
 
@@ -29922,6 +30036,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   <span className="tiny" style={{ padding: "3px 8px", borderRadius: 999, background: stateLabel === "ACTIVE" ? "rgba(34,197,94,.18)" : stateLabel === "PAUSED" ? "rgba(255,193,7,.16)" : "rgba(139,220,255,.12)", color: stateLabel === "ACTIVE" ? "#7cf7a2" : stateLabel === "PAUSED" ? "#ffd166" : "#8bdcff", fontWeight: 950 }}>{stateLabel}</span>
                                 </div>
                                 <div className="muted tiny" style={{ color: timing.isExpired ? "#ffd166" : "#8bdcff", fontWeight: 900 }}>⏱ Runtime: {timing.elapsedLabel} · Left: {timing.remainingLabel}</div>
+                                <div className="muted tiny">Started: {timing.startedMs > 0 ? new Date(timing.startedMs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"} · Ends: {timing.expiresMs > 0 ? new Date(timing.expiresMs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }) : "—"}</div>
                                 <div className="muted tiny">Closed trades {tradeCount} · Slots in use {counts.ACTIVE || 0}/{Math.max(1, getTradingSessionSlotCount(selectedTradingSession) || sessionSlots.length || 0)}</div>
                               </div>
 

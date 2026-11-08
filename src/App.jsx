@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.08-BUILD610-HEADER-NKR-WALLET";
+const FRONTEND_BUILD_ID = "F-2026.11.08-BUILD611-ENGINE-HISTORY-FIX";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3528,12 +3528,15 @@ function EngineEventHistory({ engine, events = [] }) {
           const when = whenMs && Number.isFinite(whenMs) && whenMs >= 946684800000 && whenMs <= Date.now() + 86400000
             ? new Date(whenMs).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
           const px = Number(ev?.priceUsd || ev?.price || ev?.fillPrice || 0);
+          const hasAmount = Number(ev?.budgetUsd || ev?.amountUsd || 0) > 0;
+          const hasPnl = ev?.metricsVerified === true || (Number(ev?.grossUsd || 0) !== 0 || Number(ev?.costsUsd || 0) !== 0 || Number(ev?.netUsd || 0) !== 0);
+          const isConfirmed = ev?.onchainConfirmed === true;
           return <div key={ev?.eventKey || `${engine}-${ts}-${i}`} className="muted tiny" style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 6 }}>
             <div><b style={{ color: net > 0 ? "#86efac" : net < 0 ? "#ff8a8a" : "#8bdcff" }}>{when} · {ev?.asset || ev?.symbol || "ASSET"} · {status}</b></div>
             <div>{ev?.chain || "—"} · {ev?.side || ev?.action || "—"}{px > 0 ? ` · Entry/Exit ${fmtUsd(px)}` : " · Preis —"}{Number(ev?.quantity || 0) > 0 ? ` · Qty ${fmtQty(Number(ev.quantity))}` : ""}</div>
-            <div>Budget {fmtUsd(Number(ev?.budgetUsd || ev?.amountUsd || 0))} · Gross {fmtUsd(Number(ev?.grossUsd || 0))} · Costs {fmtUsd(Number(ev?.costsUsd || 0))} · Net {net >= 0 ? "+" : ""}{fmtUsd(net)}</div>
+            <div>Budget {hasAmount ? fmtUsd(Number(ev?.budgetUsd || ev?.amountUsd)) : "—"} · Gross {hasPnl ? fmtUsd(Number(ev?.grossUsd || 0)) : "—"} · Costs {hasPnl ? fmtUsd(Number(ev?.costsUsd || 0)) : "—"} · Net {hasPnl ? `${net >= 0 ? "+" : ""}${fmtUsd(net)}` : "—"}</div>
             <div style={{ fontSize: 10, color: ev?.txHash ? "#a8e3ff" : "#ffd38a" }}>
-              {ev?.txHash ? "TX recorded (receipt not independently checked)" : "Session status only · no blockchain tx recorded"}
+              {ev?.txHash ? (isConfirmed ? "Blockchain receipt confirmed" : "TX recorded · blockchain receipt not independently checked") : "Session status only · no blockchain tx recorded"}
             </div>
             {ev?.reason ? <div>Reason: {toUserFacingReason(ev.reason)}</div> : null}{ev?.txHash ? <div className="mono">Tx: {ev.txHash}</div> : null}
           </div>;
@@ -15706,7 +15709,7 @@ useEffect(() => {
 
   useEffect(() => {
     const wa = resolveWalletAddress(wallet); if (!wa || !Array.isArray(gridOrders)) return;
-    const events = gridOrders.map((o, idx) => {
+    const events = gridOrders.filter((o) => /^0x[0-9a-fA-F]{64}$/.test(String(o?.txHash || o?.tx_hash || ""))).map((o, idx) => {
       const ts = Number(o?.updated_ts || o?.updatedTs || o?.filled_ts || o?.created_ts || o?.createdTs || Date.now());
       const status = String(o?.status || o?.state || "ORDER").toUpperCase();
       return {
@@ -15723,6 +15726,7 @@ useEffect(() => {
         reason: o?.reason || o?.message || "", txHash: o?.txHash || o?.tx_hash || "",
       };
     });
+    if (!events.length) return;
     const t=setTimeout(async () => { try { await api('/api/nexus/engine-history/sync', { method:'POST', wallet, token, body:{ engine:'GRID', events } }); await loadEngineHistory('GRID'); } catch {} }, 900);
     return () => clearTimeout(t);
   }, [gridOrders, wallet, token, activeGridChainKey, gridChain, gridItem, loadEngineHistory]);
@@ -15736,6 +15740,7 @@ useEffect(() => {
         const meta=slot?.meta && typeof slot.meta === 'object' ? slot.meta : {};
         const ts=Number(slot?.updated_ts || slot?.updatedTs || slot?.closed_at || slot?.opened_at || s?.updated_ts || s?.created_ts || Date.now());
         const status=String(slot?.status || slot?.state || s?.status || 'SESSION').toUpperCase();
+        if (!/^0x[0-9a-fA-F]{64}$/.test(String(slot?.txHash || slot?.tx_hash || meta?.txHash || meta?.tx_hash || ""))) return;
         events.push({
           eventKey:`TRADER:${s?.id || s?.session_id || si}:${slot?.id || slot?.slot_id || idx}:${status}`,
           eventType:status,status,ts,
@@ -15747,6 +15752,7 @@ useEffect(() => {
         });
       });
     });
+    if (!events.length) return;
     const t=setTimeout(async () => { try { await api('/api/nexus/engine-history/sync', { method:'POST', wallet, token, body:{ engine:'TRADER', events } }); await loadEngineHistory('TRADER'); } catch {} }, 1100);
     return () => clearTimeout(t);
   }, [tradingSessions, wallet, token, loadEngineHistory]);
@@ -15760,6 +15766,7 @@ useEffect(() => {
         const meta=slot?.meta && typeof slot.meta === 'object' ? slot.meta : (s?.meta && typeof s.meta === 'object' ? s.meta : {});
         const ts=Number(slot?.updated_ts || slot?.updatedTs || slot?.closed_at || slot?.opened_at || s?.updated_ts || s?.created_ts || Date.now());
         const status=String(slot?.status || slot?.state || s?.status || 'SESSION').toUpperCase();
+        if (!/^0x[0-9a-fA-F]{64}$/.test(String(slot?.txHash || slot?.tx_hash || meta?.txHash || meta?.tx_hash || ""))) return;
         events.push({
           eventKey:`NKR:${s?.id || s?.session_id || si}:${slot?.id || slot?.slot_id || idx}:${status}`,
           eventType:status,status,ts,
@@ -15777,6 +15784,7 @@ useEffect(() => {
         });
       });
     });
+    if (!events.length) return;
     const t=setTimeout(async () => { try { await api('/api/nexus/engine-history/sync', { method:'POST', wallet, token, body:{ engine:'NKR', events } }); await loadEngineHistory('NKR'); } catch {} }, 1000);
     return () => clearTimeout(t);
   }, [rotationSessions, wallet, token, loadEngineHistory]);

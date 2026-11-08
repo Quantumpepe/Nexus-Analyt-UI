@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.08-BUILD611-ENGINE-HISTORY-FIX";
+const FRONTEND_BUILD_ID = "F-2026.11.08-BUILD612-RECEIPT-HISTORY-AUDIT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -3481,7 +3481,7 @@ function isRetiredShadowEvent(event) {
   return tags.some((value) => /(^|[^a-z])(shadow|paper[-_ ]?only|simulated)(?=$|[^a-z])/i.test(String(value || "")));
 }
 
-function EngineEventHistory({ engine, events = [] }) {
+function EngineEventHistory({ engine, events = [], onVerify }) {
   const [showAll, setShowAll] = useState(false);
   const [filter, setFilter] = useState("ALL");
   // BUILD602: only real/live/monitor records belong in visible event history.
@@ -3519,6 +3519,7 @@ function EngineEventHistory({ engine, events = [] }) {
           <button type="button" className="miniBtn" onClick={() => setShowAll((v) => !v)}>{showAll ? "Show latest 10" : "Show Full History"}</button>
           <button type="button" className="miniBtn" onClick={() => exportFile("csv")}>Export CSV</button>
           <button type="button" className="miniBtn" onClick={() => exportFile("json")}>Export JSON</button>
+          {onVerify ? <button type="button" className="miniBtn" onClick={() => onVerify(engine)}>Verify latest receipts</button> : null}
         </div>
         {visible.length ? visible.map((ev, i) => {
           const ts = Number(ev?.ts || ev?.updatedTs || ev?.createdTs || 0);
@@ -3536,8 +3537,10 @@ function EngineEventHistory({ engine, events = [] }) {
             <div>{ev?.chain || "—"} · {ev?.side || ev?.action || "—"}{px > 0 ? ` · Entry/Exit ${fmtUsd(px)}` : " · Preis —"}{Number(ev?.quantity || 0) > 0 ? ` · Qty ${fmtQty(Number(ev.quantity))}` : ""}</div>
             <div>Budget {hasAmount ? fmtUsd(Number(ev?.budgetUsd || ev?.amountUsd)) : "—"} · Gross {hasPnl ? fmtUsd(Number(ev?.grossUsd || 0)) : "—"} · Costs {hasPnl ? fmtUsd(Number(ev?.costsUsd || 0)) : "—"} · Net {hasPnl ? `${net >= 0 ? "+" : ""}${fmtUsd(net)}` : "—"}</div>
             <div style={{ fontSize: 10, color: ev?.txHash ? "#a8e3ff" : "#ffd38a" }}>
-              {ev?.txHash ? (isConfirmed ? "Blockchain receipt confirmed" : "TX recorded · blockchain receipt not independently checked") : "Session status only · no blockchain tx recorded"}
+              {ev?.txHash ? (isConfirmed ? "Blockchain receipt confirmed" : ev?.receiptStatus === "FAILED" ? "Blockchain receipt FAILED / reverted" : "TX recorded · blockchain receipt not independently checked") : "Session status only · no blockchain tx recorded"}
             </div>
+            {ev?.gasUsedNative ? <div>On-chain gas: {ev.gasUsedNative} {ev.chain === "BNB" ? "BNB" : ev.chain === "POL" ? "POL" : "ETH"} (USD value unknown)</div> : null}
+            {Array.isArray(ev?.tradeExecutedRaw) && ev.tradeExecutedRaw.length ? <div>Verified trade raw units: {ev.tradeExecutedRaw.map((t) => `${t.amountInRaw} → ${t.amountOutRaw}`).join("; ")}</div> : null}
             {ev?.reason ? <div>Reason: {toUserFacingReason(ev.reason)}</div> : null}{ev?.txHash ? <div className="mono">Tx: {ev.txHash}</div> : null}
           </div>;
         }) : <div className="muted tiny">No saved {engine.toLowerCase()} events yet.</div>}
@@ -15684,11 +15687,11 @@ useEffect(() => {
 
   const [gridInvestQty, setGridInvestQty] = useState("");
   const [gridMeta, setGridMeta] = useState({ tick: null, price: null });
-  const loadEngineHistory = useCallback(async (engine) => {
+  const loadEngineHistory = useCallback(async (engine, verify = false) => {
     const upper = String(engine || "").toUpperCase();
     if (!resolveWalletAddress(wallet) || !["GRID","NKR","TRADER"].includes(upper)) return;
     try {
-      const r = await api(`/api/nexus/engine-history?engine=${upper}&limit=2000`, { wallet, token });
+      const r = await api(`/api/nexus/engine-history?engine=${upper}&limit=2000${verify ? "&verify=1" : ""}`, { wallet, token });
       const rows = Array.isArray(r?.events) ? r.events : [];
       if (upper === "GRID") setGridEventHistory(rows);
       else if (upper === "NKR") setNkrEventHistory(rows);
@@ -28722,7 +28725,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               </div>
                             </div>
                             <div className="muted tiny" style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                              <EngineEventHistory engine="NKR" events={nkrEventHistory} />
+                              <EngineEventHistory engine="NKR" events={nkrEventHistory} onVerify={(eng) => loadEngineHistory(eng, true)} />
                               <b style={{ color: rotationShadowSnapshot?.status === "error" ? "#ff8a8a" : "#86efac" }}>Runtime: {rotationShadowRuntimeStatus}</b>
                               <b style={{ color: rotationShadowWorkStatus === "RUNNING" ? "#86efac" : "#ffd166" }}>Status: {rotationShadowWorkStatus}</b>
                               <b style={{ color: "#8bdcff" }}>Readiness: {rotationShadowReadiness}</b>
@@ -28756,8 +28759,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                   action,
                                   status: action,
                                   eventType: action,
-                                  eventKind: (tx || fill) ? "ON_CHAIN" : "MONITOR",
-                                  onChain: !!(tx || fill),
+                                  eventKind: tx ? "ON_CHAIN" : "MONITOR",
+                                  onChain: !!tx,
                                   text: tx
                                     ? `${action} ${ev?.asset || ev?.symbol || ""} @ ${ev?.priceUsd || ev?.price || ""}`.trim()
                                     : `${action} ${ev?.asset || ev?.symbol || ""}`.trim(),
@@ -28779,8 +28782,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 const st = String(ev?.status || ev?.action || "").toUpperCase();
                                 const hasBuySell = ["BUY", "SELL", "OPEN", "CLOSE", "ADD", "REDUCE", "OPEN_POSITION", "BUY_OPEN", "CLOSED_PROFIT", "CLOSED_LOSS"].some((k) => st.includes(k));
                                 if (tx && hasBuySell) return "ON_CHAIN";
-                                if (["ENTRY","EXIT","BUY","SELL","OPEN","CLOSE"].includes(st) && (tx || ev?.priceUsd || ev?.price)) return "ON_CHAIN";
-                                if (mode === "live" && hasBuySell) return "ON_CHAIN";
+                                if (["ENTRY","EXIT","BUY","SELL","OPEN","CLOSE"].includes(st) && tx) return "ON_CHAIN";
+                                if (mode === "live" && hasBuySell && tx) return "ON_CHAIN";
                                 if (["WAIT", "HOLD", "MONITOR", "TICK", "WAITING_ENTRY", "POSITION_TRACKING", "READY_DISPATCHED"].some((k) => st.includes(k))) return "MONITOR";
                                 if (ev?.localOnly || mode === "shadow") return "SHADOW";
                                 return hasBuySell ? "SHADOW" : "MONITOR";
@@ -28824,7 +28827,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 if (st.endsWith(" ACTIVE") || st.includes(" ACTIVE")) return false;
                                 return kind !== "MONITOR" || String(ev?.text || "").toLowerCase().includes("sold") || String(ev?.text || "").toLowerCase().includes("bought");
                               });
-                              const onChainCount = allEvents.filter((ev) => ev.eventKind === "ON_CHAIN" || ["ENTRY","EXIT","BUY","SELL","CLOSE","OPEN"].includes(String(ev?.status || ev?.action || "").toUpperCase())).length;
+                              const onChainCount = allEvents.filter((ev) => ev.eventKind === "ON_CHAIN" && /^0x[a-fA-F0-9]{64}$/.test(String(ev.txHash || ""))).length;
                               const filter = String(rotationShadowEventsFilter || "ALL").toUpperCase();
                               const filteredEvents = allEvents.filter((ev) => {
                                 const st = String(ev?.status || ev?.action || "").toUpperCase();
@@ -28898,6 +28901,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       <button type="button" className="miniBtn" onClick={() => setRotationShadowEventsShowAll((v) => !v)}>{rotationShadowEventsShowAll ? "Show latest 10" : "Show Full History"}</button>
                                       <button type="button" className="miniBtn" onClick={exportCsv}>Export CSV</button>
                                       <button type="button" className="miniBtn" onClick={exportJson}>Export JSON</button>
+                                      <button type="button" className="miniBtn" onClick={() => loadEngineHistory("NKR", true)}>Verify latest receipts</button>
                                     </div>
                                     {!visibleEvents.length ? (
                                       <div className="muted tiny" style={{ padding: "8px 4px" }}>
@@ -28908,11 +28912,19 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                       const st = String(ev?.status || ev?.action || ev?.text || "EVENT").toUpperCase();
                                       const kind = String(ev?.eventKind || "MONITOR").toUpperCase();
                                       const kindColor = kind === "ON_CHAIN" ? "#86efac" : kind === "MONITOR" ? "#ffd166" : "#8bdcff";
-                                      const buyTs = ev?.buyTime || ev?.openedAt || (kind === "ON_CHAIN" ? ev?.ts : null);
-                                      const sellTs = ev?.sellTime || ev?.closedAt;
-                                      const buyPrice = Number(ev?.buyPriceUsd ?? ev?.entryPriceUsd ?? ev?.entry_price_usd ?? ev?.entryPrice ?? 0);
-                                      const sellPrice = Number(ev?.sellPriceUsd ?? ev?.exitPriceUsd ?? ev?.exit_price_usd ?? ev?.exitPrice ?? 0);
                                       const isMonitorOnly = kind === "MONITOR";
+                                      const isTrade = ["ENTRY","EXIT","BUY","SELL","OPEN","CLOSE","BUY_OPEN","CLOSED_PROFIT","CLOSED_LOSS"].includes(st);
+                                      const knownMoney = (...values) => {
+                                        const v = values.find((x) => x !== null && x !== undefined && String(x).trim() !== "");
+                                        return v !== undefined && Number.isFinite(Number(v)) ? fmtUsd(Number(v)) : "—";
+                                      };
+                                      const knownTime = (value) => {
+                                        const n = Number(value);
+                                        const ms = n > 0 && Number.isFinite(n) ? (n < 1e11 ? n * 1000 : n) : 0;
+                                        return ms >= 946684800000 && ms <= Date.now() + 86400000 ? new Date(ms).toLocaleTimeString() : "—";
+                                      };
+                                      const isVerified = ev?.onchainConfirmed === true;
+                                      const receiptFailed = ev?.receiptStatus === "FAILED";
                                       return (
                                         <div key={ev.event_id || ev.id || `${ev.trade_id}-${ev.ts}`} className="muted tiny" style={{ borderTop: "1px solid rgba(255,255,255,.06)", paddingTop: 5 }}>
                                           <div>
@@ -28931,9 +28943,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                               {kind === "ON_CHAIN" ? "ON-CHAIN" : "MONITOR"}
                                             </span>
                                             <b style={{ color: st.includes("CLOSED") ? "#86efac" : "#8bdcff" }}>
-                                              {ev.ts ? new Date(ev.ts).toLocaleTimeString() : "—"}
+                                              {knownTime(ev.ts)}
                                               {" · "}
-                                              {ev.targetAsset || ev.sessionSymbol || (isMonitorOnly ? "—" : "ASSET")}
+                                              {ev.targetAsset || ev.sessionSymbol || ev.asset || "—"}
                                               {" · "}
                                               {st}
                                             </b>
@@ -28941,9 +28953,13 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                           </div>
                                           {kind === "ON_CHAIN" ? (
                                             <>
-                                              <div>Buy {buyTs ? new Date(buyTs).toLocaleTimeString() : "—"} @ {buyPrice > 0 ? fmtUsd(buyPrice) : "price missing"} → Sell {sellTs ? new Date(sellTs).toLocaleTimeString() : "open"} @ {sellPrice > 0 ? fmtUsd(sellPrice) : (sellTs ? "price missing" : "open")}</div>
-                                              <div>Route {ev.route || ev.flow || "—"}</div>
-                                              <div>In {fmtUsd(Number(ev.buyUsd || ev.amountInUsd || 0))} · Out {ev.sellUsd ? fmtUsd(Number(ev.sellUsd)) : "open"} · Gross {fmtUsd(Number(ev.grossUsd || ev.grossProfitUsd || 0))} · Costs {fmtUsd(Number(ev.costsUsd || 0))} · Net {fmtUsd(Number(ev.netUsd || ev.netProfitUsd || 0))}</div>
+                                              <div>{isVerified ? "Receipt confirmed" : receiptFailed ? "Receipt FAILED / reverted" : "TX recorded · receipt not independently checked"}{ev?.gasUsedNative ? ` · Gas ${ev.gasUsedNative} ${ev.chain === "BNB" ? "BNB" : ev.chain === "POL" ? "POL" : "ETH"}` : ""}</div>
+                                              {isTrade ? <>
+                                                <div>Buy {knownTime(ev.buyTime || ev.openedAt)} @ {knownMoney(ev.buyPriceUsd, ev.entryPriceUsd, ev.entry_price_usd, ev.entryPrice)} → Sell {knownTime(ev.sellTime || ev.closedAt)} @ {knownMoney(ev.sellPriceUsd, ev.exitPriceUsd, ev.exit_price_usd, ev.exitPrice)}</div>
+                                                <div>Route {ev.route || ev.flow || "—"}</div>
+                                                <div>In {knownMoney(ev.buyUsd, ev.amountInUsd)} · Out {knownMoney(ev.sellUsd, ev.amountOutUsd)} · Gross {knownMoney(ev.grossUsd, ev.grossProfitUsd)} · Costs {knownMoney(ev.costsUsd)} · Net {knownMoney(ev.netUsd, ev.netProfitUsd)}</div>
+                                              </> : <div>Session operation · no trade price or P&amp;L asserted</div>}
+                                              {Array.isArray(ev?.tradeExecutedRaw) && ev.tradeExecutedRaw.length ? <div>Verified vault TradeExecuted (raw token units): {ev.tradeExecutedRaw.map((t) => `${t.amountInRaw} → ${t.amountOutRaw}`).join("; ")}</div> : null}
                                               <div>Trade {ev.trade_id || "—"} · Event {ev.event_id || ev.id || "—"}{ev.txHash ? ` · Tx ${String(ev.txHash).slice(0, 12)}…` : ""}</div>
                                             </>
                                           ) : (
@@ -28955,7 +28971,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                             </>
                                           )}
                                           {st === "CAPITAL_MOVEMENT" ? (
-                                            <div><b style={{ color: "#ffd166" }}>Capital movement:</b> {ev.fromAsset || "—"} → {ev.toAsset || ev.baseAsset || "USDT"} · Before {fmtUsd(Number(ev.capitalBeforeUsd || 0))} · Moved {fmtUsd(Number(ev.capitalMovedUsd || ev.availableStableDeltaUsd || 0))} · After {fmtUsd(Number(ev.capitalAfterUsd || 0))} · not profit</div>
+                                            <div><b style={{ color: "#ffd166" }}>Capital movement:</b> {ev.fromAsset || "—"} → {ev.toAsset || ev.baseAsset || "USDT"} · Before {knownMoney(ev.capitalBeforeUsd)} · Moved {knownMoney(ev.capitalMovedUsd, ev.availableStableDeltaUsd)} · After {knownMoney(ev.capitalAfterUsd)} · not profit</div>
                                           ) : null}
                                         </div>
                                       );
@@ -30244,7 +30260,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                     
                   </div>
-                  <EngineEventHistory engine="TRADER" events={traderEventHistory} />
+                  <EngineEventHistory engine="TRADER" events={traderEventHistory} onVerify={(eng) => loadEngineHistory(eng, true)} />
                 </div>
               ) : (
                 <>
@@ -30457,7 +30473,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </div>
           </div>
 
-                <EngineEventHistory engine="GRID" events={gridEventHistory} />
+                <EngineEventHistory engine="GRID" events={gridEventHistory} onVerify={(eng) => loadEngineHistory(eng, true)} />
                 </>
               )}
 

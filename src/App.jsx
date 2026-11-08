@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.08-BUILD609-SESSION-CLOCK-FIX";
+const FRONTEND_BUILD_ID = "F-2026.11.08-BUILD610-HEADER-NKR-WALLET";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9855,7 +9855,8 @@ const byChain = {};
         const root = document.getElementById("nkr-presale-panel-root");
         if (root && root.contains(e.target)) return;
         const btn = document.getElementById("nkr-presale-buy-btn");
-        if (btn && btn.contains(e.target)) return;
+        const mobileBtn = document.getElementById("nkr-presale-buy-btn-mobile");
+        if ((btn && btn.contains(e.target)) || (mobileBtn && mobileBtn.contains(e.target))) return;
         setPresalePanelOpen(false);
       } catch (_) {
         setPresalePanelOpen(false);
@@ -23400,6 +23401,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <svg viewBox="0 0 72 20" width="72" height="18" aria-hidden="true">
               <path d="M0 13 C8 13 10 6 16 8 C22 10 26 5 32 6 C38 7 42 14 50 9 C58 4 64 4 72 10" fill="none" stroke="rgba(125,255,194,0.9)" strokeWidth="1.5" />
             </svg>
+            {/* BUILD610: NKR purchase lives inside the NKR price/sparkline display. */}
+            <button
+              id="nkr-presale-buy-btn"
+              className="btn"
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setBillingMenuOpen(false);
+                setHeaderMenuOpen(false);
+                setPresalePanelOpen(false);
+                try {
+                  window.open(
+                    "https://app.uniswap.org/explore/tokens/ethereum/0xaa120cFc79C79830B13728a6ebdd379a572880C8",
+                    "_blank",
+                    "noopener,noreferrer"
+                  );
+                } catch (_) {}
+              }}
+              title="Buy NKR on Uniswap (NKR/WETH pool)"
+              style={{
+                height: 27,
+                padding: "0 9px",
+                fontSize: 11,
+                lineHeight: "27px",
+                background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
+                border: "1px solid rgba(120,255,183,.65)",
+                color: "#ffffff",
+                WebkitTextFillColor: "#ffffff",
+                textShadow: "0 1px 2px rgba(0,0,0,.6)",
+                fontWeight: 800,
+                whiteSpace: "nowrap",
+                flex: "0 0 auto",
+              }}
+            >
+              Buy NKR
+            </button>
             <button
               type="button"
               className="iconBtn"
@@ -23430,33 +23469,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
               maxWidth: "100%",
             }}
           >
-            {/* BUILD608: Privy Connect is a first-class action on desktop and mobile. */}
-            <button
-              type="button"
-              className="btn"
-              data-nexus-tour="header-connect"
-              aria-label={authenticated ? "Disconnect wallet" : "Connect wallet"}
-              title={authenticated ? "Disconnect wallet" : "Connect wallet"}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setHeaderMenuOpen(false);
-                if (authenticated) disconnectWallet(); else connectWallet();
-              }}
-              style={{
-                height: 30,
-                minWidth: isCompactMobile ? 71 : 94,
-                padding: isCompactMobile ? "0 7px" : "0 11px",
-                fontSize: isCompactMobile ? 11 : 12,
-                fontWeight: 900,
-                whiteSpace: "nowrap",
-                flex: "0 0 auto",
-                background: authenticated ? "rgba(34,197,94,.17)" : "linear-gradient(90deg,#176345,#23976b)",
-                border: authenticated ? "1px solid rgba(34,197,94,.45)" : "1px solid rgba(120,255,183,.55)",
-              }}
-            >
-              {authenticated ? "Disconnect" : "Connect"}
-            </button>
             {/* Wallet pill is DISPLAY-ONLY: opens modal, must never trigger external wallet connect */}
             <button
               type="button"
@@ -23476,50 +23488,39 @@ const handlePanelActivate = useCallback((name) => (e) => {
             </button>
 
 
-            {/* BUILD541: Nexus Help directly below Buy NKR, with matching width and height. */}
-            <div className="nexusHeaderBuyHelp" style={{ display: "grid", gridTemplateColumns: "max-content", rowGap: 4, flex: "0 0 auto" }}>
+            {/* BUILD610: Wallet action above Nexus Help, kept outside the three-dot menu. */}
+            <div className="nexusHeaderBuyHelp" style={{ display: "grid", gridTemplateColumns: "minmax(100px,max-content)", rowGap: 4, flex: "0 0 auto" }}>
+            {/* BUILD610: Visible wallet connection in the former Buy NKR position. */}
             <button
-              id="nkr-presale-buy-btn"
-              className="btn"
               type="button"
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              className="btn"
+              data-nexus-tour="header-connect"
+              aria-label={authenticated ? "Disconnect wallet" : "Connect wallet"}
+              title={authenticated ? "Disconnect wallet" : "Connect wallet"}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                setBillingMenuOpen(false);
                 setHeaderMenuOpen(false);
-                setPresalePanelOpen(false);
-                try {
-                  window.open(
-                    "https://app.uniswap.org/explore/tokens/ethereum/0xaa120cFc79C79830B13728a6ebdd379a572880C8",
-                    "_blank",
-                    "noopener,noreferrer"
-                  );
-                } catch (_) {}
+                if (authenticated) disconnectWallet(); else connectWallet();
               }}
-              title="Buy NKR on Uniswap (NKR/WETH pool)"
               style={{
                 height: 30,
-                padding: "0 10px",
-                fontSize: 12,
-                lineHeight: "30px",
-                background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
-                border: "1px solid rgba(80,220,160,.45)",
-                fontWeight: 800,
+                minWidth: isCompactMobile ? 100 : 115,
+                padding: isCompactMobile ? "0 9px" : "0 13px",
+                fontSize: isCompactMobile ? 11 : 12,
+                fontWeight: 900,
                 whiteSpace: "nowrap",
                 flex: "0 0 auto",
+                background: authenticated ? "linear-gradient(90deg,#772b34,#a33843)" : "linear-gradient(90deg,#176345,#23976b)",
+                border: authenticated ? "1px solid rgba(255,184,190,.8)" : "1px solid rgba(120,255,183,.65)",
+                color: "#ffffff",
+                WebkitTextFillColor: "#ffffff",
+                textShadow: "0 1px 2px rgba(0,0,0,.65)",
+                boxShadow: "0 1px 8px rgba(0,0,0,.24)",
+                opacity: 1,
               }}
             >
-              Buy NKR
-              {nkrSpot && Number.isFinite(nkrSpot.change24h) ? (
-                <span style={{
-                  marginLeft: 6,
-                  fontWeight: 800,
-                  color: nkrSpot.change24h >= 0 ? "#b8ffd4" : "#ffb3b3",
-                }}>
-                  {nkrSpot.change24h >= 0 ? "+" : ""}{Number(nkrSpot.change24h).toFixed(1)}%
-                </span>
-              ) : null}
+              {authenticated ? "Disconnect" : "Connect Wallet"}
             </button>
             <button
               type="button"
@@ -23612,7 +23613,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
             display: isCompactMobile ? "flex" : "none",
             alignItems: "center",
             justifyContent: "space-between",
-            gap: 8,
+            gap: 7,
+            flexWrap: "wrap",
             width: "100%",
             marginTop: 0,
             padding: "5px 8px",
@@ -23632,6 +23634,44 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </>
               ) : "Uniswap"}
             </span>
+            {/* Mobile NKR ticker: same real Uniswap buy route. */}
+            <button
+              id="nkr-presale-buy-btn-mobile"
+              className="btn"
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setBillingMenuOpen(false);
+                setHeaderMenuOpen(false);
+                setPresalePanelOpen(false);
+                try {
+                  window.open(
+                    "https://app.uniswap.org/explore/tokens/ethereum/0xaa120cFc79C79830B13728a6ebdd379a572880C8",
+                    "_blank",
+                    "noopener,noreferrer"
+                  );
+                } catch (_) {}
+              }}
+              title="Buy NKR on Uniswap (NKR/WETH pool)"
+              style={{
+                height: 27,
+                padding: "0 8px",
+                fontSize: 11,
+                lineHeight: "27px",
+                background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
+                border: "1px solid rgba(120,255,183,.65)",
+                color: "#ffffff",
+                WebkitTextFillColor: "#ffffff",
+                textShadow: "0 1px 2px rgba(0,0,0,.6)",
+                fontWeight: 800,
+                whiteSpace: "nowrap",
+                flex: "0 0 auto",
+              }}
+            >
+              Buy NKR
+            </button>
             <button
               type="button"
               className="iconBtn"

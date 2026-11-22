@@ -11460,7 +11460,52 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     const sym = String(gridModalSym || "").toUpperCase().trim();
     return sym ? (watchRows || []).find((r) => String(r?.symbol || "").toUpperCase() === sym) || null : null;
   }, [gridModalSym, watchRows]);
-    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(compareSeries, 1000, activeCompareWeights, ratingSummaryBySymbol), [compareSeries, activeCompareWeights, ratingSummaryBySymbol]);
+    // Pair scores require >=20 common daily closes, independently of the
+    // high-resolution 7D view history (which has only seven calendar days).
+    const pairHistoryKey = _cmpKey(compareSymbols, "1Y", compareCoinIds);
+    const [pairHistoryState, setPairHistoryState] = useState({ key: "", series: {} });
+    useEffect(() => {
+      if (!compareSymbols.length || timeframe === "1Y" || timeframe === "2Y") return;
+      const cached = _cmpGetCached(compareSymbols, "1Y", compareCoinIds);
+      if (cached && Object.values(cached).some((pts) => Array.isArray(pts) && pts.length >= 20)) {
+        setPairHistoryState({ key: pairHistoryKey, series: cached });
+        return;
+      }
+      const controller = new AbortController();
+      const load = async () => {
+        try {
+          const wa = resolveWalletAddress(wallet);
+          const qs = new URLSearchParams({
+            symbols: compareSymbols.slice(0, 20).join(","),
+            range: "1Y",
+            ids: JSON.stringify(compareCoinIds),
+          });
+          if (wa) qs.set("wallet", wa);
+          const response = await fetch(`${API_BASE}/api/compare?${qs.toString()}`, {
+            method: "GET", credentials: "include", cache: "no-store",
+            headers: { Accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            signal: controller.signal,
+          });
+          if (!response.ok) return;
+          const payload = await response.json();
+          const normalized = normalizeBackendSeries(payload?.series || {});
+          if (controller.signal.aborted) return;
+          if (Object.values(normalized).some((pts) => Array.isArray(pts) && pts.length >= 20)) {
+            _cmpPutCached(compareSymbols, "1Y", normalized, compareCoinIds);
+            setPairHistoryState({ key: pairHistoryKey, series: normalized });
+          }
+        } catch (error) {
+          if (!controller.signal.aborted) console.warn("Compare pair history unavailable:", error);
+        }
+      };
+      load();
+      return () => controller.abort();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pairHistoryKey, timeframe, token]);
+    const pairHistoryForScores = timeframe === "1Y" || timeframe === "2Y"
+      ? compareSeries
+      : (pairHistoryState.key === pairHistoryKey ? pairHistoryState.series : {});
+    const bestPairsAll = useMemo(() => computeBestPairsFromSeries(pairHistoryForScores, 1000, activeCompareWeights, ratingSummaryBySymbol), [pairHistoryForScores, activeCompareWeights, ratingSummaryBySymbol]);
   const bestPairsSorted = useMemo(() => {
     const rows = Array.isArray(bestPairsAll) ? [...bestPairsAll] : [];
     const mode = String(bestPairsSortMode || "score");

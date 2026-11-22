@@ -18,7 +18,7 @@ jobs:
           p=Path("src/App.jsx")
           raw=p.read_bytes()
           eol="\r\n" if raw.count(b"\r\n") > raw.count(b"\n")/2 else "\n"
-          s=raw.decode("utf-8")
+          s=raw.decode("utf-8").replace("\r\n","\n")
           def replace_one(a,b):
               global s
               n=s.count(a)

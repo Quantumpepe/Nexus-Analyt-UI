@@ -1,0 +1,38 @@
+name: Nexus asset identity branch inspection
+on:
+  push:
+    branches:
+      - fix/compare-asset-identity-20261122
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect relevant source paths without changing code
+        shell: bash
+        run: |
+          git clone --depth 1 --branch fix/compare-asset-identity-20261122 https://github.com/Quantumpepe/Nexus-Analyt-Pro.git /tmp/nexus-pro
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          sources = [Path('src/App.jsx'), Path('/tmp/nexus-pro/app.py')]
+          patterns = [
+            r'\bJAM\b', r'tune.fm', r'coingecko', r'coin_gecko',
+            r'Compare', r'compare', r'price_change_percentage',
+            r'percent_change', r'change24', r'watchlist', r'strategist'
+          ]
+          for path in sources:
+              lines = path.read_text(errors='replace').splitlines()
+              print(f'=== SOURCE {path} LINES {len(lines)} ===')
+              for pat in patterns:
+                  hits = [i for i,line in enumerate(lines) if re.search(pat,line,re.I)]
+                  print(f'--- PATTERN {pat} TOTAL {len(hits)} ---')
+                  for i in hits[:12]:
+                      a=max(0,i-3); b=min(len(lines),i+4)
+                      print(f'[LINE {i+1}]')
+                      for j in range(a,b):
+                          print(f'{j+1}: {lines[j][:230]}')
+          PY

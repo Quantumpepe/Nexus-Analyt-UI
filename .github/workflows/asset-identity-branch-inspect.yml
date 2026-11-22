@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - fix/compare-asset-identity-20261122
-  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -11,28 +10,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect relevant source paths without changing code
+      - name: Inspect Compare identity call sites
         shell: bash
         run: |
           git clone --depth 1 --branch fix/compare-asset-identity-20261122 https://github.com/Quantumpepe/Nexus-Analyt-Pro.git /tmp/nexus-pro
           python3 - <<'PY'
           from pathlib import Path
           import re
-          sources = [Path('src/App.jsx'), Path('/tmp/nexus-pro/app.py')]
-          patterns = [
-            r'\bJAM\b', r'tune.fm', r'coingecko', r'coin_gecko',
-            r'Compare', r'compare', r'price_change_percentage',
-            r'percent_change', r'change24', r'watchlist', r'strategist'
+          tasks=[
+            (Path('src/App.jsx'),[(540,585),(980,1045),(9940,10070),(11880,12060),(16560,16665)]),
+            (Path('/tmp/nexus-pro/app.py'),[(14920,14985),(15030,15180),(19670,19745)])
           ]
-          for path in sources:
-              lines = path.read_text(errors='replace').splitlines()
-              print(f'=== SOURCE {path} LINES {len(lines)} ===')
-              for pat in patterns:
-                  hits = [i for i,line in enumerate(lines) if re.search(pat,line,re.I)]
-                  print(f'--- PATTERN {pat} TOTAL {len(hits)} ---')
-                  for i in hits[:12]:
-                      a=max(0,i-3); b=min(len(lines),i+4)
-                      print(f'[LINE {i+1}]')
-                      for j in range(a,b):
-                          print(f'{j+1}: {lines[j][:230]}')
+          patterns=[r'^\s*(?:async\s+)?function\s+\w*compare\w*',r'^\s*(?:async\s+)?def\s+\w*compare\w*',r'@app\.(get|post).*compare',r'@.*route.*compare',r'compare.*(coingecko_id|symbol)',r'(coingecko_id|symbol).*compare']
+          for path,ranges in tasks:
+            lines=path.read_text(errors='replace').splitlines()
+            print('=== FILE',path,'===')
+            for a,b in ranges:
+              print('--- RANGE',a,b,'---')
+              for i in range(a-1,min(b,len(lines))):
+                print(f'{i+1}: {lines[i][:230]}')
+            print('--- MATCHING SIGNATURES ---')
+            matched=[(i,l) for i,l in enumerate(lines,1) if any(re.search(p,l,re.I) for p in patterns)]
+            for i,l in matched[:125]:print(f'{i}: {l[:220]}')
           PY

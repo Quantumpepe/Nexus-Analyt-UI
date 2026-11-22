@@ -1,0 +1,38 @@
+name: Inspect 7D Compare pair regression
+on:
+  push:
+    branches: [fix/compare-7d-pairs-20261122]
+    paths: [.github/workflows/inspect-compare-pairs.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect pair data dependencies
+        shell: bash
+        run: |
+          cat > /tmp/inspect.py <<'PY'
+          from pathlib import Path
+          import re
+          a=Path("src/App.jsx").read_text(errors="replace").splitlines()
+          targets=[
+            "Not enough chart data yet", "buildAlignedDailyLines", "buildBestPairs", "pairScores",
+            "compareSliced", "sliceCompareSeries(", "buildUnifiedChart(", "setBestPairs", 
+            "compareSeries", "pairData", "minDays", "computePair", "PAIR_EXPLAIN_TF",
+            "fetchCompare", "compareFetchRange", "compareCoinIds"
+          ]
+          for target in targets:
+            hits=[i for i,l in enumerate(a) if target.lower() in l.lower()]
+            print("=== TARGET",target,"HITS",len(hits),"===")
+            for i in hits[:24]:
+              if target=="compareSeries" and not (i>11000 and i<11500 or i>18000 and i<18500 or i>25000):continue
+              if target=="fetchCompare" and not (i>18000):continue
+              if target=="compareCoinIds" and i>10000 and i<18000:continue
+              lo=max(0,i-5);hi=min(len(a),i+9)
+              for j in range(lo,hi):
+                print(f"{j+1}: {a[j][:210]}")
+          
+          PY
+          python3 /tmp/inspect.py

@@ -1,8 +1,7 @@
 name: Nexus asset identity branch inspection
 on:
   push:
-    branches:
-      - fix/compare-asset-identity-20261122
+    branches: [fix/compare-asset-identity-20261122]
 permissions:
   contents: read
 jobs:
@@ -10,8 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect exact Compare call paths
-        shell: bash
+      - name: Trace history identifier and frontend selection
         run: |
           git clone --depth 1 --branch fix/compare-asset-identity-20261122 https://github.com/Quantumpepe/Nexus-Analyt-Pro.git /tmp/nexus-pro
           python3 - <<'PY'
@@ -19,19 +17,14 @@ jobs:
           import re
           a=Path('src/App.jsx').read_text().splitlines()
           b=Path('/tmp/nexus-pro/app.py').read_text().splitlines()
-          def show(lines,lo,hi):
-              for i in range(lo-1,min(hi,len(lines))):
-                  print(f'{i+1}: {lines[i][:250]}')
-          print('=== BACKEND SYMBOL RESOLVER ===')
-          show(b,14980,15065)
-          print('=== BACKEND COMPARE ROUTE ===')
-          show(b,18528,18685)
-          print('=== FRONTEND COMPARE FETCH SITE INDEX ===')
-          for i,x in enumerate(a):
-              if re.search(r'api/compare|_cmpKey\(|_cmpGetCached\(|_cmpPutCached\(',x):
-                  print(f'{i+1}: {x[:250]}')
-          print('=== BACKEND WATCHLIST EXPLICIT ID INDEX ===')
-          for i,x in enumerate(b):
-              if re.search(r'coingecko_id|_cg_id_for_symbol|_cg_symbol_to_id',x) and 14500 < i < 19000:
-                  print(f'{i+1}: {x[:230]}')
+          def block(arr,lo,hi):
+              print('---',lo,hi,'---')
+              for i in range(lo-1, min(hi,len(arr))):print(f'{i+1}: {arr[i][:230]}')
+          print('=== BACKEND FUNCTION DEFS ===')
+          for i,line in enumerate(b):
+              if re.search(r'^def (_get_series_for_symbol|_health_for_symbol|_resolve_cg_id|_cg_history|_cg_market_chart)',line):
+                  print(i+1,line[:220]);block(b,max(1,i+1),min(len(b),i+75))
+          print('=== UI SELECTION/FETCH ===')
+          for lo,hi in [(10775,10850),(18040,18165),(9740,9785),(11275,11310)]:
+              block(a,lo,hi)
           PY

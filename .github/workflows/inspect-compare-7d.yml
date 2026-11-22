@@ -14,12 +14,21 @@ jobs:
         run: |
           cat > /tmp/inspect.py <<'PY'
           from pathlib import Path
-          p=Path('src/App.jsx')
-          a=p.read_text().splitlines()
-          for lo,hi in [(2430,2488),(2530,2542),(2590,2648),(18030,18055),(18140,18183),(24830,24930),(25135,25195),(11300,11360)]:
-           print('===',lo,hi)
-           for i in range(lo-1,hi):
-            print(f'{i+1}: {a[i][:240]}')
+          import re
+          a=Path("src/App.jsx").read_text(errors="replace").splitlines()
+          patterns=[r'\bsx\b',r'hoverIdx',r'clampIdx',r'function.*x',r'nearest',r'pointer',r'onMouse',r'XAxis',r'ticks',r'formatXAxis',r'viewBox',r'format.*Axis',r'chart\.x',r'mouseX',r'onTouch',r'timeframe',r'const tMin',r'x\.length',r'buildUnifiedChart']
+          regions=[(2330,2360),(2500,3098),(18700,18900),(25235,25370)]
+          for lo,hi in regions:
+              print("=== REGION",lo,hi,"===")
+              idx=[i for i in range(lo-1,min(len(a),hi)) if any(re.search(p,a[i],re.I) for p in patterns)]
+              include=set()
+              for i in idx:
+                  include.update(range(max(lo-1,i-2),min(hi,i+4)))
+              last=-2
+              for i in sorted(include):
+                  if i>last+1:print("...")
+                  print(f"{i+1}: {a[i][:260]}")
+                  last=i
           
           PY
           python3 /tmp/inspect.py

@@ -717,9 +717,9 @@ function _nexusWatchQuickWrite(scope, items, rows) {
   } catch {}
 }
 
-const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v1";
+const LS_COMPARE_SERIES_CACHE = "na_compare_series_cache_v2_identity";
 const LS_APP_VERSION = "na_app_version";
-const LS_COMPARE_STORE = "na_compare_store_v2";
+const LS_COMPARE_STORE = "na_compare_store_v3_identity";
 const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
@@ -992,9 +992,9 @@ function formatNativeFromWei(weiBig, decimals = 18, maxFrac = 6) {
 // ------------------------
 // utils
 // ------------------------
-function _cmpKey(symbols, tf) {
+function _cmpKey(symbols, tf, ids = {}) {
   const arr = Array.isArray(symbols) ? symbols : [];
-  const keySyms = arr.map((s) => String(s || "").toUpperCase()).filter(Boolean).sort().join(",");
+  const keySyms = arr.map((s) => String(s || "").toUpperCase()).filter(Boolean).sort().map((s) => s + "=" + String(ids?.[s] || "")).join(",");
   return `${String(tf || "1Y")}:${keySyms}`;
 }
 
@@ -1011,10 +1011,10 @@ function _cmpStoreWrite(store) {
   try { localStorage.setItem(LS_COMPARE_STORE, JSON.stringify(store || {})); } catch {}
 }
 
-function _cmpGetCached(symbols, tf) {
+function _cmpGetCached(symbols, tf, ids = {}) {
   try {
     const store = _cmpStoreRead();
-    const k = _cmpKey(symbols, tf);
+    const k = _cmpKey(symbols, tf, ids);
     const entry = store?.[k];
     if (!entry || !entry.ts || !entry.data) return null;
     if (Date.now() - Number(entry.ts) > COMPARE_CACHE_TTL_MS) return null;
@@ -1024,9 +1024,9 @@ function _cmpGetCached(symbols, tf) {
   }
 }
 
-function _cmpPutCached(symbols, tf, data) {
+function _cmpPutCached(symbols, tf, data, ids = {}) {
   try {
-    const k = _cmpKey(symbols, tf);
+    const k = _cmpKey(symbols, tf, ids);
     const store = _cmpStoreRead();
     store[k] = { ts: Date.now(), data };
 
@@ -9701,6 +9701,21 @@ const byChain = {};
     return uniq.slice(0, 20);
   }, [compareSet, compareWalletKey]);
 
+  // Carry the exact selected Watchlist coin identity into Compare.
+  const compareCoinIds = useMemo(() => {
+    const out = {};
+    for (const sym of compareSymbols) {
+      const matches = (Array.isArray(watchItems) ? watchItems : []).filter((it) =>
+        String(it?.symbol || "").trim().toUpperCase() === sym &&
+        String(it?.mode || "market").toLowerCase() === "market"
+      );
+      if (matches.length !== 1) continue;
+      const cid = String(matches[0]?.coingecko_id || matches[0]?.id || "").trim().toLowerCase();
+      if (/^[a-z0-9][a-z0-9._-]{0,150}$/.test(cid)) out[sym] = cid;
+    }
+    return out;
+  }, [compareSymbols.join("|"), watchItems]);
+
   // -------- Fixed color slots (10), stable per coin --------
   // Rule: coin keeps its color while selected; when removed, its slot becomes free for the next new coin.
   const colorSlotsRef = useRef(new Map()); // sym -> slot index (0..9)
@@ -9760,7 +9775,7 @@ const byChain = {};
 
   const has2YData = useMemo(() => {
     if (!compareSymbols.length) return false;
-    const cached2y = _cmpGetCached(compareSymbols, "2Y");
+    const cached2y = _cmpGetCached(compareSymbols, "2Y", compareCoinIds);
     if (!cached2y) return false;
     // Require all selected symbols to have enough 2Y points.
     return compareSymbols.every((s) => {
@@ -10823,7 +10838,7 @@ function _writePairExplainCache(pairStr, tf, series) {
     inflightPairExplain.current = true;
     setPairExplainLoading(true);
     try {
-      const qs = new URLSearchParams({ symbols: `${a},${b}`, range: PAIR_EXPLAIN_TF }).toString();
+      const qs = new URLSearchParams({ symbols: `${a},${b}`, range: PAIR_EXPLAIN_TF, ids: JSON.stringify(compareCoinIds) }).toString();
       const r = await api(`/api/compare?${qs}`, { method: "GET" });
 
 // Prefer backend-provided daily series for "Daily moves (last 30 days)".
@@ -11288,7 +11303,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareSeries, setCompareSeries] = useState(() => {
     // Prefer per-(timeframe+symbols) cache so reloads feel instant
-    const cached = _cmpGetCached(compareSymbols, _compareFetchRange(timeframe));
+    const cached = _cmpGetCached(compareSymbols, _compareFetchRange(timeframe), compareCoinIds);
     if (cached) return cached;
 
     // Fallback: legacy single-bucket cache
@@ -18073,7 +18088,7 @@ const [aiLoading, setAiLoading] = useState(false);
     // Show cached series immediately (SWR) so chart renders without waiting for backend
     // NOTE: fetchRange can be overridden (used for preloading 2Y while keeping UI timeframe at 90D).
     const fetchRange = (opts && opts.fetchRangeOverride) ? String(opts.fetchRangeOverride).toUpperCase() : _compareFetchRange(timeframe);
-    const cached = (opts.force || opts.noCache) ? null : _cmpGetCached(compareSymbols, fetchRange);
+    const cached = (opts.force || opts.noCache) ? null : _cmpGetCached(compareSymbols, fetchRange, compareCoinIds);
     if (cached && Object.keys(cached || {}).length) {
       setCompareSeries(cached);
       lastGoodCompareRef.current = cached;
@@ -18083,7 +18098,7 @@ const [aiLoading, setAiLoading] = useState(false);
     try {
       const syms = compareSymbols.slice(0, 20).join(",");
       const wa = resolveWalletAddress(wallet);
-      const qs = new URLSearchParams({ symbols: syms, range: fetchRange });
+      const qs = new URLSearchParams({ symbols: syms, range: fetchRange, ids: JSON.stringify(compareCoinIds) });
       if (wa) qs.set("wallet", wa);
       if (opts.force || opts.noCache) qs.set("_", String(Date.now()));
       const url = `${API_BASE}/api/compare?${qs.toString()}`;
@@ -18143,7 +18158,7 @@ const [aiLoading, setAiLoading] = useState(false);
           setCompareSeries(normalized);
           lastGoodCompareRef.current = normalized;
           try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(normalized)); } catch {}
-          _cmpPutCached(compareSymbols, fetchRange, normalized);
+          _cmpPutCached(compareSymbols, fetchRange, normalized, compareCoinIds);
 
           // If we were preloading 2Y, only switch UI to 2Y once data is actually sufficient.
           if (String(fetchRange).toUpperCase() === "2Y" && pendingTfRef.current === "2Y") {

@@ -9,36 +9,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Targeted 7D Compare inspection
+      - name: Inspect chart internals
         shell: bash
         run: |
-          cat > /tmp/inspect_compare.py <<'PY'
+          cat > /tmp/inspect.py <<'PY'
           from pathlib import Path
-          import re
-          p=Path("src/App.jsx")
-          lines=p.read_text(errors="replace").splitlines()
-          patterns=[
-              r'function normalizeBackendSeries',
-              r'function _compareFetchRange',
-              r'Index 100',
-              r'index100',
-              r'indexMode',
-              r'compareSeries',
-              r'normalizeCompare',
-              r'function.*CompareChart',
-              r'chart.*baseline'
-          ]
-          printed=set()
-          for pat in patterns:
-              hits=[i for i,l in enumerate(lines) if re.search(pat,l,re.I)]
-              print(f"=== {pat}: {len(hits)} hits ===")
-              for i in hits[:8]:
-                  a=max(0,i-10);b=min(len(lines),i+25)
-                  for k in range(a,b):
-                      if k not in printed:
-                          print(f"{k+1}: {lines[k][:220]}")
-                          printed.add(k)
-          print("=== NEXT ===")
+          p=Path('src/App.jsx')
+          a=p.read_text().splitlines()
+          for lo,hi in [(2430,2488),(2530,2542),(2590,2648),(18030,18055),(18140,18183),(24830,24930),(25135,25195),(11300,11360)]:
+           print('===',lo,hi)
+           for i in range(lo-1,hi):
+            print(f'{i+1}: {a[i][:240]}')
           
           PY
-          python3 /tmp/inspect_compare.py
+          python3 /tmp/inspect.py

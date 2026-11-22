@@ -1,34 +1,77 @@
-name: Inspect Compare 7D chart
+name: Apply Compare 7D timeline fix
 on:
   push:
     branches: [fix/compare-chart-7d-jam-20261122]
+    paths: [.github/workflows/inspect-compare-7d.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  inspect:
+  fix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect chart internals
+      - name: Apply timestamp-axis patch
         shell: bash
         run: |
-          cat > /tmp/inspect.py <<'PY'
+          cat > /tmp/fix_compare_axis.py <<'PY'
           from pathlib import Path
-          import re
-          a=Path("src/App.jsx").read_text(errors="replace").splitlines()
-          patterns=[r'\bsx\b',r'hoverIdx',r'clampIdx',r'function.*x',r'nearest',r'pointer',r'onMouse',r'XAxis',r'ticks',r'formatXAxis',r'viewBox',r'format.*Axis',r'chart\.x',r'mouseX',r'onTouch',r'timeframe',r'const tMin',r'x\.length',r'buildUnifiedChart']
-          regions=[(2330,2360),(2500,3098),(18700,18900),(25235,25370)]
-          for lo,hi in regions:
-              print("=== REGION",lo,hi,"===")
-              idx=[i for i in range(lo-1,min(len(a),hi)) if any(re.search(p,a[i],re.I) for p in patterns)]
-              include=set()
-              for i in idx:
-                  include.update(range(max(lo-1,i-2),min(hi,i+4)))
-              last=-2
-              for i in sorted(include):
-                  if i>last+1:print("...")
-                  print(f"{i+1}: {a[i][:260]}")
-                  last=i
+          p=Path("src/App.jsx")
+          raw=p.read_bytes()
+          eol="\r\n" if raw.count(b"\r\n") > raw.count(b"\n")/2 else "\n"
+          s=raw.decode("utf-8")
+          def replace_one(a,b):
+              global s
+              n=s.count(a)
+              if n!=1:
+                  raise SystemExit(f"Expected exactly one match, found {n}: {a[:120]!r}")
+              s=s.replace(a,b,1)
+          
+          replace_one(
+          '    const sx = (i) => padL + (i * innerW) / Math.max(1, x.length - 1);',
+          '''    // Position samples by their timestamps, not by their array indices.
+              // Market history often has unequal time gaps (weekends/illiquid coins).
+              const xStart = Number(x[0]);
+              const xEnd = Number(x[x.length - 1]);
+              const xDuration = xEnd - xStart;
+              const sx = (i) => padL + (xDuration > 0
+                ? ((Number(x[i]) - xStart) / xDuration) * innerW
+                : (i * innerW) / Math.max(1, x.length - 1));''')
+          replace_one(
+          '    const tMid = x[Math.floor(x.length / 2)];',
+          '    const tMid = (Number(tMin) + Number(x[x.length - 1])) / 2;')
+          replace_one(
+          '''          const frac = (clampedSvgX - padL) / (w - padL - padR);
+                    const i = clampIdx(Math.round(frac * (n - 1)));''',
+          '''          const frac = (clampedSvgX - padL) / (w - padL - padR);
+                    // Find the nearest real sample by time. Array index is not a
+                    // position on a time-scaled axis when intervals are uneven.
+                    const targetTime = xDuration > 0 ? xStart + frac * xDuration : xStart;
+                    let low = 0;
+                    let high = n - 1;
+                    while (low < high) {
+                      const mid = Math.floor((low + high) / 2);
+                      if (Number(x[mid]) < targetTime) low = mid + 1;
+                      else high = mid;
+                    }
+                    const next = clampIdx(low);
+                    const prev = clampIdx(next - 1);
+                    const i = Math.abs(Number(x[prev]) - targetTime) <= Math.abs(Number(x[next]) - targetTime)
+                      ? prev : next;''')
+          out=s.replace("\r\n","\n").replace("\n",eol).encode("utf-8")
+          p.write_bytes(out)
+          print("Compare X positions and hover now based on timestamps; preserved EOL",repr(eol))
           
           PY
-          python3 /tmp/inspect.py
+          python3 /tmp/fix_compare_axis.py
+          git diff --numstat -- src/App.jsx
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Commit verified chart fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.jsx
+          git diff --cached --check
+          git commit -m "Plot Compare history on timestamp-spaced axis"
+          git push origin HEAD:fix/compare-chart-7d-jam-20261122

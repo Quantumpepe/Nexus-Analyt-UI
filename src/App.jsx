@@ -2616,7 +2616,14 @@ function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, index
     const innerW = w - padL - padR;
     const innerH = h - padT - padB;
 
-    const sx = (i) => padL + (i * innerW) / Math.max(1, x.length - 1);
+    // Position samples by their timestamps, not by their array indices.
+    // Market history often has unequal time gaps (weekends/illiquid coins).
+    const xStart = Number(x[0]);
+    const xEnd = Number(x[x.length - 1]);
+    const xDuration = xEnd - xStart;
+    const sx = (i) => padL + (xDuration > 0
+      ? ((Number(x[i]) - xStart) / xDuration) * innerW
+      : (i * innerW) / Math.max(1, x.length - 1));
 
     const syTV = (tv) => {
       const t = (tv - min) / (max - min);
@@ -2626,7 +2633,7 @@ function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, index
     const GRID_TICKS = 6;
     const ticksTV = Array.from({ length: GRID_TICKS }, (_, i) => min + ((max - min) * i) / (GRID_TICKS - 1));
 const tMin = x[0];
-    const tMid = x[Math.floor(x.length / 2)];
+    const tMid = (Number(tMin) + Number(x[x.length - 1])) / 2;
     const tMax = x[x.length - 1];
 
     const makePath = (sym) => {
@@ -2773,7 +2780,20 @@ const tMin = x[0];
           // Map mouse X onto plot area (between padL and w-padR)
           const clampedSvgX = Math.max(padL, Math.min(svgX, w - padR));
           const frac = (clampedSvgX - padL) / (w - padL - padR);
-          const i = clampIdx(Math.round(frac * (n - 1)));
+          // Find the nearest real sample by time. Array index is not a
+          // position on a time-scaled axis when intervals are uneven.
+          const targetTime = xDuration > 0 ? xStart + frac * xDuration : xStart;
+          let low = 0;
+          let high = n - 1;
+          while (low < high) {
+            const mid = Math.floor((low + high) / 2);
+            if (Number(x[mid]) < targetTime) low = mid + 1;
+            else high = mid;
+          }
+          const next = clampIdx(low);
+          const prev = clampIdx(next - 1);
+          const i = Math.abs(Number(x[prev]) - targetTime) <= Math.abs(Number(x[next]) - targetTime)
+            ? prev : next;
           setHoverIdx(i);
           setHoverPos({
             x: px,

@@ -2355,8 +2355,11 @@ function sliceCompareSeries(full, timeframe) {
 function _compareFetchRange(timeframe) {
   const tf = String(timeframe || "90D").toUpperCase();
   if (tf === "2Y") return "2Y";
-  if (tf === "1D") return "1D"; // keep intraday fidelity
-  return "1Y"; // fetch once, slice for 7D/30D/90D/1Y views
+  // Use CoinGecko's native high-resolution window for short timeframes.
+  // Slicing daily 1Y points into 7D can produce a misleading starting
+  // price and percentage change on thinly traded assets such as JAM.
+  if (["1D", "7D", "30D", "90D"].includes(tf)) return tf;
+  return "1Y";
 }
 
 function _extractExplicitTfFromQuestion(q) {

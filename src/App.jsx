@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.26-BUILD613-WALLET-SWAP";
+const FRONTEND_BUILD_ID = "F-2026.11.26-BUILD614-WALLET-WINNER";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -9498,11 +9498,8 @@ const byChain = {};
     });
   }, [watchItems, watchRows, normalizeWatchItems]);
 
-  const sortedWatchRows = useMemo(() => {
-    const rows = Array.isArray(watchDisplayRows) ? [...watchDisplayRows] : [];
-    const mode = String(watchSortMode || "manual").toLowerCase();
-    if (mode !== "winner" && mode !== "loser") return rows;
-
+  const rankWatchRows = useCallback((inputRows, mode) => {
+    const rows = Array.isArray(inputRows) ? [...inputRows] : [];
     return rows
       .map((row, originalIndex) => ({ row, originalIndex, value: watchSortValue(row) }))
       .sort((a, b) => {
@@ -9515,7 +9512,40 @@ const byChain = {};
         return (av - bv) || (a.originalIndex - b.originalIndex);
       })
       .map((x) => x.row);
-  }, [watchDisplayRows, watchSortMode, watchSortValue]);
+  }, [watchSortValue]);
+
+  // BUILD614: snapshot only the Winner order, not the market data. New rows
+  // appear at the end until the next ranking tick; removed rows disappear now.
+  const [winnerRankKeys, setWinnerRankKeys] = useState([]);
+  const winnerLatestRows = useRef(watchDisplayRows);
+  useEffect(() => {
+    winnerLatestRows.current = watchDisplayRows;
+  }, [watchDisplayRows]);
+
+  useEffect(() => {
+    if (String(watchSortMode || "manual").toLowerCase() !== "winner") {
+      setWinnerRankKeys([]);
+      return;
+    }
+    const refreshWinnerRank = () => {
+      setWinnerRankKeys(rankWatchRows(winnerLatestRows.current, "winner").map(_watchKeyFromRow));
+    };
+    refreshWinnerRank();
+    const timer = setInterval(refreshWinnerRank, 60_000);
+    return () => clearInterval(timer);
+  }, [watchSortMode, wallet, rankWatchRows]);
+
+  const sortedWatchRows = useMemo(() => {
+    const rows = Array.isArray(watchDisplayRows) ? [...watchDisplayRows] : [];
+    const mode = String(watchSortMode || "manual").toLowerCase();
+    if (mode === "loser") return rankWatchRows(rows, "loser");
+    if (mode !== "winner") return rows;
+    const positions = new Map(winnerRankKeys.map((key, index) => [key, index]));
+    return rows.sort((a, b) =>
+      (positions.get(_watchKeyFromRow(a)) ?? Number.MAX_SAFE_INTEGER) -
+      (positions.get(_watchKeyFromRow(b)) ?? Number.MAX_SAFE_INTEGER)
+    );
+  }, [watchDisplayRows, watchSortMode, winnerRankKeys, rankWatchRows]);
 
   const toggleWatchSort = useCallback((mode) => {
     setWatchSortMode((prev) => (String(prev || "manual") === mode ? "manual" : mode));
@@ -23644,13 +23674,27 @@ const handlePanelActivate = useCallback((name) => (e) => {
               maxWidth: "100%",
             }}
           >
-            {/* Wallet pill is DISPLAY-ONLY: opens modal, must never trigger external wallet connect */}
+            {/* Wallet button: same visual style as Buy NKR; opens modal only. */}
             <button
               type="button"
-              className="pill silver"
+              className="btn"
               data-nexus-wallet-trigger="1"
               data-nexus-tour="wallet-open"
-              style={{ cursor: "pointer", flex: "0 0 auto" }}
+              style={{
+                cursor: "pointer",
+                height: 27,
+                padding: "0 9px",
+                fontSize: 11,
+                lineHeight: "27px",
+                background: "linear-gradient(90deg,#1a6b4a,#2a9d6a)",
+                border: "1px solid rgba(120,255,183,.65)",
+                color: "#ffffff",
+                WebkitTextFillColor: "#ffffff",
+                textShadow: "0 1px 2px rgba(0,0,0,.6)",
+                fontWeight: 800,
+                whiteSpace: "nowrap",
+                flex: "0 0 auto",
+              }}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();

@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.08-BUILD612-RECEIPT-HISTORY-AUDIT";
+const FRONTEND_BUILD_ID = "F-2026.11.26-BUILD613-WALLET-SWAP";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -887,6 +887,19 @@ const walletChainDisplayName = (chain) => {
 };
 
 const getStableWhitelistForChain = (chain) => TOKEN_WHITELIST[normalizeWalletChainKey(chain)] || [];
+
+// Wallet-only swap support. Contract addresses, not displayed tickers, decide eligibility.
+const manualWalletSwapCatalog = (chain) => {
+  const c = normalizeWalletChainKey(chain);
+  if (!["ETH", "BNB", "POL"].includes(c)) return [];
+  const wrapped = wnativeSpecForChain(c);
+  return [{symbol:c,address:"native",decimals:18},
+    {...wrapped,decimals:18},
+    ...getStableWhitelistForChain(c).map((x) => ({...x,symbol:x.displaySymbol || x.symbol}))];
+};
+const manualWalletSwapAddress = (row) => row?.kind === "native" || row?.address === "native" ? "native" : String(row?.address || "").toLowerCase();
+const manualWalletSwapEligible = (row) => manualWalletSwapCatalog(row?.chain).some((x) => String(x.address).toLowerCase() === manualWalletSwapAddress(row));
+
 
 const getTokenSpecKey = (t) => String(t?.address || "").toLowerCase();
 
@@ -7997,23 +8010,16 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
     if (!assetsOnSelectedChain.some((row) => row.key === walletSendAssetKey)) {
       setWalletSendAssetKey(assetsOnSelectedChain[0]?.key || "");
     }
-    const swapEligible = assetsOnSelectedChain.filter((row) =>
-      ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(row.chain)) &&
-      (row.kind === "native" || row.address === "native" ||
-        String(wnativeSpecForChain(row.chain)?.address || "").toLowerCase() === String(row.address || "").toLowerCase() ||
-        (normalizeWalletChainKey(row.chain) === "POL" &&
-          String(row.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"))
-    );
+    const swapEligible = assetsOnSelectedChain.filter(manualWalletSwapEligible);
     if (!swapEligible.some((row) => row.key === walletSwapFromKey)) {
       setWalletSwapFromKey(swapEligible[0]?.key || "");
     }
   }, [walletAssetRows, walletSendAssetKey, walletSwapFromKey, balActiveChain]);
 
 
-  // BUILD574: exact-contract destinations come from the deployed CoreVault
-  // on the selected chain. Do not guess that Polygon USDC and USDC.e match.
+  // BUILD613: wallet-only catalog, exact token contracts; no Vault dependency.
   const walletSwapSourceChain = walletAssetRows.find((row) => row.key === walletSwapFromKey)?.chain || "";
-  const walletSwapSourceAddress = walletAssetRows.find((row) => row.key === walletSwapFromKey)?.address || "";
+  const walletSwapSourceAddress = manualWalletSwapAddress(walletAssetRows.find((row) => row.key === walletSwapFromKey));
   useEffect(() => {
     if (!wallet || !walletModalOpen || !walletSwapFromKey || !walletSwapSourceChain) {
       setWalletSwapTargets([]);
@@ -8027,7 +8033,7 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
     setWalletSwapTargetsError("");
     (async () => {
       try {
-        const req = async (forceAuth) => fetch(`${API_BASE}/api/wallet/swap/targets?chain=${encodeURIComponent(chain)}`, {
+        const req = async (forceAuth) => fetch(`${API_BASE}/api/wallet/swap/v2/targets?chain=${encodeURIComponent(chain)}`, {
           method: "GET", credentials: "include",
           headers: {Authorization: `Bearer ${await ensureBackendAuthToken(forceAuth)}`,
                     "X-Wallet-Address": String(wallet)},
@@ -8035,30 +8041,26 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
         let resp = await req(false);
         if (resp.status === 401) resp = await req(true);
         const data = await resp.json().catch(() => ({}));
-        if (!resp.ok || data?.status !== "ok") throw new Error(data?.error || `Vault check failed (${resp.status})`);
+        if (!resp.ok || data?.status !== "ok") throw new Error(data?.error || `Wallet asset check failed (${resp.status})`);
         if (cancelled) return;
+        const localAssets = manualWalletSwapCatalog(chain);
+        if (Number(data.chainId) !== Number(CHAIN_ID[chain]) || data.chain !== chain) throw new Error("Wrong swap network.");
         const options = Array.isArray(data.targets) ? data.targets.filter((t) =>
-          /^0x[a-f0-9]{40}$/i.test(String(t?.address || "")) &&
-          String(t?.address || "").toLowerCase() !== String(walletSwapSourceAddress || "").toLowerCase() &&
-          (t?.vaultSettlementVerified === true ||
-            (chain === "POL" && t?.legacyOptional === true && t?.symbol === "USDC.e" &&
-              String(t?.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"))) : [];
+          t?.walletSwapSupported === true && String(t.address || "").toLowerCase() !== walletSwapSourceAddress &&
+          localAssets.some((x) => x.symbol === t.symbol && String(x.address).toLowerCase() === String(t.address).toLowerCase() && Number(x.decimals) === Number(t.decimals))
+        ) : [];
         setWalletSwapTargets(options);
         setWalletSwapTargetsStatus(options.length ? "ready" : "error");
-        if (!options.length) setWalletSwapTargetsError("No compatible USDC/USDT settlement token is enabled in this CoreVault.");
-        // Never silently preselect legacy USDC.e (even if the only option).
-        // A legacy destination always requires the user to choose it explicitly.
+        if (!options.length) setWalletSwapTargetsError("No supported wallet destination available.");
         setWalletSwapToSym((current) => {
-          const standard = options.find((t) => t.vaultSettlementVerified === true);
-          if (current === "USDC.e") return standard?.symbol || "";
-          return options.some((t) => t.symbol === current)
-            ? current : (standard?.symbol || "");
+          if (current !== "USDC.e" && options.some((t) => t.symbol === current)) return current;
+          return options.find((t) => t.symbol === "USDC")?.symbol || options.find((t) => t.symbol !== "USDC.e")?.symbol || "";
         });
       } catch (error) {
         if (cancelled) return;
         setWalletSwapTargets([]);
         setWalletSwapTargetsStatus("error");
-        setWalletSwapTargetsError(String(error?.message || error || "Vault status unavailable"));
+        setWalletSwapTargetsError(String(error?.message || error || "Wallet assets unavailable"));
       }
     })();
     return () => { cancelled = true; };
@@ -8073,7 +8075,7 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
       setWalletSwapMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
       const fromRow = walletAssetRows.find((item) => item.key === walletSwapFromKey);
-      if (!fromRow) throw new Error("Select a native token or its wrapped equivalent.");
+      if (!fromRow || !manualWalletSwapEligible(fromRow)) throw new Error("Select a supported wallet asset.");
       // Max/presets are resolved server-side from on-chain balances; no typed
       // amount is required. Custom amount remains a deliberate opt-in.
       const isCustomAmount = walletSwapMode === "CUSTOM";
@@ -8088,17 +8090,18 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
       if (!["ETH", "BNB", "POL"].includes(chainKey)) throw new Error("Wallet swaps are currently available on ETH, BNB and POL.");
       const wrapped = wnativeSpecForChain(chainKey);
       const fromNative = fromRow.kind === "native" || fromRow.address === "native";
-      const fromWrapped = !!wrapped && String(fromRow.address || "").toLowerCase() === String(wrapped.address || "").toLowerCase();
-      const fromLegacyUsdc = chainKey === "POL" && String(fromRow.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174";
-      if (!fromNative && !fromWrapped && !fromLegacyUsdc) throw new Error("Select a native, wrapped-native, or Polygon USDC.e token.");
       const toSym = String(walletSwapToSym || "").trim();
       const selectedDestination = walletSwapTargets.find((target) => target.symbol === toSym);
-      const legacyDestination = chainKey === "POL" && selectedDestination?.legacyOptional === true &&
-        selectedDestination?.symbol === "USDC.e" &&
-        String(selectedDestination?.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174";
-      if (walletSwapTargetsStatus !== "ready" || !(selectedDestination?.vaultSettlementVerified || legacyDestination)) {
-        throw new Error("Select a valid stablecoin contract for this network.");
+      const toNative = selectedDestination?.address === "native";
+      const legacyDestination = selectedDestination?.symbol === "USDC.e";
+      if (walletSwapTargetsStatus !== "ready" || selectedDestination?.walletSwapSupported !== true ||
+          !manualWalletSwapCatalog(chainKey).some((x) => x.symbol === toSym && String(x.address).toLowerCase() === String(selectedDestination.address).toLowerCase()) ||
+          manualWalletSwapAddress(fromRow) === String(selectedDestination.address).toLowerCase()) {
+        throw new Error("Select a valid, different wallet destination on this network.");
       }
+      const directWrap = fromNative && String(selectedDestination.address).toLowerCase() === String(wrapped?.address).toLowerCase();
+      const directUnwrap = toNative && String(fromRow.address).toLowerCase() === String(wrapped?.address).toLowerCase();
+      const direct = directWrap || directUnwrap;
       const chainId = CHAIN_ID?.[chainKey];
       if (!chainId) throw new Error(`Unsupported network: ${chainKey}`);
       setWalletSwapBusy(true);
@@ -8106,7 +8109,7 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
       // BUILD573: This wallet view is inside AppInner; _authHeaders belongs to
       // a different component and is not in scope. Prepare requires the signed
       // Nexus backend JWT matching the connected Privy wallet.
-      const requestSwapPreparation = async (backendToken) => fetch(`${API_BASE}/api/wallet/swap/prepare`, {
+      const requestSwapPreparation = async (backendToken) => fetch(`${API_BASE}/api/wallet/swap/v2/prepare`, {
         method: "POST", credentials: "include",
         headers: {
           "Content-Type": "application/json",
@@ -8126,17 +8129,19 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
       }
       const prep = await prepRes.json().catch(() => ({}));
       if (!prepRes.ok || prep?.status !== "ok") throw new Error(prep?.error || `Swap preparation failed (${prepRes.status})`);
-      if (Boolean(prep?.tokenOut?.vaultSettlementVerified) !== Boolean(selectedDestination.vaultSettlementVerified) ||
+      if (prep?.tokenOut?.walletSwapSupported !== true ||
           Boolean(prep?.tokenOut?.legacyOptional) !== Boolean(selectedDestination.legacyOptional) ||
           String(prep?.tokenOut?.address || "").toLowerCase() !== String(selectedDestination.address).toLowerCase() ||
-          String(prep?.tokenOut?.symbol || "") !== String(selectedDestination.symbol)) {
-        throw new Error("Quote token differs from your explicitly selected stablecoin. Swap cancelled.");
+          String(prep?.tokenOut?.symbol || "") !== String(selectedDestination.symbol) ||
+          Number(prep?.tokenOut?.decimals) !== Number(selectedDestination.decimals)) {
+        throw new Error("Quote destination differs from your selection. Swap cancelled.");
       }
-      if (String(prep?.tokenIn?.address || "").toLowerCase() !== (fromNative ? "native" : String(fromRow.address || "").toLowerCase())) {
+      const localSource = manualWalletSwapCatalog(chainKey).find((x) => String(x.address).toLowerCase() === manualWalletSwapAddress(fromRow));
+      if (!localSource || String(prep?.tokenIn?.address || "").toLowerCase() !== manualWalletSwapAddress(fromRow) || Number(prep?.tokenIn?.decimals) !== Number(localSource.decimals)) {
         throw new Error("Quoted input token differs from your wallet selection. Swap cancelled.");
       }
       const steps = Array.isArray(prep.steps) ? prep.steps : [];
-      if (prep.quoteSource !== "ONCHAIN_QUOTER" || !steps.length || BigInt(prep.minOut || "0") <= 0n) {
+      if (prep.quoteSource !== (direct ? "DIRECT_WRAP" : "ONCHAIN_QUOTER") || !steps.length || BigInt(prep.minOut || "0") <= 0n) {
         throw new Error("Verified quote or minimum payout missing. Swap blocked.");
       }
       if (Number(prep.deadline || 0) <= Math.floor(Date.now() / 1000) + 60) throw new Error("Swap quote expired. Try again.");
@@ -8163,17 +8168,27 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
       const amountUnits = BigInt(prep.amountIn);
       const minUnits = BigInt(prep.minOut);
       if (Number(prep.chainId) !== Number(chainId) || String(prep.chain) !== chainKey ||
-          amountUnits >= 2n ** 128n || minUnits <= 0n ||
-          !Number.isInteger(Number(prep.feeTier)) || Number(prep.feeTier) <= 0 || Number(prep.feeTier) >= 2 ** 24) {
+          amountUnits <= 0n || amountUnits >= 2n ** 128n || minUnits <= 0n || BigInt(prep.quoteOut) < minUnits ||
+          (direct ? (Number(prep.feeTier) !== 0 || minUnits !== amountUnits || BigInt(prep.quoteOut) !== amountUnits) :
+           (!Number.isInteger(Number(prep.feeTier)) || Number(prep.feeTier) <= 0 || Number(prep.feeTier) >= 2 ** 24))) {
         throw new Error("Invalid swap preparation.");
       }
       if (isCustomAmount && decimalStringToUnits(rawAmount, Number(prep.tokenIn.decimals)) !== amountUnits) {
         throw new Error("Swap amount differs from your selection.");
       }
-      const expectedSwapData = (chainKey === "BNB" ? "0x414bf389" : "0x04e45aaf") +
-        addrWord(sourceToken) + addrWord(selectedDestination.address) + word(prep.feeTier) + addrWord(wallet) +
+      const destinationToken = toNative ? addr(wrapped?.address) : addr(selectedDestination.address);
+      const swapCall = (chainKey === "BNB" ? "0x414bf389" : "0x04e45aaf") +
+        addrWord(sourceToken) + addrWord(destinationToken) + word(prep.feeTier) + addrWord(toNative ? router : wallet) +
         (chainKey === "BNB" ? word(prep.deadline) : "") + word(amountUnits) + word(minUnits) + word(0);
-      const validSequences = fromNative
+      // Rebuild exact ABI bytes[] locally; never approve opaque multicall calldata.
+      const multicall = (calls) => {
+        const parts = calls.map((call) => { const h = call.slice(2); return word(h.length / 2) + h.padEnd(Math.ceil(h.length / 64) * 64, "0"); });
+        let offset = 32 * parts.length;
+        const offsets = parts.map((part) => { const o = word(offset); offset += part.length / 2; return o; });
+        return "0xac9650d8" + word(32) + word(parts.length) + offsets.join("") + parts.join("");
+      };
+      const expectedSwapData = toNative && !direct ? multicall([swapCall, "0x49404b7c" + word(minUnits) + addrWord(wallet)]) : swapCall;
+      const validSequences = directWrap ? ["wrap"] : directUnwrap ? ["unwrap"] : fromNative
         ? ["wrap,swap", "wrap,approve,swap", "wrap,approve_reset,approve,swap"]
         : ["swap", "approve,swap", "approve_reset,approve,swap"];
       if (!validSequences.includes(steps.map((step) => step?.type).join(","))) throw new Error("Invalid swap sequence.");
@@ -8182,7 +8197,9 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
         const data = String(step.data || "").toLowerCase();
         const value = BigInt(step.value || "0x0");
         if (step.type === "wrap") {
-          if (to !== sourceToken || data !== "0xd0e30db0" || value !== amountUnits) throw new Error("Invalid wrap step.");
+          if (to !== addr(wrapped?.address) || data !== "0xd0e30db0" || value !== amountUnits) throw new Error("Invalid wrap step.");
+        } else if (step.type === "unwrap") {
+          if (!directUnwrap || to !== addr(wrapped?.address) || data !== "0x2e1a7d4d" + word(amountUnits) || value !== 0n) throw new Error("Invalid unwrap step.");
         } else if (step.type === "approve" || step.type === "approve_reset") {
           const expected = "0x095ea7b3" + addrWord(router) + word(step.type === "approve" ? amountUnits : 0);
           if (to !== sourceToken || data !== expected || value !== 0n) throw new Error("Invalid token approval.");
@@ -8196,9 +8213,9 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
         `Amount setting: ${isCustomAmount ? "Custom" : selectedPercent === 100 ? "Max" : `${selectedPercent}%`}\n` +
         `Quoted output: ${formatStable(prep.quoteOut)} ${toSym}\n` +
         `Minimum received: ${formatStable(prep.minOut)} ${toSym}\n` +
-        `Stablecoin contract: ${selectedDestination.address}\n` +
+        `Destination: ${selectedDestination.address}\n` +
         (legacyDestination ? `WARNING: You explicitly receive legacy bridged USDC.e, NOT Circle native USDC. It may not be accepted by the Trading Vault.\n` : "") +
-        `Slippage limit: ${Number(prep.slippageBps || 100) / 100}%\n` +
+        (direct ? "Direct 1:1 conversion (network fees apply).\n" : `Slippage limit: ${Number(prep.slippageBps || 100) / 100}%\n`) +
         `Estimated gas reserve kept: ${nativeGasReserve.toFixed(6)} ${chainKey === "POL" ? "POL" : chainKey}\n` +
         `Wallet: ${wallet}\nRouter: ${router}\n` +
         `Network transactions: ${approvedSteps.map((step) => step.type).join(" → ")}\n` +
@@ -8226,12 +8243,14 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
         throw new Error(`Transaction not confirmed; check chain explorer before retrying: ${hash}`);
       };
       const receiptBalanceOf = async () => {
+        if (toNative) return BigInt(await provider.request({method:"eth_getBalance",params:[wallet,"latest"]}));
         const data = "0x70a08231" + String(wallet).replace(/^0x/i, "").toLowerCase().padStart(64, "0");
         const val = await provider.request({method:"eth_call", params:[{to:prep.tokenOut.address, data}, "latest"]});
         return BigInt(val || "0x0");
       };
       const payoutBefore = await receiptBalanceOf();
       let swapHash = "";
+      let paidGas = 0n;
       for (let i = 0; i < approvedSteps.length; i++) {
         const step = approvedSteps[i];
         await verifyChain();
@@ -8244,7 +8263,7 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
         }
         setWalletSwapMsg(`${step.label || step.type} (${i + 1}/${approvedSteps.length}) — processing…`);
         const tx = {from: wallet, to:String(step.to || ""), data:String(step.data || "0x"), value:String(step.value || "0x0")};
-        if (step.type === "swap") {
+        if (step.type === "swap" || step.type === "wrap" || step.type === "unwrap") {
           // Guard against wrong router selector, missing allowance or unavailable pool.
           // An eth_call simulates the wallet transaction without spending money.
           try { await provider.request({method:"eth_call", params:[tx, "latest"]}); }
@@ -8261,14 +8280,18 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
         if (!/^0x[0-9a-f]{64}$/i.test(String(hash || ""))) throw new Error("Wallet returned no valid transaction hash.");
         try { saveWalletTransaction({type:`WALLET SWAP ${String(step.type || "").toUpperCase()}`, chain:chainKey, asset:fromRow.symbol,
           amount:confirmedAmount, from:wallet, to:step.to, txHash:hash, status:"SUBMITTED"}); } catch (_) {}
-        await waitSuccessfulReceipt(hash);
+        const receipt = await waitSuccessfulReceipt(hash);
+        if (toNative) {
+          if (receipt.gasUsed == null || receipt.effectiveGasPrice == null) throw new Error(`Confirmed transaction ${hash}; gas cost unavailable for native payout verification. Do not retry.`);
+          paidGas += BigInt(receipt.gasUsed) * BigInt(receipt.effectiveGasPrice);
+        }
         try { saveWalletTransaction({type:`WALLET SWAP ${String(step.type || "").toUpperCase()}`, chain:chainKey, asset:fromRow.symbol,
           amount:confirmedAmount, from:wallet, to:step.to, txHash:hash, status:"CONFIRMED"}); } catch (_) {}
-        if (step.type === "swap") swapHash = hash;
+        if (step.type === "swap" || (direct && (step.type === "wrap" || step.type === "unwrap"))) swapHash = hash;
       }
       if (!swapHash) throw new Error("Swap transaction missing.");
       const payoutAfter = await receiptBalanceOf();
-      if (payoutAfter - payoutBefore < BigInt(prep.minOut)) throw new Error(`Swap confirmed but expected ${toSym} balance increase was not verified. Check tx ${swapHash}`);
+      if (payoutAfter - payoutBefore + (toNative ? paidGas : 0n) < BigInt(prep.minOut)) throw new Error(`Swap confirmed but expected ${toSym} balance increase was not verified. Check tx ${swapHash}`);
       setWalletSwapMsg(`Confirmed: at least ${formatStable(prep.minOut)} ${toSym} received in your Privy Wallet. Tx ${swapHash}`);
       setWalletSwapAmount("");
       try { await refreshBalances?.(); } catch (_) {}
@@ -24599,20 +24622,20 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </details>
 
                   <details style={{ marginTop: 12, padding: 12, borderRadius: 14, background: "rgba(0,255,166,0.045)", border: "1px solid rgba(0,255,166,0.20)" }}>
-                    <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer" }}>Swap → USDC / USDT (Privy Wallet)</summary>
+                    <summary style={{ fontWeight: 900, fontSize: 13, cursor: "pointer" }}>Swap (Privy Wallet)</summary>
                     <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>
-                      Select ETH/BNB/POL, wrapped native, or existing Polygon USDC.e to swap into native USDC. USDC.e remains an optional bridged destination, never the default. Max is preselected; Nexus reserves gas and checks real quotes. Funds remain in your Privy Wallet. Automatic trading-capital conversion is still in safety testing; use Trading Wallet deposit separately.
+                      Swap or wrap/unwrap supported assets on the selected network. USDC.e is optional on Polygon. Network gas is reserved automatically. Funds stay in your Wallet.
                     </div>
                     <select className="input" value={walletSwapFromKey} onChange={(e) => { setWalletSwapFromKey(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy} style={{ width: "100%", height: 42, marginTop: 9 }}>
                       <option value="">Select token to swap</option>
-                      {visibleWalletAssetRows.filter((r) => ["ETH", "BNB", "POL"].includes(normalizeWalletChainKey(r.chain)) && (r.kind === "native" || r.address === "native" || String(wnativeSpecForChain(r.chain)?.address || "").toLowerCase() === String(r.address || "").toLowerCase() || (normalizeWalletChainKey(r.chain) === "POL" && String(r.address || "").toLowerCase() === "0x2791bca1f2de4661ed88a30c99a7a9449aa84174"))).map((r) => (
+                      {visibleWalletAssetRows.filter(manualWalletSwapEligible).map((r) => (
                         <option key={r.key} value={r.key}>{r.symbol} · {walletChainDisplayName(r.chain)} · {fmtQty(r.amount)}</option>
                       ))}
                     </select>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 9 }}>
                       <span className="muted" style={{ fontSize: 11 }}>Amount to swap</span>
                       <select className="input" value={walletSwapToSym} onChange={(e) => { setWalletSwapToSym(e.target.value); setWalletSwapMsg(""); }} disabled={walletSwapBusy || walletSwapTargetsStatus !== "ready"} style={{ width: 154, height: 38 }}>
-                        {!walletSwapTargets.length && <option value="">Checking Vault…</option>}
+                        {!walletSwapTargets.length && <option value="">Checking wallet assets…</option>}
                         {walletSwapTargets.length > 0 && <option value="">Choose destination</option>}
                         {walletSwapTargets.map((dest) => <option key={dest.address} value={dest.symbol}>{dest.symbol}{dest.legacyOptional ? " (bridged · optional)" : ""}</option>)}
                       </select>
@@ -24629,7 +24652,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     )}
                     {walletSwapTargetsStatus === "ready" && walletSwapTargets.some((v) => v.symbol === walletSwapToSym) && (
                       <div className="muted" style={{ fontSize: 10, marginTop: 6, overflowWrap: "anywhere" }}>
-                        {walletSwapTargets.find((v) => v.symbol === walletSwapToSym)?.legacyOptional ? "Bridged USDC.e (wallet-only, not default Vault settlement)" : "Verified Vault settlement"} contract: {walletSwapTargets.find((v) => v.symbol === walletSwapToSym)?.address}
+                        {walletSwapTargets.find((v) => v.symbol === walletSwapToSym)?.legacyOptional ? "Bridged USDC.e" : "Destination"} contract: {walletSwapTargets.find((v) => v.symbol === walletSwapToSym)?.address}
                       </div>
                     )}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 5, marginTop: 7 }}>

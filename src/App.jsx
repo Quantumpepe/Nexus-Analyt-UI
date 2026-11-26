@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.26-BUILD614-WALLET-WINNER";
+const FRONTEND_BUILD_ID = "F-2026.11.26-BUILD615-COMPARE-PERIOD";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -2477,6 +2477,110 @@ function buildUnifiedChart(seriesBySym) {
   return { x, lines, order: syms.slice() };
 }
 
+// BUILD615: Compare-only historical performance and period-aware pair metrics.
+const COMPARE_PERIOD_SPEC = Object.freeze({
+  "1D": [1, 1/24, "1h"], "7D": [7, 1/4, "6h"], "30D": [30, 1, "1d"],
+  "90D": [90, 3, "3d"], "1Y": [365, 7, "7d"], "2Y": [730, 14, "14d"],
+});
+const COMPARE_DAY_MS = 86400000;
+function compareCleanPoints(points) {
+  const m = new Map();
+  for (const p of Array.isArray(points) ? points : []) {
+    const t = Number(p?.t), v = Number(p?.v);
+    if (Number.isFinite(t) && t > 0 && Number.isFinite(v) && v > 0) m.set(t, v);
+  }
+  return [...m].sort((a,b) => a[0]-b[0]).map(([t,v]) => ({t,v}));
+}
+function comparePeriodView(series, tf) {
+  const spec = COMPARE_PERIOD_SPEC[tf] || COMPARE_PERIOD_SPEC["90D"];
+  const clean = Object.fromEntries(Object.entries(series || {}).map(([sym, pts]) => [sym, compareCleanPoints(pts)]));
+  const latest = Math.max(0, ...Object.values(clean).map(pts => pts[pts.length-1]?.t || 0));
+  const start = latest - spec[0]*COMPARE_DAY_MS;
+  const out = Object.fromEntries(Object.entries(clean).map(([sym, pts]) => [sym, pts.filter(p => p.t >= start && p.t <= latest)]));
+  return {series:out, start, end:latest, spec};
+}
+function compareHistoricalBases(history, referenceAt) {
+  const bases = {};
+  if (!(referenceAt > 0)) return bases;
+  for (const [sym, raw] of Object.entries(history || {})) {
+    const pts = compareCleanPoints(raw);
+    const point = pts.slice().reverse().find(p => p.t <= referenceAt);
+    // No interpolation, future price, or fallback to the first visible point.
+    if (point && referenceAt - point.t <= 2*COMPARE_DAY_MS) bases[sym] = point.v;
+  }
+  return bases;
+}
+function compareIndexedLines(lines, bases) {
+  if (bases == null) return normalizeToIndex(lines);
+  return Object.fromEntries(Object.entries(lines || {}).map(([sym, arr]) => {
+    const base = bases[sym];
+    return [sym, arr.map(v => Number.isFinite(v) && v > 0 && Number.isFinite(base) && base > 0 ? v/base*100 : null)];
+  }));
+}
+function buildCompareDisplayChart(series, bases) {
+  const chart = buildUnifiedChart(series);
+  // Never carry a last price past the end of a coin's available history.
+  for (const sym of chart.order) {
+    const pts = series[sym] || [];
+    const last = pts[pts.length-1]?.t;
+    chart.lines[sym] = chart.lines[sym].map((v,i) => last && chart.x[i] <= last ? v : null);
+  }
+  return {...chart, performanceBases:bases};
+}
+function computeComparePeriodPairs(view, tf, weightsInput, ratings = {}) {
+  const {series, start, end, spec} = view;
+  if (!(end > 0)) return [];
+  const step = spec[1]*COMPARE_DAY_MS;
+  const count = Math.ceil((end-start)/step);
+  const buckets = {};
+  for (const [sym, pts] of Object.entries(series)) {
+    const m = new Map();
+    for (const p of pts) {
+      const k = Math.min(count-1, Math.max(0, Math.floor((p.t-start)/step)));
+      m.set(k,p); // sorted: last observed price per interval
+    }
+    if (m.size >= 15) buckets[sym] = m;
+  }
+  const syms = Object.keys(buckets), result = [];
+  const weights = sanitizeCompareWeights(weightsInput);
+  const clamp = (v,lo=0,hi=100) => Math.max(lo,Math.min(hi,v));
+  const rsi = vals => {
+    let g=0,l=0;
+    for(let i=vals.length-14;i<vals.length;i++) {const d=vals[i]-vals[i-1]; if(d>0)g+=d; else l-=d;}
+    return g===0&&l===0?50:l===0?100:100-100/(1+g/l);
+  };
+  const momentum = g => g<=5?30+g*5:g<=15?55+(g-5)*4:g<=30?95-(g-15):clamp(80-(g-30)*2,35,80);
+  const vol = vals => {const mean=vals.reduce((a,b)=>a+b,0)/vals.length;return Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/vals.length)*100;};
+  for(let i=0;i<syms.length;i++) for(let j=i+1;j<syms.length;j++) {
+    const a=syms[i], b=syms[j], ma=buckets[a], mb=buckets[b];
+    const keys=[...ma.keys()].filter(k=>mb.has(k) && Math.abs(ma.get(k).t-mb.get(k).t)<=step).sort((x,y)=>x-y);
+    if(keys.length<Math.max(15,Math.ceil(count*.8)) || keys[0]>1 || keys[keys.length-1]<count-2) continue;
+    const tail=keys.slice(-15);
+    if(tail.some((k,i)=>i>0&&k!==tail[i-1]+1)) continue;
+    const av=keys.map(k=>ma.get(k).v), bv=keys.map(k=>mb.get(k).v);
+    const rawCorr=pearson(av.map(v=>v/av[0]),bv.map(v=>v/bv[0]));
+    if(!Number.isFinite(rawCorr)) continue;
+    const corr=clamp(rawCorr,-1,1);
+    const rsiA=rsi(av), rsiB=rsi(bv), rsiGap=Math.abs(rsiA-rsiB);
+    const firstBucketStart=start+keys[0]*step;
+    const firstA=series[a].find(p=>p.t>=firstBucketStart),firstB=series[b].find(p=>p.t>=firstBucketStart);
+    if(!firstA||!firstB||Math.abs(firstA.t-firstB.t)>step)continue;
+    const retA=(av.at(-1)/firstA.v-1)*100, retB=(bv.at(-1)/firstB.v-1)*100, spreadPct=Math.abs(retA-retB);
+    const ar=[], br=[];
+    for(let k=1;k<keys.length;k++) if(keys[k]===keys[k-1]+1){ar.push(av[k]/av[k-1]-1);br.push(bv[k]/bv[k-1]-1);}
+    if(ar.length<14) continue;
+    const volA=vol(ar),volB=vol(br),volGap=Math.abs(volA-volB);
+    const sa=userRatingAverageScore(ratings[a]), sb=userRatingAverageScore(ratings[b]);
+    const corrScore=Math.round(clamp(Math.abs(corr)*100)), momentumScore=Math.round(momentum(rsiGap));
+    const opportunityScore=Math.round(clamp(spreadPct*3.5)), stabilityScore=Math.round(clamp(100-volGap*10,25,100));
+    const sentimentScore=Math.round(Number.isFinite(sa)&&Number.isFinite(sb)?clamp((sa+sb)/2):50);
+    const score=Math.round((corrScore*weights.corr+momentumScore*weights.momentum+opportunityScore*weights.opportunity+stabilityScore*weights.stability+sentimentScore*weights.sentiment)/100);
+    const periodSeries = {[a]:keys.map(k=>({t:ma.get(k).t,v:ma.get(k).v})),[b]:keys.map(k=>({t:mb.get(k).t,v:mb.get(k).v}))};
+    result.push({pair:`${a}/${b}`,a,b,corr,score,corrScore,momentumScore,opportunityScore,stabilityScore,sentimentScore,rsiA,rsiB,rsiGap,retA,retB,spreadPct,volA,volB,volGap,comparePeriod:tf,barLabel:spec[2],periodSeries,periodBuckets:keys,periodStart:Math.max(firstA.t,firstB.t),periodEnd:Math.min(ma.get(keys.at(-1)).t,mb.get(keys.at(-1)).t),barCount:keys.length});
+  }
+  return result.sort((a,b)=>b.score-a.score||b.corrScore-a.corrScore||a.pair.localeCompare(b.pair));
+}
+
 function normalizeToIndex(lines) {
   const out = {};
   for (const [sym, arr] of Object.entries(lines || {})) {
@@ -2538,19 +2642,11 @@ function buildMonthlyTicks(tMin, tMax) {
 // ------------------------
 // SVG chart with y-scale + x labels
 // ------------------------
-function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, indexMode, timeframe, colorForSym, lineClassForSym }) {
+function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, indexMode, performanceMode = false, timeframe, colorForSym, lineClassForSym }) {
   const { x, lines, order } = chart || { x: [], lines: {}, order: [] };
   const syms = order?.length ? order : Object.keys(lines || {});
 
-  if (!x?.length || !syms.length) {
-    return (
-      <div className="chartEmpty" style={{ height }}>
-        <div className="muted">No chart data yet.</div>
-      </div>
-    );
-  }
-
-    const plotLines = indexMode ? normalizeToIndex(lines) : lines;
+  const plotLines = (indexMode || performanceMode) ? compareIndexedLines(lines, performanceMode ? (chart?.performanceBases || {}) : null) : lines;
 
   // BUILD559: selected coin keeps a single-value tooltip; visible ticker identifies the nearest line.
   const [hoverIdx, setHoverIdx] = useState(null);
@@ -2569,7 +2665,7 @@ function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, index
   };
 
   const fmtHoverVal = (sym) => {
-    if (indexMode) return fmtDeltaPct(plotLines?.[sym]?.[hoverIdx]);
+    if (indexMode || performanceMode) return fmtDeltaPct(plotLines?.[sym]?.[hoverIdx]);
     const v = lines?.[sym]?.[hoverIdx];
     if (v === null || v === undefined || !Number.isFinite(v)) return "—";
     return fmtUsd(v);
@@ -2596,11 +2692,15 @@ function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, index
       if (prev.w === rect.width && prev.h === rect.height) return prev;
       return { w: rect.width, h: rect.height };
     });
-  }, [hoverIdx, syms.length, indexMode, timeframe, highlightedSyms]);
+  }, [hoverIdx, syms.length, indexMode, performanceMode, timeframe, highlightedSyms]);
+  useEffect(() => { setHoverIdx(null); }, [timeframe, performanceMode, indexMode, x.length]);
+  if (!x?.length || !syms.length || !Object.values(plotLines).some(arr=>arr.some(Number.isFinite))) {
+    return <div className="chartEmpty" style={{height}}><div className="muted">{performanceMode ? "Historical reference not available yet. Use Index 100 or Price." : "No chart data yet."}</div></div>;
+  }
 
     // Overlay + Price: use log scale so vastly different price magnitudes remain readable (BTC vs small coins).
     // Index 100 stays linear (already normalized).
-    const logMode = !indexMode && syms.length > 1;
+    const logMode = !indexMode && !performanceMode && syms.length > 1;
     const EPS = 1e-12;
     const tVal = (v) => (logMode ? Math.log10(Math.max(EPS, v)) : v);
     const invTVal = (tv) => (logMode ? Math.pow(10, tv) : tv);
@@ -2617,10 +2717,11 @@ function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, index
         max = Math.max(max, tv);
       }
     }
-    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
-      // safe fallback for empty/flat charts
-      min = logMode ? 0 : 0.8;
-      max = logMode ? 1 : 1.2;
+    if (min === max && Number.isFinite(min)) {
+      const pad = logMode ? .05 : (indexMode || performanceMode) ? 1 : Math.max(Math.abs(min)*.01,1e-12);
+      min -= pad; max += pad;
+    } else if (!Number.isFinite(min) || !Number.isFinite(max)) {
+      min = logMode ? 0 : 0.8; max = logMode ? 1 : 1.2;
     }
 
     const w = 1000;
@@ -2665,7 +2766,7 @@ const tMin = x[0];
       return d;
     };
 
-    const yFmt = (tv) => (indexMode ? fmtDeltaPct(tv) : fmtUsd(invTVal(tv)));
+    const yFmt = (tv) => ((indexMode || performanceMode) ? fmtDeltaPct(tv) : fmtUsd(invTVal(tv)));
     // The selection already dims other curves. Make the hover data obey the SAME selection.
     const selectedHoverSet = new Set((highlightedSyms || []).map((sym) => String(sym || "").toUpperCase()));
     const hoverSyms = selectedHoverSet.size
@@ -2858,7 +2959,7 @@ const tMin = x[0];
               <span>{sym}</span>
               <span
                 style={{
-                  color: indexMode
+                  color: (indexMode || performanceMode)
                     ? (() => {
                         const v = plotLines?.[sym]?.[hoverIdx];
                         if (!Number.isFinite(v)) return "rgba(232,242,240,.85)";
@@ -3132,9 +3233,10 @@ function InlineWatchSpark({ sym, row, seriesMap, colorForSym, lineClassForSym, i
   );
 }
 
-function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, colorForSym, lineClassForSym }) {
+function SmallSpark({ sym, chart, idx, indexMode, performanceMode = false, timeframe, active, onClick, colorForSym, lineClassForSym }) {
   const { x, lines } = chart || { x: [], lines: {} };
   const arr = (lines?.[sym] || []).slice();
+  const [hovered, setHovered] = useState(false);
   if (!x?.length || !arr.length) {
     return (
       <button className={`sparkTile ${active ? "active" : ""}`} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} onClick={onClick} type="button">
@@ -3148,7 +3250,7 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
     );
   }
 
-  const values = indexMode
+  const values = performanceMode ? (compareIndexedLines({[sym]:arr}, chart?.performanceBases || {})[sym] || []) : indexMode
     ? (() => {
         let base = null;
         for (const v of arr) if (Number.isFinite(v)) { base = v; break; }
@@ -3163,16 +3265,15 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
     min = Math.min(min, v);
     max = Math.max(max, v);
   }
-  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) {
-    min = 0.9; max = 1.1;
-  }
+  if (min === max && Number.isFinite(min)) {const pad=(indexMode||performanceMode)?1:Math.max(Math.abs(min)*.01,1e-12);min-=pad;max+=pad;}
+  else if (!Number.isFinite(min) || !Number.isFinite(max)) {min=0.9;max=1.1;}
 
   const w = 360, h = 110;
   const padL = 10, padR = 10, padT = 12, padB = 18;
   const innerW = w - padL - padR;
   const innerH = h - padT - padB;
 
-  const sx = (i) => padL + (i * innerW) / Math.max(1, x.length - 1);
+  const sx = (i) => padL + ((x[i]-x[0]) * innerW) / Math.max(1, x[x.length-1]-x[0]);
   const sy = (v) => {
     const t = (v - min) / (max - min);
     return padT + (1 - t) * innerH;
@@ -3187,7 +3288,6 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
   }
 
   const last = [...values].reverse().find((v) => Number.isFinite(v));
-  const [hovered, setHovered] = useState(false);
 
   const deltaPct = (() => {
     if (!indexMode) return null;
@@ -3197,7 +3297,7 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
     return ((lastv - first) / first) * 100;
   })();
 
-  const lastTxt = last == null ? "—" : (indexMode ? last.toFixed(1) : fmtUsd(last));
+  const lastTxt = last == null ? "—" : (performanceMode ? fmtPct(last-100) : indexMode ? last.toFixed(1) : fmtUsd(last));
 
   return (
     <button
@@ -3216,7 +3316,7 @@ function SmallSpark({ sym, chart, idx, indexMode, timeframe, active, onClick, co
       <svg className="sparkSvg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
         <path d={d} className={`chartLine ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ opacity: 0.95, strokeWidth: 2.8, stroke: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]) }} />
       </svg>
-      <div className="sparkFoot muted tiny">{indexMode ? "Index 100" : "Price"} · 30D</div>
+      <div className="sparkFoot muted tiny">{performanceMode ? "Performance" : indexMode ? "Index 100" : "Price"} · {timeframe}</div>
     </button>
   );
 }
@@ -9919,15 +10019,6 @@ const byChain = {};
     });
   }, [compareSymbols.join("|"), timeframe]);
 
-  // Safety: if localStorage remembers timeframe=2Y but we don't have data yet,
-  // fall back to 90D (prevents blank/confusing chart states).
-  useEffect(() => {
-    if (String(timeframe || "").toUpperCase() === "2Y" && !has2YData) {
-      setTimeframe("90D");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeframe, has2YData]);
-
   // Access (NFT / Code) - UI only (stored locally). Later we can wire this to backend verification.
   // Access (NFT / Code) — backend driven (status + redeem)
   const [access, setAccess] = useState(null); // { active, until, source, tier, note }
@@ -10724,6 +10815,15 @@ function _fmtPctLocal(x) {
     return out;
   }
 
+  function _buildCompareSelectedRows(pair, a, b, maxDays) {
+    if (!pair?.comparePeriod) return _buildDailyRows(pairExplainSeries,a,b,maxDays);
+    const aa=pair.periodSeries?.[a]||[],bb=pair.periodSeries?.[b]||[];
+    const rows=[];for(let i=1;i<Math.min(aa.length,bb.length);i++){
+      if(pair.periodBuckets?.[i]!==pair.periodBuckets?.[i-1]+1)continue;
+      const av=(aa[i].v/aa[i-1].v-1)*100,bv=(bb[i].v/bb[i-1].v-1)*100;
+      rows.push({t:Math.max(aa[i].t,bb[i].t),a:av,b:bv,d:av-bv});
+    }return rows;
+  }
   function _buildDailyRows(seriesMap, a, b, maxDays) {
     const aArr = seriesMap?.[a] || [];
     const bArr = seriesMap?.[b] || [];
@@ -11062,7 +11162,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     setAiExplainLoading(true);
     try {
       const [a, b] = _pairSyms(selectedPair.pair);
-      const corr = Number(selectedPair?.corr);
+      const legacyPair = selectedPair?.comparePeriod ? bestPairsAll.find(p=>p.pair===selectedPair.pair) : selectedPair;
+      const corr = legacyPair?.corr == null ? NaN : Number(legacyPair.corr);
       const isExtremeInsight = normalizedAiInsightMode === "extreme";
 
       const windowDefs = ["7D", "30D", "90D", "1Y"];
@@ -11487,6 +11588,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }, [compareSymbols.join("|")]);
 
   const [indexMode, setIndexMode] = useState(true);
+  const [compareChartMode, setCompareChartMode] = useState("performance");
+  const compareDisplayKey = _cmpKey(compareSymbols, compareFetchRange, compareCoinIds);
+  const [compareDisplayState, setCompareDisplayState] = useState(() => ({key:compareDisplayKey,series:_cmpGetCached(compareSymbols,compareFetchRange,compareCoinIds)||{}}));
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
   const [comparePage, setComparePage] = useState("all"); // first10 | next10 | all
   const [highlightedSyms, setHighlightedSyms] = useState([]);
@@ -11634,6 +11738,42 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     });
   }, [bestPairsAll, bestPairsSortMode]);
   const bestPairsToShow = useMemo(() => (showTop10Pairs ? bestPairsSorted.slice(0, 10) : bestPairsSorted), [showTop10Pairs, bestPairsSorted]);
+  // Compare view uses only the matching range/asset identity, never last-good data from another range.
+  const compareDisplayData = useMemo(() => compareDisplayState.key === compareDisplayKey ? compareDisplayState.series : (_cmpGetCached(compareSymbols,compareFetchRange,compareCoinIds)||{}), [compareDisplayState,compareDisplayKey]);
+  const comparePeriodData = useMemo(() => comparePeriodView(compareDisplayData,timeframe), [compareDisplayData,timeframe]);
+  const compareReferenceRange = timeframe === "2Y" ? "3Y" : timeframe === "1Y" ? "2Y" : "1Y";
+  const compareReferenceKey = _cmpKey(compareSymbols,compareReferenceRange,compareCoinIds);
+  const [compareReferenceState,setCompareReferenceState] = useState({key:"",series:{}});
+  useEffect(() => {
+    if(compareChartMode!=="performance" || compareSymbols.length<2 || compareReferenceRange==="1Y") return;
+    const cached=_cmpGetCached(compareSymbols,compareReferenceRange,compareCoinIds);
+    if(cached && Object.values(cached).some(p=>p.length>1)){setCompareReferenceState({key:compareReferenceKey,series:cached});return;}
+    const controller=new AbortController();
+    (async()=>{try{
+      const qs=new URLSearchParams({symbols:compareSymbols.slice(0,20).join(","),range:compareReferenceRange,ids:JSON.stringify(compareCoinIds)});
+      const wa=resolveWalletAddress(wallet);if(wa)qs.set("wallet",wa);
+      const resp=await fetch(`${API_BASE}/api/compare?${qs}`,{credentials:"include",headers:{Accept:"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},signal:controller.signal});
+      if(!resp.ok)return;const payload=await resp.json();if(controller.signal.aborted)return;
+      if(String(payload.range||"").toUpperCase()!==compareReferenceRange)return;
+      const series=normalizeBackendSeries(payload.series||{});
+      if(Object.values(series).some(p=>p.length>1)){_cmpPutCached(compareSymbols,compareReferenceRange,series,compareCoinIds);setCompareReferenceState({key:compareReferenceKey,series});}
+    }catch(e){if(!controller.signal.aborted)console.warn("Compare reference unavailable",e);}})();
+    return ()=>controller.abort();
+  },[compareReferenceKey,compareChartMode,token]);
+  const compareReferenceHistory = compareReferenceRange === "1Y" ? (pairHistoryState.key===pairHistoryKey?pairHistoryState.series:(_cmpGetCached(compareSymbols,"1Y",compareCoinIds)||{})) : (compareReferenceState.key===compareReferenceKey?compareReferenceState.series:(_cmpGetCached(compareSymbols,compareReferenceRange,compareCoinIds)||{}));
+  const compareReferenceAt = comparePeriodData.start - 7*COMPARE_DAY_MS;
+  const compareBases = useMemo(()=>compareHistoricalBases(compareReferenceHistory,compareReferenceAt),[compareReferenceHistory,compareReferenceAt]);
+  const compareDisplayChart = useMemo(()=>buildCompareDisplayChart(Object.fromEntries(visibleCompareSymbols.map(sym=>[sym,comparePeriodData.series[sym]||[]])),compareBases),[visibleCompareSymbols,comparePeriodData,compareBases]);
+  const compareDetailChart = useMemo(()=>buildCompareDisplayChart(gridModalSym?{[gridModalSym]:comparePeriodData.series[gridModalSym]||[]}: {},compareBases),[gridModalSym,comparePeriodData,compareBases]);
+  const periodPairsAll = useMemo(()=>computeComparePeriodPairs(comparePeriodData,timeframe,activeCompareWeights,ratingSummaryBySymbol),[comparePeriodData,timeframe,activeCompareWeights,ratingSummaryBySymbol]);
+  const periodPairsSorted = useMemo(()=>{
+    const field={spread:"spreadPct","rsi-gap":"rsiGap",correlation:"corr"}[bestPairsSortMode];
+    return field?[...periodPairsAll].sort((a,b)=>b[field]-a[field]||b.score-a.score||a.pair.localeCompare(b.pair)):periodPairsAll;
+  },[periodPairsAll,bestPairsSortMode]);
+  const periodPairsToShow=showTop10Pairs?periodPairsSorted.slice(0,10):periodPairsSorted;
+  useEffect(()=>{if(selectedPair?.comparePeriod && selectedPair.comparePeriod!==timeframe)setSelectedPair(null);},[timeframe,selectedPair?.comparePeriod]);
+  const periodPairAlerts=useMemo(()=>buildLocalPairAlertsForUi(periodPairsAll,activeCompareWeights,normalizedAiInsightMode),[periodPairsAll,activeCompareWeights,normalizedAiInsightMode]);
+  const periodAlertMap=useMemo(()=>Object.fromEntries(periodPairAlerts.map(a=>[a.pair,a])),[periodPairAlerts]);
   const bestPairUiAlerts = useMemo(
     () => buildLocalPairAlertsForUi(bestPairsAll, activeCompareWeights, normalizedAiInsightMode),
     [bestPairsAll, activeCompareWeights, normalizedAiInsightMode]
@@ -11678,8 +11818,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const selectedPairLocalAlerts = useMemo(() => {
     const pairKey = String(selectedPair?.pair || "").toUpperCase();
     if (!pairKey) return [];
-    return (bestPairUiAlerts || []).filter((a) => String(a?.pair || "").toUpperCase() === pairKey);
-  }, [bestPairUiAlerts, selectedPair?.pair]);
+    return (selectedPair?.comparePeriod ? periodPairAlerts : bestPairUiAlerts || []).filter((a) => String(a?.pair || "").toUpperCase() === pairKey);
+  }, [bestPairUiAlerts, periodPairAlerts, selectedPair?.pair, selectedPair?.comparePeriod]);
   const selectedPairMainAlert = selectedPairLocalAlerts?.[0] || null;
   const selectedPairAlertTone = selectedPairLocalAlerts.some((a) => a?.strength === "high")
     ? "high"
@@ -18270,6 +18410,7 @@ const [aiLoading, setAiLoading] = useState(false);
     const cached = (opts.force || opts.noCache) ? null : _cmpGetCached(compareSymbols, fetchRange, compareCoinIds);
     if (cached && Object.keys(cached || {}).length) {
       setCompareSeries(cached);
+      setCompareDisplayState({key:_cmpKey(compareSymbols,fetchRange,compareCoinIds),series:cached});
       lastGoodCompareRef.current = cached;
     }
 
@@ -18298,6 +18439,7 @@ const [aiLoading, setAiLoading] = useState(false);
         compareFailRetryRef.current = { key: cmpKeyHTTP, n: 0, t: null };
       }
 
+      if (ac.signal.aborted) return;
       if (data && data.series) {
         const normalized = normalizeBackendSeries(data.series);
         // Ensure all currently selected symbols exist as keys (even if empty)
@@ -18335,6 +18477,7 @@ const [aiLoading, setAiLoading] = useState(false);
         const hasAny = Object.values(normalized).some((arr) => Array.isArray(arr) && arr.length);
         if (hasAny) {
           setCompareSeries(normalized);
+          if (String(data.range||"").toUpperCase() === fetchRange) setCompareDisplayState({key:_cmpKey(compareSymbols,fetchRange,compareCoinIds),series:normalized});
           lastGoodCompareRef.current = normalized;
           try { localStorage.setItem(LS_COMPARE_SERIES_CACHE, JSON.stringify(normalized)); } catch {}
           _cmpPutCached(compareSymbols, fetchRange, normalized, compareCoinIds);
@@ -18403,14 +18546,17 @@ const [aiLoading, setAiLoading] = useState(false);
       // eslint-disable-next-line no-console
       console.warn("compare fetch failed:", e);
     } finally {
-      setCompareLoading(false);
+      if(compareAbortRef.current===ac)setCompareLoading(false);
     }
   };
 
   useEffect(() => {
+    for(const ref of [compareRetryRef,compareFailRetryRef]){if(ref.current.t)clearTimeout(ref.current.t);ref.current={key:"",n:0,t:null};}
+    lastCompareFetchRef.current=0;
     fetchCompare();
+    return ()=>{compareAbortRef.current?.abort();for(const ref of [compareRetryRef,compareFailRetryRef]){if(ref.current.t)clearTimeout(ref.current.t);ref.current={key:"",n:0,t:null};}};
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compareFetchRange, compareSymbols.join("|")]);
+  }, [compareDisplayKey]);
 
   useEffect(() => {
     if (!compareForceNonce) return;
@@ -25330,60 +25476,21 @@ const handlePanelActivate = useCallback((name) => (e) => {
             <div className="cardTitle">Compare</div>
             <NexusHelpButton topic="compare" onHelp={openNexusAiHelp} />
             <div className="cardActions">
-              {TIMEFRAMES.map((tf) => {
-                const k = String(tf.key || "").toUpperCase();
-                const is2y = k === "2Y";
-                const is1d = k === "1D";
-                const loading2y = is2y && pendingTf === "2Y";
-                const disabled = (compareSymbols.length === 0) || loading2y;
-                const title =
-                  compareSymbols.length === 0
-                    ? "Select coins first (Watchlist → Compare)"
-                    : is2y
-                      ? (has2YData
-                          ? "2Y (self collected)"
-                          : "2Y will unlock after enough history is collected. Click to try loading.")
-                      : (is1d ? "1D may load intraday data" : "");
-
-                return (
-                  <button
-                    key={tf.key}
-                    className={`chip ${timeframe === tf.key ? "active" : ""}`}
-                    onClick={() => {
-                      if (disabled) return;
-                      if (is2y) {
-                        if (has2YData) {
-                          setTimeframe("2Y");
-                        } else {
-                          setErrorMsg("");
-                          setPendingTf("2Y");
-                          fetchCompare({ force: true, fetchRangeOverride: "2Y" });
-                        }
-                        return;
-                      }
-                      setTimeframe(tf.key);
-                    }}
-                    disabled={disabled}
-                    title={title}
-                  >
-                    {loading2y ? "2Y…" : tf.label}
-                  </button>
-                );
-              })}
+              {TIMEFRAMES.map(tf => <button key={tf.key} className={`chip ${timeframe===tf.key?"active":""}`} disabled={!compareSymbols.length} onClick={()=>{setErrorMsg("");setPendingTf(null);setTimeframe(tf.key);}}>{tf.label}</button>)}
 
               <button className={`chip ${viewMode === "overlay" ? "active" : ""}`} onClick={() => setViewMode("overlay")}>Overlay</button>
               <button className={`chip ${viewMode === "grid" ? "active" : ""}`} onClick={() => setViewMode("grid")}>Grid</button>
 
-              <button className={`chip ${indexMode ? "active" : ""}`} onClick={() => setIndexMode((v) => !v)} title="Toggle Price / Index(100)">
-                {indexMode ? "Index 100" : "Price"}
-              </button>
+              <button className={`chip ${compareChartMode === "performance" ? "active" : ""}`} onClick={()=>setCompareChartMode("performance")} title="Performance relative to a historical reference 7 days before the displayed window">Performance</button>
+              <button className={`chip ${compareChartMode === "index" ? "active" : ""}`} onClick={()=>{setCompareChartMode("index");setIndexMode(true);}}>Index 100</button>
+              <button className={`chip ${compareChartMode === "price" ? "active" : ""}`} onClick={()=>{setCompareChartMode("price");setIndexMode(false);}}>Price</button>
 
               <InfoButton title="Compare">
                 <Help showClose dismissable
                   de={
                     <>
                       <p><b>Was ist das?</b> Compare vergleicht bis zu 20 Coins aus deiner Watchlist-Compare-Auswahl.</p>
-                      <p><b>Price</b> zeigt die echten Preiswerte. <b>Index 100</b> normalisiert alle Coins auf denselben Startwert 100 und ist besser, wenn viele Coins gleichzeitig verglichen werden.</p>
+                      <p><b>Price</b> zeigt die echten Preiswerte. <b>Performance</b> zeigt die Entwicklung relativ zum historischen Referenzkurs 7 Tage vor dem Zeitraum. <b>Index 100</b> normalisiert alle Coins auf denselben Startwert 100 und ist besser, wenn viele Coins gleichzeitig verglichen werden.</p>
                       <p><b>Overlay</b> zeigt alle gewählten Coins in einem gemeinsamen Chart. <b>Grid</b> zeigt pro Coin eine kleine Kachel.</p>
                       <p><b>First 10 / Next 10 / All</b> steuert, ob du die ersten 10, die zweiten 10 oder alle Compare-Coins sehen willst.</p>
                       <p><b>Grid-Detail:</b> Klick auf eine Kachel öffnet den großen Chart. Dort kannst du direkt zwischen Price und Index 100 umschalten.</p>
@@ -25422,7 +25529,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   en={
                     <>
                       <p><b>What is this?</b> Compare compares up to 20 coins from your Watchlist Compare selection.</p>
-                      <p><b>Price</b> shows real price values. <b>Index 100</b> normalizes all coins to the same starting value of 100 and is better when many coins are compared at the same time.</p>
+                      <p><b>Price</b> shows real price values. <b>Performance</b> uses an observed price seven days before the window. <b>Index 100</b> normalizes all coins to the same starting value of 100 and is better when many coins are compared at the same time.</p>
                       <p><b>Overlay</b> shows all selected coins in one shared chart. <b>Grid</b> shows a small tile for each coin.</p>
                       <p><b>First 10 / Next 10 / All</b> controls whether you see the first 10, the next 10, or all selected Compare coins.</p>
                       <p><b>Grid detail:</b> Click a tile to open the large chart. There you can switch directly between Price and Index 100.</p>
@@ -25582,6 +25689,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="muted tiny">{compareLoading ? "Loading…" : `${visibleHighlightedSyms.length || visibleCompareSymbols.length}/${visibleCompareSymbols.length} active`}</div>
               </div>
 
+              <div className="muted tiny" style={{marginBottom:4}}>{compareChartMode === "performance" ? `Performance reference: ${compareReferenceAt>0 ? new Date(compareReferenceAt).toLocaleDateString(undefined,{timeZone:"UTC"}) : "—"} UTC (7 days before window; last observed price within 48h). ${visibleCompareSymbols.filter(sym=>Number.isFinite(compareBases[sym])).length}/${visibleCompareSymbols.length} references available.` : compareChartMode === "index" ? "Index 100: change from first visible price." : "Actual USD price."} {comparePeriodData.end>0 ? `Data through ${new Date(comparePeriodData.end).toLocaleString()}.` : "Awaiting selected period data."}</div>
               {viewMode === "overlay" ? (
               <>
                 {visibleCompareSymbols.length === 0 ? (
@@ -25590,7 +25698,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={chartRaw} height={movementPanelOpen ? 205 : 255} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={indexMode} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <SvgChart chart={compareDisplayChart} height={movementPanelOpen ? 205 : 255} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={compareChartMode === "index"} performanceMode={compareChartMode === "performance"} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     <div style={{ marginTop: 6 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>
@@ -25610,8 +25718,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       key={sym}
                       sym={sym}
                       idx={idx}
-                      chart={chartRaw}
-                      indexMode={indexMode}
+                      chart={compareDisplayChart}
+                      indexMode={compareChartMode === "index"} performanceMode={compareChartMode === "performance"}
                       timeframe={timeframe}
                       active={visibleHighlightedSyms.length === 0 || visibleHighlightedSyms.includes(sym)}
                       onClick={() => setGridModalSym(sym)}
@@ -25636,9 +25744,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               }}
                             >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    
-                  </div>
+                  <div className="muted tiny">{timeframe} · RSI(14) on {COMPARE_PERIOD_SPEC[timeframe]?.[2]} bars · {periodPairsAll.length} valid pairs</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <label className="muted tiny" style={{display:"flex",alignItems:"center",gap:5}}>
                       Sort:
@@ -25657,7 +25763,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       title="Open Movement Opportunities. This does not change the main pair ranking."
                       onClick={() => setMovementPanelOpen((v) => !v)}
                     >
-                      ⚡ Movement{bestPairUiAlerts.length ? ` (${bestPairUiAlerts.length})` : ""}
+                      ⚡ Movement{periodPairAlerts.length ? ` (${periodPairAlerts.length})` : ""}
                     </button>
                     <button className="ghostBtn tiny" onClick={() => setShowTop10Pairs(v => !v)}>
                       {showTop10Pairs ? "Show all pairs" : "Show top 10"}
@@ -25666,7 +25772,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
 
                 
-                {movementPanelOpen && bestPairUiAlerts.length ? (
+                {movementPanelOpen && !periodPairAlerts.length ? <div className="muted tiny">No movement opportunities for this period.</div> : null}
+                {movementPanelOpen && periodPairAlerts.length ? (
                   <div style={{
                     border: "1px solid rgba(255,184,0,.14)",
                     borderRadius: 12,
@@ -25688,7 +25795,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       marginBottom: 8
                     }}>
                       <div>
-                        <div className="label" style={{ marginBottom: 2 }}>⚡ Movement Opportunities ({bestPairUiAlerts.length})</div>
+                        <div className="label" style={{ marginBottom: 2 }}>⚡ Movement Opportunities ({periodPairAlerts.length})</div>
                         <div className="muted tiny">
                           Discovery-only setups. Main pair ranking stays purely data-fit based.
                         </div>
@@ -25713,9 +25820,9 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       paddingBottom: 6,
                       alignContent: "start"
                     }}>
-                      {(bestPairUiAlerts || [])
+                      {(periodPairAlerts || [])
                         .map((al) => {
-                          const match = (bestPairsAll || []).find(
+                          const match = (periodPairsAll || []).find(
                             (p) => String(p?.pair || "").toUpperCase() === String(al?.pair || "").toUpperCase()
                           );
 
@@ -25749,7 +25856,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 {/* BUILD559: column labels are OUTSIDE the scrolling rows, so there is no overlap.
                     Horizontal position stays aligned on narrow mobile screens. */}
-                {!movementPanelOpen && bestPairsToShow.length > 0 ? (
+                {!movementPanelOpen && periodPairsToShow.length > 0 ? (
                   <div ref={comparePairHeaderRef} style={{overflowX:"hidden",overflowY:"hidden",flexShrink:0}}>
                     <div className="pairRow pairHeaderRow" aria-label="Compare pair columns"
                       style={{gap:8,padding:"9px 23px 9px 16px",alignItems:"center", marginBottom:0,
@@ -25762,7 +25869,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                           ["RSI A ⓘ", "Momentum of the first coin. RSI above 70 may indicate overbought conditions; below 30 may indicate oversold conditions."],
                           ["RSI B ⓘ", "Momentum of the second coin, measured on the same RSI scale."],
                           ["Δ ⓘ", "Absolute difference between the two RSI values."],
-                          ["Spread ⓘ", "Difference between the price performances of the two coins over 30 days."],
+                          ["Spread ⓘ", "Difference between the price performances of the two coins in the selected period."],
                           ["Score ⓘ", "Nexus suitability score for this coin pair; this is not a guaranteed profit prediction."],
                           ["Corr ⓘ", "Correlation of their indexed price curves. +1 = similar movements, 0 = little relationship, -1 = opposite movements."],
                         ].map(([label,explanation]) => <span key={label} title={explanation} style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",cursor:"help",textAlign:label.startsWith('Pair')?'left':'center'}}>{label}</span>)}
@@ -25796,8 +25903,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     scrollbarGutter: "stable",
                   }}
                 >
-                  {bestPairsToShow.length ? (
-                    bestPairsToShow.map((p, i) => {
+                  {periodPairsToShow.length ? (
+                    periodPairsToShow.map((p, i) => {
                       const rsiAState = _rsiBadgeState(p.rsiA);
                       const rsiBState = _rsiBadgeState(p.rsiB);
                       const rsiGapTone = Number.isFinite(p.rsiGap)
@@ -25809,11 +25916,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         : "rgba(255,255,255,0.06)";
                       const quality = _pairQualityMeta(p.score);
                       const movementPairKey = String(p?.pair || "").toUpperCase().trim();
-                      const hasMovementChance = bestPairAlertPairSet.has(movementPairKey);
-                      const movementTone = bestPairAlertToneByPair[movementPairKey] || "low";
+                      const hasMovementChance = Boolean(periodAlertMap[movementPairKey]);
+                      const movementTone = periodAlertMap[movementPairKey]?.strength || "low";
                       const movementChanceScore = Number.isFinite(Number(p?.movement_chance_score ?? p?.movementChanceScore))
                         ? Number(p?.movement_chance_score ?? p?.movementChanceScore)
-                        : Number(bestPairAlertScoreByPair[movementPairKey]);
+                        : Number(periodAlertMap[movementPairKey]?.score);
 
                       return (
                         <div
@@ -25921,7 +26028,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                             <span
                               className="pill"
                               data-nexus-tour="compare-pair-spread"
-                              title={`30D spread: ${Number.isFinite(p.spreadPct) ? p.spreadPct.toFixed(2) + "%" : "—"} · Larger values rank higher when Spread sorting is active.`}
+                              title={`${timeframe} spread: ${Number.isFinite(p.spreadPct) ? p.spreadPct.toFixed(2) + "%" : "—"} · Larger values rank higher when Spread sorting is active.`}
                               style={{
                                 width: 72,
                                 justifyContent: "center",
@@ -25974,7 +26081,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       );
                     })
                   ) : (
-                    <div className="muted">Not enough chart data yet.</div>
+                    <div className="muted">Not enough matching history for this period. No score is estimated from another period.</div>
                   )}
                 </div>
               </div>
@@ -26004,7 +26111,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="cardTitle">{gridModalSym} chart</div>
                   <div className="muted tiny" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
                     <span>{timeframe}</span>
-                    <span>{indexMode ? "Index 100" : "Price (USD)"}</span>
+                    <span>{compareChartMode === "performance" ? "Performance" : compareChartMode === "index" ? "Index 100" : "Price (USD)"}</span>
                     {gridModalRow ? <span>{fmtUsd(Number(gridModalRow?.price))}</span> : null}
                     {gridModalRow?.change24h != null ? (
                       <span style={{ color: Number(gridModalRow?.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>
@@ -26016,21 +26123,22 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                   <button
-                    className={`chip ${!indexMode ? "active" : ""}`}
-                    onClick={() => setIndexMode(false)}
+                    className={`chip ${compareChartMode === "price" ? "active" : ""}`}
+                    onClick={() => {setCompareChartMode("price");setIndexMode(false);}}
                     type="button"
                     title="Show real price chart"
                   >
                     Price
                   </button>
                   <button
-                    className={`chip ${indexMode ? "active" : ""}`}
-                    onClick={() => setIndexMode(true)}
+                    className={`chip ${compareChartMode === "index" ? "active" : ""}`}
+                    onClick={() => {setCompareChartMode("index");setIndexMode(true);}}
                     type="button"
                     title="Show Index 100 chart"
                   >
                     Index 100
                   </button>
+                  <button className={`chip ${compareChartMode === "performance" ? "active" : ""}`} onClick={()=>setCompareChartMode("performance")} type="button">Performance</button>
                   <button className="btnGhost" onClick={() => setGridModalSym(null)} type="button">
                     Close
                   </button>
@@ -26039,11 +26147,11 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="cardBody" style={{ display: "grid", gap: 12 }}>
                 <SvgChart
-                  chart={gridModalChart}
+                  chart={compareDetailChart}
                   height={440}
                   highlightedSyms={[]}
                   onHoverSym={() => {}}
-                  indexMode={indexMode}
+                  indexMode={compareChartMode === "index"} performanceMode={compareChartMode === "performance"}
                   timeframe={timeframe}
                   colorForSym={colorForSym}
                   lineClassForSym={lineClassForSym}
@@ -26086,7 +26194,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div data-nexus-tour="compare-pair-modal-head">
                   <div className="cardTitle">Why this score?</div>
                   <div className="muted tiny">
-                    {selectedPair.pair} · 30D · Score {selectedPair.score} · Corr{" "}
+                    {selectedPair.pair} · {selectedPair.comparePeriod || "30D"} · Score {selectedPair.score} · Corr{" "}
                     {(selectedPair.corr >= 0 ? "+" : "") + selectedPair.corr.toFixed(2)}
                   </div>
                 </div>
@@ -26097,8 +26205,8 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
               <div className="cardBody" style={{ display: "grid", gap: 14 }}>{(() => {
                   const [a, b] = _pairSyms(selectedPair.pair);
-                  const ra = _retPctForExplain(a);
-                  const rb = _retPctForExplain(b);
+                  const ra = selectedPair.comparePeriod ? selectedPair.retA : _retPctForExplain(a);
+                  const rb = selectedPair.comparePeriod ? selectedPair.retB : _retPctForExplain(b);
                   const spread = Number.isFinite(ra) && Number.isFinite(rb) ? ra - rb : null;
                   const winner = Number.isFinite(spread) ? (spread >= 0 ? a : b) : null;
                   const loser = Number.isFinite(spread) ? (spread >= 0 ? b : a) : null;
@@ -26107,6 +26215,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <>
                       <div style={{ display: "grid", gap: 8 }}>
                         <div className="label">Performance (same period)</div>
+                        {selectedPair.comparePeriod ? <div className="muted tiny">{new Date(selectedPair.periodStart).toLocaleString()} – {new Date(selectedPair.periodEnd).toLocaleString()} · {selectedPair.barCount} matched bars · RSI(14) on {selectedPair.barLabel} bars</div> : null}
                         {pairExplainLoading && <div className="muted tiny">Loading pair data…</div>}
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <span className="pill silver">{a}: <span style={_pctColorStyle(ra)}>{_fmtPctLocal(ra)}</span></span>
@@ -26119,7 +26228,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                         {/* Trader quick spread view */}
                         {(() => {
-                          const rows = _buildDailyRows(pairExplainSeries, a, b, 30);
+                          const rows = _buildCompareSelectedRows(selectedPair, a, b, 30);
                           if (!rows.length) return null;
 
                           const spreads = rows
@@ -26151,7 +26260,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                                 <div>
                                   <div className="label" style={{ marginBottom: 0 }}>Spread Analysis</div>
-                                  <div className="muted tiny" style={{ marginTop: 2 }}>30D Relative Spread ({a} vs {b}) · Positive = {a} stronger · Negative = {b} stronger</div>
+                                  <div className="muted tiny" style={{ marginTop: 2 }}>{selectedPair.comparePeriod || "30D"} Bar Return Spread ({a} vs {b}) · Positive = {a} stronger · Negative = {b} stronger</div>
                                 </div>
                                 <span className="pill silver">Latest: {_fmtPctLocal(latestSpreadQuick)}</span>
                               </div>
@@ -26181,14 +26290,14 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                         <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
                           <div className="label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span>Daily moves (last {30} days)</span>
+                            <span>{selectedPair.comparePeriod ? `Moves (${selectedPair.barLabel} bars · ${selectedPair.comparePeriod})` : "Daily moves (last 30 days)"}</span>
                             <span className="muted tiny">{selectedPair.pair}</span>
                           </div>
 
                           {(() => {
                             const [a, b] = _pairSyms(selectedPair.pair);
                             const maxDays = 30;
-                            const rows = _buildDailyRows(pairExplainSeries, a, b, maxDays);
+                            const rows = _buildCompareSelectedRows(selectedPair, a, b, maxDays);
                             if (!rows.length) return <div className="muted tiny">No daily series yet.</div>;
 
                             return (
@@ -26202,7 +26311,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <div style={{ maxHeight: 180, overflow: "auto" }}>
                                   {rows.slice().reverse().map((r, i) => (
                                     <div key={i} style={{ display: "grid", gridTemplateColumns: "90px 1fr 1fr 1fr", gap: 8, padding: "7px 10px", borderTop: "1px solid rgba(255,255,255,0.06)" }} className="tiny">
-                                      <div className="muted">{_fmtDay(r.t)}</div>
+                                      <div className="muted">{selectedPair.comparePeriod === "1D" || selectedPair.comparePeriod === "7D" ? new Date(r.t).toLocaleString() : _fmtDay(r.t)}</div>
                                       <div style={_pctColorStyle(r.a)}>{_fmtPctLocal(r.a)}</div>
                                       <div style={_pctColorStyle(r.b)}>{_fmtPctLocal(r.b)}</div>
                                       <div>{_fmtPctLocal(r.d)}</div>
@@ -26215,12 +26324,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                         </div>
 
                         <div className="muted tiny">
-                          Score now combines correlation, RSI gap, 30D spread and volatility balance. A higher score means the pair is more useful for grid/rebalance ideas, not just more correlated.
+                          Score combines correlation, RSI gap, selected-period spread and volatility balance. A higher score means the pair is more useful for grid/rebalance ideas, not just more correlated.
                         </div>
                       </div>
 
                       <div style={{ display: "grid", gap: 8 }}>
-                        <div className="label">Short-Term Momentum</div>
+                        <div className="label">Period Momentum</div>
                         {winner ? (() => {
                           const quality = _pairQualityMeta(selectedPair?.score);
 
@@ -26238,7 +26347,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 <span className="pill silver">Score {selectedPair.score}</span>
                               </div>
                               <div className="muted">
-                                <b>Now:</b> <b>{winner}</b> &gt; <b>{loser}</b> (short-term momentum / 30D view).
+                                <b>Now:</b> <b>{winner}</b> &gt; <b>{loser}</b> ({selectedPair.comparePeriod || "30D"} view).
                               </div>
                               <div className="tiny" style={{ display: "flex", flexWrap: "wrap", gap: 8, color: quality.color }}>
                                 <span>Corr {(selectedPair.corr >= 0 ? "+" : "") + selectedPair.corr.toFixed(2)}</span>
@@ -26302,7 +26411,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                 <div style={{ display: "grid", gap: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                    <div className="label">AI commentary (optional)</div>
+                    <div className="label">AI commentary (optional · separate multi-window analysis)</div>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                       <button
                         data-nexus-tour="compare-ai-mode-button"

@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.26-BUILD617-COMPARE-2Y";
+const FRONTEND_BUILD_ID = "F-2026.11.26-BUILD618-COMPARE-INDEX-ENDPOINT";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -2517,15 +2517,27 @@ function compareIndexedLines(lines, bases) {
     return [sym, arr.map(v => Number.isFinite(v) && v > 0 && Number.isFinite(base) && base > 0 ? v/base*100 : null)];
   }));
 }
-function buildCompareDisplayChart(series, bases) {
+function compareIndexBases(history, view, timeframe) {
+  // Two-year provider history has no preceding reference week. Use the first
+  // actual visible observation only for 2Y; do not invent a pre-window price.
+  if (timeframe === "2Y") return Object.fromEntries(Object.entries(view.series || {})
+    .filter(([,pts]) => pts.length && pts[0].v > 0).map(([sym,pts]) => [sym,pts[0].v]));
+  return compareHistoricalBases(history, view.start - 7*COMPARE_DAY_MS);
+}
+function buildCompareDisplayChart(series, bases, timeframe) {
   const chart = buildUnifiedChart(series);
-  // Never carry a last price past the end of a coin's available history.
+  const maxTailAge = timeframe === "1D" ? 2*3600000 :
+    ["7D","30D"].includes(timeframe) ? 6*3600000 : 2*COMPARE_DAY_MS;
+  const lastObserved = {};
   for (const sym of chart.order) {
     const pts = series[sym] || [];
     const last = pts[pts.length-1]?.t;
-    chart.lines[sym] = chart.lines[sym].map((v,i) => last && chart.x[i] <= last ? v : null);
+    if (last) lastObserved[sym] = last;
+    // Same as-of convention as the existing chart alignment, with a bounded
+    // tail. Missing or stale observations remain null; no invented live price.
+    chart.lines[sym] = chart.lines[sym].map((v,i) => last && chart.x[i] <= last+maxTailAge ? v : null);
   }
-  return {...chart, performanceBases:bases};
+  return {...chart, performanceBases:bases, lastObserved};
 }
 function computeComparePeriodPairs(view, tf, weightsInput, ratings = {}) {
   const {series, start, end, spec} = view;
@@ -2698,7 +2710,7 @@ function SvgChart({ chart, height = 320, highlightedSyms = [], onHoverSym, index
   }, [hoverIdx, syms.length, indexMode, performanceMode, timeframe, highlightedSyms]);
   useEffect(() => { setHoverIdx(null); }, [timeframe, performanceMode, indexMode, x.length]);
   if (!x?.length || !syms.length || !Object.values(plotLines).some(arr=>arr.some(Number.isFinite))) {
-    return <div className="chartEmpty" style={{height}}><div className="muted">{performanceMode ? "Historical reference not available yet. Use Index 100 or Price." : "No chart data yet."}</div></div>;
+    return <div className="chartEmpty" style={{height}}><div className="muted">{performanceMode ? "Historical reference not available yet. Use Price." : "No chart data yet."}</div></div>;
   }
 
     // Overlay + Price: use log scale so vastly different price magnitudes remain readable (BTC vs small coins).
@@ -2959,7 +2971,12 @@ const tMin = x[0];
                 fontWeight: 800,
               }}
             >
-              <span>{sym}</span>
+              <span>{sym}{Number.isFinite(plotLines?.[sym]?.[hoverIdx]) && chart?.lastObserved?.[sym] < x[hoverIdx] && (
+                <span className="muted" style={{fontSize:10, fontWeight:400, marginLeft:4}}
+                  title={new Date(chart.lastObserved[sym]).toLocaleString()}>
+                  {new Date(chart.lastObserved[sym]).toLocaleString(undefined,{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}
+                </span>
+              )}</span>
               <span
                 style={{
                   color: (indexMode || performanceMode)
@@ -3319,7 +3336,7 @@ function SmallSpark({ sym, chart, idx, indexMode, performanceMode = false, timef
       <svg className="sparkSvg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
         <path d={d} className={`chartLine ${lineClassForSym ? lineClassForSym(sym) : `line${(idx % 10) + 1}`}`} style={{ opacity: 0.95, strokeWidth: 2.8, stroke: (colorForSym ? colorForSym(sym) : PALETTE20[idx % 10]) }} />
       </svg>
-      <div className="sparkFoot muted tiny">{performanceMode ? "Performance" : indexMode ? "Index 100" : "Price"} · {timeframe}</div>
+      <div className="sparkFoot muted tiny">{(performanceMode || indexMode) ? "Index 100" : "Price"} · {timeframe}</div>
     </button>
   );
 }
@@ -11591,11 +11608,8 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }, [compareSymbols.join("|")]);
 
   const [indexMode, setIndexMode] = useState(true);
-  const [compareChartPreference, setCompareChartMode] = useState("performance");
-  // Basic history covers 730 days, not the extra reference week. Keep the
-  // requested 2Y range and use actual prices instead of a blank performance plot.
-  const compareChartMode = timeframe === "2Y" && compareChartPreference === "performance"
-    ? "price" : compareChartPreference;
+  // The existing Index 100 toggle now selects the historical performance view.
+  const compareChartMode = indexMode ? "index" : "price";
   const compareDisplayKey = _cmpKey(compareSymbols, compareFetchRange, compareCoinIds);
   const [compareDisplayState, setCompareDisplayState] = useState(() => ({key:compareDisplayKey,series:_cmpGetCached(compareSymbols,compareFetchRange,compareCoinIds)||{}}));
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
@@ -11752,7 +11766,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   const compareReferenceKey = _cmpKey(compareSymbols,compareReferenceRange,compareCoinIds);
   const [compareReferenceState,setCompareReferenceState] = useState({key:"",series:{}});
   useEffect(() => {
-    if(compareChartMode!=="performance" || timeframe==="2Y" || compareSymbols.length<2 || compareReferenceRange==="1Y") return;
+    if(compareChartMode!=="index" || timeframe==="2Y" || !compareSymbols.length || compareReferenceRange==="1Y") return;
     const cached=_cmpGetCached(compareSymbols,compareReferenceRange,compareCoinIds);
     if(cached && Object.values(cached).some(p=>p.length>1)){setCompareReferenceState({key:compareReferenceKey,series:cached});return;}
     const controller=new AbortController();
@@ -11768,10 +11782,9 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
     return ()=>controller.abort();
   },[compareReferenceKey,compareChartMode,timeframe,token]);
   const compareReferenceHistory = compareReferenceRange === "1Y" ? (pairHistoryState.key===pairHistoryKey?pairHistoryState.series:(_cmpGetCached(compareSymbols,"1Y",compareCoinIds)||{})) : (compareReferenceState.key===compareReferenceKey?compareReferenceState.series:(_cmpGetCached(compareSymbols,compareReferenceRange,compareCoinIds)||{}));
-  const compareReferenceAt = comparePeriodData.start - 7*COMPARE_DAY_MS;
-  const compareBases = useMemo(()=>compareHistoricalBases(compareReferenceHistory,compareReferenceAt),[compareReferenceHistory,compareReferenceAt]);
-  const compareDisplayChart = useMemo(()=>buildCompareDisplayChart(Object.fromEntries(visibleCompareSymbols.map(sym=>[sym,comparePeriodData.series[sym]||[]])),compareBases),[visibleCompareSymbols,comparePeriodData,compareBases]);
-  const compareDetailChart = useMemo(()=>buildCompareDisplayChart(gridModalSym?{[gridModalSym]:comparePeriodData.series[gridModalSym]||[]}: {},compareBases),[gridModalSym,comparePeriodData,compareBases]);
+  const compareBases = useMemo(()=>compareIndexBases(compareReferenceHistory,comparePeriodData,timeframe),[compareReferenceHistory,comparePeriodData,timeframe]);
+  const compareDisplayChart = useMemo(()=>buildCompareDisplayChart(Object.fromEntries(visibleCompareSymbols.map(sym=>[sym,comparePeriodData.series[sym]||[]])),compareBases,timeframe),[visibleCompareSymbols,comparePeriodData,compareBases,timeframe]);
+  const compareDetailChart = useMemo(()=>buildCompareDisplayChart(gridModalSym?{[gridModalSym]:comparePeriodData.series[gridModalSym]||[]}: {},compareBases,timeframe),[gridModalSym,comparePeriodData,compareBases,timeframe]);
   const periodPairsAll = useMemo(()=>computeComparePeriodPairs(comparePeriodData,timeframe,activeCompareWeights,ratingSummaryBySymbol),[comparePeriodData,timeframe,activeCompareWeights,ratingSummaryBySymbol]);
   const periodPairsSorted = useMemo(()=>{
     const field={spread:"spreadPct","rsi-gap":"rsiGap",correlation:"corr"}[bestPairsSortMode];
@@ -25488,16 +25501,15 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <button className={`chip ${viewMode === "overlay" ? "active" : ""}`} onClick={() => setViewMode("overlay")}>Overlay</button>
               <button className={`chip ${viewMode === "grid" ? "active" : ""}`} onClick={() => setViewMode("grid")}>Grid</button>
 
-              <button className={`chip ${compareChartMode === "performance" ? "active" : ""}`} onClick={()=>setCompareChartMode("performance")} disabled={timeframe === "2Y"} title={timeframe === "2Y" ? "2Y: use Price or Index 100; Performance needs a reference older than two years." : "Performance relative to a historical reference 7 days before the displayed window (last observed price within 48h)."}>Performance</button>
-              <button className={`chip ${compareChartMode === "index" ? "active" : ""}`} onClick={()=>{setCompareChartMode("index");setIndexMode(true);}}>Index 100</button>
-              <button className={`chip ${compareChartMode === "price" ? "active" : ""}`} onClick={()=>{setCompareChartMode("price");setIndexMode(false);}}>Price</button>
+              <button className={`chip ${compareChartMode === "index" ? "active" : ""}`} onClick={()=>{setIndexMode(true);}}>Index 100</button>
+              <button className={`chip ${compareChartMode === "price" ? "active" : ""}`} onClick={()=>{setIndexMode(false);}}>Price</button>
 
               <InfoButton title="Compare">
                 <Help showClose dismissable
                   de={
                     <>
                       <p><b>Was ist das?</b> Compare vergleicht bis zu 20 Coins aus deiner Watchlist-Compare-Auswahl.</p>
-                      <p><b>Price</b> zeigt die echten Preiswerte. <b>Performance</b> zeigt die Entwicklung relativ zum historischen Referenzkurs 7 Tage vor dem Zeitraum. <b>Index 100</b> normalisiert alle Coins auf denselben Startwert 100 und ist besser, wenn viele Coins gleichzeitig verglichen werden.</p>
+                      <p><b>Price</b> zeigt die echten Preiswerte. <b>Index 100</b> zeigt die prozentuale Entwicklung relativ zum historischen Referenzkurs 7 Tage vor dem Zeitraum. Bei 2Y gilt mangels aelterer Historie der erste verfuegbare Kurs im Zeitraum.</p>
                       <p><b>Overlay</b> zeigt alle gewählten Coins in einem gemeinsamen Chart. <b>Grid</b> zeigt pro Coin eine kleine Kachel.</p>
                       <p><b>First 10 / Next 10 / All</b> steuert, ob du die ersten 10, die zweiten 10 oder alle Compare-Coins sehen willst.</p>
                       <p><b>Grid-Detail:</b> Klick auf eine Kachel öffnet den großen Chart. Dort kannst du direkt zwischen Price und Index 100 umschalten.</p>
@@ -25536,7 +25548,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   en={
                     <>
                       <p><b>What is this?</b> Compare compares up to 20 coins from your Watchlist Compare selection.</p>
-                      <p><b>Price</b> shows real price values. <b>Performance</b> uses an observed price seven days before the window. <b>Index 100</b> normalizes all coins to the same starting value of 100 and is better when many coins are compared at the same time.</p>
+                      <p><b>Price</b> shows real price values. <b>Index 100</b> shows percentage performance using an observed price seven days before the window. For 2Y, the first available price in the window is used because older history is unavailable.</p>
                       <p><b>Overlay</b> shows all selected coins in one shared chart. <b>Grid</b> shows a small tile for each coin.</p>
                       <p><b>First 10 / Next 10 / All</b> controls whether you see the first 10, the next 10, or all selected Compare coins.</p>
                       <p><b>Grid detail:</b> Click a tile to open the large chart. There you can switch directly between Price and Index 100.</p>
@@ -25704,7 +25716,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </div>
                 ) : (
                   <>
-                    <SvgChart chart={compareDisplayChart} height={movementPanelOpen ? 205 : 255} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={compareChartMode === "index"} performanceMode={compareChartMode === "performance"} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
+                    <SvgChart chart={compareDisplayChart} height={movementPanelOpen ? 205 : 255} highlightedSyms={visibleHighlightedSyms} onHoverSym={() => {}} indexMode={false} performanceMode={compareChartMode === "index"} timeframe={timeframe} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     <div style={{ marginTop: 6 }}>
                       <Legend symbols={visibleCompareSymbols} highlightedSyms={visibleHighlightedSyms} setHighlightedSyms={setHighlightedSyms} colorForSym={colorForSym} lineClassForSym={lineClassForSym} />
                     </div>
@@ -25725,7 +25737,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                       sym={sym}
                       idx={idx}
                       chart={compareDisplayChart}
-                      indexMode={compareChartMode === "index"} performanceMode={compareChartMode === "performance"}
+                      indexMode={false} performanceMode={compareChartMode === "index"}
                       timeframe={timeframe}
                       active={visibleHighlightedSyms.length === 0 || visibleHighlightedSyms.includes(sym)}
                       onClick={() => setGridModalSym(sym)}
@@ -26116,7 +26128,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   <div className="cardTitle">{gridModalSym} chart</div>
                   <div className="muted tiny" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
                     <span>{timeframe}</span>
-                    <span>{compareChartMode === "performance" ? "Performance" : compareChartMode === "index" ? "Index 100" : "Price (USD)"}</span>
+                    <span>{compareChartMode === "index" ? "Index 100" : "Price (USD)"}</span>
                     {gridModalRow ? <span>{fmtUsd(Number(gridModalRow?.price))}</span> : null}
                     {gridModalRow?.change24h != null ? (
                       <span style={{ color: Number(gridModalRow?.change24h) >= 0 ? "var(--green)" : "var(--red)" }}>
@@ -26129,7 +26141,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                   <button
                     className={`chip ${compareChartMode === "price" ? "active" : ""}`}
-                    onClick={() => {setCompareChartMode("price");setIndexMode(false);}}
+                    onClick={() => {setIndexMode(false);}}
                     type="button"
                     title="Show real price chart"
                   >
@@ -26137,13 +26149,12 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   </button>
                   <button
                     className={`chip ${compareChartMode === "index" ? "active" : ""}`}
-                    onClick={() => {setCompareChartMode("index");setIndexMode(true);}}
+                    onClick={() => {setIndexMode(true);}}
                     type="button"
                     title="Show Index 100 chart"
                   >
                     Index 100
                   </button>
-                  <button className={`chip ${compareChartMode === "performance" ? "active" : ""}`} onClick={()=>setCompareChartMode("performance")} disabled={timeframe === "2Y"} title={timeframe === "2Y" ? "2Y: use Price or Index 100; Performance needs a reference older than two years." : undefined} type="button">Performance</button>
                   <button className="btnGhost" onClick={() => setGridModalSym(null)} type="button">
                     Close
                   </button>
@@ -26156,7 +26167,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   height={440}
                   highlightedSyms={[]}
                   onHoverSym={() => {}}
-                  indexMode={compareChartMode === "index"} performanceMode={compareChartMode === "performance"}
+                  indexMode={false} performanceMode={compareChartMode === "index"}
                   timeframe={timeframe}
                   colorForSym={colorForSym}
                   lineClassForSym={lineClassForSym}

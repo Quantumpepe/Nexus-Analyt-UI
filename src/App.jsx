@@ -655,7 +655,7 @@ import * as JsxRuntime from "react/jsx-runtime";
   React.__nexusSafeChildren = true;
 })();
 
-import { usePrivy, useWallets, useSigners } from "@privy-io/react-auth";
+import { usePrivy, useWallets, useSigners, useSendTransaction } from "@privy-io/react-auth";
 
 import { Alchemy, Network, Utils } from "alchemy-sdk";
 
@@ -5194,6 +5194,7 @@ const [errorMsg, setErrorMsg] = useState("");
   // External wallets must be optional and only enabled explicitly elsewhere.
   const { ready, authenticated, login, logout, getAccessToken, user: privyUser } = usePrivy();
   const { wallets: privyWallets } = useWallets();
+  const { sendTransaction: sendWalletSwapTransaction } = useSendTransaction();
   const { addSigners, removeSigners } = useSigners();
   const _privySignerSetupInFlight = useRef(false);
 
@@ -5754,6 +5755,7 @@ const [wsChainKey, setWsChainKey] = useState(() => {
   const [walletSwapMode, setWalletSwapMode] = useState("100"); // 25 / 50 / 75 / 100 / CUSTOM
   const [walletSwapAmount, setWalletSwapAmount] = useState("");
   const [walletSwapBusy, setWalletSwapBusy] = useState(false);
+  const walletSwapInFlight = useRef(false);
   const [walletSwapMsg, setWalletSwapMsg] = useState("");
   const [walletSwapTargets, setWalletSwapTargets] = useState([]);
   const [walletSwapTargetsStatus, setWalletSwapTargetsStatus] = useState("idle");
@@ -8065,6 +8067,8 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
   // BUILD571: user-triggered Privy wallet swap. An actual on-chain quote and
   // individually successful receipts are mandatory; no unlimited approvals.
   const runPrivyWalletSwap = async () => {
+    if (walletSwapInFlight.current) return;
+    walletSwapInFlight.current = true;
     try {
       setWalletSwapMsg("");
       if (!wallet) throw new Error("Wallet not connected.");
@@ -8145,20 +8149,60 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
       // Use the precise server-derived input, not a rounded display balance.
       const confirmedAmount = String(prep.amountInHuman || "").trim();
       if (!confirmedAmount || BigInt(prep.amountIn || "0") <= 0n) throw new Error("Exact input amount missing from quote.");
+      // Validate every call before requesting the user's one explicit swap consent.
+      // The SDK's per-call UI override below is scoped to this validated sequence only.
+      const addr = (v) => {
+        const a = String(v || "").toLowerCase();
+        if (!/^0x[0-9a-f]{40}$/.test(a)) throw new Error("Invalid swap address.");
+        return a;
+      };
+      const word = (v) => BigInt(v).toString(16).padStart(64, "0");
+      const addrWord = (v) => addr(v).slice(2).padStart(64, "0");
+      const router = addr(prep.router);
+      const sourceToken = addr(fromNative ? wrapped?.address : fromRow.address);
+      const amountUnits = BigInt(prep.amountIn);
+      const minUnits = BigInt(prep.minOut);
+      if (Number(prep.chainId) !== Number(chainId) || String(prep.chain) !== chainKey ||
+          amountUnits >= 2n ** 128n || minUnits <= 0n ||
+          !Number.isInteger(Number(prep.feeTier)) || Number(prep.feeTier) <= 0 || Number(prep.feeTier) >= 2 ** 24) {
+        throw new Error("Invalid swap preparation.");
+      }
+      if (isCustomAmount && decimalStringToUnits(rawAmount, Number(prep.tokenIn.decimals)) !== amountUnits) {
+        throw new Error("Swap amount differs from your selection.");
+      }
+      const expectedSwapData = (chainKey === "BNB" ? "0x414bf389" : "0x04e45aaf") +
+        addrWord(sourceToken) + addrWord(selectedDestination.address) + word(prep.feeTier) + addrWord(wallet) +
+        (chainKey === "BNB" ? word(prep.deadline) : "") + word(amountUnits) + word(minUnits) + word(0);
+      const validSequences = fromNative
+        ? ["wrap,swap", "wrap,approve,swap", "wrap,approve_reset,approve,swap"]
+        : ["swap", "approve,swap", "approve_reset,approve,swap"];
+      if (!validSequences.includes(steps.map((step) => step?.type).join(","))) throw new Error("Invalid swap sequence.");
+      const approvedSteps = steps.map((step) => {
+        const to = addr(step.to);
+        const data = String(step.data || "").toLowerCase();
+        const value = BigInt(step.value || "0x0");
+        if (step.type === "wrap") {
+          if (to !== sourceToken || data !== "0xd0e30db0" || value !== amountUnits) throw new Error("Invalid wrap step.");
+        } else if (step.type === "approve" || step.type === "approve_reset") {
+          const expected = "0x095ea7b3" + addrWord(router) + word(step.type === "approve" ? amountUnits : 0);
+          if (to !== sourceToken || data !== expected || value !== 0n) throw new Error("Invalid token approval.");
+        } else if (to !== router || data !== expectedSwapData || value !== 0n) {
+          throw new Error("Invalid swap destination or calldata.");
+        }
+        return {type:step.type, label:step.label, to, data, value: "0x" + value.toString(16)};
+      });
       const nativeGasReserve = Number(prep.gasReserveWei || "0") / 1e18;
       const confirmText = `Swap ${confirmedAmount} ${fromRow.symbol} → ${toSym} on ${chainKey}?\n` +
         `Amount setting: ${isCustomAmount ? "Custom" : selectedPercent === 100 ? "Max" : `${selectedPercent}%`}\n` +
         `Quoted output: ${formatStable(prep.quoteOut)} ${toSym}\n` +
         `Minimum received: ${formatStable(prep.minOut)} ${toSym}\n` +
         `Stablecoin contract: ${selectedDestination.address}\n` +
-        (legacyDestination ? `WARNING: Bridged USDC.e - wallet only, not standard Vault capital.\n` : "") +
+        (legacyDestination ? `WARNING: You explicitly receive legacy bridged USDC.e, NOT Circle native USDC. It may not be accepted by the Trading Vault.\n` : "") +
         `Slippage limit: ${Number(prep.slippageBps || 100) / 100}%\n` +
         `Estimated gas reserve kept: ${nativeGasReserve.toFixed(6)} ${chainKey === "POL" ? "POL" : chainKey}\n` +
-        `Actual network fees may vary.\n\nApprove this transaction sequence?`;
-      if (!window.confirm(confirmText)) { setWalletSwapMsg("Swap cancelled by user."); return; }
-      if (legacyDestination && !window.confirm("USDC.e is the older bridged Polygon token, NOT Circle native USDC. It may not be accepted by the Trading Vault. Do you explicitly want to receive USDC.e?")) {
-        setWalletSwapMsg("Legacy USDC.e swap cancelled."); return;
-      }
+        `Wallet: ${wallet}\nRouter: ${router}\n` +
+        `Network transactions: ${approvedSteps.map((step) => step.type).join(" → ")}\n` +
+        `Actual network fees may vary.\n\nConfirm this exact swap and its required transactions?`;
       const provider = await _getEmbeddedProvider();
       await _trySwitchChain(provider, chainId);
       const expectedHex = "0x" + Number(chainId).toString(16);
@@ -8167,6 +8211,8 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
         if (String(current).toLowerCase() !== expectedHex.toLowerCase()) throw new Error("Wallet switched to another network. Swap cancelled.");
       };
       await verifyChain();
+      if (typeof sendWalletSwapTransaction !== "function") throw new Error("Privy swap signing is unavailable.");
+      if (!window.confirm(confirmText)) { setWalletSwapMsg("Swap cancelled by user."); return; }
       const waitSuccessfulReceipt = async (hash) => {
         // No further step is sent while the prior transaction is unconfirmed.
         for (let attempt = 0; attempt < 90; attempt++) {
@@ -8186,13 +8232,17 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
       };
       const payoutBefore = await receiptBalanceOf();
       let swapHash = "";
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
+      for (let i = 0; i < approvedSteps.length; i++) {
+        const step = approvedSteps[i];
         await verifyChain();
-        if (step.type === "swap" && Number(prep.deadline) <= Math.floor(Date.now() / 1000) + 25) {
+        const accounts = await provider.request({method:"eth_accounts"});
+        if (!Array.isArray(accounts) || !accounts.some((a) => String(a).toLowerCase() === addr(wallet))) {
+          throw new Error("Swap wallet changed. No further transaction sent.");
+        }
+        if (Number(prep.deadline) <= Math.floor(Date.now() / 1000) + 25) {
           throw new Error("Swap deadline too close. Refresh quote; do not resend prior steps.");
         }
-        setWalletSwapMsg(`${step.label || step.type} (${i + 1}/${steps.length}) — awaiting confirmation…`);
+        setWalletSwapMsg(`${step.label || step.type} (${i + 1}/${approvedSteps.length}) — processing…`);
         const tx = {from: wallet, to:String(step.to || ""), data:String(step.data || "0x"), value:String(step.value || "0x0")};
         if (step.type === "swap") {
           // Guard against wrong router selector, missing allowance or unavailable pool.
@@ -8200,7 +8250,14 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
           try { await provider.request({method:"eth_call", params:[tx, "latest"]}); }
           catch (simError) { throw new Error(`Swap simulation failed; no swap sent: ${String(simError?.message || simError).slice(0, 150)}`); }
         }
-        const hash = await provider.request({method:"eth_sendTransaction", params:[tx]});
+        // Privy officially supports per-call confirmation UI configuration.
+        // The user already approved this exact sequence above. Do not change
+        // global wallet prompts, policies, MFA or delegated trading signers.
+        const result = await sendWalletSwapTransaction(
+          {...tx, chainId: Number(chainId), value: BigInt(tx.value)},
+          {address: wallet, uiOptions: {showWalletUIs: false}}
+        );
+        const hash = result?.hash;
         if (!/^0x[0-9a-f]{64}$/i.test(String(hash || ""))) throw new Error("Wallet returned no valid transaction hash.");
         try { saveWalletTransaction({type:`WALLET SWAP ${String(step.type || "").toUpperCase()}`, chain:chainKey, asset:fromRow.symbol,
           amount:confirmedAmount, from:wallet, to:step.to, txHash:hash, status:"SUBMITTED"}); } catch (_) {}
@@ -8218,6 +8275,7 @@ const walletUniqueTxCount = useMemo(() => new Set(walletAllTransactions.map((tx)
     } catch (e) {
       setWalletSwapMsg(`Swap stopped: ${String(e?.message || e || "Unknown error")}`);
     } finally {
+      walletSwapInFlight.current = false;
       setWalletSwapBusy(false);
     }
   };

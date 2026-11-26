@@ -724,7 +724,7 @@ const LS_GRID_COIN_PREFIX = "na_grid_coin";
 const COMPARE_CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 const COMPARE_CACHE_MAX_ENTRIES = 20;
 const APP_VERSION = "2026-07-29-v5";
-const FRONTEND_BUILD_ID = "F-2026.11.26-BUILD615-COMPARE-PERIOD";
+const FRONTEND_BUILD_ID = "F-2026.11.26-BUILD617-COMPARE-2Y";
 /** Settlement / Grid payout: only USDC or USDT (token payout removed). */
 const NEXUS_STABLE_PAYOUT_ASSETS = Object.freeze(["USDC", "USDT"]);
 const normalizeStablePayoutAsset = (value, fallback = "USDC") => {
@@ -2480,7 +2480,7 @@ function buildUnifiedChart(seriesBySym) {
 // BUILD615: Compare-only historical performance and period-aware pair metrics.
 const COMPARE_PERIOD_SPEC = Object.freeze({
   "1D": [1, 1/24, "1h"], "7D": [7, 1/4, "6h"], "30D": [30, 1, "1d"],
-  "90D": [90, 3, "3d"], "1Y": [365, 7, "7d"], "2Y": [730, 14, "14d"],
+  "90D": [90, 1, "1d"], "1Y": [365, 1, "1d"], "2Y": [730, 1, "1d"],
 });
 const COMPARE_DAY_MS = 86400000;
 function compareCleanPoints(points) {
@@ -2531,12 +2531,15 @@ function computeComparePeriodPairs(view, tf, weightsInput, ratings = {}) {
   const {series, start, end, spec} = view;
   if (!(end > 0)) return [];
   const step = spec[1]*COMPARE_DAY_MS;
-  const count = Math.ceil((end-start)/step);
+  // Daily comparisons use real UTC calendar days, including the latest partial day.
+  // The visible chart keeps its original exact rolling window and raw observations.
+  const bucketOrigin = step === COMPARE_DAY_MS ? Math.floor(start/step)*step : start;
+  const count = step === COMPARE_DAY_MS ? Math.floor((end-bucketOrigin)/step)+1 : Math.ceil((end-start)/step);
   const buckets = {};
   for (const [sym, pts] of Object.entries(series)) {
     const m = new Map();
     for (const p of pts) {
-      const k = Math.min(count-1, Math.max(0, Math.floor((p.t-start)/step)));
+      const k = Math.min(count-1, Math.max(0, Math.floor((p.t-bucketOrigin)/step)));
       m.set(k,p); // sorted: last observed price per interval
     }
     if (m.size >= 15) buckets[sym] = m;
@@ -2562,7 +2565,7 @@ function computeComparePeriodPairs(view, tf, weightsInput, ratings = {}) {
     if(!Number.isFinite(rawCorr)) continue;
     const corr=clamp(rawCorr,-1,1);
     const rsiA=rsi(av), rsiB=rsi(bv), rsiGap=Math.abs(rsiA-rsiB);
-    const firstBucketStart=start+keys[0]*step;
+    const firstBucketStart=Math.max(start,bucketOrigin+keys[0]*step);
     const firstA=series[a].find(p=>p.t>=firstBucketStart),firstB=series[b].find(p=>p.t>=firstBucketStart);
     if(!firstA||!firstB||Math.abs(firstA.t-firstB.t)>step)continue;
     const retA=(av.at(-1)/firstA.v-1)*100, retB=(bv.at(-1)/firstB.v-1)*100, spreadPct=Math.abs(retA-retB);
@@ -11588,7 +11591,11 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   }, [compareSymbols.join("|")]);
 
   const [indexMode, setIndexMode] = useState(true);
-  const [compareChartMode, setCompareChartMode] = useState("performance");
+  const [compareChartPreference, setCompareChartMode] = useState("performance");
+  // Basic history covers 730 days, not the extra reference week. Keep the
+  // requested 2Y range and use actual prices instead of a blank performance plot.
+  const compareChartMode = timeframe === "2Y" && compareChartPreference === "performance"
+    ? "price" : compareChartPreference;
   const compareDisplayKey = _cmpKey(compareSymbols, compareFetchRange, compareCoinIds);
   const [compareDisplayState, setCompareDisplayState] = useState(() => ({key:compareDisplayKey,series:_cmpGetCached(compareSymbols,compareFetchRange,compareCoinIds)||{}}));
   const [viewMode, setViewMode] = useState("overlay"); // overlay | grid
@@ -11741,11 +11748,11 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
   // Compare view uses only the matching range/asset identity, never last-good data from another range.
   const compareDisplayData = useMemo(() => compareDisplayState.key === compareDisplayKey ? compareDisplayState.series : (_cmpGetCached(compareSymbols,compareFetchRange,compareCoinIds)||{}), [compareDisplayState,compareDisplayKey]);
   const comparePeriodData = useMemo(() => comparePeriodView(compareDisplayData,timeframe), [compareDisplayData,timeframe]);
-  const compareReferenceRange = timeframe === "2Y" ? "3Y" : timeframe === "1Y" ? "2Y" : "1Y";
+  const compareReferenceRange = timeframe === "1Y" ? "2Y" : "1Y";
   const compareReferenceKey = _cmpKey(compareSymbols,compareReferenceRange,compareCoinIds);
   const [compareReferenceState,setCompareReferenceState] = useState({key:"",series:{}});
   useEffect(() => {
-    if(compareChartMode!=="performance" || compareSymbols.length<2 || compareReferenceRange==="1Y") return;
+    if(compareChartMode!=="performance" || timeframe==="2Y" || compareSymbols.length<2 || compareReferenceRange==="1Y") return;
     const cached=_cmpGetCached(compareSymbols,compareReferenceRange,compareCoinIds);
     if(cached && Object.values(cached).some(p=>p.length>1)){setCompareReferenceState({key:compareReferenceKey,series:cached});return;}
     const controller=new AbortController();
@@ -11759,7 +11766,7 @@ _writePairExplainCache(pairStr, PAIR_EXPLAIN_TF, series);
       if(Object.values(series).some(p=>p.length>1)){_cmpPutCached(compareSymbols,compareReferenceRange,series,compareCoinIds);setCompareReferenceState({key:compareReferenceKey,series});}
     }catch(e){if(!controller.signal.aborted)console.warn("Compare reference unavailable",e);}})();
     return ()=>controller.abort();
-  },[compareReferenceKey,compareChartMode,token]);
+  },[compareReferenceKey,compareChartMode,timeframe,token]);
   const compareReferenceHistory = compareReferenceRange === "1Y" ? (pairHistoryState.key===pairHistoryKey?pairHistoryState.series:(_cmpGetCached(compareSymbols,"1Y",compareCoinIds)||{})) : (compareReferenceState.key===compareReferenceKey?compareReferenceState.series:(_cmpGetCached(compareSymbols,compareReferenceRange,compareCoinIds)||{}));
   const compareReferenceAt = comparePeriodData.start - 7*COMPARE_DAY_MS;
   const compareBases = useMemo(()=>compareHistoricalBases(compareReferenceHistory,compareReferenceAt),[compareReferenceHistory,compareReferenceAt]);
@@ -25481,7 +25488,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
               <button className={`chip ${viewMode === "overlay" ? "active" : ""}`} onClick={() => setViewMode("overlay")}>Overlay</button>
               <button className={`chip ${viewMode === "grid" ? "active" : ""}`} onClick={() => setViewMode("grid")}>Grid</button>
 
-              <button className={`chip ${compareChartMode === "performance" ? "active" : ""}`} onClick={()=>setCompareChartMode("performance")} title="Performance relative to a historical reference 7 days before the displayed window">Performance</button>
+              <button className={`chip ${compareChartMode === "performance" ? "active" : ""}`} onClick={()=>setCompareChartMode("performance")} disabled={timeframe === "2Y"} title={timeframe === "2Y" ? "2Y: use Price or Index 100; Performance needs a reference older than two years." : "Performance relative to a historical reference 7 days before the displayed window (last observed price within 48h)."}>Performance</button>
               <button className={`chip ${compareChartMode === "index" ? "active" : ""}`} onClick={()=>{setCompareChartMode("index");setIndexMode(true);}}>Index 100</button>
               <button className={`chip ${compareChartMode === "price" ? "active" : ""}`} onClick={()=>{setCompareChartMode("price");setIndexMode(false);}}>Price</button>
 
@@ -25689,7 +25696,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                 <div className="muted tiny">{compareLoading ? "Loading…" : `${visibleHighlightedSyms.length || visibleCompareSymbols.length}/${visibleCompareSymbols.length} active`}</div>
               </div>
 
-              <div className="muted tiny" style={{marginBottom:4}}>{compareChartMode === "performance" ? `Performance reference: ${compareReferenceAt>0 ? new Date(compareReferenceAt).toLocaleDateString(undefined,{timeZone:"UTC"}) : "—"} UTC (7 days before window; last observed price within 48h). ${visibleCompareSymbols.filter(sym=>Number.isFinite(compareBases[sym])).length}/${visibleCompareSymbols.length} references available.` : compareChartMode === "index" ? "Index 100: change from first visible price." : "Actual USD price."} {comparePeriodData.end>0 ? `Data through ${new Date(comparePeriodData.end).toLocaleString()}.` : "Awaiting selected period data."}</div>
               {viewMode === "overlay" ? (
               <>
                 {visibleCompareSymbols.length === 0 ? (
@@ -25743,8 +25749,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                                 minHeight: 0
                               }}
                             >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-                  <div className="muted tiny">{timeframe} · RSI(14) on {COMPARE_PERIOD_SPEC[timeframe]?.[2]} bars · {periodPairsAll.length} valid pairs</div>
+                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <label className="muted tiny" style={{display:"flex",alignItems:"center",gap:5}}>
                       Sort:
@@ -26138,7 +26143,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
                   >
                     Index 100
                   </button>
-                  <button className={`chip ${compareChartMode === "performance" ? "active" : ""}`} onClick={()=>setCompareChartMode("performance")} type="button">Performance</button>
+                  <button className={`chip ${compareChartMode === "performance" ? "active" : ""}`} onClick={()=>setCompareChartMode("performance")} disabled={timeframe === "2Y"} title={timeframe === "2Y" ? "2Y: use Price or Index 100; Performance needs a reference older than two years." : undefined} type="button">Performance</button>
                   <button className="btnGhost" onClick={() => setGridModalSym(null)} type="button">
                     Close
                   </button>
@@ -26215,7 +26220,6 @@ const handlePanelActivate = useCallback((name) => (e) => {
                     <>
                       <div style={{ display: "grid", gap: 8 }}>
                         <div className="label">Performance (same period)</div>
-                        {selectedPair.comparePeriod ? <div className="muted tiny">{new Date(selectedPair.periodStart).toLocaleString()} – {new Date(selectedPair.periodEnd).toLocaleString()} · {selectedPair.barCount} matched bars · RSI(14) on {selectedPair.barLabel} bars</div> : null}
                         {pairExplainLoading && <div className="muted tiny">Loading pair data…</div>}
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <span className="pill silver">{a}: <span style={_pctColorStyle(ra)}>{_fmtPctLocal(ra)}</span></span>
@@ -26290,7 +26294,7 @@ const handlePanelActivate = useCallback((name) => (e) => {
 
                         <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
                           <div className="label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <span>{selectedPair.comparePeriod ? `Moves (${selectedPair.barLabel} bars · ${selectedPair.comparePeriod})` : "Daily moves (last 30 days)"}</span>
+                            <span>{selectedPair.comparePeriod ? `${selectedPair.barLabel === "1d" ? "Daily moves" : "Moves"} (${selectedPair.comparePeriod})` : "Daily moves (last 30 days)"}</span>
                             <span className="muted tiny">{selectedPair.pair}</span>
                           </div>
 
